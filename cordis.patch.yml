@@ -1,0 +1,21 @@
+# dsh bundle patch：把移动 API 插进 profile 的层栈。
+#
+# 这一层**两种宿主都会加载**（桌面 GUI 走 DSH 内置插件管理器把它当 bundle；无头宿主
+# 由 host.js 显式作为 overlay 加载），因此这里只放「两种宿主都需要」的行 —— 目前就是
+# 挂载本插件自己这一行。宿主专属的行（不开浏览器、把目录选择器钉成 browse）在
+# cordis.mobile-host.yml，只由 host.js 加载，桌面碰不到。
+#
+# 挂载本插件自己的那一行在这里：`dsh.profile.bundles` 只让这个包的 patch 成为叠加层，
+# 它不会凭空挂载任何东西（没有 insert 行的话，插件装了但永远不会被载入 —— 不报错、
+# 只是没有 /api/mobile/v1，也没有 sidecar）。桌面端装进 `~/.dsh/profiles/desktop` 后
+# 插件就在 profile 的 node_modules 里，按包名解析得到的就是 lib/index.js。
+#
+# 无头宿主 host.js 会**在装载前把这一行摘掉**（见 host.js 的 dropBareNameSelfMounts）：
+# 那个场景下插件不在自己的 node_modules 里，裸名解析不到，而 loader 对解析失败不是
+# 「留一条警告」而是整棵树加载失败（实测 `plugin tree failed to load: failed to import
+# loader entry dsh-mobile (dsh-mobile-plugin): Cannot find package 'dsh-mobile-plugin'`
+# —— 服务器宿主曾因此完全起不来）。host.js 用绝对路径另插一行 `mobile-api`，那才是
+# 无头宿主的挂载点。
+- insert:
+    - id: dsh-mobile
+      name: 'dsh-mobile-plugin'

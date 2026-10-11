@@ -1,0 +1,48 @@
+# 只给**无头移动宿主**用的 overlay 层，由 host.js 显式加载（不是 bundle 层）。
+#
+# 为什么单独一个文件：这个包同时有两种宿主，而这一层里的每一行都只对其中一种成立。
+#   - 桌面 GUI：`~/.dsh/profiles/desktop` 通过 DSH 内置插件管理器把本包装成 bundle，
+#     于是 `dsh.bundle.patch`（cordis.patch.yml）会作为一层落到桌面 profile 的树上。
+#     下面 directory-picker 的两行如果留在那一层，桌面的「选择目录」就会从原生
+#     对话框换成 browse —— 桌面自己不需要这个改动（它的操作者就坐在机器前）。
+#   - 无头移动宿主：`host.js` 逐层拼 patch，它想开浏览器/想让手机能选目录，所以才要这些行。
+# 所以「挂载自己」留在 cordis.patch.yml（两种宿主都要），「宿主专属配置」放这里。
+#
+# 行序即优先级：host.js 把它排在 profile 自身的 patch 层之后，所以这里的每一行都
+# 能盖掉更早的层。
+
+# A headless mobile host has no operator waiting for a browser window, so the
+# web runtime must neither open one nor print a URL nobody will read.
+- id: web-runtime
+  config:
+    openBrowser: false
+    printUrl: false
+    surfaceContext: false
+    trustedHosts: []
+
+# 手机是远程客户端，看不到被控端的原生选择框。directory-picker-auto 只在「宿主 web
+# 服务绑定到非 127.0.0.1」时才认为存在远程客户端，从而挂 browse；而移动宿主故意把
+# web 服务留在回环（手机是从 sidecar/中转进来的，不直连宿主的 web 端口，见上面
+# web-runtime 一行），于是它在启动时必定解析成 native —— 手机点「添加工作区」只能看到
+# host.listDirectory needs the browse capability，既列不出目录也建不了目录，只能登记
+# 一个已经存在的路径，「新建工作目录」这条流程从根上就走不通。
+#
+# upstream 那行自己留了出口：「Mount -native or -browse directly in an overlay to pin
+# the interaction.」这里就按它说的把交互钉成 browse：这个宿主存在的意义就是给手机用，
+# 而 browse 后端（dsh-host-directory-picker-browse，纯 node stdlib 实现）不依赖任何
+# 本机显示会话，正是为远程客户端准备的。
+#
+# 注意 patch 的语义（cordis-plugin-include 的 applyEntryPatches）：一行 patch 里的
+# `name` 是「断言」而不是「改写」—— 只有和原行同名才会应用，而且 `name` 本身被排除在
+# 覆盖字段之外。所以想换掉一个插件的挂载，只能先 `disabled: true` 关掉原行，再 insert
+# 一行自己的。直接写 `- id: <原 id>` + 新 `name:` 会被静默跳过（只留一行 loader 警告）。
+#
+# 只 insert 宿主后端、不 insert 客户端界面：移动宿主不开渲染器
+# （web-runtime 的 surfaceContext: false），而且 dsh-client-ui-directory-picker-browse
+# 并不在本包的依赖闭包里（它只嵌在 dsh-web-app 的 node_modules 下），按名字解析不到。
+- id: directory-picker
+  disabled: true
+
+- insert:
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'

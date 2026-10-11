@@ -1,0 +1,261 @@
+'use strict'
+
+/**
+ * 局域网直连端到端验收（需求 3(b)：局域网环境下 APP 通过局域网连接插件端，然后可以直接使用）。
+ *
+ * 这份测试**启动真实的 lan-proxy HTTP 监听**，用 App 实际发出的请求契约打进去，
+ * 覆盖静态路由比对无法证明的三件事：
+ *   1. 未认证请求拿到的是配对页，而不是 401 —— App 扫码后的手动兜底入口靠它；
+ *   2. `deny` 策略下「配对码错误」与「码对但被桌面端拒绝」返回完全一样的响应，
+ *      配对码不可被逐位探测；
+ *   3. 三条 App 侧鉴权路径（Bearer 宿主令牌 / dsh_lan cookie / dshc_ 设备凭据）
+ *      都能打通到宿主，且设备凭据被吊销后立即失效。
+ */
+
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const http = require('node:http')
+const os = require('node:os')
+const path = require('node:path')
+
+// 必须在 require credentials.js 之前指向临时文件，否则测试会污染真实凭据库。
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lan-e2e-'))
+process.env.DEVICE_CREDENTIALS_FILE = path.join(tmp, 'relay-device-credentials.json')
+
+const { createLanProxy } = require('../lib/relay/lan-proxy.js')
+const core = require('../lib/relay/core.js')
+const credentials = require('../dsh-mobile-credentials/lib/credentials.js')
+
+const INSTANCE = 'lane2e01'
+const CODE = '135790'
+const SECRET = 'lan-e2e-secret-0123456789'
+const LAN_PORT = Number(process.env.LAN_E2E_PORT || 18731)
+
+/** 假宿主：记录每个请求看到的 URL 与 Authorization，用于验证代理透传与令牌替换。 */
+function startUpstream() {
+  const seen = []
+  const server = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', (chunk) => { body += chunk })
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization || '' })
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({
+        ok: true,
+        upstream: true,
+        path: req.url,
+        sawAuthorization: req.headers.authorization || '',
+      }))
+    })
+  })
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({ server, seen, port: server.address().port }))
+  })
+}
+
+function call(port, { method = 'GET', path: p, headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, method, path: p, headers }, (res) => {
+      let data = ''
+      res.on('data', (chunk) => { data += chunk })
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }))
+    })
+    req.on('error', reject)
+    if (body !== undefined) req.write(body)
+    req.end()
+  })
+}
+
+const PAIR_PAGE_MARK = '连接 DeepSeek Harness'
+const isPairPage = (res) => res.status === 200 && res.body.includes(PAIR_PAGE_MARK)
+const isProxied = (res) => res.status === 200 && res.body.includes('"upstream":true')
+/** 未认证的 API 请求必须是 JSON 401，绝不能是 200 + 配对页。 */
+const isApiUnauthorized = (res) => {
+  if (res.status !== 401) return false
+  if (!/application\/json/.test(String(res.headers['content-type']))) return false
+  try {
+    const body = JSON.parse(res.body)
+    return body.ok === false && body.error?.code === 'unauthorized'
+  } catch { return false }
+}
+
+;(async () => {
+  const upstream = await startUpstream()
+  const hostToken = core.signLanToken(SECRET, INSTANCE, core.MOBILE_BEARER_TTL_SEC)
+  const approvedDevices = []
+  // 由测试控制桌面端授权结果：先拒绝（验证不可探测），再批准（验证可用）。
+  const policy = { approve: false }
+
+  const proxy = createLanProxy({
+    lanPort: LAN_PORT,
+    pairingCode: CODE,
+    instanceId: INSTANCE,
+    lanSecret: SECRET,
+    upstreamPort: upstream.port,
+    onApprove: async (device) => {
+      approvedDevices.push(device)
+      return policy.approve ? { approved: true, token: hostToken } : { approved: false }
+    },
+  })
+  await proxy.start()
+
+  try {
+    // 1. 健康检查（局域网探测用，必须无需鉴权）
+    const health = await call(LAN_PORT, { path: '/healthz' })
+    assert.equal(health.status, 200, 'healthz 应返回 200')
+    assert.equal(health.body, 'ok')
+
+    // 2. 未认证的 API 请求 → JSON 401（**不能**是 200 + 配对页）。
+    //
+    // 旧实现把 `/api/mobile/v1/*` 也答成 200 + 配对页，App 的 `app/src/api.ts`
+    // 会把它当成成功（`response.ok` 为真 → `publishRoute` 把连接通道钉在局域网
+    // 并重置局域网熔断），随后 `res.json()` 解析失败抛「请求失败 (HTTP 200)」。
+    // 结果是桌面端换过 lanSecret、或设备凭据被吊销之后，App 会永久卡在局域网
+    // 通道上：既不回退到中转，也不提示重新配对。
+    const anon = await call(LAN_PORT, { path: '/api/mobile/v1/status' })
+    assert.ok(isApiUnauthorized(anon), '未认证的 API 请求必须是 JSON 401')
+    assert.ok(!isPairPage(anon), '未认证的 API 请求不得返回 HTML 配对页')
+    assert.ok(!isProxied(anon), '未认证不得被代理到宿主')
+
+    // 2b. 浏览器导航（Accept 含 text/html）仍拿配对页：手机浏览器直接打开局域网
+    //     地址输入配对码这个入口必须保留。
+    const browse = await call(LAN_PORT, {
+      path: '/',
+      headers: { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    })
+    assert.ok(isPairPage(browse), '浏览器导航应返回配对页')
+
+    // 2c. 不带 Accept 的程序化请求（curl / RN fetch 默认）也不得拿到 HTML
+    const bare = await call(LAN_PORT, { path: '/' })
+    assert.ok(isApiUnauthorized(bare), '非 HTML 客户端不得拿到配对页')
+
+    // 3. 配对码位数不符 → 400
+    const malformed = await call(LAN_PORT, {
+      method: 'POST', path: '/__lan_pair',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: '12' }),
+    })
+    assert.equal(malformed.status, 400)
+
+    // 4. 错误配对码 → 401
+    const wrongCode = await call(LAN_PORT, {
+      method: 'POST', path: '/__lan_pair',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: '000000' }),
+    })
+    assert.equal(wrongCode.status, 401)
+
+    // 5. 配对码正确但桌面端拒绝 → 与「配对码错误」完全相同的响应（不可探测）
+    const denied = await call(LAN_PORT, {
+      method: 'POST', path: '/__lan_pair',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: CODE, device: { name: '测试手机', platform: 'ios' } }),
+    })
+    assert.equal(denied.status, 401, 'deny 策略下正确配对码也应 401')
+    assert.equal(denied.body, wrongCode.body, '两种失败必须无法通过响应区分')
+    assert.deepEqual(
+      Object.keys(denied.headers).filter((k) => k === 'set-cookie'),
+      [],
+      '被拒绝时不得下发 cookie',
+    )
+
+    // 6. 授权通过 → 签发 token / cookie / 设备凭据，设备元数据完整送达宿主
+    policy.approve = true
+    const paired = await call(LAN_PORT, {
+      method: 'POST', path: '/__lan_pair',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: CODE, device: { name: '测试手机', platform: 'ios', osVersion: '17.4' } }),
+    })
+    assert.equal(paired.status, 200)
+    const grant = JSON.parse(paired.body)
+    assert.equal(grant.ok, true)
+    assert.equal(grant.instanceId, INSTANCE)
+    assert.equal(grant.token, hostToken, '应下发宿主令牌')
+    assert.match(grant.cookie, /^dsh_lan=/)
+    assert.match(grant.deviceCredential, /^dshc_/)
+    assert.ok(grant.deviceId, '应返回 deviceId')
+    assert.equal(approvedDevices[0]?.name, '测试手机', '设备元数据应送达宿主授权回调')
+    assert.equal(approvedDevices[0]?.platform, 'ios')
+
+    // 7. App 主路径：Bearer 宿主令牌 + cookie（authHeaders 同时带两者，与中转态一致）
+    const appHeaders = {
+      authorization: `Bearer ${grant.token}`,
+      cookie: grant.cookie,
+      'x-dsh-instance': INSTANCE,
+      'x-dsh-device': grant.deviceId,
+      'x-dsh-device-credential': grant.deviceCredential,
+    }
+    const viaApp = await call(LAN_PORT, { path: '/api/mobile/v1/status', headers: appHeaders })
+    assert.ok(isProxied(viaApp), 'App 契约应打通到宿主')
+    assert.equal(JSON.parse(viaApp.body).path, '/api/mobile/v1/status')
+
+    // 8. 只有 cookie（RN 可能丢弃 Authorization）也必须可用
+    const viaCookie = await call(LAN_PORT, {
+      path: '/api/mobile/v1/sessions', headers: { cookie: grant.cookie },
+    })
+    assert.ok(isProxied(viaCookie), 'cookie 单独应可用')
+
+    // 9. 只有 Bearer 宿主令牌（RN 可能丢弃手动 Cookie 头）也必须可用
+    const viaBearer = await call(LAN_PORT, {
+      path: '/api/mobile/v1/connection-info', headers: { authorization: `Bearer ${grant.token}` },
+    })
+    assert.ok(isProxied(viaBearer), 'Bearer 单独应可用')
+
+    // 10. 只带设备凭据头（App 在部分平台会丢弃 Authorization）：宿主看到的必须
+    //     是被替换后的宿主令牌，而不是 dshc_ 本身。
+    const viaCredential = await call(LAN_PORT, {
+      path: '/api/mobile/v1/status', headers: { 'x-dsh-device-credential': grant.deviceCredential },
+    })
+    assert.ok(isProxied(viaCredential), '设备凭据头单独应可用')
+    assert.equal(
+      JSON.parse(viaCredential.body).sawAuthorization,
+      `Bearer ${hostToken}`,
+      '设备凭据必须被替换为宿主令牌再转发',
+    )
+
+    // 11. 吊销设备凭据后立即失效，且不回落成任何其它身份。
+    //     这里必须用**真实 App 的请求形状**：Bearer 仍是有效期一年的宿主令牌，
+    //     dshc_ 走独立请求头。旧实现只在 Authorization 里找 dshc_，这种形状下
+    //     吊销完全不生效；而把 dshc_ 塞进 Bearer 的写法恰好迁就了缺陷实现，
+    //     会让它逃过测试。
+    assert.ok(credentials.revoke(grant.deviceCredential, INSTANCE), '吊销应成功')
+    const afterRevoke = await call(LAN_PORT, {
+      path: '/api/mobile/v1/status',
+      headers: {
+        authorization: `Bearer ${grant.token}`,
+        'x-dsh-device-credential': grant.deviceCredential,
+      },
+    })
+    assert.ok(!isProxied(afterRevoke), '已吊销的设备凭据不得再被代理')
+    assert.ok(isApiUnauthorized(afterRevoke), '已吊销的设备凭据必须是 JSON 401，而不是配对页')
+
+    // 12. 本机**不认识**的设备凭据必须回退到宿主令牌，而不是一律拒绝：公网配对
+    //     时 dshc_ 由中转签发、存在中转的凭据库里，宿主这里查不到。若一律拒绝，
+    //     「公网配对后回到局域网直连」会直接 401 —— 那正是本功能的主要用法。
+    const foreignCredential = `dshc_${Buffer.from('relay-issued-credential').toString('base64url')}`
+    const viaForeign = await call(LAN_PORT, {
+      path: '/api/mobile/v1/status',
+      headers: { authorization: `Bearer ${grant.token}`, 'x-dsh-device-credential': foreignCredential },
+    })
+    assert.ok(isProxied(viaForeign), '中转签发的设备凭据不得阻断局域网直连')
+
+    // 13. cookie 是 lanSecret 独立签名，吊销设备凭据不影响它（两种凭据语义不同）
+    const cookieAfterRevoke = await call(LAN_PORT, {
+      path: '/api/mobile/v1/status', headers: { cookie: grant.cookie },
+    })
+    assert.ok(isProxied(cookieAfterRevoke), 'cookie 与设备凭据独立')
+
+    // 14. 登出清 cookie，且属性与下发时一致（否则部分客户端删不掉）
+    const logout = await call(LAN_PORT, { path: '/__lan_logout' })
+    assert.equal(logout.status, 302)
+    assert.match(String(logout.headers['set-cookie']), /^dsh_lan=;/)
+    assert.match(String(logout.headers['set-cookie']), /Path=\//)
+    assert.match(String(logout.headers['set-cookie']), /Max-Age=0/)
+
+    console.log('lan direct e2e tests passed')
+  } finally {
+    proxy.stop()
+    await new Promise((resolve) => upstream.server.close(resolve))
+    fs.rmSync(tmp, { recursive: true, force: true })
+  }
+})().catch((error) => { console.error(error); process.exitCode = 1 })

@@ -1,0 +1,13 @@
+{
+  "name": "dsh-mobile-credentials",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH 移动端共享凭据库：签发/校验/吊销手机端的持久化中转凭据（中转服务器与宿主插件共用）",
+  "main": "lib/credentials.js",
+  "files": [
+    "lib/**/*.js"
+  ],
+  "engines": {
+    "node": ">= 20"
+  }
+}

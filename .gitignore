@@ -1,0 +1,13 @@
+# 依赖目录（本包与嵌在里面的 React 面板）
+node_modules/
+
+# 打包 / 构建产物：OTA 归档与 tgz 不入库
+# ⚠️ lib/panel/index.html 是面板构建产物，但它是**提交物**，别顺手排除 lib/
+dist/
+
+# TypeScript 增量编译缓存
+*.tsbuildinfo
+.build/
+
+# macOS
+.DS_Store

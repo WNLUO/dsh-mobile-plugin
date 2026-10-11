@@ -1,0 +1,5 @@
+@import 'tailwindcss';
+@import '@appica/ui-react/styles.css';
+
+/* Appica UI 的类名在 node_modules 里，Tailwind 默认不扫，必须显式指过去 */
+@source '../node_modules/@appica/ui-react/dist';
