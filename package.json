@@ -15,8 +15,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/WNLUO/deepseek-harness-desktop.git",
-    "directory": "dsh-mobile-plugin"
+    "url": "git+https://github.com/WNLUO/dsh-mobile-plugin.git"
   },
   "keywords": [
     "dsh",
