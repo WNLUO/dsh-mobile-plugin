@@ -10,6 +10,25 @@ Electron 运行时**，`node host.js` 即可独立运行。
 
 设备级实时兼容出口：`GET /api/mobile/v1/events/stream`（Bearer token）以 SSE 转发宿主 `events.mux` 的所有设备事件。每帧包装为 `{ type: "device/event", version: 1, eventId, sessionId?, rpcId?, payload }`；`payload` 保留原 mux 负载，旧的 `/session/stream` 与 relay 协议不变。`session/event` 的 `eventId` 为 `${sessionId}:${event.seq}`，其他帧使用连接内序号。工作区变更是否可见取决于宿主 mux 是否发布对应帧；当前插件没有额外伪造工作区事件。
 
+## 仓库与发布
+
+本仓库是插件的**公开发布仓库**，仓库根就是包根：别人从这里读代码，也从这里核对这份代码的说法。
+
+开发和 App 客户端、中转服务器放在一起进行（一个私有 monorepo），所以这里的提交历史从拆分那天开始，
+不是项目历史 —— 每次发版，把同一次改动一起推到这里。
+
+- **仓库地址要指回本仓库**：`package.json` 的 `repository` 字段是 npm 包与插件列表条目之间的唯一关联
+  （列表侧从注册表自动采集，条目里不许手写 `npm:`）。改了它要等下一次 `npm publish` 才会体现在注册表上。
+- **要被插件列表（awesome-dsh-plugin）收录**：往那个仓库提一个数据文件
+  `data/plugins/<owner>__<repo>.yml` 就行，**一个文件即全部投稿**；`description.en` 必填，分类用 `remote`。
+  硬门槛是 `package.json` 里声明 `dsh.bundle`（只声明 `dsh.client` 会被 CI 拒）、仓库创建满 1 天、
+  以及本仓库打了 `dsh-plugin` topic。那条「满 1 天」的检查**会自己转绿**（列表侧每 6 小时重跑一次），
+  当天看到红不用重提、也不用关了重开。
+- **截图**：市场详情页要图，就在 `package.json` 旁边放一份 `screenshots.json`，列 1-8 张**本仓库内**的图片路径
+  （相对路径不能跳出仓库；绝对地址只收 GitHub 托管的 https）。不声明也行，市场会自己从本 README 里找图。
+- **描述会被对着代码核**：条目里写的每个数字和 API 名字都要在代码里找得到。夸大是唯一会被打回的原因 ——
+  分类选得不准不会，维护者会直接改。
+
 ## 无头部署
 
 部署到 Linux 服务器（无桌面环境）时的要点如下。
