@@ -14,6 +14,8 @@ Electron 运行时**，`node host.js` 即可独立运行。
 
 本仓库是插件的**公开发布仓库**，仓库根就是包根：别人从这里读代码，也从这里核对这份代码的说法。
 
+隐私政策（App Store / Google Play 上架用的那份，描述手机 App 会经手哪些数据）：[PRIVACY.md](PRIVACY.md)。
+
 开发和 App 客户端、中转服务器放在一起进行（一个私有 monorepo），所以这里的提交历史从拆分那天开始，
 不是项目历史 —— 每次发版，把同一次改动一起推到这里。
 
@@ -83,9 +85,18 @@ DSH_HOME=/opt/dsh-mobile/.dsh DSH_MOBILE_PROFILE=mobile node host.js
 
 本包有两条完全不同的安装路径，别混用。
 
-**服务器 / 无头部署：源码同步。** 直接把仓库目录 rsync 到 `/opt/dsh-mobile/`，依赖只在首次装
-或 `package.json` 变了时重装，然后 `systemctl restart dsh-mobile-host`。这条路的版本号不参与
-任何判断，`package.json` 里的 version 写成什么都不会影响宿主行为。
+**服务器 / 无头部署：启动器 rsync + 插件本体走 npm。**（2026-10-11 改）那一台是**两半**，别混着看：
+
+- **启动器**：`host.js`、两层 patch、`config/`、内嵌的凭据包。把仓库目录 rsync 到 `/opt/dsh-mobile/`，
+  然后 `systemctl restart dsh-mobile-host` —— 它只负责把宿主那棵树拼起来。
+- **插件本体**：装在 profile 里，用 pnpm 从 npm 装：
+  `cd <DSH_HOME>/profiles/<profile> && pnpm add dsh-mobile-plugin@<版本>`。宿主按**绝对路径**挂那份的
+  `lib/index.js`（**稳定外壳**），所以这台面板里也有「检查 / 立即更新」，换代**不用重启宿主**。
+  profile 的 `autoInstallPeers: false` 是刻意的：peer 依赖（`@deepseek-ai/*`）由宿主自己的依赖树供，
+  两边必须解析到**同一份 realpath**，否则会出现两份 cordis（见 `lib/shell/manager.js` 的文件头）。
+- 挂哪一份由 `host.js` 现场判断（`profile` 里有没有这个包，不看环境变量）：装了挂那份外壳；
+  没装就退回**源码树直挂**（没有外壳，面板里更新不了，只能同步源码 + 重启宿主）。两种现场都会在
+  启动日志里打一行「挂载方式 = …」，`npm run test:plugin:server` 会核对它。
 
 **桌面端：从 npm 装，更新交给 DSH 的插件市场。**（2026-10 改的：此前是本包自带的 OTA +
 「稳定外壳 + 可热替换的代」，那套已经删掉。）
