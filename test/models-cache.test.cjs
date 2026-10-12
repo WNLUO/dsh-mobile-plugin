@@ -4,9 +4,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { handleModels } = require('../lib/mobile/sessions.js');
 
-function request(instanceId = 'phone-1') {
+function request(instanceId = 'phone-1', fresh = false) {
   return {
-    url: '/api/mobile/v1/session/models?sessionId=s-1',
+    url: `/api/mobile/v1/session/models?sessionId=s-1${fresh ? '&fresh=1' : ''}`,
     headers: { 'x-dsh-device': instanceId },
   };
 }
@@ -66,6 +66,40 @@ test('model catalog cache coalesces requests and keeps reasoning metadata safe',
   await handleModels(ctx, request(), cached);
   assert.equal(calls, 1);
   assert.equal(cached.body.groups[0].models[0].name, 'Model');
+});
+
+test('fresh bypasses the 20s cache, coalesces concurrent fresh reads, and wins over older normal requests', async () => {
+  let calls = 0;
+  let releaseNormal;
+  const normalGate = new Promise((resolve) => { releaseNormal = resolve; });
+  const oldValue = { current: { provider: 'p', model: 'old' }, routable: true, groups: [] };
+  const freshValue = { current: { provider: 'p', model: 'new' }, routable: true, groups: [] };
+  const ctx = { apiProxy: { sessions: { models: async () => {
+    calls += 1;
+    if (calls === 1) { await normalGate; return { result: { ok: true, value: oldValue } }; }
+    return { result: { ok: true, value: freshValue } };
+  } } } };
+
+  const oldResponse = response();
+  const oldRequest = handleModels(ctx, request(), oldResponse);
+  await Promise.resolve();
+  assert.equal(calls, 1);
+
+  const firstFresh = response();
+  const secondFresh = response();
+  const freshRequest = handleModels(ctx, request('phone-1', true), firstFresh);
+  const joinedFreshRequest = handleModels(ctx, request('phone-1', true), secondFresh);
+  await Promise.all([freshRequest, joinedFreshRequest]);
+  assert.equal(calls, 2, '两个fresh请求应共用一次host RPC');
+  assert.equal(firstFresh.body.current.model, 'new');
+  assert.equal(secondFresh.body.current.model, 'new');
+
+  releaseNormal();
+  await oldRequest;
+  const afterFresh = response();
+  await handleModels(ctx, request(), afterFresh);
+  assert.equal(afterFresh.body.current.model, 'new', '较早启动的普通请求不能覆盖fresh结果');
+  assert.equal(calls, 2, 'fresh结果应成为普通缓存读的最新值');
 });
 
 test('model cache is isolated by device and session', async () => {

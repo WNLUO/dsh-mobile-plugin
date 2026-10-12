@@ -20,11 +20,13 @@ import {
   apiGet,
   apiPost,
   errorText,
+  type AddressBook,
   type ConfigPatch,
   type PairingInfo,
   type RevokeResult,
   type StatusView,
 } from './lib/api.ts'
+import { useNotify } from './lib/notify.ts'
 
 /**
  * 移动端插件的设置页（网页版）。
@@ -38,14 +40,21 @@ export function App() {
   const [status, setStatus] = useState<StatusView | null>(null)
   /** 读不到状态：整页只剩这一条错误，因为没有状态就没法渲染任何卡片。 */
   const [fatal, setFatal] = useState('')
-  /** 某个动作失败（红框）与中性提示（不是故障）分开，别把预期内的拒绝当故障报。 */
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  /**
+   * 「某次动作的结果」一律走右上角的胶囊，不在页面里铺长条（2026-10-11 用户要求统一）。
+   * 页面里只留 `fatal` —— 那是「整页读不到状态」，不是一个动作的结果。
+   */
+  const notify = useNotify()
   const [busy, setBusy] = useState('')
   const [pairing, setPairing] = useState<PairingInfo | null>(null)
   const [pairingError, setPairingError] = useState('')
   const [configOpen, setConfigOpen] = useState(false)
   const [lanOpen, setLanOpen] = useState(false)
+  /**
+   * 宿主枚举的地址库：局域网直连弹窗里那个「手机优先用」要它（带网卡名与当前选中的那条）。
+   * 只在开窗时取一次，和老宿主兼容（那条路由不存在就保持 null，选择器不摆）。
+   */
+  const [addresses, setAddresses] = useState<AddressBook | null>(null)
 
   const loadStatus = useCallback(async () => {
     try {
@@ -63,6 +72,15 @@ export function App() {
     } catch (err) {
       setPairing(null)
       setPairingError(errorText(err))
+    }
+  }, [])
+
+  const loadAddresses = useCallback(async () => {
+    try {
+      setAddresses(await apiGet<AddressBook>('/api/relay/addresses'))
+    } catch {
+      // 老宿主没有这条路由：那就不摆选择器，地址照旧只在「局域网地址」那一行列出来。
+      setAddresses(null)
     }
   }, [])
 
@@ -91,16 +109,23 @@ export function App() {
   useEffect(() => {
     if (!lanOpen || !status?.enabled) return
     void loadPairing()
-  }, [lanOpen, status?.enabled, loadPairing])
+    void loadAddresses()
+  }, [lanOpen, status?.enabled, loadPairing, loadAddresses])
+
+  // 配对卡上「手机该填的地址」那一行也要地址库（分类型 + 就地选优先）：它跟着配对信息一起走，
+  // 重新生成配对码、改配置、重连之后地址可能就变了，所以挂在 pairing 上重取一次。
+  // 这条路由只读快照、不解析端口（与 `/api/relay/pairing` 不同），多取一次没有副作用。
+  useEffect(() => {
+    if (!status?.enabled) return
+    void loadAddresses()
+  }, [status?.enabled, pairing, loadAddresses])
 
   const act = useCallback(async (label: string, run: () => Promise<void>) => {
     setBusy(label)
-    setError('')
-    setNotice('')
     try {
       await run()
     } catch (err) {
-      setError(errorText(err))
+      notify('error', errorText(err))
     } finally {
       setBusy('')
     }
@@ -115,27 +140,27 @@ export function App() {
         setPairing(null)
         setPairingError('')
       }
-      setNotice(enabled ? '已启用远程控制。' : '已停用远程控制，手机将断开。')
+      notify('soft', enabled ? '已启用远程控制。' : '已停用远程控制，手机将断开。')
     })
 
   const regenerate = () =>
     act('pairing', async () => {
       setStatus(await apiPost<StatusView>('/api/relay/regenerate'))
       await loadPairing()
-      setNotice('配对码已重新生成，之前截图的二维码作废。')
+      notify('soft', '配对码已重新生成，之前截图的二维码作废。')
     })
 
   const reconnect = () =>
     act('reconnect', async () => {
       setStatus(await apiPost<StatusView>('/api/relay/reconnect'))
-      setNotice('已发起重连。')
+      notify('soft', '已发起重连。')
     })
 
   const restartSidecar = () =>
     act('restart', async () => {
       const payload = await apiPost<{ status: StatusView }>('/api/relay/restart-sidecar')
       setStatus(payload.status)
-      setNotice('旁挂进程已重启。')
+      notify('soft', '旁挂进程已重启。')
     })
 
   const revokeAll = () => {
@@ -144,7 +169,7 @@ export function App() {
       const payload = await apiPost<RevokeResult>('/api/relay/revoke-all')
       await loadStatus()
       await loadPairing()
-      setNotice(
+      notify('soft', 
         `已吊销 ${payload.revoked} 个授权${payload.revokedRelay ? `（中转侧 ${payload.revokedRelay} 个）` : ''}。`,
       )
     })
@@ -155,7 +180,7 @@ export function App() {
       setStatus(await apiPost<StatusView>('/api/relay/config', patch))
       setConfigOpen(false)
       await loadPairing()
-      setNotice('配置已保存。')
+      notify('soft', '配置已保存。')
     })
 
   // 局域网端口走同一个 /api/relay/config，只是从它自己的弹窗提交：改完端口地址可能就变了，
@@ -165,7 +190,17 @@ export function App() {
       setStatus(await apiPost<StatusView>('/api/relay/config', patch))
       setLanOpen(false)
       await loadPairing()
-      setNotice('局域网配置已保存。')
+      notify('soft', '局域网配置已保存。')
+    })
+
+  // 「手机优先用这条」是即时生效的：点了就存，**不关窗**（那是看地址的窗，关掉反而碍事）。
+  // 存完把配对信息重取一遍，让上面那串地址当场按新顺序排出来；宿主那边二维码里的顺序
+  // 也在同一时刻跟着变（`pairingPayload` 按这个设置把选中的排到最前）。
+  const savePreferredLanAddress = (address: string) =>
+    act('lan', async () => {
+      setStatus(await apiPost<StatusView>('/api/relay/config', { preferredLanAddress: address }))
+      await Promise.all([loadPairing(), loadAddresses()])
+      notify('soft', address ? `手机优先使用 ${address}。` : '已改回按网卡顺序自动选。')
     })
 
   if (!status) {
@@ -210,26 +245,14 @@ export function App() {
         </Alert>
       ) : null}
 
-      {error ? (
-        <Alert variant="error">
-          <AlertIcon />
-          <AlertTitle>操作没成功</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {notice ? (
-        <Alert variant="info">
-          <AlertIcon />
-          <AlertDescription>{notice}</AlertDescription>
-        </Alert>
-      ) : null}
+      {/* 动作成功 / 失败的结论走右上角的胶囊（见 lib/notify.ts），这里不再铺长条。 */}
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <PairingCard
             status={status}
             pairing={pairing}
+            addressBook={addresses}
             busy={busy}
             error={pairingError}
             restartError={status.sidecar.restartError}
@@ -237,6 +260,7 @@ export function App() {
             onRegenerate={() => void regenerate()}
             onReconnect={() => void reconnect()}
             onRevokeAll={revokeAll}
+            onSavePreferred={(address) => void savePreferredLanAddress(address)}
           />
 
           <UpdateCard
@@ -271,8 +295,10 @@ export function App() {
         onOpenChange={setLanOpen}
         status={status}
         lanUrls={pairing?.lanUrls ?? []}
+        addressBook={addresses}
         busy={busy}
         onSave={(patch) => void saveLanPort(patch)}
+        onSavePreferred={(address) => void savePreferredLanAddress(address)}
       />
     </main>
   )

@@ -9,14 +9,26 @@
  * 少了几条路由，日志里一行 `pending`。历史上真踩过：`sidecar-facade.cjs` 的 require
  * 路径写错 → worker exited 1 → 服务整个停摆，而单测全绿。
  *
- * 服务器 `/opt/dsh-mobile/` 上有一台**专用的** DSH 宿主（systemd `dsh-mobile-host`），
- * 代码靠 rsync 同步、不走 OTA。这个脚本就是那条流程：同步 → 重启 → 探针 → 扫日志。
+ * 服务器 `/opt/dsh-mobile/` 上有一台**专用的** DSH 宿主（systemd `dsh-mobile-host`）。
+ * 这台上**启动器与插件本体是分开来的**（2026-10-11 改，见 README 的「安装与更新」）：
+ *
+ *   · **启动器**（`host.js`、两层 patch、`config/`、内嵌凭据包）靠 rsync 同步，
+ *     它就是 `/opt/dsh-mobile/dsh-mobile-plugin/` 这份源码树；
+ *   · **插件本体**在 profile 里，走 npm/pnpm 安装：
+ *     `<DSH_HOME>/profiles/<profile>/node_modules/dsh-mobile-plugin`。宿主按绝对路径挂
+ *     那份的 `lib/index.js`（**稳定外壳**），所以那台的面板里也有「检查 / 立即更新」，
+ *     更新不用重启宿主。升这一份是 `pnpm add dsh-mobile-plugin@<版本>`（在 profile 里），
+ *     或者直接在面板上点。
+ *
+ * 这个脚本干的是：同步启动器 → 重启 → 探针 → 扫日志，并核对**真正被挂载的是哪一份**
+ * （挂错了会出现「本地全绿、服务器上跑的还是老代码」这种最难查的现场）。
  *
  * ## 它检查什么
  *
  *   1. 三个前提：宿主机在、远端目录在、node 版本够。
- *   2. 同步 dsh-mobile-plugin（内含 dsh-mobile-credentials）到远端（`--delete`，但排除
- *      node_modules 与 lib/.live —— 后者是插件自更新的运行期状态，不该被同步覆盖）。
+ *   2. 同步启动器（dsh-mobile-plugin 源码树，内含 dsh-mobile-credentials）到远端
+ *      （`--delete`，但排除 node_modules 与 lib/.live —— 后者是插件自更新的运行期状态，
+ *      不该被同步覆盖）。插件本体不在这一步里，它在 profile 里、由 npm/pnpm 管。
  *   3. 声明的依赖（含 peer）在远端逐个解析；缺了才装，且装之前先确认远端有 pnpm，
  *      否则直接报错而不是一边缺依赖一边继续跑。
  *   4. 静态装载：把实现 import 一次（在弹服务之前先证「找得到、语法过得去」）。
@@ -260,6 +272,29 @@ function main() {
     if (!(key in status)) fail(`/api/relay/status 少了字段 ${key}：${statusBody.slice(0, 300)}`)
   }
   ok(`tunnel=${status.tunnel?.state} lan=${status.lan?.state} sidecar=${status.sidecar?.state} appVersion=${status.appVersion}`)
+
+  // 真正跑的是哪一份？日志里那行是宿主自己报的（`host.js` 在装载前打印），
+  // 也是「插件本体在 profile 里」这条路的唯一凭据 —— 它一旦退回源码树直挂，
+  // 面板里的自更新就没了，而且本地怎么测都看不出来。
+  {
+    const mode = ssh(`grep -a '挂载方式' ${HOST_LOG} | tail -1 || true`, { check: false }).stdout.trim()
+    if (!mode) {
+      info(`日志里没有「挂载方式」那一行（老 host.js？）：${HOST_LOG}`)
+    } else if (mode.includes('profile 里装的那份')) {
+      ok(`挂载方式：${mode.replace(/^.*挂载方式\s*=\s*/, '')}`)
+    } else {
+      fail(`宿主挂在源码树上，不是 profile 里那份（面板里的自更新会没有）。日志：${mode}`)
+    }
+    // 外壳在不在：`/update/status` 的 `available` 就是它自报的。
+    const shell = ssh(`curl -fsS http://127.0.0.1:${port}/api/relay/update/status || true`, { check: false }).stdout.trim()
+    try {
+      const view = JSON.parse(shell)?.data ?? {}
+      if (view.available === true) ok(`自更新外壳：available=true，profile 里装着 ${view.installedVersion ?? '?'}`)
+      else fail(`自更新外壳不在（available=${JSON.stringify(view.available)}）：面板里没有「检查 / 立即更新」那一套`)
+    } catch {
+      fail(`/api/relay/update/status 返回的不是 JSON：${shell.slice(0, 200)}`)
+    }
+  }
 
   if (typeof status.panelUrl !== 'string' || !/^https?:\/\//.test(status.panelUrl)) {
     fail(`/api/relay/status 没有给出绝对地址的 panelUrl：${JSON.stringify(status.panelUrl)}（设置菜单里那个链接就指着它）`)

@@ -19,12 +19,15 @@ const assert = require('node:assert/strict')
 const {
   ipv4Number,
   isPrivateLanAddress,
+  isPublicAddress,
+  publicUrls,
   isVpnInterface,
   isVirtualInterface,
   interfaceRank,
   lanInterfaces,
   lanUrls,
   lanCandidates,
+  orderCandidates,
 } = require('../lib/relay/lan-network.cjs')
 
 /** 把 {name: address} 简写展开成 os.networkInterfaces() 的形状。 */
@@ -63,6 +66,46 @@ test('isPrivateLanAddress 只认 RFC1918', () => {
   assert.equal(isPrivateLanAddress('127.0.0.1'), false)
   assert.equal(isPrivateLanAddress('169.254.1.1'), false)
   assert.equal(isPrivateLanAddress('198.18.0.1'), false)
+})
+
+test('isPublicAddress 只认真能从外网拨过来的地址', () => {
+  assert.equal(isPublicAddress('210.16.177.228'), true)
+  assert.equal(isPublicAddress('111.180.197.228'), true)
+  // 私网、回环、链路本地、CGNAT、基准测试、组播/保留、0/8 全都不是公网地址。
+  // 实测踩过：macOS 上一块多出来的网卡带着 169.254.87.131，被当成「公网地址」摆到面板上。
+  for (const address of [
+    '10.0.0.5',
+    '172.16.0.1',
+    '192.168.31.69',
+    '127.0.0.1',
+    '169.254.87.131',
+    '100.64.0.1',
+    '100.127.255.254',
+    '198.18.0.1',
+    '0.0.0.0',
+    '224.0.0.1',
+    '255.255.255.255',
+    'a.b.c.d',
+    '',
+  ]) {
+    assert.equal(isPublicAddress(address), false, address)
+  }
+  // CGNAT 的两头边界：100.64/10 之内都是，100.63/100.128 就出了这个段。
+  assert.equal(isPublicAddress('100.128.0.1'), true)
+  assert.equal(isPublicAddress('100.63.255.255'), true)
+})
+
+test('publicInterfaces 与 lanInterfaces 共用同一套网卡黑名单与排序', () => {
+  const host = ifaces({
+    lo0: '127.0.0.1',
+    en0: ['192.168.31.69', '210.16.177.228'],
+    'docker0': '172.17.0.1',
+    'safeline-ce': '192.168.0.1',
+    utun3: '10.8.0.2',
+    en9: '169.254.87.131',
+  })
+  assert.deepEqual(lanUrls(18787, host), ['http://192.168.31.69:18787'])
+  assert.deepEqual(publicUrls(18787, host), ['http://210.16.177.228:18787'])
 })
 
 test('VPN 网卡一律排除', () => {
@@ -173,4 +216,50 @@ test('空 / 异常入参不抛错', () => {
   assert.deepEqual(lanUrls(18787, { eth0: [null, { address: '192.168.1.1', family: 'IPv4', internal: false }] }), ['http://192.168.1.1:18787'])
   // 注意：显式传 undefined 会命中 `= os.networkInterfaces()` 默认值，
   // 结果取决于跑测试的机器，因此这里不覆盖该分支。
+})
+
+/**
+ * 「手机优先用这条」（面板上那个选择，存成设置项 `preferredLanAddress`）。
+ *
+ * 这个选择能兑现的唯一方式是**顺序**：App 拿到候选之后按顺序挨个试，所以宿主只能把选中的
+ * 那条挪到最前。下面这几条钉的就是这次挪动的边界——尤其是「另外几条必须留着当兜底」和
+ * 「选的那条不存在了就退回宿主排序」，这两条错了就是真机上「选一次反而连不上」。
+ */
+test('选中的候选排到最前，其余原样留在后面当兜底', () => {
+  const list = [
+    { url: 'http://10.0.0.9:18787', address: '10.0.0.9', interface: 'en0' },
+    { url: 'http://172.16.5.5:18787', address: '172.16.5.5', interface: 'eth0' },
+    { url: 'http://192.168.1.50:18787', address: '192.168.1.50', interface: 'wlan0' },
+  ]
+  const ordered = orderCandidates(list, '192.168.1.50')
+  assert.deepEqual(ordered.map((item) => item.address), ['192.168.1.50', '10.0.0.9', '172.16.5.5'])
+  // 原数组不许被就地改掉：调用方（二维码与 connection-info 两个消费点）共用同一份清单。
+  assert.deepEqual(list.map((item) => item.address), ['10.0.0.9', '172.16.5.5', '192.168.1.50'])
+})
+
+test('已经排在最前、没指定、或者压根没这条，都原样返回', () => {
+  const list = [
+    { url: 'http://10.0.0.9:18787', address: '10.0.0.9' },
+    { url: 'http://172.16.5.5:18787', address: '172.16.5.5' },
+  ]
+  assert.equal(orderCandidates(list, '10.0.0.9'), list)
+  assert.equal(orderCandidates(list, ''), list)
+  assert.equal(orderCandidates(list, '   '), list)
+  assert.equal(orderCandidates(list, undefined), list)
+  // 换了网段/拔了网卡之后选的那条就不在了：必须退回宿主的排序，绝不能把候选清空。
+  assert.equal(orderCandidates(list, '192.168.9.9'), list)
+})
+
+test('只有一条或空清单时不折腾', () => {
+  const one = [{ url: 'http://10.0.0.9:18787', address: '10.0.0.9' }]
+  assert.equal(orderCandidates(one, '172.16.5.5'), one)
+  assert.deepEqual(orderCandidates([], '10.0.0.9'), [])
+  // 异常入参不抛：它喂的是二维码与移动端连接信息，跟 advertisedCandidates 同一个口径。
+  assert.deepEqual(orderCandidates(null, '10.0.0.9'), [])
+  assert.deepEqual(orderCandidates(undefined, '10.0.0.9'), [])
+  // 畸形条目既不算命中也不被抹掉：读 `item.address` 走的是 `item &&`，整条照旧留在原位。
+  assert.deepEqual(orderCandidates([null, { address: '10.0.0.9' }], '10.0.0.9'), [
+    { address: '10.0.0.9' },
+    null,
+  ])
 })

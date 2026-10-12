@@ -51,10 +51,32 @@ test('cordis.patch.yml 仍然留着裸包名那一行（桌面端要靠它）', 
 test('host.js 装的是 cordis.patch.yml，且过了摘除那一步', () => {
   assert.match(
     HOST,
-    /dropBareNameSelfMounts\(\s*loadOverlayPatches\(\s*BIN_NAME,\s*join\(PACKAGE_DIR,\s*'cordis\.patch\.yml'\)\s*\)/,
+    /const selfPatches = loadOverlayPatches\(BIN_NAME, join\(PACKAGE_DIR, 'cordis\.patch\.yml'\)\)/,
+    'host.js 必须加载 cordis.patch.yml 这一层',
+  );
+  assert.match(
+    HOST,
+    /dropBareNameSelfMounts\(\s*selfPatches,\s*BIN_NAME\s*\)/,
     'host.js 必须对 cordis.patch.yml 这一层调用 dropBareNameSelfMounts，否则裸名那行会带着整棵树失败',
   );
   assert.match(HOST, /import \{ dropBareNameSelfMounts \} from '\.\/lib\/host-patches\.cjs'/);
+});
+
+test('挂哪一份由「profile 里装没装」决定，但两处都必须是绝对路径', () => {
+  // 2026-10-11：无头宿主也能「走 npm 安装」——插件装进 profile 之后挂的是那份的
+  // `lib/index.js`（带稳定外壳，面板里能自更新）；没装才退回随包发布的 `lib/impl.js`。
+  // **两处都写绝对路径**：裸包名在无头宿主里解析不到，loader 是从**它自己所在的位置**解析的
+  // （实测 `Cannot find package 'dsh-mobile-plugin' imported from
+  // <…>/@deepseek-ai/cordis-plugin-loader/lib/index.js`），而它在宿主自己的依赖树里，
+  // profile 里那份它看不见 —— 挂裸名就是整棵树加载失败。
+  assert.match(HOST, /join\(installedDir, 'lib', 'index\.js'\)/, '装了 profile 就挂那份的外壳（绝对路径）');
+  assert.match(HOST, /join\(PACKAGE_DIR, 'lib\/impl\.js'\)/, '没装就退回随包发布的那份实现（绝对路径）');
+  assert.match(
+    HOST,
+    /existsSync\(join\(installedDir, 'package\.json'\)\)/,
+    '判据是「profile 里有没有这个包」这个事实，不是环境变量或目录名',
+  );
+  assert.ok(!/name:\s*BIN_NAME/.test(HOST), 'host.js 不许按裸包名挂载：无头宿主里那一定解析不到');
 });
 
 test('摘掉后的层里不再有这一行，其它行原样保留', () => {

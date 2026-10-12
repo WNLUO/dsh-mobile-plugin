@@ -106,7 +106,9 @@ test('源码契约：会话列表读归档集合、工作区快照不再丢弃�
   const sessionsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'sessions.js'), 'utf8');
   const workspacesSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'workspaces.js'), 'utf8');
   assert.match(sessionsSrc, /ctx\.apiProxy\.workspace\.list\(/);
-  assert.match(sessionsSrc, /archivedSessionIdSet\(ctx\)/);
+  // 读归档集合的助手改名了：现在它同一次 RPC 里把 archivedSessionIds 与 pinnedSessionIds
+  // 一起取回来（见 pinned-sessions.test.cjs），「会话列表必须自己读归档集合」这条不变。
+  assert.match(sessionsSrc, /workspaceSessionFlags\(ctx\)/);
   assert.doesNotMatch(sessionsSrc, /const allSummaries = value\.items \|\| \[\];/);
   // 6054bb2 起快照多带 generatedAt/revision/emptyConfirmed，返回也改成多行，
   // 但 archivedSessionIds 仍须紧跟 items 一起返回（不能被新鲜度字段挤掉）。

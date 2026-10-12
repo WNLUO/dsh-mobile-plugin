@@ -12,11 +12,14 @@
  *
  * 另一条是**源码契约**：`/api/relay/update/check` 不许再转调外壳的 `runtime.check()`
  * （那会绕回插件市场），也不许在外壳不在时回「办不了」——查不需要外壳，装才需要。
+ *
+ * 「装」那条（`/api/relay/update/apply`）从 2026-10-12 起只委托外壳的 `apply`，因此它的守卫
+ * 钉的是**委托关系**与响应形状：判定、装、换代、落账（`lastApply`）都必须发生在同一层，
+ * 路由自己去装一遍，手动（含强制）更新的结果就没人记 —— 那正是这个文件同一天补的缺口。
  */
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const http = require('node:http');
 const path = require('node:path');
 const test = require('node:test');
@@ -179,40 +182,25 @@ test('源码契约：检查更新走插件自己那条路，不回头问外壳 /
   assert.equal(/runtimeUnavailable/.test(route), false, '查不需要外壳在场（装才需要），不许再回「办不了」');
 });
 
-/** 一个只回答 `/<name>/latest` 的假注册表；DSHM_NPM_REGISTRY 是模块级读的，用完必须还原。 */
-async function withRegistry(version, body) {
-  const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ name: PLUGIN, version }));
-  });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  const previous = process.env.DSHM_NPM_REGISTRY;
-  process.env.DSHM_NPM_REGISTRY = `http://127.0.0.1:${server.address().port}`;
-  try {
-    return await body();
-  } finally {
-    if (previous === undefined) delete process.env.DSHM_NPM_REGISTRY;
-    else process.env.DSHM_NPM_REGISTRY = previous;
-    await new Promise(resolve => server.close(resolve));
-  }
-}
-
 /**
  * 把控制面注册一遍，只留「路径 → handler」这张表。
  *
- * 依赖全给最小假体：真正被调用到的只有那条检查路由，其余 handler 只登记、不执行。
+ * 依赖全给最小假体：真正被调用到的只有更新那两条路由，其余 handler 只登记、不执行。
+ * `body` 是喂给 `readJson` 的请求体（apply 那条从 body 里读 `force`）。
  */
-function routeTable({ runtime = null, services = {} } = {}) {
+function routeTable({ runtime = null, services = {}, body = {} } = {}) {
   const table = new Map();
   require('../lib/routes/control-plane.js').registerControlPlaneRoutes({
     registerRoute: (route) => table.set(route.path, route.handler),
     localOnly: (_method, handler) => handler,
-    sendJson: (res, status, body) => {
+    trustedLocalUi: () => true,
+    sendJson: (res, status, payload) => {
       res.status = status;
-      res.body = body;
+      res.body = payload;
     },
+    readJson: async () => body,
     getPluginRuntime: () => runtime,
-    // 更新那两条要用宿主服务：`profileContext`（发布的包管理器）与 `agents`（那道闸）。
+    // 控制面其余路由（清未读那条）要从插件 ctx 里取宿主服务，给个最小假体。
     ctx: { get: (key) => services[key] ?? null },
   });
   return table;
@@ -284,43 +272,105 @@ test('行为：注册表挂了要如实报错，不许回一句「已经是最�
 });
 
 /**
- * 装那条路由的行为：面板读的就是它回的那几格，抄错一格界面就说错话。
+ * 「装」那条路由的守卫。
+ *
+ * 2026-10-12 起这条路由**只委托**外壳的 `apply`：判定、装、换代，以及把结果写进外壳那本
+ * `lastApply` 账，都在那一层 —— 面板「最近一次更新」那一行与「上次没装成」那个判据读的都是
+ * 这本账。所以这里钉的是**委托关系**与响应形状：路由只要自己去装一次，手动更新的结果就没人
+ * 落账（正是 2026-10-12 修掉的那个缺口）。装本身的判定另在 `test/update-install.test.cjs`。
  */
-function makeProfileDir(label, version) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `dsh-apply-${label}-`));
-  const pkg = path.join(dir, 'node_modules', PLUGIN);
-  fs.mkdirSync(pkg, { recursive: true });
-  fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: PLUGIN, version }));
-  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'p', dependencies: { [PLUGIN]: `^${version}` } }));
-  return path.join(dir, 'node_modules');
+function fakeShell({ outcome, version = '0.1.60' }) {
+  const calls = [];
+  const state = { lastApply: null, appliedAt: null };
+  const shell = {
+    calls,
+    status: () => ({
+      available: true,
+      installedVersion: version,
+      version,
+      lastApply: state.lastApply,
+      appliedAt: state.appliedAt,
+    }),
+    apply: async (options) => {
+      calls.push(options);
+      const applied = typeof outcome === 'function' ? outcome(options) : outcome;
+      // 照外壳那样记账：这本账只有外壳能写（见 `lib/index.js` 的 `applyUpdate`）。
+      state.lastApply = { ...applied, swapped: applied.swapped === true };
+      state.appliedAt = new Date().toISOString();
+      return { ...applied, status: shell.status() };
+    },
+  };
+  return shell;
 }
 
 test('行为：已经是最新时 apply 如实报「没动过」，不是失败', async () => {
-  const nodeModules = makeProfileDir('newest', '0.1.61');
-  const runtime = { status: () => ({ installedVersion: '0.1.61', version: '0.1.61', profileNodeModules: nodeModules }) };
-  await withRegistry('0.1.61', async () => {
-    const res = {};
-    await routeTable({ runtime }).get('/api/relay/update/apply')({ method: 'POST' }, res);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.ok, true, '已经是最新不该报成失败');
-    assert.equal(res.body.data.skipped, true, '这一格丢了，面板就会说「装了但版本没变」');
-    assert.equal(res.body.data.state, 'succeeded');
-    assert.equal(res.body.data.installed, false);
-    assert.equal(res.body.data.failure, null);
+  const shell = fakeShell({
+    version: '0.1.61',
+    outcome: { installed: false, skipped: true, state: 'succeeded', beforeVersion: '0.1.61', installedVersion: '0.1.61', swapped: false, failure: null },
   });
+  const res = {};
+  await routeTable({ runtime: shell }).get('/api/relay/update/apply')({ method: 'POST' }, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true, '已经是最新不该报成失败');
+  assert.equal(res.body.data.skipped, true, '这一格丢了，面板就会说「装了但版本没变」');
+  assert.equal(res.body.data.state, 'succeeded');
+  assert.equal(res.body.data.installed, false);
+  assert.equal(res.body.data.failure, null);
+  assert.equal(shell.calls.length, 1, '装必须走外壳的 apply —— 路由自己去装一遍，手动的结果就没人落账');
+  assert.equal(res.body.data.status.lastApply.skipped, true, '回给面板的状态必须是 apply **之后**的账，拿之前的快照等于没落账');
+  assert.ok(res.body.data.status.appliedAt, '「最近一次更新」那一行的时间就从这里来');
 });
 
-test('行为：有对话在跑时不装，回 AGENTS_RUNNING 并标成可再试', async () => {
-  const nodeModules = makeProfileDir('busy', '0.1.60');
-  const runtime = { status: () => ({ installedVersion: '0.1.60', version: '0.1.60', profileNodeModules: nodeModules }) };
-  await withRegistry('0.1.62', async () => {
-    const res = {};
-    const services = { agents: { list: () => [{ id: 'session-x', status: 'running' }] } };
-    await routeTable({ runtime, services }).get('/api/relay/update/apply')({ method: 'POST' }, res);
-    assert.equal(res.status, 200);
-    assert.equal(res.body.ok, false);
-    assert.equal(res.body.data.failure.code, 'AGENTS_RUNNING');
-    assert.equal(res.body.data.retryable, true);
-    assert.equal(res.body.data.installed, false);
+test('行为：有对话在跑时外壳报的 AGENTS_RUNNING 原样透传（可再试），不算故障', async () => {
+  const shell = fakeShell({
+    version: '0.1.60',
+    outcome: {
+      installed: false,
+      skipped: false,
+      state: 'failed',
+      beforeVersion: '0.1.60',
+      installedVersion: '0.1.60',
+      swapped: false,
+      failure: { code: 'AGENTS_RUNNING', message: '有 1 个 agent 正在运行，等它完成再更新。' },
+      retryable: true,
+    },
   });
+  const res = {};
+  await routeTable({ runtime: shell }).get('/api/relay/update/apply')({ method: 'POST' }, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, false, '没装成还回 ok:true，面板会把失败说成成功');
+  assert.equal(res.body.data.failure.code, 'AGENTS_RUNNING');
+  assert.equal(res.body.data.retryable, true);
+  assert.equal(res.body.data.installed, false);
+});
+
+test('行为：点「强制更新」要把 force 一路透到外壳（那是这道闸唯一的出口）', async () => {
+  const shell = fakeShell({ outcome: { installed: false, skipped: true, state: 'succeeded', swapped: false, failure: null } });
+  const res = {};
+  await routeTable({ runtime: shell, body: { force: true } }).get('/api/relay/update/apply')({ method: 'POST' }, res);
+  assert.deepEqual(shell.calls, [{ force: true }], '不带 force，面板上那颗「强制更新」就只是个摆设');
+  assert.equal(res.status, 200);
+});
+
+test('行为：没外壳（或外壳没有 apply）回 409，不许路由自己硬装', async () => {
+  const noApply = {};
+  const res1 = {};
+  await routeTable({ runtime: null }).get('/api/relay/update/apply')({ method: 'POST' }, res1);
+  assert.equal(res1.status, 409);
+  assert.equal(res1.body.error.code, 'update_unavailable');
+  const res2 = {};
+  await routeTable({ runtime: noApply }).get('/api/relay/update/apply')({ method: 'POST' }, res2);
+  assert.equal(res2.status, 409, '没有 apply 的外壳装完也换不了代，回 409 比装一半强');
+  assert.equal(res2.body.error.code, 'update_unavailable');
+});
+
+test('源码契约：手动更新的结果只能由外壳落账，路由不许绕开它自己去装', () => {
+  const shell = fs.readFileSync(path.join(PKG_DIR, 'lib', 'index.js'), 'utf8');
+  assert.match(shell, /updateState\.lastApply = \{\s*\.\.\.outcome,\s*swapped\s*\}/, '面板那本账的唯一写入点');
+  assert.match(shell, /apply:\s*applyUpdate/, '外壳必须把 apply 暴露给控制面');
+  const route = fs.readFileSync(path.join(PKG_DIR, 'lib', 'routes', 'control-plane.js'), 'utf8');
+  const start = route.indexOf("'/api/relay/update/apply'");
+  assert.ok(start > 0, '这条路由必须还在');
+  const body = route.slice(start, route.indexOf('registerRoute(', start));
+  assert.match(body, /await runtime\.apply\(\{ force \}\)/, '路由只负责传参和说人话，自己去装一遍就没人落账');
 });

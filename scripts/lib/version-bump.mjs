@@ -36,9 +36,12 @@ export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..',
  * 否则「抬版本写回哪里」与「哪些改动可以热更放行」会各说各话。
  */
 export const APP_GRADLE_FILE = 'app/android/app/build.gradle'
-export const APP_COORD_FILES = ['app/package.json', 'app/src/version.ts', APP_GRADLE_FILE]
-/** 上面那个路径相对 app/ 的写法（读取与写回都从 app/ 起算）。 */
+/** iOS 的发布身份写在 Xcode 工程的构建配置里（target 与 project 各 Debug/Release 一份）。 */
+export const APP_IOS_PBXPROJ_FILE = 'app/ios/DshApp.xcodeproj/project.pbxproj'
+export const APP_COORD_FILES = ['app/package.json', 'app/src/version.ts', APP_GRADLE_FILE, APP_IOS_PBXPROJ_FILE]
+/** 上面那些路径相对 app/ 的写法（读取与写回都从 app/ 起算）。 */
 const APP_GRADLE_REL = APP_GRADLE_FILE.replace(/^app\//, '')
+const APP_IOS_PBXPROJ_REL = APP_IOS_PBXPROJ_FILE.replace(/^app\//, '')
 
 // 只接受稳定版 x.y.z。带 prerelease/build 元数据的版本号在这里没有语义：
 // 两条链的客户端都比较 version_name 的大小，而 prerelease 的排序规则
@@ -56,6 +59,10 @@ const GRADLE_VERSION_CODE = /(\bversionCode\s+)(\d+)(\s*)$/m
 const GRADLE_VERSION_NAME = /(\bversionName\s+")([^"]*)(")/
 /** package.json 的顶层 "version" 字段：只认顶格两空格缩进的那一行，不碰依赖里的同名键。 */
 const PKG_VERSION_FIELD = /(^ {2}"version"\s*:\s*")([^"]*)(")/m
+// iOS 的坐标在 pbxproj 里有**多处**（target 与 project 各一份 Debug/Release），值必须处处
+// 相同 —— 所以配 requireUniformField 而不是 requireUniqueField（后者要求恰好命中 1 处）。
+const PBX_MARKETING_VERSION = /(MARKETING_VERSION = )([^;]+)(;)/
+const PBX_CURRENT_PROJECT_VERSION = /(CURRENT_PROJECT_VERSION = )([^;]+)(;)/
 
 /** 每个字段单独一条上限，与 App 的构建号刻度一致（major*1e6 + minor*1e3 + patch）。 */
 const SEGMENT_MAX = 999
@@ -180,11 +187,26 @@ export function requireUniqueField(text, re, label) {
   return found[0][2]
 }
 
+/**
+ * 取一个**允许多处、但值必须处处相同**的坐标字段（iOS 的 pbxproj 就是这种形状：
+ * target 与 project 各一份 Debug/Release）。任一处不同即视为漂移 —— 那说明有人手改过
+ * 其中一个构建配置，继续抬号会把这个错误固化下去。
+ */
+export function requireUniformField(text, re, label) {
+  const found = [...text.matchAll(new RegExp(re.source, `${re.flags.replace('g', '')}g`))]
+  if (found.length === 0) throw new Error(`${label} 没找到，版本坐标对不上，拒绝发布`)
+  const values = found.map((m) => m[2])
+  if (new Set(values).size !== 1) {
+    throw new Error(`${label} 在文件里出现了 ${found.length} 处但取值不一致（${values.join(' vs ')}），拒绝发布`)
+  }
+  return values[0]
+}
+
 export async function readAppCoordinates(root = ROOT) {
   const appDir = join(root, 'app')
   const read = (p) => readFile(join(appDir, p), 'utf8')
-  const [pkgText, versionTs, gradle] = await Promise.all([
-    read('package.json'), read('src/version.ts'), read(APP_GRADLE_REL),
+  const [pkgText, versionTs, gradle, pbxproj] = await Promise.all([
+    read('package.json'), read('src/version.ts'), read(APP_GRADLE_REL), read(APP_IOS_PBXPROJ_REL),
   ])
 
   const coordinates = {
@@ -193,21 +215,25 @@ export async function readAppCoordinates(root = ROOT) {
     'app/src/version.ts APP_BUILD_NUMBER': requireUniqueField(versionTs, VERSION_TS_BUILD_NUMBER, 'app/src/version.ts 的 APP_BUILD_NUMBER'),
     'app/android/app/build.gradle versionName': requireUniqueField(gradle, GRADLE_VERSION_NAME, 'build.gradle 的 versionName'),
     'app/android/app/build.gradle versionCode': requireUniqueField(gradle, GRADLE_VERSION_CODE, 'build.gradle 的 versionCode'),
+    'app/ios/DshApp.xcodeproj/project.pbxproj MARKETING_VERSION': requireUniformField(pbxproj, PBX_MARKETING_VERSION, 'pbxproj 的 MARKETING_VERSION'),
+    'app/ios/DshApp.xcodeproj/project.pbxproj CURRENT_PROJECT_VERSION': requireUniformField(pbxproj, PBX_CURRENT_PROJECT_VERSION, 'pbxproj 的 CURRENT_PROJECT_VERSION'),
   }
   const names = [
     coordinates['app/package.json'],
     coordinates['app/src/version.ts APP_VERSION'],
     coordinates['app/android/app/build.gradle versionName'],
+    coordinates['app/ios/DshApp.xcodeproj/project.pbxproj MARKETING_VERSION'],
   ]
   if (new Set(names).size !== 1) {
-    throw new Error(`App 版本名三处不一致，先修好再抬版本：\n${Object.entries(coordinates).map(([k, v]) => `  ${k} = ${JSON.stringify(v)}`).join('\n')}`)
+    throw new Error(`App 版本名多处不一致，先修好再抬版本：\n${Object.entries(coordinates).map(([k, v]) => `  ${k} = ${JSON.stringify(v)}`).join('\n')}`)
   }
   const builds = [
     coordinates['app/src/version.ts APP_BUILD_NUMBER'],
     coordinates['app/android/app/build.gradle versionCode'],
+    coordinates['app/ios/DshApp.xcodeproj/project.pbxproj CURRENT_PROJECT_VERSION'],
   ]
   if (new Set(builds).size !== 1) {
-    throw new Error(`App 构建号两处不一致（version.ts 的 APP_BUILD_NUMBER 与 build.gradle 的 versionCode）：${builds.join(' vs ')}`)
+    throw new Error(`App 构建号多处不一致（version.ts 的 APP_BUILD_NUMBER、build.gradle 的 versionCode、iOS 的 CURRENT_PROJECT_VERSION）：${builds.join(' vs ')}`)
   }
   parseVersion(names[0])
   if (!/^\d+$/.test(builds[0])) throw new Error(`App 构建号 ${JSON.stringify(builds[0])} 不是纯数字`)
@@ -259,6 +285,15 @@ export async function writeAppCoordinates({ version, buildNumber }, root = ROOT)
   await writeFile(gradlePath, gradle)
   written.push(gradlePath)
 
+  const pbxPath = target(APP_IOS_PBXPROJ_REL)
+  let pbxproj = await readFile(pbxPath, 'utf8')
+  pbxproj = replaceUniform(pbxproj, PBX_MARKETING_VERSION, version, 'pbxproj 的 MARKETING_VERSION')
+  if (buildNumber !== undefined) {
+    pbxproj = replaceUniform(pbxproj, PBX_CURRENT_PROJECT_VERSION, String(buildNumber), 'pbxproj 的 CURRENT_PROJECT_VERSION')
+  }
+  await writeFile(pbxPath, pbxproj)
+  written.push(pbxPath)
+
   return { written, version, buildNumber }
 }
 
@@ -274,6 +309,18 @@ function replaceOnce(text, re, value, label) {
     throw new Error(`${label} 在文件里命中 ${matches.length} 处（要求恰好 1 处），拒绝静默改写`)
   }
   return text.replace(re, (_all, prefix, _old, suffix) => `${prefix}${value}${suffix}`)
+}
+
+/**
+ * 把「允许多处、但值一致」的坐标**全部**改写（iOS 的 pbxproj 有 4 处）。
+ * 一致性已在 readAppCoordinates 阶段校验过，这里只负责不遗漏地写回：
+ * 漏写一处就会得到「Debug 版新、Release 版旧」这种最难查的漂移。
+ */
+function replaceUniform(text, re, value, label) {
+  const flags = `${re.flags.replace('g', '')}g`
+  const matches = [...text.matchAll(new RegExp(re.source, flags))]
+  if (matches.length === 0) throw new Error(`${label} 没找到，拒绝静默改写`)
+  return text.replace(new RegExp(re.source, flags), (_all, prefix, _old, suffix) => `${prefix}${value}${suffix}`)
 }
 
 // ---------------------------------------------------------------------------

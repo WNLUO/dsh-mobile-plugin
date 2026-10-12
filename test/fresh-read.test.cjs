@@ -266,6 +266,10 @@ test('lan-proxy 与宿主 handler 都接了 fresh 标记', () => {
   const sessions = readSource('lib/mobile/sessions.js');
   assert.match(sessions, /const \{ isFreshRequest \} = require\('\.\.\/shared\/fresh-request'\)/);
   assert.match(sessions, /const wantFresh = isFreshRequest\(req\.url\);/);
-  assert.match(sessions, /if \(!wantFresh && cache\.value && now - cache\.updatedAt < SESSION_LIST_CACHE_MS\)/, 'fresh 读必须跳过 10s 缓存');
-  assert.match(sessions, /if \(!wantFresh && cache\.promise\)/, 'fresh 读必须跳过在途构建');
+  // 2026-10-13 起 `?archived=1`（App 的「只看已归档」筛选）也绕开这层 10s 缓存——它取的是
+  // 同一批会话的另一个子集，与默认视图共用缓存会串味，所以两个绕行判定收在一个
+  // bypassCache 上；下面两条「fresh 读必须跳过」的语义不变。
+  assert.match(sessions, /const bypassCache = wantFresh \|\| archivedOnly;/, 'fresh 读（与只看已归档）必须跳过 10s 缓存的判定入口');
+  assert.match(sessions, /if \(!bypassCache && cache\.value && now - cache\.updatedAt < SESSION_LIST_CACHE_MS\)/, 'fresh 读必须跳过 10s 缓存');
+  assert.match(sessions, /if \(!bypassCache && cache\.promise\)/, 'fresh 读必须跳过在途构建');
 });

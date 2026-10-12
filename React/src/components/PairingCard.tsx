@@ -1,15 +1,23 @@
+/**
+ * 「配对与二维码」卡片：宿主的二维码 SVG、配对码，以及手机该拨的地址与端口。
+ *
+ * 地址那串是宿主给的候选顺序（用户选过的排最前），手机也是按这个顺序挨个试的。
+ */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { CopyButton } from '@appica/ui-react/copy-button'
 import { Spinner } from '@appica/ui-react/spinner'
 
-import type { PairingInfo, StatusView } from '../lib/api.ts'
+import type { AddressBook, PairingInfo, StatusView } from '../lib/api.ts'
+import { AddressPicker } from './AddressPicker.tsx'
 import { InfoList, InfoRow } from './InfoRow.tsx'
 
 type Props = {
   status: StatusView
   pairing: PairingInfo | null
+  /** 宿主枚举的地址库：地址那行靠它分「局域网 / 公网」并在原地选优先地址。 */
+  addressBook: AddressBook | null
   busy: string
   error: string
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
@@ -18,6 +26,7 @@ type Props = {
   onRegenerate: () => void
   onReconnect: () => void
   onRevokeAll: () => void
+  onSavePreferred: (address: string) => void
 }
 
 /**
@@ -33,13 +42,14 @@ type Props = {
  * 「重启 sidecar」原先也在这排，后来按用户要求搬到「插件更新」卡片（它跟更新是同一件事：
  * 让磁盘上的新代码立刻生效）；这里只留「上次重启失败」的红字提示，跟状态绑在一起。
  * 「重新生成配对码」按用户要求贴到二维码下面、以二维码为参照居中（它换的就是那张图）；
- * 「中转配置」放在「局域网地址」那行值下方靠右。
+ * 「中转配置」放在地址那行值下方靠右。
  * 「刷新」按用户要求删掉了：配对信息本身是进页面、改配置、重新生成时刷新，
- * 单留一颗按钮只让人以为这页会自己过期；局域网地址没取到时靠打开「局域网直连」重取一次。
+ * 单留一颗按钮只让人以为这页会自己过期；地址没取到时靠打开「局域网直连」重取一次。
  */
 export function PairingCard({
   status,
   pairing,
+  addressBook,
   busy,
   error,
   restartError,
@@ -47,6 +57,7 @@ export function PairingCard({
   onRegenerate,
   onReconnect,
   onRevokeAll,
+  onSavePreferred,
 }: Props) {
   const idle = busy !== ''
   const policyText = status.pairingPolicy === 'deny' ? '一律拒绝新设备' : '凭配对码允许'
@@ -117,16 +128,20 @@ export function PairingCard({
                 <span className="ml-2 font-sans text-xs text-foreground-muted">（首选端口被占用，已自动改用）</span>
               ) : null}
             </InfoRow>
-            <InfoRow label="局域网地址" mono>
-              {pairing && pairing.lanUrls.length > 0 ? (
-                <div className="flex flex-col items-end gap-1">
-                  {pairing.lanUrls.map((url) => (
-                    <span key={url}>{url}</span>
-                  ))}
-                </div>
-              ) : (
-                '—'
-              )}
+            {/*
+              地址按**检测出来的那一份**分类型给标签（局域网 / 公网），并在原地就能选「手机优先用
+              哪条」：手机是按候选顺序挨个试的，所以这个选择在宿主那边就表现为「把选中的排最前」。
+              从前这里一律写「局域网地址」——服务器上只有公网地址，那句话正是用户 2026-10-11 报的错。
+            */}
+            <InfoRow label="手机该填的地址">
+              <AddressPicker
+                book={addressBook}
+                port={pairing?.lanPort ?? status.lan.port}
+                value={addressBook?.preferred ?? ''}
+                busy={idle}
+                onChange={onSavePreferred}
+                fallbackUrls={pairing?.lanUrls ?? []}
+              />
             </InfoRow>
           </InfoList>
 

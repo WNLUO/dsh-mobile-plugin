@@ -1,3 +1,10 @@
+/**
+ * 「局域网直连」弹窗：地址与状态是重点，直连端口也归这里改。
+ *
+ * 地址那一行用共用的 `AddressPicker`：它按检测出来的那一份给标签（局域网 / 公网），并就地能选
+ * 「手机优先用哪条」——一台机器好几块网卡时，选中的那条会被宿主排到候选最前（配对卡上是同一个
+ * 选择器，两处共用一份口径，免得各写一遍迟早飘开）。
+ */
 import { Button } from '@appica/ui-react/button'
 import {
   Dialog,
@@ -11,18 +18,23 @@ import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
 import { useEffect, useState } from 'react'
 
-import type { ConfigPatch, StatusView } from '../lib/api.ts'
+import type { AddressBook, ConfigPatch, StatusView } from '../lib/api.ts'
 import { lanText, lanTone } from '../lib/format.ts'
+import { AddressPicker } from './AddressPicker.tsx'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   status: StatusView
-  /** 宿主枚举出来的局域网地址（来自 /api/relay/pairing），可能一个都没有。 */
+  /** 宿主在二维码里给的那串地址：拿不到地址库（老宿主）时退回它，只显示不能选。 */
   lanUrls: string[]
+  /** 宿主枚举的地址库（`/api/relay/addresses`，带网卡名和当前选中的那条），拿不到就是 null。 */
+  addressBook: AddressBook | null
   busy: string
   onSave: (patch: ConfigPatch) => void
+  /** 「手机优先用这条」：点了就存、不关窗，所以和上面那个带保存按钮的 `onSave` 分开。 */
+  onSavePreferred: (address: string) => void
 }
 
 const PORT_MIN = 1024
@@ -38,7 +50,7 @@ const PORT_MAX = 65535
  * 端口那一行平时只报「当前端口」和一个「修改」文字按钮（用户要求）：这扇窗九成时间是拿来看
  * 地址的，把输入框和保存按钮一直摊着，反而让人以为不改点东西就关不掉。
  */
-export function LanDialog({ open, onOpenChange, status, lanUrls, busy, onSave }: Props) {
+export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, busy, onSave, onSavePreferred }: Props) {
   const [portText, setPortText] = useState(String(status.lan.requestedPort))
   /** 点了「修改」才进编辑态；关窗／取消都退回去。 */
   const [editing, setEditing] = useState(false)
@@ -85,17 +97,24 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, busy, onSave }:
                 {...(status.lan.error ? { detail: status.lan.error } : {})}
               />
             </InfoRow>
-            <InfoRow label="局域网地址" mono>
-              {lanUrls.length > 0 ? (
-                <span className="flex flex-col items-end gap-0.5">
-                  {lanUrls.map((url) => (
-                    <span key={url}>{url}</span>
-                  ))}
-                </span>
+            {/*
+              地址与「手机优先用哪条」合成一行（原来是一个只读列表 + 一个下拉）：它们本来就是
+              同一件事——选中的那条要能被认出来，选的动作也得落在同一条上。类型标签与可选范围
+              由 AddressPicker 给（局域网 / 公网，与宿主 advertisedCandidates 同口径）。
+              直连关着时不摆：那时的地址是残留，选它没有意义。
+            */}
+            <InfoRow label="手机该填的地址">
+              {status.lan.enabled ? (
+                <AddressPicker
+                  book={addressBook}
+                  port={status.lan.port}
+                  value={addressBook?.preferred ?? ''}
+                  busy={busy !== ''}
+                  onChange={onSavePreferred}
+                  fallbackUrls={lanUrls}
+                />
               ) : (
-                <span className="font-sans text-foreground-muted">
-                  {status.lan.enabled ? '还没取到，关掉再打开这扇窗会重取一次' : '局域网直连已关闭'}
-                </span>
+                <span className="font-sans text-foreground-muted">局域网直连已关闭</span>
               )}
             </InfoRow>
             <InfoRow label="当前端口" mono>

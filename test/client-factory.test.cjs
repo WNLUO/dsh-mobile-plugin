@@ -355,6 +355,7 @@ function readyStatus(overrides = {}) {
     // 宿主在 `/api/relay/status` 上补的绝对地址（只有这条本机路由带它）。设置项拿它
     // 渲染「打开配置页面」的链接——必须是绝对 http(s)，相对地址在桌面端点不开。
     panelUrl: 'http://127.0.0.1:19387/api/relay/panel',
+    webAccess: { enabled: false, expiresAt: 0 },
     lan: { state: 'listening', enabled: true, port: 18787, requestedPort: 18788 },
     tunnel: { state: 'connected' },
     mirror: { ok: true },
@@ -586,27 +587,22 @@ test('字典注册在启动时一次性完成，且中英键一一对应', () =>
   const dict = env.dictionaries.get(NS);
   assert.ok(dict, `${NS} 字典必须注册`);
   assert.deepEqual(Object.keys(dict.zh).sort(), Object.keys(dict.en).sort());
-  // 键集**逐个钉死**：这一半不可热替换，每多一个键都可能意味着又有人往这里加界面。
-  // 2026-10 拆掉自更新之后只剩这些（导航标签 + 一个链接 + 两句占位）。
+  // 键集**逐个钉死**：客户端 UI 只保留网页入口与本机临时访问开关，不长成第二个管理面板。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
     'cardPanel', 'heading', 'loadFailed', 'nav', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
+    'webAccessClose', 'webAccessError', 'webAccessHint', 'webAccessOff', 'webAccessOn', 'webAccessOpen', 'webAccessUnavailable',
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
 });
 
-/* ── 5. 这一项只剩一件事：把人送去网页版 ─────────────────────────────────
- * 界面本体（连接状态、配对、中转配置、维护）早已搬进宿主吐出的那页 HTML
- * （`GET /api/relay/panel`，源码在 React/）；2026-10 又拆掉了「插件更新」那张卡 ——
- * 插件从 npm 分发、更新交给 DSH 的插件市场，插件自己不再更新任何一个字节。
+/* ── 5. 设置页保留一个薄卡片：网页入口 + 本机临时访问开关 ────────────────
+ * 界面本体（连接状态、配对、中转配置、维护）仍在宿主吐出的网页；这里的开关只限时开放网页管理，
+ * 必须由可信本机设置入口操作。插件更新仍交给 DSH 市场，避免再长出第二个管理面板。
  *
- * 为什么连更新卡都要撤：这一半是渲染器直接从 `node_modules` 读的文件，**不可热替换**
- * （改一次要完整安装 + 重启 DSH），而它自己那次「热更新」只换宿主侧的实现代、根本换不掉
- * 这一半 —— 「更新报成功、界面一动不动」的坑就从这儿来。既然更新改走 npm，这条缝隙没了。
- *
- * 所以下面反向钉住三件事：链接还在、占位还在、别的东西不许长回来。
+ * 下面反向钉住：单卡、绝对地址新标签链接、默认关、窗口固定到期、请求不续期，移动 API 不变。
  */
 
-test('设置项只剩一张卡：网页入口', () => {
+test('设置项仍只有一张卡：网页入口与本机开关', () => {
   const env = materialize();
   const cards = elements(env.render({ 0: readyStatus().panelUrl }))
     .filter((node) => node.type === 'section');
@@ -624,6 +620,38 @@ test('网页入口是绝对地址的新标签页链接，不是同页跳转', ()
   // 相对地址在桌面端会被解析成 `dsh-app://`，而 Electron 只把 http(s) 交给浏览器，
   // 其它协议静默丢弃（点了没反应）—— 所以宿主必须给绝对地址，这里钉住。
   assert.match(link.props.href, /^https?:\/\//);
+});
+
+test('本机设置入口通过同源 POST 开关网页窗口，开放固定两小时文案且可关闭', async () => {
+  const calls = [];
+  let enabled = false;
+  const fetch = async (url, init = {}) => {
+    calls.push({ url, init });
+    if (String(url).endsWith('/status')) {
+      return { ok: true, status: 200, json: async () => readyStatus({ webAccess: { enabled, expiresAt: enabled ? 7_200_000 : 0 } }) };
+    }
+    if (String(url).endsWith('/web-access')) {
+      enabled = JSON.parse(init.body).enabled;
+      return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled, expiresAt: enabled ? 7_200_000 : 0 } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+  const env = materialize({ fetch });
+  env.render();
+  await env.hooks.flush();
+
+  let button = elements(env.render()).find((node) => node.type === 'button' && node.props.onClick);
+  assert.ok(button);
+  assert.equal(texts(button).join(''), '开放网页管理 2 小时');
+  await button.props.onClick();
+  button = elements(env.render()).find((node) => node.type === 'button' && node.props.onClick);
+  assert.equal(texts(button).join(''), '立即关闭网页管理');
+  await button.props.onClick();
+
+  const posts = calls.filter((call) => String(call.url).endsWith('/web-access'));
+  assert.deepEqual(posts.map((call) => JSON.parse(call.init.body).enabled), [true, false]);
+  assert.ok(posts.every((call) => call.init.method === 'POST' && call.init.credentials === 'same-origin'));
+  assert.ok(calls.some((call) => String(call.url).endsWith('/status')));
 });
 
 test('还没问到地址、或宿主没给地址时，入口是禁用的按钮而不是死链', () => {

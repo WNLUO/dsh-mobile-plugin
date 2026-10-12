@@ -111,3 +111,37 @@ test('真实场景：18787 被占时 resolvePort 不该把服务拖死', async (
   await waitFor(async () => r.adjusted || (await canListen(r.port, HOST)), '给出的端口应当可绑');
   if (server) await new Promise((resolve) => server.close(resolve));
 });
+
+test('resolvePort：自己正绑着的端口不算「被占」——原样保留，连试绑都不做', async () => {
+  // 这条钉的是 2026-10-11 的真机故障。局域网代理绑上首选端口之后，任何一次重新解析都会
+  // 把这个**自己占着**的端口判成「被占」，换一个内核随手给的空闲端口回传；调用方再把它
+  // 写回 relay.json——监听没动、落盘端口却一路漂（现场：18787→22779→33091→17079），
+  // 平时看不出来，下次重启按漂过的值绑，手机里存的地址就废了。触发点还不止同步：
+  // 面板上「看一眼二维码」那条只读路由也会解析一次端口。
+  const server = await listen(0);
+  const ours = server.address().port;
+  try {
+    const r = await resolvePort(ours, HOST, { ours });
+    assert.deepEqual(
+      r,
+      { port: ours, adjusted: false, requested: ours, ours: true },
+      '这个号是我们自己占着的，应当原样保留并如实说「是我的」，而不是换号',
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('resolvePort：ours 只对号入座，对不上就照旧探测', async () => {
+  const server = await listen(0);
+  const busy = server.address().port;
+  try {
+    for (const ours of [0, undefined, busy + 1]) {
+      const r = await resolvePort(busy, HOST, { ours });
+      assert.equal(r.adjusted, true, `ours=${ours} 不应当把被占的 ${busy} 认成自己的`);
+      assert.notEqual(r.port, busy);
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

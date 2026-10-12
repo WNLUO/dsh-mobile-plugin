@@ -1,5 +1,7 @@
 'use strict';
 
+/** HTTP 路由守卫约定：localOnly 与可信本机设置入口的边界测试。 */
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
@@ -21,6 +23,26 @@ function fakeRes() {
 function fakeReq(headers = {}, method = 'GET') {
   return { headers, method };
 }
+
+test('网页管理开关只认 loopback 直连与本机 Host，并拒绝代理转发', () => {
+  assert.equal(routing.isLoopbackAddress('127.0.0.1'), true);
+  assert.equal(routing.isLoopbackAddress('127.24.8.9'), true);
+  assert.equal(routing.isLoopbackAddress('::1'), true);
+  assert.equal(routing.isLoopbackAddress('::ffff:127.0.0.1'), true);
+  assert.equal(routing.isLoopbackAddress('192.168.1.2'), false);
+  assert.equal(routing.isLoopbackAddress('203.0.113.10'), false);
+
+  const local = (headers = {}, remoteAddress = '127.0.0.1') => ({
+    headers: { host: '127.0.0.1:19387', ...headers },
+    socket: { remoteAddress },
+  });
+  assert.equal(routing.trustedLocalUi(local()), true);
+  assert.equal(routing.trustedLocalUi(local({ host: '[::1]:19387' }, '::1')), true);
+  assert.equal(routing.trustedLocalUi(local({ host: 'admin.example.com' })), false);
+  assert.equal(routing.trustedLocalUi(local({}, '203.0.113.10')), false);
+  assert.equal(routing.trustedLocalUi(local({ 'x-forwarded-for': '203.0.113.10' })), false);
+  assert.equal(routing.trustedLocalUi({ headers: { host: 'localhost:19387' } }), false);
+});
 
 test('控制面：本机裸请求能过', async () => {
   const res = fakeRes();

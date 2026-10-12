@@ -83,6 +83,32 @@ async function fixtureRoot() {
     '}',
     '',
   ].join('\n'))
+  // iOS 的发布身份写在 pbxproj 里，且**有多处**（target 与 project 各 Debug/Release），
+  // 值必须处处相同 —— 夹具照真实形状造 4 处，才能钉住「写回不遗漏任何一处」。
+  await mkdir(join(root, 'app', 'ios', 'DshApp.xcodeproj'), { recursive: true })
+  const configuration = (id, name) => [
+    `\t\t${id} /* ${name} */ = {`,
+    '\t\t\tisa = XCBuildConfiguration;',
+    '\t\t\tbuildSettings = {',
+    '\t\t\t\tCURRENT_PROJECT_VERSION = 190;',
+    '\t\t\t\tMARKETING_VERSION = 0.2.64;',
+    '\t\t\t};',
+    `\t\t\tname = ${name};`,
+    '\t\t};',
+    '',
+  ].join('\n')
+  await writeFile(join(root, 'app', 'ios', 'DshApp.xcodeproj', 'project.pbxproj'), [
+    '// !$*UTF8*$!',
+    '{',
+    '\tobjects = {',
+    configuration('AAA111', 'Debug'),
+    configuration('BBB222', 'Release'),
+    configuration('CCC333', 'Debug'),
+    configuration('DDD444', 'Release'),
+    '\t};',
+    '}',
+    '',
+  ].join('\n'))
   return root
 }
 
@@ -176,12 +202,33 @@ test('只抬版本名而不给构建号时，构建号必须原样不动', async
   }
 })
 
+test('iOS 的坐标漂开时拒绝，写回时四处全改（不许只剩一半）', async () => {
+  const root = await fixtureRoot()
+  try {
+    const path = join(root, 'app', 'ios', 'DshApp.xcodeproj', 'project.pbxproj')
+    const drifted = (await readFile(path, 'utf8'))
+      .replace('CURRENT_PROJECT_VERSION = 190;', 'CURRENT_PROJECT_VERSION = 191;')
+    await writeFile(path, drifted)
+    await assert.rejects(() => readAppCoordinates(root), /取值不一致/)
+
+    await writeFile(path, drifted.replace('CURRENT_PROJECT_VERSION = 191;', 'CURRENT_PROJECT_VERSION = 190;'))
+    await writeAppCoordinates({ version: '0.2.65', buildNumber: '191' }, root)
+    const after = await readFile(path, 'utf8')
+    const builds = [...after.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map((m) => m[1])
+    const names = [...after.matchAll(/MARKETING_VERSION = ([^;]+);/g)].map((m) => m[1])
+    assert.deepEqual(builds, ['191', '191', '191', '191'])
+    assert.deepEqual(names, ['0.2.65', '0.2.65', '0.2.65', '0.2.65'])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('三处版本名漂开时，读取阶段就报错而不是继续抬版本', async () => {
   const root = await fixtureRoot()
   try {
     const path = join(root, 'app', 'src', 'version.ts')
     await writeFile(path, (await readFile(path, 'utf8')).replace("APP_VERSION = '0.2.64'", "APP_VERSION = '0.2.63'"))
-    await assert.rejects(() => readAppCoordinates(root), /三处不一致/)
+    await assert.rejects(() => readAppCoordinates(root), /多处不一致/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -192,7 +239,7 @@ test('版本名与构建号不一致（version.ts 与 gradle 漂开）时拒绝'
   try {
     const path = join(root, 'app', 'android', 'app', 'build.gradle')
     await writeFile(path, (await readFile(path, 'utf8')).replace('versionCode 190', 'versionCode 191'))
-    await assert.rejects(() => readAppCoordinates(root), /构建号两处不一致/)
+    await assert.rejects(() => readAppCoordinates(root), /构建号多处不一致/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

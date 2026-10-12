@@ -54,6 +54,19 @@ const LEGACY_ROUTES = new Map([
   ['/session/search', '2026-10 App 侧整条下线「侧栏工作区」的会话搜索（见 docs/decisions.md），但插件侧的正文检索透传对旧版 App 仍然有效；它的透传契约（500 码元截断、代理对不劈、宿主错误如实上报）由 test/session-search.test.cjs 完整覆盖，不是无主的死路由'],
 ]);
 
+/**
+ * 插件侧**故意不鉴权**的移动端路由：子路径 → 为什么可以公开。
+ *
+ * 与其余路由的分界线是「配对之前手机手上有没有凭据」：地址体检要在配对之前回答
+ * 「这个地址上是宿主还是中转」（App 侧 services/addressProbe.ts 消费，
+ * 引导页第三页那颗「检测」按钮），那时候手机没有任何 token。它回的话只有服务名与
+ * 版本——不含实例信息、没有任何能力面；中转侧（dsh-mobile-server/server.js）在同一个
+ * 路径上做同一件事，两条路都刻意不鉴权才能分辨对面是谁。
+ */
+const PUBLIC_ROUTES = new Map([
+  ['/health', '地址体检：配对之前就要问「这个地址上是宿主还是中转」。只回 service/apiVersion/version，不含实例信息与能力面；中转侧同路径同样公开'],
+]);
+
 /** 从 PATH 对象里抽出所有 `key: '/子路径'`。 */
 function appSubPaths() {
   const source = fs.readFileSync(APP_PATHS, 'utf8');
@@ -122,11 +135,22 @@ test('路由表是纯表：不出现 shell、系统设置这类越界能力', ()
 
 test('插件里的 handler 全部经守卫挂载，没有裸奔的', () => {
   const table = readRouteTable();
-  const bare = [...table.matchAll(/registerRoute\(\{\s*kind:\s*'exact',\s*path:\s*'\/api\/mobile\/v1[^']*',\s*handler:(?!\s*guarded\()/g)];
-  assert.deepEqual(bare.map((m) => m[0]), [], '移动端路由必须走 guarded()，否则等于没有 token 校验');
+  const bare = [...table.matchAll(/registerRoute\(\{\s*kind:\s*'exact',\s*path:\s*'\/api\/mobile\/v1([^']*)',\s*handler:(?!\s*guarded\()/g)]
+    .map((m) => m[1])
+    .filter((sub) => !PUBLIC_ROUTES.has(sub));
+  assert.deepEqual(bare, [], '移动端路由必须走 guarded()，否则等于没有 token 校验；确需公开请连同 PUBLIC_ROUTES 的判定一起改');
   // 每条注册都该经过 route() 或 guarded()：统计一下两种入口的条数。
   const viaRoute = (table.match(/^\s*route\('/gm) || []).length;
   const viaGuarded = (table.match(/handler:\s*guarded\(/g) || []).length;
   assert.equal(viaGuarded, 2, '直接用 guarded 的只有 status 与 connection-info 两条（它们不走 route()）');
   assert.ok(viaRoute >= 45, `移动端路由条数偏少（${viaRoute}），表可能没挂全`);
+});
+
+test('公开路由清单本身没腐化', () => {
+  const table = readRouteTable();
+  for (const [sub, why] of PUBLIC_ROUTES) {
+    assert.ok(table.includes(`'${API_BASE}${sub}'`), `PUBLIC_ROUTES 里的 ${API_BASE}${sub} 插件侧已经没注册了，请删掉这条豁免`);
+    assert.ok(why.length > 40, `PUBLIC_ROUTES 里的 ${API_BASE}${sub} 得写清为什么可以公开`);
+  }
+  assert.equal(PUBLIC_ROUTES.size, 1, '公开豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
 });

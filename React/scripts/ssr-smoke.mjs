@@ -59,9 +59,34 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb] = await Promise.all([
 ])
 
 const noop = () => {}
+/** 地址库（`/api/relay/addresses`）：一块有线 + 一块无线的局域网地址，另有一条公网。 */
+const addressBook = {
+  ok: true,
+  port: 51864,
+  preferred: '172.16.5.5',
+  lan: [
+    { address: '192.168.31.253', url: 'http://192.168.31.253:51864', interface: 'en0', family: 'IPv4' },
+    { address: '172.16.5.5', url: 'http://172.16.5.5:51864', interface: 'eth1', family: 'IPv4' },
+  ],
+  public: [{ address: '203.0.113.7', url: 'http://203.0.113.7:51864', interface: 'eth0', family: 'IPv4' }],
+}
+
+/** 服务器那台：一条私网都没有，候选全落在公网那份上（用户 2026-10-11 截图那个现场）。 */
+const serverBook = {
+  ok: true,
+  port: 18787,
+  preferred: '',
+  lan: [],
+  public: [
+    { address: '111.180.197.228', url: 'http://111.180.197.228:18787', interface: 'eth0', family: 'IPv4' },
+    { address: '210.16.177.228', url: 'http://210.16.177.228:18787', interface: 'eth1', family: 'IPv4' },
+  ],
+}
+
 const pairingProps = {
   status,
   pairing,
+  addressBook,
   busy: '',
   error: '',
   restartError: null,
@@ -70,6 +95,7 @@ const pairingProps = {
   onReconnect: noop,
   onRestartSidecar: noop,
   onRevokeAll: noop,
+  onSavePreferred: noop,
 }
 const cases = [
   ['ConnectionCard', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onOpenLan: noop })],
@@ -90,9 +116,12 @@ const cases = [
     }),
   ],
   ['ConnectionCard（白名单拒绝）', h(Conn.ConnectionCard, { status: { ...status, tunnel: { state: 'error', error: 'unknown instance: xyz', instanceNotAllowed: true, admissionHint: 'instance-allowlist' } }, busy: '', onToggle: noop, onOpenLan: noop })],
-  ['PairingCard', h(Pair.PairingCard, pairingProps)],
+  ['PairingCard', h(Pair.PairingCard, pairingProps), '局域网地址 · eth1'],
+  ['PairingCard（只有公网地址的机器）', h(Pair.PairingCard, { ...pairingProps, addressBook: serverBook }), '公网地址 · eth0'],
   ['PairingCard（拿不到二维码）', h(Pair.PairingCard, { ...pairingProps, pairing: null, error: '请先启用远程控制并保存配置' })],
   ['PairingCard（重启失败）', h(Pair.PairingCard, { ...pairingProps, busy: 'restart', restartError: 'spawn ENOENT' })],
+  // 老宿主没有 `/api/relay/addresses`：退回配对接口给的那串 URL，只显示、不能选。
+  ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), '192.168.31.253'],
   // 更新卡片现在先问宿主那四条 `/api/relay/update/*`，拿不到才退化成市场那条老路。
   // SSR 里 effect 不跑（`renderToString` 不会执行 useEffect），所以两条分支都不进：
   // 这一遍只冒烟「标题 + 正在读状态」那一屏。宿主 / 市场两条完整分支要用真浏览器看
@@ -100,8 +129,8 @@ const cases = [
   ['UpdateCard', h(Upd.UpdateCard, { version: '0.1.47', busy: '', onRestartSidecar: noop }), '插件更新'],
   ['UpdateCard（正在重启 sidecar）', h(Upd.UpdateCard, { version: '0.1.47', busy: 'restart', onRestartSidecar: noop })],
   ['RelayConfigDialog', h(Dialog.RelayConfigDialog, { open: true, onOpenChange: noop, status, busy: '', onSave: noop })],
-  ['LanDialog', h(Lan.LanDialog, { open: true, onOpenChange: noop, status, lanUrls: pairing.lanUrls, busy: '', onSave: noop })],
-  ['LanDialog（没地址）', h(Lan.LanDialog, { open: true, onOpenChange: noop, status: { ...status, lan: { ...status.lan, enabled: false, state: 'off', port: 0 } }, lanUrls: [], busy: 'lan', onSave: noop })],
+  ['LanDialog', h(Lan.LanDialog, { open: true, onOpenChange: noop, status, lanUrls: pairing.lanUrls, addressBook, busy: '', onSave: noop, onSavePreferred: noop })],
+  ['LanDialog（没地址）', h(Lan.LanDialog, { open: true, onOpenChange: noop, status: { ...status, lan: { ...status.lan, enabled: false, state: 'off', port: 0 } }, lanUrls: [], addressBook: null, busy: 'lan', onSave: noop, onSavePreferred: noop })],
   ['App（首屏）', h(Alert.App)],
   // 引导页只看得到第一页：后面几页靠页面内部状态推进，SSR 里 effect 不跑。
   // 四页的完整流程要用浏览器点（见 .../api/relay/panel/setup）。

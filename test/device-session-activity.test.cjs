@@ -270,6 +270,12 @@ test('正文水位经镜像推送广播到设备级 SSE（先推镜像再广播�
 
     // 水位只增不减：同一份快照再推一次（指纹相同会被上层跳过，这里直接验总线语义）。
     assert.equal(sharedSessionSignal.bump(SID, 9), false, '同一水位重复广播会变成刷新风暴');
+
+    // 完整清单确认会话已归档/删除后，pusher 应从重连回放集合中移除该会话。
+    state.items = [];
+    h.tick(500);
+    await flush();
+    assert.equal(sharedSessionSignal.peek(SID), 0, '归档会话的旧水位不应在重连时复活');
   } finally {
     stop();
     // 客户端断开（RN 侧切页面 / 重建连接）：流必须收尾并注销水位订阅者。
@@ -360,7 +366,7 @@ test('隧道断开/局域网模式：正文水位照样广播，且不往 sideca
   }
 });
 
-test('水位总线：按会话判重、只增不减、超限淘汰最早的会话', () => {
+test('水位总线：按会话判重、当前集合完整保留、非当前超限淘汰最早项', () => {
   const signal = createSessionSignal();
   const seen = [];
   const release = signal.onBump((event) => seen.push(event));
@@ -391,6 +397,16 @@ test('水位总线：按会话判重、只增不减、超限淘汰最早的会�
   for (let i = 0; i <= MAX_TRACKED; i += 1) signal.bump(`s-${i}`, 1);
   assert.equal(Object.keys(signal.snapshot()).length, MAX_TRACKED, '水位表必须被限制在上界内');
   assert.equal(signal.peek(`s-${MAX_TRACKED}`), 1, '刚广播的会话水位不能被淘汰');
+
+  signal.reset();
+  const currentIds = Array.from({ length: MAX_TRACKED + 16 }, (_, index) => `current-${index}`);
+  signal.retain(currentIds);
+  for (const id of currentIds) signal.bump(id, 1);
+  assert.equal(Object.keys(signal.snapshot()).length, currentIds.length, '完整清单中的当前会话不受非当前LRU上限影响');
+  assert.equal(signal.peek(currentIds[0]), 1, '超过512的当前会话水位仍可重连回放');
+  signal.retain(currentIds.slice(16));
+  assert.equal(signal.peek(currentIds[0]), 0, '权威清单移除的会话水位被清掉');
+  assert.equal(Object.keys(signal.snapshot()).length, MAX_TRACKED, '移除前16个当前会话后保留其余完整水位');
 
   signal.reset();
   assert.deepEqual(signal.snapshot(), {});

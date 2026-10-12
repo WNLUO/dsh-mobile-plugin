@@ -18,10 +18,26 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const CONTROL_PLANE = path.join(__dirname, '..', 'lib', 'routes', 'control-plane.js');
+const {
+  WEB_ACCESS_ROUTES,
+  WEB_ACCESS_WINDOW_MS,
+  createWebAccessWindow,
+  createWebAccessLocalOnly,
+} = require(CONTROL_PLANE);
 
 /** 允许不挂 localOnly 的控制面路由：key → 为什么。 */
 const NO_LOCAL_ONLY = new Map([
   ['/api/relay/internal/approval', '由中转与局域网代理代转，没有本机 socket 可言；身份靠 sidecarToken（中转 ↔ worker 共享密钥），不是「这条路由不重要」的例外'],
+]);
+
+/** 不随网页管理窗口关闭的控制面通道：必须逐条说明用途。 */
+const NO_WEB_ACCESS = new Map([
+  ['/api/relay/internal/approval', '中转与 sidecar 的内部审批通道，依赖 sidecarToken，不由网页面板调用'],
+  ['/api/relay/desktop-view', '桌面客户端自身的工作区状态同步，不能随网页管理窗口停止'],
+  ['/api/relay/read-receipt', '桌面端轮询上报回执以同步本地已读状态，属于客户端功能，不是网页管理面板。'],
+  ['/api/relay/client-half', '桌面客户端每 10 秒上报存活与故障自检状态，不能随网页管理窗口停止。'],
+  ['/api/relay/desktop-read', '桌面客户端轮询同步已读会话，属于手机与桌面协同通道，不是网页管理接口。'],
+  ['/api/relay/web-access', '开关路由本身必须始终可达，但 handler 只接受可信本机设置入口'],
 ]);
 
 /**
@@ -47,6 +63,7 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
   const known = new Set(routes.map((r) => r.path));
   for (const expected of [
     '/api/relay/internal/approval',
+    '/api/relay/web-access',
     '/api/relay/status',
     // 面板页（设置界面搬进宿主吐的 HTML）与它的「引导走完了」标记。
     // 面板页三个地址：自己分流 / 强制引导 / 强制主页。
@@ -63,6 +80,10 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/regenerate',
     '/api/relay/revoke-all',
     '/api/relay/config',
+    // 面板上「检查端口」用的真实探针：只读、只试绑，不写配置。
+    '/api/relay/check-port',
+    // 面板显示「手机该填哪个地址」用：检测到的局域网 / 公网地址，只读。
+    '/api/relay/addresses',
     '/api/relay/reconnect',
     '/api/relay/restart-sidecar',
     // 自更新那四条（2026-10 搬回外壳之后重新有）：状态 / 查更新 / 装并就地换代 / 自动开关。
@@ -112,13 +133,30 @@ test('改配置的路由逐字段校验，不接受任意键', () => {
   assert.notEqual(at, -1);
   const end = source.indexOf('registerRoute', at + 1);
   const route = source.slice(at, end < 0 ? at + 1600 : end);
-  for (const field of ['relayUrl', 'lanEnabled', 'lanPort', 'name', 'pairingPolicy', 'registerSecret']) {
+  for (const field of ['relayUrl', 'lanEnabled', 'lanPort', 'name', 'pairingPolicy', 'registerSecret', 'preferredLanAddress']) {
     assert.ok(route.includes(`patch.${field}`), `config 路由必须逐字段校验并只写白名单字段，缺 ${field}`);
   }
   // 端口范围与注册密钥长度是防呆，别被"顺手清理"掉。
   assert.match(route, /body\.lanPort >= 1024 && body\.lanPort <= 65535/, '端口范围校验');
   assert.match(route, /body\.registerSecret\.length <= 512/, '注册密钥长度校验');
+  // 「手机优先用哪条地址」的**空串是合法值**（= 改回按宿主的网卡顺序自动选），所以它只挡
+  // 类型和长度，不能照着 name 那样加一句非空判断：加了，这个选择一旦存下去就再也清不掉。
+  assert.match(route, /typeof body\?\.preferredLanAddress === 'string'/, '优先地址只挡类型');
+  assert.match(route, /body\.preferredLanAddress\.length <= 64/, '优先地址要有长度上限');
   assert.ok(!/\.\.\.body\b/.test(route), '不许把请求体整体透传进 settings.update');
+});
+
+test('面板的地址库把「现在选的是哪条」报出来，界面才回显得出', () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const at = source.indexOf("'/api/relay/addresses'");
+  assert.notEqual(at, -1);
+  const end = source.indexOf('registerRoute', at + 1);
+  const route = source.slice(at, end < 0 ? at + 900 : end);
+  // 只回显，不在这条上做排序：选择真正的落点是二维码与 connection-info 的候选顺序
+  // （见 lib/relay/lan-network.cjs 的 orderCandidates）。少了这个字段，界面就不知道
+  // 用户上次选的是哪条，只能每次都装作「默认第一条」，选择也就永远看不到。
+  assert.match(route, /preferred/, '地址库要带上用户选的那条');
+  assert.match(route, /state\.preferredLanAddress/, '取值来源是设置项 preferredLanAddress');
 });
 
 test('面板读不到时报的是能定位的诊断，不是一句「还没构建」', () => {
@@ -131,4 +169,67 @@ test('面板读不到时报的是能定位的诊断，不是一句「还没构�
   assert.match(body, /panelDiagnosis\(\)/, 'servePanel 必须现场算诊断：三种现场（没重启 / 老版本 / 没构建）分不开，现场就会白折腾');
   assert.match(body, /code: 'panel_missing'/, 'panel_missing 这个 code 要留着');
   assert.ok(!source.includes('面板页面还没构建'), '写死的那句构建提示已被按现场分的诊断取代，别退回去');
+});
+
+test('网页管理访问窗口只保护管理面板路由，例外路由逐条说明', () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const routes = registrations(source).map((route) => route.path).filter((route) => route.startsWith('/api/relay/'));
+  for (const route of routes) {
+    assert.ok(
+      WEB_ACCESS_ROUTES.has(route) || NO_WEB_ACCESS.has(route),
+      `${route} 必须纳入网页访问窗口，或在 NO_WEB_ACCESS 写明理由`,
+    );
+  }
+  for (const route of WEB_ACCESS_ROUTES) assert.ok(routes.includes(route), `保护清单里的 ${route} 已不存在`);
+  for (const [route, reason] of NO_WEB_ACCESS) {
+    assert.ok(routes.includes(route), `NO_WEB_ACCESS 里的 ${route} 已不存在，请删除豁免`);
+    assert.ok(reason.length > 20, `${route} 的豁免理由要写清楚`);
+  }
+});
+
+test('网页管理窗口默认关闭、固定两小时且访问不续期', () => {
+  let wall = 1_000_000;
+  let monotonic = 500;
+  const window = createWebAccessWindow({ now: () => wall, monotonicNow: () => monotonic });
+  assert.deepEqual(window.status(), { enabled: false, expiresAt: 0 });
+  const opened = window.enable();
+  assert.deepEqual(opened, { enabled: true, expiresAt: wall + WEB_ACCESS_WINDOW_MS });
+  monotonic += 1_000;
+  wall += 1_000;
+  assert.deepEqual(window.status(), opened, '读取状态与请求访问不能滑动延长到期点');
+  monotonic += WEB_ACCESS_WINDOW_MS - 1_001;
+  assert.equal(window.isOpen(), true);
+  monotonic += 1;
+  assert.deepEqual(window.status(), { enabled: false, expiresAt: 0 });
+  assert.deepEqual(window.enable(), { enabled: true, expiresAt: wall + WEB_ACCESS_WINDOW_MS });
+  assert.deepEqual(window.disable(), { enabled: false, expiresAt: 0 });
+});
+
+test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；开窗后放行管理 API', async () => {
+  let monotonic = 0;
+  const window = createWebAccessWindow({ now: () => 10_000, monotonicNow: () => monotonic });
+  const sent = [];
+  const guard = createWebAccessLocalOnly({
+    localOnly: (_method, handler) => handler,
+    trustedLocalUi: (req) => req.trusted === true,
+    webAccessWindow: window,
+    sendJson: (res, status, body) => { res.status = status; res.body = body; sent.push(status); },
+  });
+  let reached = 0;
+  const handler = guard('GET', async () => { reached += 1; });
+  const remote = { url: '/api/relay/config?from=web', trusted: false };
+  const denied = {};
+  await handler(remote, denied);
+  assert.equal(denied.status, 423);
+  assert.equal(denied.body.error.code, 'web_access_closed');
+  assert.equal(reached, 0);
+  await handler({ url: '/api/relay/config', trusted: true }, {});
+  assert.equal(reached, 1, '本机仍可管理，不必先开公网窗口');
+  window.enable();
+  await handler(remote, {});
+  assert.equal(reached, 2, '开窗后公网同源管理请求才放行');
+  const sync = guard('GET', async () => { reached += 1; });
+  await sync({ url: '/api/relay/read-receipt', trusted: false }, {});
+  assert.equal(reached, 3, '桌面同步通道不受面板窗口影响');
+  assert.deepEqual(sent, [423]);
 });
