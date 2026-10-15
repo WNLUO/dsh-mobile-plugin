@@ -12,9 +12,8 @@
  * 根因有两处，都在透传层：
  *  1. 宿主 `sessions.list` **不按归档过滤**——「哪些会话已归档」只存在于
  *     `workspace.list` 的 `archivedSessionIds`（见 dsh-host-apiproxy workspace.list），
- *     而移动端此前从不读这个集合；
- *  2. `workspaces.js` 的 `buildWorkspacesBody` 只保留 `items`，把
- *     `archivedSessionIds` 整个丢掉，所以将来要做「取消归档」也没有数据来源。
+ *     移动端必须读这个集合过滤会话；
+ *  2. 工作区 revision 只覆盖 `items`，归档集合变化时镜像判重会跳过新快照，桌面端仍显示旧归档状态。
  * 于是 App 的归档在移动端表现为一次毫无反馈的空操作。
  *
  * 本测试驱动真实的 `buildSessionsResponse` / `buildWorkspacesBody`（不是转写实现）。
@@ -24,23 +23,23 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { buildSessionsResponse } = require('../lib/mobile/sessions.js');
+const { buildSessionsResponse, handleSessions } = require('../lib/mobile/sessions.js');
 const { buildWorkspacesBody } = require('../lib/mobile/workspaces.js');
 
 const ARCHIVED_ID = 'session-archived-1';
 const KEPT_ID = 'session-kept-2';
 
 /** 造一个与真实宿主同形的 ctx：sessions.list 返回全部（含已归档），workspace.list 带 archivedSessionIds。 */
-function makeCtx({ archivedSessionIds = [ARCHIVED_ID], workspaceThrows = false } = {}) {
-  const items = [
+function makeCtx({ archivedSessionIds = [ARCHIVED_ID], workspaceThrows = false, workspaceItems = null } = {}) {
+  const sessionItems = [
     { sessionId: ARCHIVED_ID, cwd: '/ws/a', updatedAt: 2000, running: false, blank: false },
     { sessionId: KEPT_ID, cwd: '/ws/a', updatedAt: 1000, running: false, blank: false },
   ];
   return {
-    items,
+    items: sessionItems,
     apiProxy: {
       sessions: {
-        list: async () => ({ result: { ok: true, value: { items } } }),
+        list: async () => ({ result: { ok: true, value: { items: sessionItems } } }),
         history: async () => ({ result: { ok: true, value: { events: [] } } }),
       },
       workspace: {
@@ -49,7 +48,7 @@ function makeCtx({ archivedSessionIds = [ARCHIVED_ID], workspaceThrows = false }
           return {
             result: {
               ok: true,
-              value: { items: [{ workspaceId: 'w1', path: '/ws/a', title: 'a', sessionIds: [] }], archivedSessionIds },
+              value: { items: workspaceItems || [{ workspaceId: 'w1', path: '/ws/a', title: 'a', sessionIds: [] }], archivedSessionIds },
             },
           };
         },
@@ -81,17 +80,72 @@ test('宿主没给 archivedSessionIds 时不得误删任何会话', async () => 
   assert.equal(response.body.items.length, 2);
 });
 
+test('归档分页在过滤后切片并报告后续页', async () => {
+  const ctx = makeCtx();
+  const archivedIds = ['arch-1', 'arch-2', 'arch-3'];
+  ctx.items.splice(0, ctx.items.length,
+    ...archivedIds.map((sessionId, index) => ({ sessionId, updatedAt: 3000 - index, running: false })),
+    { sessionId: KEPT_ID, updatedAt: 1000, running: false });
+  ctx.apiProxy.workspace.list = async () => ({
+    result: { ok: true, value: { items: [], archivedSessionIds: archivedIds } },
+  });
+  const first = await buildSessionsResponse(ctx, 'device', 0, false, true, { offset: 0, limit: 2 });
+  assert.deepEqual(first.body.items.map(item => item.sessionId), archivedIds.slice(0, 2));
+  assert.equal(first.body.hasMore, true);
+  assert.equal(first.body.emptyConfirmed, false);
+
+  const last = await buildSessionsResponse(ctx, 'device', 0, false, true, { offset: 2, limit: 2 });
+  assert.deepEqual(last.body.items.map(item => item.sessionId), ['arch-3']);
+  assert.equal(last.body.hasMore, false);
+  assert.equal(last.body.emptyConfirmed, false);
+});
+
+test('未带分页参数的旧客户端仍收到完整归档列表', async () => {
+  const ctx = makeCtx();
+  const response = await buildSessionsResponse(ctx, 'device', 0, false, true);
+  assert.deepEqual(response.body.items.map(item => item.sessionId), [ARCHIVED_ID]);
+  assert.equal(response.body.hasMore, false);
+});
+
+test('请求只带 offset 时仍使用默认页长 50', async () => {
+  const ctx = makeCtx();
+  const archivedIds = Array.from({ length: 60 }, (_, index) => `arch-${index}`);
+  ctx.items.splice(0, ctx.items.length,
+    ...archivedIds.map((sessionId, index) => ({ sessionId, updatedAt: 3000 - index, running: false })));
+  ctx.apiProxy.workspace.list = async () => ({
+    result: { ok: true, value: { items: [], archivedSessionIds: archivedIds } },
+  });
+  let status;
+  let body;
+  await handleSessions(ctx, {
+    url: '/api/mobile/v1/sessions?archived=1&offset=0',
+    headers: {},
+  }, {
+    writeHead(value) { status = value; },
+    end(value) { body = JSON.parse(value); },
+  });
+  assert.equal(status, 200);
+  assert.equal(body.items.length, 50);
+  assert.equal(body.hasMore, true);
+  assert.equal(body.emptyConfirmed, false);
+});
+
 test('归档集合里的非字符串值被忽略', async () => {
   const ctx = makeCtx({ archivedSessionIds: [ARCHIVED_ID, 42, null, { id: 'x' }] });
   const response = await buildSessionsResponse(ctx);
   assert.deepEqual(response.body.items.map(item => item.sessionId), [KEPT_ID]);
 });
 
-test('工作区快照原样透传 archivedSessionIds（此前被丢掉）', async () => {
-  const body = await buildWorkspacesBody(makeCtx({ archivedSessionIds: [ARCHIVED_ID, 7] }));
-  assert.equal(body.ok, true);
-  assert.equal(body.items.length, 1);
-  assert.deepEqual(body.archivedSessionIds, [ARCHIVED_ID]);
+test('工作区快照透传归档集合，且归档变化会改变 revision', async () => {
+  const workspaceItems = [{ workspaceId: 'w1', path: '/ws/a', title: 'a', sessionIds: [] }];
+  const archived = await buildWorkspacesBody(makeCtx({ archivedSessionIds: [ARCHIVED_ID, 7], workspaceItems }));
+  const unarchived = await buildWorkspacesBody(makeCtx({ archivedSessionIds: [], workspaceItems }));
+  assert.equal(archived.ok, true);
+  assert.equal(archived.items.length, 1);
+  assert.deepEqual(archived.archivedSessionIds, [ARCHIVED_ID]);
+  assert.deepEqual(unarchived.items, archived.items);
+  assert.deepEqual(unarchived.archivedSessionIds, []);
+  assert.notEqual(archived.revision, unarchived.revision);
 });
 
 test('工作区快照在宿主报错时照旧返回错误体', async () => {

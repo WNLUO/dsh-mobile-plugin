@@ -3,10 +3,12 @@ import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
+import * as React from 'react'
 
 import type { StatusView } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
+import { RevealButton } from './RevealButton.tsx'
 
 type Props = {
   status: StatusView
@@ -26,10 +28,14 @@ type Props = {
  * 自己的配置，都塞进这一行的右半边只会把卡片挤变形，所以详情与配置一起放进
  * 「局域网直连」弹窗。这一行也不带状态点（用户要求）：点绿了点红了都只是告诉一半的话，
  * 通没通、为什么没通，都在弹窗里说。
+ *
+ * 「中转地址」这一行带眼睛、默认遮上：和配对卡里那一行是同一个值（都是中转服务器地址），
+ * 配对卡上遮了、这里露着，遮了等于没遮。
  */
 export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
+  const [showRelay, setShowRelay] = React.useState(false)
 
   return (
     <Card frame="solid">
@@ -64,8 +70,20 @@ export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
         <InfoRow label="平台">
           {status.platform} {status.osVersion} · {status.arch}
         </InfoRow>
-        <InfoRow label="中转地址" mono>
-          {status.relayUrl || '—'}
+        <InfoRow label="中转地址">
+          <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+            {showRelay ? (
+              <span className="min-w-0 font-mono text-xs text-foreground-strong">{status.relayUrl || '—'}</span>
+            ) : (
+              <span className="text-xs text-foreground-subtle">已隐藏</span>
+            )}
+            <RevealButton
+              on={showRelay}
+              what="中转地址"
+              label={showRelay ? '隐藏' : '显示'}
+              onClick={() => setShowRelay((on) => !on)}
+            />
+          </span>
         </InfoRow>
         <InfoRow
           label="中转隧道"

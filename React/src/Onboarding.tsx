@@ -9,6 +9,14 @@ import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react
 import { Badge } from '@appica/ui-react/badge'
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@appica/ui-react/dialog'
 import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
 import { Progress } from '@appica/ui-react/progress'
@@ -31,6 +39,7 @@ import {
   type StatusView,
 } from './lib/api.ts'
 import { cn, lanText, lanTone, tunnelText, tunnelTone } from './lib/format.ts'
+import { APP_DOWNLOAD_URL } from './lib/links.ts'
 
 /**
  * 首次安装后的接入引导：四页走完，插件就接得上手机。
@@ -41,8 +50,10 @@ import { cn, lanText, lanTone, tunnelText, tunnelTone } from './lib/format.ts'
  *   哪一个地址，界面上直接列出检测到的局域网 / 公网地址，不用先选一次（2026-10-11 起
  *   原本的「在局域网内使用」与「DSH 装在服务器上」合成这一条）；
  * - 自己有中转服务器的人：填自己那台的地址，走它转发；
- * - 用官方中转的人：地址是固定的，缺的只是那把授权密钥。
- * 后两条各自只问这条路真正需要的东西。
+ * - 想要中转、但不想自己维护服务器的人：点「一键部署」把仓库里带的那个 Worker 部署到自己的
+ *   Cloudflare 账号，部署完那个 Worker 的首页就把中转地址摆出来了，复制回来填在同一个框里
+ *   ——第三页与上一条完全一样，两条只在「地址从哪来」上有别。
+ * 官方中转的配置分支保留在实现中，但当前不作为可选场景展示。
  *
  * 第四页不是一句干巴巴的「完成」：这里摆出二维码与配对码，再把人送进插件主页。
  * 连接结果靠轮询宿主状态得出，引导页不自己猜，也不假报成功——「手机来没来」也是
@@ -53,7 +64,7 @@ import { cn, lanText, lanTone, tunnelText, tunnelTone } from './lib/format.ts'
  * `.../api/relay/panel/setup` 强制走这一趟（也就是下面 `replay` 那个开关的用途）。
  */
 
-type Scenario = 'direct' | 'self' | 'official'
+type Scenario = 'direct' | 'self' | 'worker' | 'official'
 
 type Props = {
   /** 走完流程后去哪。默认回插件主页。 */
@@ -65,11 +76,21 @@ type Props = {
 /** 官方中转的地址。手机端一份域名都不预置，这里是这台电脑连出去用的地址。 */
 const OFFICIAL_RELAY_URL = 'https://dsh-hub.wnluo.com'
 
+/** 自建中转的方向指引（怎么自己弄一台公网服务器、反代和证书）。 */
+const RELAY_SETUP_URL = 'https://github.com/WNLUO/dsh-mobile-plugin/blob/main/RELAY-SETUP.md'
+
+/**
+ * Cloudflare 的一键部署入口。
+ *
+ * `?url=` 指到公开仓库里的那个目录，Cloudflare 会把它复制成用户自己账号下的一份并部署；
+ * 用户不用装 wrangler、不用买服务器、也不用有自己的域名（默认给 `workers.dev` 地址）。
+ * 地址里的 `tree/main/cloudflare` 是**那个仓库**的布局，改仓库/改目录都得跟着改这里。
+ */
+const RELAY_DEPLOY_URL =
+  'https://deploy.workers.cloudflare.com/?url=https://github.com/WNLUO/dsh-mobile-server/tree/main/cloudflare'
+
 /** 直连端口的默认值，取宿主自己的默认端口（`lib/relay/core.js` 的 `defaultState()`）。 */
 const DEFAULT_DIRECT_PORT = '18787'
-
-/** 手机 App 的下载页（App 分发平台上的应用 14）。第一次装的人得先有 App 才能扫码。 */
-const APP_DOWNLOAD_URL = 'https://app.wnluo.com/public/apps/14'
 
 /**
  * 「检查端口」那颗按钮的结果。
@@ -89,10 +110,21 @@ type ScenarioItem = {
   id: Scenario
   title: string
   detail: string
-  /** 还没做好的那条路：列出来让人知道有这条路，但不给选（选了也接不上）。 */
-  disabled?: boolean
-  /** 这一条右边多一颗「搭建教程」按钮（教程地址待定，按钮先摆上）。 */
-  tutorial?: boolean
+  /**
+   * 这一条右边那颗按钮（开新标签页）。
+   *
+   * `selectOnClick` 为真时，点它顺带把这一条选中——「一键部署」就是这个意思：点下去
+   * 等于在说「我要走这条路」，不该让人家部署完回来发现自己还没选中。
+   */
+  action?: { label: string; url: string; selectOnClick?: boolean }
+  /**
+   * 这一条的「附属教程」：一颗按钮，点开是弹窗。
+   *
+   * 只给「一键部署」那条用——它按下去就跳到我们管不着的 Cloudflare 部署页，而那页会问
+   * 什么、哪一栏要自己决定，得在他按之前讲清楚。这些话平铺在行里会把一条选项撑成一大段，
+   * 所以收进弹窗，外面只留一颗按钮。
+   */
+  tutorial?: { label: string; steps: string[] }
 }
 
 const SCENARIOS: ScenarioItem[] = [
@@ -108,14 +140,28 @@ const SCENARIOS: ScenarioItem[] = [
     id: 'self',
     title: '自己搭建了服务器后端',
     detail: '你已经有自己的中转服务器，把它填进来，由它转发。',
-    disabled: true,
-    tutorial: true,
+    action: { label: '搭建教程', url: RELAY_SETUP_URL },
   },
   {
-    id: 'official',
-    title: '使用我提供的中转服务',
-    detail: '用现成的中转，手机在任何网络下都能连回来。需要授权。',
-    disabled: true,
+    id: 'worker',
+    // 原来只有「自己有服务器」这一条路，没有服务器的人看完只能放弃。这条路与上一条
+    // 填的东西一模一样，差别只在地址是点出来的、不是自己搭出来的。
+    title: '用 Cloudflare 一键部署一个中转',
+    detail: '不想自己维护服务器就走这条：点一下，把中转部署到你自己的 Cloudflare 账号。',
+    // 教程放在按之前能点开的地方：`window.open` 会把新标签页推到前台，按完再弹的任何
+    // 提示，在他最需要看的那一刻都是看不见的。
+    tutorial: {
+      label: '部署教程',
+      steps: [
+        '点「一键部署」会新开一个标签页，那就是 Cloudflare 的部署页（标题是「创建应用」）。',
+        '那一页只有 RELAY_SECRET 一栏要你自己决定：框里已经预填了一串，但那是公开的示例值，请换成一串只有你自己知道的随机字符（至少 32 位，越长越好）。',
+        '其余几栏都不用动：构建命令留空，部署命令是 npm run deploy，预览命令是 npx wrangler preview。',
+        '点右下角的「部署」，第一次跑要等一两分钟。',
+        '部署成功后，在这个 Worker 页面点上方「域」；也可以点「设置」→「域和路由」，找到 workers.dev 项并复制完整网址。网址通常是 https://<Worker名称>.<账号子域>.workers.dev；不要复制当前的构建日志页地址。',
+        '把刚复制的网址在浏览器打开，Worker 首页会显示中转地址，点旁边的复制按钮。回到这里填在下一步的「中转地址」里，手机那边也填同一个地址。',
+      ],
+    },
+    action: { label: '一键部署', url: RELAY_DEPLOY_URL, selectOnClick: true },
   },
 ]
 
@@ -186,6 +232,8 @@ export function Onboarding({ onDone, replay = false }: Props) {
   const [preferred, setPreferred] = useState('')
   /** 「检查端口」的结果。idle 时一个字都不显示，别让刚进这一步的人先看到一屏提示。 */
   const [portProbe, setPortProbe] = useState<PortProbe>({ kind: 'idle' })
+  // 当前摊开的「附属教程」（null = 弹窗关着）。
+  const [tutorialDoc, setTutorialDoc] = useState<{ title: string; steps: string[] } | null>(null)
 
   /** 轮询要能被卸载打断，否则关掉页面后它还在打接口。 */
   const alive = useRef(true)
@@ -351,7 +399,7 @@ export function Onboarding({ onDone, replay = false }: Props) {
       : []
 
   const nameMissing = name.trim() === ''
-  const urlMissing = scenario === 'self' && !isHttpUrl(relayUrl)
+  const urlMissing = isRelay() && !isHttpUrl(relayUrl)
   const secretMissing = scenario === 'official' && secret.trim() === ''
   // 直连的两条端口必填：留空宿主虽然会自己挑一个，但那个号用户不知道，也就无从去放行。
   // 默认给宿主自己的默认端口，一般人不用改。
@@ -394,6 +442,16 @@ export function Onboarding({ onDone, replay = false }: Props) {
   /** 直连那条看直连代理在不在听，中转的看隧道有没有握上手。 */
   function isDirect(): boolean {
     return scenario === 'direct'
+  }
+
+  /**
+   * 要用户自己弄一个中转的那两条（自己搭的、一键部署的）。
+   *
+   * 它们只差「地址从哪来」，填的东西、校验、标题都该按这一条判——分成两个场景各写一遍
+   * 迟早只改一处，出现「这条填了没反应、那条没填却能过」。
+   */
+  function isRelay(): boolean {
+    return scenario === 'self' || scenario === 'worker'
   }
 
   function readyOf(current: StatusView): boolean {
@@ -501,7 +559,9 @@ export function Onboarding({ onDone, replay = false }: Props) {
             ? '手机怎么连过来'
             : scenario === 'self'
               ? '填你服务器那台的信息'
-              : '填官方中转的接入信息'
+              : scenario === 'worker'
+                ? '把部署好的地址填进来'
+                : '填官方中转的接入信息'
           // 标题只说这一页要**做什么**，不说「已经连上了」——手机还没扫呢，
           // 说连上了就是在骗人（2026-10-11 用户报的原文）。
           : '用手机扫这个码'
@@ -567,41 +627,67 @@ export function Onboarding({ onDone, replay = false }: Props) {
 
           {step === 1 ? (
             <RadioGroup value={scenario ?? ''} onValueChange={(value) => pick(value as Scenario)} className="gap-3">
-              {SCENARIOS.map((item) => (
-                <label
-                  key={item.id}
-                  className={cn(
-                    'flex items-start gap-3 rounded-lg border p-4 transition-colors',
-                    item.disabled
-                      ? 'cursor-not-allowed border-border-muted bg-background-muted opacity-60'
-                      : scenario === item.id
+              {SCENARIOS.map((item) => {
+                // 取成本地常量：TS 不会把 `item.action` / `item.tutorial` 的非空收窄带进
+                // 下面那两个回调里。
+                const action = item.action
+                const tutorial = item.tutorial
+                return (
+                  <label
+                    key={item.id}
+                    className={cn(
+                      'flex items-start gap-3 rounded-lg border p-4 transition-colors',
+                      scenario === item.id
                         ? 'cursor-pointer border-border-emphasis bg-background-subtle'
                         : 'cursor-pointer border-border-muted bg-background-muted hover:border-border-strong',
-                  )}
-                >
-                  <Radio value={item.id} className="mt-0.5" aria-label={item.title} disabled={item.disabled === true} />
-                  <span className="flex flex-1 flex-col gap-1">
-                    <span className="text-sm font-medium text-foreground-intense">{item.title}</span>
-                    <span className="text-xs text-foreground-muted">{item.detail}</span>
-                    {item.disabled ? <span className="text-xs text-foreground-subtle">还没做好，暂时不能选。</span> : null}
-                  </span>
-                  {item.tutorial ? (
-                    <Button
-                      className="shrink-0 self-center"
-                      variant="outline"
-                      size="sm"
-                      type="button"
-                      onClick={(event) => {
-                        // 点按钮不该连带选中这一条；教程地址待定，先不做跳转。
-                        event.preventDefault()
-                        event.stopPropagation()
-                      }}
-                    >
-                      搭建教程
-                    </Button>
-                  ) : null}
-                </label>
-              ))}
+                    )}
+                  >
+                    <Radio value={item.id} className="mt-0.5" aria-label={item.title} />
+                    <span className="flex flex-1 flex-col gap-1">
+                      <span className="text-sm font-medium text-foreground-intense">{item.title}</span>
+                      <span className="text-xs text-foreground-muted">{item.detail}</span>
+                    </span>
+                    {tutorial || action ? (
+                      <span className="flex shrink-0 items-center gap-2 self-center">
+                        {tutorial ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            onClick={(event) => {
+                              // 跟 `action` 一样先拦一道：这是颗「看说明」的按钮，不该顺手
+                              // 改掉用户已经选好的那条。
+                              event.preventDefault()
+                              event.stopPropagation()
+                              setTutorialDoc({ title: item.title, steps: tutorial.steps })
+                            }}
+                          >
+                            {tutorial.label}
+                          </Button>
+                        ) : null}
+                        {action ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            type="button"
+                            onClick={(event) => {
+                              // 这颗按钮在 `<label>` 里，不拦一下的话点它会连带把这一行选中——
+                              // 「搭建教程」只是去看文档，不该顺手改掉用户已经选好的那条。
+                              event.preventDefault()
+                              event.stopPropagation()
+                              // 反过来「一键部署」要的就是这个连带：点它就是在说「我要走这条路」。
+                              if (action.selectOnClick) pick(item.id)
+                              window.open(action.url, '_blank', 'noopener,noreferrer')
+                            }}
+                          >
+                            {action.label}
+                          </Button>
+                        ) : null}
+                      </span>
+                    ) : null}
+                  </label>
+                )
+              })}
             </RadioGroup>
           ) : null}
 
@@ -610,6 +696,12 @@ export function Onboarding({ onDone, replay = false }: Props) {
               {scenario === 'self' ? (
                 <p className="text-sm text-foreground-muted">
                   中转服务器负责在手机和 DSH 之间转发，地址填你自己那台。它得先跑起来，手机那边也要填同一个地址。
+                </p>
+              ) : null}
+
+              {scenario === 'worker' ? (
+                <p className="text-sm text-foreground-muted">
+                  部署完成后打开 Cloudflare 给你的那个 Worker 地址，页面上会显示你的中转地址、旁边还有一颗复制按钮，把那一串填到这里。手机那边也要填同一个地址。
                 </p>
               ) : null}
 
@@ -627,7 +719,7 @@ export function Onboarding({ onDone, replay = false }: Props) {
                 </InfoList>
               ) : null}
 
-              {scenario === 'self' ? (
+              {isRelay() ? (
                 <Field>
                   <FieldLabel htmlFor="ob-relay-url">中转地址</FieldLabel>
                   <Input
@@ -930,6 +1022,37 @@ export function Onboarding({ onDone, replay = false }: Props) {
           ) : null}
         </div>
       </Card>
+
+      {/*
+        教程弹窗挂在最外层：`tutorialDoc` 是这一页的状态，不属于某一步——挂进第二步里，
+        用户翻页就会把它连人带窗一起卸掉。
+      */}
+      <Dialog
+        open={tutorialDoc !== null}
+        onOpenChange={(open) => {
+          if (!open) setTutorialDoc(null)
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{tutorialDoc?.title ?? ''}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm leading-6 text-foreground">
+              {(tutorialDoc?.steps ?? []).map((text, index) => (
+                // 步骤是静态文案，顺序就是身份。
+                // eslint-disable-next-line react/no-array-index-key -- 见上
+                <li key={index}>{text}</li>
+              ))}
+            </ol>
+          </DialogBody>
+          <DialogFooter className="flex justify-end">
+            <Button variant="primary" onClick={() => setTutorialDoc(null)}>
+              知道了
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 

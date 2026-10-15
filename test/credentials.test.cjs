@@ -47,7 +47,7 @@ async function serve(impl = {}) {
     calls[domain].push(request);
     signals.push(signal);
     const fn = impl[domain];
-    return fn ? fn(request, signal) : okValue(domain === 'describe' ? { credentials: {} } : {});
+    return fn ? fn(request, signal) : okValue({});
   };
   const ctx = {
     apiProxy: { credentials: { describe: record('describe'), set: record('set'), unset: record('unset') } },
@@ -100,7 +100,8 @@ async function serve(impl = {}) {
 
 test('describe 原样转发，只传一个信封参数', async () => {
   const server = await serve({
-    describe: () => okValue({ credentials: { DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } } }),
+    // 宿主回的就是一张平表：键是引用名、值是视图。外面没有 credentials 这一层。
+    describe: () => okValue({ DEEPSEEK_API_KEY: { configured: true, source: 'env', writable: false } }),
   });
   try {
     const { status, body } = await server.get('?refs=DEEPSEEK_API_KEY');
@@ -123,11 +124,9 @@ test('describe 原样转发，只传一个信封参数', async () => {
 test('describe：source 只在宿主给出时带上，布尔严格', async () => {
   const server = await serve({
     describe: () => okValue({
-      credentials: {
-        A_KEY: { configured: 'yes', writable: 1, source: '   ' },
-        B_KEY: { configured: false, writable: true, source: 'file' },
-        C_KEY: {},
-      },
+      A_KEY: { configured: 'yes', writable: 1, source: '   ' },
+      B_KEY: { configured: false, writable: true, source: 'file' },
+      C_KEY: {},
     }),
   });
   try {
@@ -214,7 +213,7 @@ test('describe：宿主错误原样透传，响应里没有 credentials 键', as
 });
 
 test('describe：畸形宿主响应按「没有这个引用」处理', async () => {
-  for (const value of [null, {}, { credentials: null }, { credentials: [] }, { credentials: 'nope' }, { credentials: { A_KEY: 'nope' } }]) {
+  for (const value of [null, {}, [], 'nope', { A_KEY: 'nope' }, { A_KEY: null }]) {
     const server = await serve({ describe: () => okValue(value) });
     try {
       const { status, body } = await server.get('?refs=A_KEY');
@@ -229,7 +228,7 @@ test('describe：畸形宿主响应按「没有这个引用」处理', async () 
 test('describe：宿主视图里的任何值都不会漏给手机', async () => {
   const server = await serve({
     describe: () => okValue({
-      credentials: { A_KEY: { configured: true, writable: true, value: 'sk-super-secret', data: 'sk-super-secret' } },
+      A_KEY: { configured: true, writable: true, value: 'sk-super-secret', data: 'sk-super-secret' },
     }),
   });
   try {

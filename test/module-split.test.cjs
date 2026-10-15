@@ -222,6 +222,7 @@ test('任何 mobile 模块解构的东西，被依赖方都必须真的导出', 
     'invalidateSessionList', 'listTitle', 'deriveMessages',
     'resolveEventAttachments', 'unwrap', 'handleSessions', 'handleSession',
     'handleMessages', 'handleSend', 'handleCommands', 'handleSessionRead',
+    'handleSessionAttachment',
     'handleStop', 'handleRename', 'handleFork', 'handleModels',
     'handleSelectModel', 'handleStats', 'handleSessionSearch',
     'handleAgentPresets', 'handleNew',
@@ -268,9 +269,9 @@ test('按 ctx 隔离的可变状态只在 session-cache.js 与 rpc.js 里', () =
     if (hits) owners.set(file, hits);
   }
   assert.deepEqual([...owners.keys()].sort(), ['rpc.js', 'session-cache.js'], `模块级 WeakMap 跑到了 ${[...owners.keys()].join('、')}`);
-  // 6054bb2 加了两张表：sessionPreviewClock（运行中会话补预览的节流钟）与
-  // writeIdempotency（写操作 requestId 重放表，键/生命周期与 sendIdempotency 不同）。
-  assert.equal(owners.get('session-cache.js'), 10, '会话侧的十张表：模型目录 / 列表响应 / 预览 / 预览在途 / 预览时钟 / 镜像历史 / 完成态 / 完成代际 / 发送幂等 / 写操作幂等');
+  // 归档清理新增 deletedSessionIds，避免宿主旧列表快照复活已删除会话。
+  // 其它表覆盖模型目录 / 列表响应 / 预览 / 预览在途 / 预览时钟 / 镜像历史 / 完成态 / 完成代际 / 发送幂等 / 写操作幂等。
+  assert.equal(owners.get('session-cache.js'), 11, '会话侧的十一张表（含已删除会话 ID）：状态均按 ctx 隔离');
   // session-cache.js 是叶子：它不许反过来依赖任何会话模块。
   assert.doesNotMatch(read(path.join(MOB, 'session-cache.js')), /require\(/);
   // 对外路径不变：这五个访问器仍从 sessions.js 转出。
@@ -333,7 +334,7 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
     'completion.js': ['updateCompletionStates', 'confirmCompletionFromHistory'],
     'session-models.js': ['buildModelsSnapshot', 'handleModels', 'handleSelectModel', 'safeModelsValue'],
     'session-search.js': ['sanitizeSearchQuery', 'handleSessionSearch'],
-    'session-send.js': ['promptOnce', 'handleSend', 'handleCommands', 'handleFork'],
+    'session-send.js': ['promptOnce', 'handleSend', 'handleCommands', 'handleFork', 'handleSessionAttachment'],
     'session-snapshot.js': ['eventSeqOf', 'buildMessagesSnapshot', 'statsProjections', 'handleMessages'],
     'session-mirror.js': ['buildSingleSessionMirror', 'buildMirrorWarmSnapshots'],
     'session-goal.js': ['callGoals', 'handleGoalAction'],
@@ -360,10 +361,10 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
     }
   }
 
-  // 导出面一字不改：sessions.js 仍是 lib/mobile 下被引用最多的模块（stream / credentials /
+  // 导出面看着别缩水：sessions.js 仍是 lib/mobile 下被引用最多的模块（stream / credentials /
   // skills / subagents / workspaces / host-settings 全从它取东西）。下面这份是拆分前的
-  // 37 个名字，一个不多一个不少——多一个说明有人把内部细节漏出来了，少一个说明有人
-  // 顺手删了别的模块还要的东西。
+  // 37 个名字加 2026-10 的单图重取 handler（handleSessionAttachment）= 38，一个不多一个不少——
+  // 多一个说明有人把内部细节漏出来了，少一个说明有人顺手删了别的模块还要的东西。
   const FACADE = [
     'callSessions', 'buildSessionsResponse', 'SESSIONS_PREVIEW_LIMIT', 'buildMessagesSnapshot',
     'buildStatsSnapshot', 'buildSingleSessionMirror', 'buildMirrorWarmSnapshots', 'buildModelsSnapshot',
@@ -371,12 +372,13 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
     'completionStateOf', 'sessionModelsStateOf', 'invalidateSessionModels', 'invalidateSessionList',
     'listTitle', 'deriveMessages', 'resolveEventAttachments', 'unwrap', 'handleSessions',
     'handleSession', 'handleMessages', 'handleSend', 'handleCommands', 'handleSessionRead',
+    'handleSessionAttachment',
     'handleStop', 'handleRename', 'handleFork', 'handleModels', 'handleSelectModel', 'handleStats',
     'handleSessionSearch', 'handleAgentPresets', 'handleNew', 'handleGoalAction', 'handleQueueUpdate',
   ];
   const table = sessions.slice(sessions.indexOf('module.exports = {'));
   const exported = [...table.matchAll(/^  ([A-Za-z_]\w*),$/gm)].map((m) => m[1]);
-  assert.deepEqual(exported.sort(), [...FACADE].sort(), 'sessions.js 的导出面变了（拆分前是这 37 个）');
+  assert.deepEqual(exported.sort(), [...FACADE].sort(), 'sessions.js 的导出面变了（拆分前 37 个，加单图重取后 38 个）');
   // 实现必须来自子模块：导出表里出现一个本文件没 require 过的名字，就有人手抄了一份。
   const prelude = sessions.slice(0, sessions.indexOf('module.exports = {'));
   for (const name of exported) {

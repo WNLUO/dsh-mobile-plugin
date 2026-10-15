@@ -1,12 +1,16 @@
 /**
- * 「插件更新」卡片：自动更新开关、运行中 / 盘上 / 线上的版本对照、手动更新。
+ * 「插件更新」卡片：正式 npm 更新状态、自动更新开关、手动更新，以及仅本机可见的紧急 OTA 调试入口。
  *
- * ## 更新怎么走
+ * ## 正式更新
  *
- * **查**归插件自己（直接问 npm 注册表，见 `lib/update-registry.cjs`）—— 所以这张卡在任何
- * 宿主上都答得出「线上最新是几」。**装**与**换代码**在宿主里：装走 `/update/apply`，
- * 换代码由外壳就地换代（见 `lib/shell/runtime.js`）。页面只负责「说清现在什么情况」和
- * 「给一个开关」，四条接口是 `/api/relay/update/{status,check,apply,auto}`。
+ * **查**归插件自己（直接问 npm 注册表，见 `lib/update-registry.cjs`），**装**与**换代码**在宿主里：
+ * 装走 `/update/apply`，换代码由外壳就地换代（见 `lib/shell/runtime.js`）。对应四条接口是
+ * `/api/relay/update/{status,check,apply,auto}`。
+ *
+ * ## 紧急 OTA
+ *
+ * 只通过本机控制面 `GET /api/relay/update/ota/status` 与 `POST /api/relay/update/ota/{check,apply}` 查看、检查和激活；这不是 App OTA，
+ * 正式 npm 包成功接管后再清理被覆盖的 OTA 目录。
  *
  * ## 为什么这张卡里没有「重启 DSH」
  *
@@ -58,6 +62,10 @@ import {
 import {
   DEFAULT_AUTO_INTERVAL_MS,
   busyTextOf,
+  otaApply,
+  otaCheck,
+  otaStatus,
+  type OtaStatusView,
   updateApply,
   updateAuto,
   updateCheck,
@@ -128,8 +136,50 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
    * 弹一次就消失等于让人再也看不到。
    */
   const notify = useNotify()
+  /** 本机调试 OTA 状态；404 表示当前宿主尚不支持该入口。 */
+  const [ota, setOta] = useState<OtaStatusView | null>(null)
+  const [otaSupported, setOtaSupported] = useState(true)
+  const [otaUpdateAvailable, setOtaUpdateAvailable] = useState(false)
+  const [otaWorking, setOtaWorking] = useState(false)
   /** 开关正在提交：提交期间把它按住，免得连点出两个相反的请求。 */
   const [savingAuto, setSavingAuto] = useState(false)
+
+  const loadOta = useCallback(async () => {
+    try {
+      const status = await otaStatus()
+      setOta(status)
+      setOtaUpdateAvailable(status.available)
+      setOtaSupported(true)
+    } catch (err) {
+      if (err instanceof Error && 'status' in err && (err as { status?: number }).status === 404) {
+        setOtaSupported(false)
+        setOta(null)
+      }
+    }
+  }, [])
+
+  useEffect(() => { void loadOta() }, [loadOta])
+
+  const runOta = useCallback(async (action: 'check' | 'apply') => {
+    setOtaWorking(true)
+    try {
+      if (action === 'check') {
+        const result = await otaCheck()
+        setOta(result.status)
+        setOtaUpdateAvailable(result.update.available)
+        notify('soft', result.update.available ? `发现紧急 OTA ${result.update.version ?? ''}。` : '没有可安装的紧急 OTA。')
+      } else {
+        const result = await otaApply()
+        setOta(result.status)
+        setOtaUpdateAvailable(false)
+        notify('soft', result.installed ? `已安装调试 OTA ${result.version ?? ''}。` : '没有安装新的调试 OTA。')
+      }
+    } catch (err) {
+      notify('error', errorText(err))
+    } finally {
+      setOtaWorking(false)
+    }
+  }, [notify])
 
   /**
    * 把宿主给的 status 并进当前状态。
@@ -529,6 +579,27 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             ) : null}
           </div>
         </>
+      ) : null}
+
+      {otaSupported ? (
+        <section className="mt-4 border-t border-border-muted pt-3" aria-label="本机调试 OTA">
+          <div className="mb-2 flex items-center gap-2">
+            <strong className="text-sm">本机调试 OTA</strong>
+            <Badge variant="soft" size="sm">仅本机</Badge>
+          </div>
+          <InfoList>
+            <InfoRow label="当前 OTA 版本" mono>{ota?.otaVersion ?? '无'}</InfoRow>
+            <InfoRow label="正式版覆盖状态">{ota?.otaVersion ? (ota.absorbed ? `已被正式版 ${ota.officialVersion ?? ''} 覆盖` : '尚未被正式版覆盖') : '无待吸收的 OTA'}</InfoRow>
+          </InfoList>
+          <div className="mt-3 flex justify-end gap-2">
+            <Button variant="outline" size="md" disabled={otaWorking} onClick={() => void runOta('check')}>
+              {otaWorking ? '处理中…' : '检查紧急 OTA'}
+            </Button>
+            <Button variant="primary" size="md" disabled={otaWorking || (!otaUpdateAvailable && !ota?.otaVersion) || ota?.absorbed === true} onClick={() => void runOta('apply')}>
+              {'立即安装'}
+            </Button>
+          </div>
+        </section>
       ) : null}
     </Card>
   )

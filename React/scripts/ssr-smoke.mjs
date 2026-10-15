@@ -48,7 +48,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -56,6 +56,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb] = await Promise.all([
   server.ssrLoadModule('/src/components/LanDialog.tsx'),
   server.ssrLoadModule('/src/App.tsx'),
   server.ssrLoadModule('/src/Onboarding.tsx'),
+  server.ssrLoadModule('/src/components/JoinGroupButton.tsx'),
 ])
 
 const noop = () => {}
@@ -116,12 +117,18 @@ const cases = [
     }),
   ],
   ['ConnectionCard（白名单拒绝）', h(Conn.ConnectionCard, { status: { ...status, tunnel: { state: 'error', error: 'unknown instance: xyz', instanceNotAllowed: true, admissionHint: 'instance-allowlist' } }, busy: '', onToggle: noop, onOpenLan: noop })],
-  ['PairingCard', h(Pair.PairingCard, pairingProps), '局域网地址 · eth1'],
-  ['PairingCard（只有公网地址的机器）', h(Pair.PairingCard, { ...pairingProps, addressBook: serverBook }), '公网地址 · eth0'],
+  // 这三处默认遮着（二维码、中转地址、手机该填的地址），所以断言的是「遮着的时候页面里有什么」：
+  // 二维码那张图**根本不在 DOM 里**（整块换成占位），地址只留「已隐藏」+ 一颗贴上无障碍名的
+  // 「显示」按钮。点开之后长什么样是纯前端状态，`renderToString` 一遍就结束、也不留状态，
+  // 这里看不到了 —— 要靠真浏览器点。
+  ['PairingCard', h(Pair.PairingCard, pairingProps), 'aria-label="显示手机该填的地址"'],
+  ['PairingCard（二维码默认遮着）', h(Pair.PairingCard, pairingProps), '二维码已隐藏'],
+  ['PairingCard（只有公网地址的机器）', h(Pair.PairingCard, { ...pairingProps, addressBook: serverBook }), 'aria-label="显示手机该填的地址"'],
   ['PairingCard（拿不到二维码）', h(Pair.PairingCard, { ...pairingProps, pairing: null, error: '请先启用远程控制并保存配置' })],
   ['PairingCard（重启失败）', h(Pair.PairingCard, { ...pairingProps, busy: 'restart', restartError: 'spawn ENOENT' })],
   // 老宿主没有 `/api/relay/addresses`：退回配对接口给的那串 URL，只显示、不能选。
-  ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), '192.168.31.253'],
+  ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), 'aria-label="显示手机该填的地址"'],
+  ['ConnectionCard（中转地址默认遮着）', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onOpenLan: noop }), 'aria-label="显示中转地址"'],
   // 更新卡片现在先问宿主那四条 `/api/relay/update/*`，拿不到才退化成市场那条老路。
   // SSR 里 effect 不跑（`renderToString` 不会执行 useEffect），所以两条分支都不进：
   // 这一遍只冒烟「标题 + 正在读状态」那一屏。宿主 / 市场两条完整分支要用真浏览器看
@@ -136,6 +143,9 @@ const cases = [
   // 四页的完整流程要用浏览器点（见 .../api/relay/panel/setup）。
   ['Onboarding（欢迎页）', h(Onb.Onboarding, {})],
   ['Onboarding（强制引导 setup）', h(Onb.Onboarding, { replay: true })],
+  // 悬浮那颗「加入交流群」独立于两张卡，单独过一遍：它要贴住右下角（`fixed`）、
+  // 文字和微信图标都得在。点开之后是什么还没定，所以只看按钮在不在。
+  ['JoinGroupButton', h(Join.JoinGroupButton, {}), '加入交流群'],
 ]
 
 let failed = 0

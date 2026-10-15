@@ -4,6 +4,7 @@ node_modules/
 # 打包 / 构建产物：OTA 归档与 tgz 不入库
 # ⚠️ lib/panel/index.html 是面板构建产物，但它是**提交物**，别顺手排除 lib/
 dist/
+*.tgz
 
 # TypeScript 增量编译缓存
 *.tsbuildinfo

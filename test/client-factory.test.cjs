@@ -643,6 +643,9 @@ test('本机设置入口通过同源 POST 开关网页窗口，开放固定两�
   let button = elements(env.render()).find((node) => node.type === 'button' && node.props.onClick);
   assert.ok(button);
   assert.equal(texts(button).join(''), '开放网页管理 2 小时');
+  const hint = elements(env.render()).find((node) => node.type === 'p' && texts(node).join('').includes('默认关闭'));
+  assert.ok(hint);
+  assert.match(texts(hint).join(''), /关闭后公网不可访问，本机和局域网仍可访问/);
   await button.props.onClick();
   button = elements(env.render()).find((node) => node.type === 'button' && node.props.onClick);
   assert.equal(texts(button).join(''), '立即关闭网页管理');

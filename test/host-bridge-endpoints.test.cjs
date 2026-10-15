@@ -56,6 +56,7 @@ const GOLDEN = {
   'workspace.unarchiveSession': ['workspace', 'unarchiveSession', ['request']],
   'workspace.pinSession': ['workspace', 'pinSession', ['request']],
   'workspace.unpinSession': ['workspace', 'unpinSession', ['request']],
+  'workspace.insertBefore': ['workspace', 'insertBefore', ['request']],
   'workspace.insertSessionBefore': ['workspace', 'insertSessionBefore', ['request']],
   'host.listDirectory': ['directoryPicker', 'list', ['path']],  // 不是 host 命名空间，是宿主的 directoryPicker
   'host.createDirectory': ['directoryPicker', 'createDirectory', ['name', 'path']],
@@ -72,6 +73,9 @@ const GOLDEN = {
   'settings.describe': ['settings', 'describe', []],  // descriptor 不收参数
   'settings.mutate': ['settings', 'mutate', []],  // inv 的默认包装；pick 出 ns/ops/expectedRevision 后仍由 inv 包成 {}
   'llm.providers': ['llm', 'listProviders', []],  // 宿主方法是 listProviders，不是 providers
+  'account.getState': ['account', 'getState', []],
+  'account.getProfile': ['account', 'getProfile', ['client']],
+  'account.getBalance': ['account', 'getBalance', ['client']],
   'credentials.describe': ['credentials', 'describe', ['refs']],
   'credentials.set': ['credentials', 'set', ['ref', 'value']],
   'credentials.unset': ['credentials', 'unset', ['ref']],
@@ -177,4 +181,11 @@ test('标成 null 的端点确实没有直接打网关（要么要开流合成�
     );
     assert.ok(!/\binvoke\s*\(/.test(src), `${key} 不该自己直接调 invoke`);
   }
+});
+
+test('DeepSeek 账号只开放状态、资料和余额读取', () => {
+  assert.deepEqual(
+    Object.keys(ENDPOINTS).filter((key) => key.startsWith('account.')),
+    ['account.getState', 'account.getProfile', 'account.getBalance'],
+  );
 });

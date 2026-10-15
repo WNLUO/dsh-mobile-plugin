@@ -91,6 +91,9 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/update/check',
     '/api/relay/update/apply',
     '/api/relay/update/auto',
+    '/api/relay/update/ota/status',
+    '/api/relay/update/ota/check',
+    '/api/relay/update/ota/apply',
   ]) {
     assert.ok(known.has(expected), `控制面少了 ${expected}`);
   }

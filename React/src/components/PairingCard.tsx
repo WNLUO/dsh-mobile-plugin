@@ -4,14 +4,17 @@
  * 地址那串是宿主给的候选顺序（用户选过的排最前），手机也是按这个顺序挨个试的。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
-import { Button } from '@appica/ui-react/button'
+import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { CopyButton } from '@appica/ui-react/copy-button'
 import { Spinner } from '@appica/ui-react/spinner'
+import * as React from 'react'
 
 import type { AddressBook, PairingInfo, StatusView } from '../lib/api.ts'
+import { APP_DOWNLOAD_URL } from '../lib/links.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { InfoList, InfoRow } from './InfoRow.tsx'
+import { RevealButton } from './RevealButton.tsx'
 
 type Props = {
   status: StatusView
@@ -35,6 +38,13 @@ type Props = {
  * 二维码的 SVG 由宿主生成（`QRCode.toString`，280px、纠错 M），这里只负责摆放：
  * 网页端自己画二维码要多带一个依赖，而且会和手机端拿到的图不一致。
  * 未启用远程控制时宿主回 409 并给一句中文，这里照原样显示。
+ *
+ * 「下载 APP」按用户要求加在卡片最下面那一排的最左端：刚配对的人下一步就是装 App，而下载入口
+ * 原先只在引导页第一页（第二次打开引导想再下一份就找不着了）。
+ *
+ * 二维码按用户要求**默认隐藏**，右上角一颗眼睛按钮现场揭开 / 再遮上：配对码还明文摆在旁边，
+ * 防的不是这台电脑上的人，而是屏幕在共享 / 投屏 / 身后有人时替对方省下那一眼。只当页面里的
+ * 一次开关，不落盘 —— 默认值才是那个谨慎的选项，记住了反而把「默认隐藏」抵消掉。
  *
  * 维护那两个动作（重新连接 / 吊销全部设备授权）按用户要求并到这张卡的
  * 右下角：它们都属于「连不上时怎么办」，跟配对是同一件事。其中「吊销全部设备授权」
@@ -61,6 +71,17 @@ export function PairingCard({
 }: Props) {
   const idle = busy !== ''
   const policyText = status.pairingPolicy === 'deny' ? '一律拒绝新设备' : '凭配对码允许'
+  /** 「中转地址」那行的明文：默认遮上。 */
+  const relayUrl = pairing?.relayUrl || status.relayUrl || '—'
+  /**
+   * 「手机该填的地址」那行的明文：默认遮上。它是这台机器**此刻真的在用的网卡地址**
+   * （设备名与内网网段都写在里面），比中转地址更值得别摆着。
+   */
+  const phoneAddress = phoneHintAddress(addressBook, pairing)
+  // 三个「明文摆着、可当场遮上」的值：二维码、中转地址、手机该填的地址。
+  // 都只当页面里的一次开关，不落盘 —— 默认值才是那个谨慎的选项，记住了反而把「默认隐藏」抵消掉。
+  const [shown, setShown] = React.useState({ qr: false, relay: false, phone: false })
+  const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   return (
     <Card frame="solid">
@@ -96,21 +117,46 @@ export function PairingCard({
         {/* 二维码这一列下面挂「重新生成配对码」：它换的就是这张图，按用户要求贴着二维码、
             以二维码为参照居中，而不是跟别的按钮挤在卡片右下。 */}
         <div className="flex shrink-0 flex-col items-center gap-3">
-          {/* 白底是必须的：二维码是黑白的，暗色主题下要保证扫得出来。 */}
-          <div className="flex items-start justify-center overflow-hidden rounded-md border border-border-muted bg-white p-3">
-            {pairing?.svg ? (
-              // 宿主生成的 SVG（带 280px 固定宽高），内嵌后必须被这里压到方框大小；
-              // 不是用户输入，没有注入面。
-              <div
-                className="size-[200px] [&_svg]:h-full [&_svg]:w-full"
-                dangerouslySetInnerHTML={{ __html: pairing.svg }}
-              />
+          <div className="relative">
+            {/*
+              白底是必须的：二维码是黑白的，暗色主题下要保证扫得出来。
+              遮上时**整块换成一个占位**，不是把里面的 SVG 用样式盖住：隐藏态的页面里
+              根本不存在那张图，截屏工具、开发者工具、页面另存为都拿不到它。
+            */}
+            {!shown.qr && pairing?.svg ? (
+              <div className="flex size-[224px] flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
+                <span className="text-xs">二维码已隐藏</span>
+                <RevealButton what="二维码" label="显示" onClick={() => toggle('qr')} />
+              </div>
             ) : (
-              <div className="flex size-[200px] items-center justify-center text-foreground-subtle">
-                {busy === 'pairing' ? <Spinner /> : '还没取到二维码'}
+              <div className="flex items-start justify-center overflow-hidden rounded-md border border-border-muted bg-white p-3">
+                {pairing?.svg ? (
+                  // 宿主生成的 SVG（带 280px 固定宽高），内嵌后必须被这里压到方框大小；
+                  // 不是用户输入，没有注入面。
+                  <div
+                    className="size-[200px] [&_svg]:h-full [&_svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: pairing.svg }}
+                  />
+                ) : (
+                  <div className="flex size-[200px] items-center justify-center text-foreground-subtle">
+                    {busy === 'pairing' ? <Spinner /> : '还没取到二维码'}
+                  </div>
+                )}
               </div>
             )}
+
+            {!shown.qr && pairing?.svg ? null : (
+              <RevealButton
+                on
+                what="二维码"
+                label="隐藏二维码"
+                className="absolute end-2 top-2"
+                disabled={!pairing?.svg}
+                onClick={() => toggle('qr')}
+              />
+            )}
           </div>
+
           <Button variant="outline" size="md" disabled={idle} onClick={onRegenerate}>
             重新生成配对码
           </Button>
@@ -119,8 +165,20 @@ export function PairingCard({
         <div className="flex min-w-0 flex-1 flex-col">
           <InfoList>
             <InfoRow label="配对策略">{policyText}</InfoRow>
-            <InfoRow label="中转地址" mono>
-              {pairing?.relayUrl || status.relayUrl || '—'}
+            <InfoRow label="中转地址">
+              <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+                {shown.relay ? (
+                  <span className="min-w-0 font-mono text-xs text-foreground-strong">{relayUrl}</span>
+                ) : (
+                  <span className="text-xs text-foreground-subtle">已隐藏</span>
+                )}
+                <RevealButton
+                  on={shown.relay}
+                  what="中转地址"
+                  label={shown.relay ? '隐藏' : '显示'}
+                  onClick={() => toggle('relay')}
+                />
+              </span>
             </InfoRow>
             <InfoRow label="局域网端口" mono>
               {pairing?.lanPort ?? status.lan.port}
@@ -134,14 +192,26 @@ export function PairingCard({
               从前这里一律写「局域网地址」——服务器上只有公网地址，那句话正是用户 2026-10-11 报的错。
             */}
             <InfoRow label="手机该填的地址">
-              <AddressPicker
-                book={addressBook}
-                port={pairing?.lanPort ?? status.lan.port}
-                value={addressBook?.preferred ?? ''}
-                busy={idle}
-                onChange={onSavePreferred}
-                fallbackUrls={pairing?.lanUrls ?? []}
-              />
+              {shown.phone ? (
+                // 整块揭开的是一行**和别的行同一形状**的值，不是只有几颗字符：
+                // 「手机该填的地址」这句话本身就该读到，遮的是后面那个 IP。
+                <span className="inline-flex min-w-0 flex-col items-end gap-1">
+                  <AddressPicker
+                    book={addressBook}
+                    port={pairing?.lanPort ?? status.lan.port}
+                    value={addressBook?.preferred ?? ''}
+                    busy={idle}
+                    onChange={onSavePreferred}
+                    fallbackUrls={pairing?.lanUrls ?? []}
+                  />
+                  <RevealButton on what="手机该填的地址" label="隐藏" onClick={() => toggle('phone')} />
+                </span>
+              ) : (
+                <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+                  <span className="text-xs text-foreground-subtle">{phoneAddress ? '已隐藏' : '还没取到地址'}</span>
+                  <RevealButton on={false} what="手机该填的地址" label="显示" onClick={() => toggle('phone')} />
+                </span>
+              )}
             </InfoRow>
           </InfoList>
 
@@ -162,10 +232,20 @@ export function PairingCard({
         </Alert>
       ) : null}
 
-      {/* 维护这两个动作属于「连不上时怎么办」，跟配对是同一件事，靠右收齐。
+      {/* 「下载 APP」跟维护那两颗一起靠右收齐：一排放三颗，都是「接下来要做的动作」。
           「重启 sidecar」按用户要求搬到「插件更新」卡片里 —— 它和更新讲的是同一件事：
           让磁盘上的新代码立刻生效（sidecar 层不用重启宿主，宿主层才需要）。 */}
-      <div className="mt-3 flex flex-wrap justify-end gap-2">
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+        {/* 外链按钮用 buttonVariants 贴在 `a` 上（Appica 的规矩），尺寸走默认的 md，
+            与旁边两颗 h-10 对齐。 */}
+        <a
+          className={buttonVariants({ variant: 'outline' })}
+          href={APP_DOWNLOAD_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          下载 APP
+        </a>
         <Button variant="secondary" size="md" disabled={idle} onClick={onReconnect}>
           重新连接
         </Button>
@@ -175,4 +255,10 @@ export function PairingCard({
       </div>
     </Card>
   )
+}
+
+/** 这一行现在有没有值可揭：一眼能看出来的「还没取到地址」就别给一颗点了没反应的按钮。 */
+function phoneHintAddress(book: AddressBook | null, pairing: PairingInfo | null): string {
+  if (book && book.lan.length + book.public.length > 0) return 'book'
+  return pairing?.lanUrls?.[0] ?? ''
 }

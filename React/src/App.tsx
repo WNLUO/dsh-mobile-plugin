@@ -12,6 +12,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
+import { JoinGroupButton } from './components/JoinGroupButton.tsx'
 import { LanDialog } from './components/LanDialog.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
@@ -300,6 +301,10 @@ export function App() {
         onSave={(patch) => void saveLanPort(patch)}
         onSavePreferred={(address) => void savePreferredLanAddress(address)}
       />
+
+      {/* 悬浮在页面右下角，不占两列的位置（见组件文件头）。点开之后是什么还没定，
+          现在只把按钮摆上。 */}
+      <JoinGroupButton />
     </main>
   )
 }

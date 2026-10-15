@@ -32,7 +32,30 @@ export const UPDATE_PATHS = {
   check: '/api/relay/update/check',
   apply: '/api/relay/update/apply',
   auto: '/api/relay/update/auto',
+  otaStatus: '/api/relay/update/ota/status',
+  otaCheck: '/api/relay/update/ota/check',
+  otaApply: '/api/relay/update/ota/apply',
 } as const
+
+export type OtaStatusView = {
+  available: boolean
+  activeVersion: string | null
+  otaVersion: string | null
+  officialVersion: string | null
+  absorbed: boolean
+  channel: string
+}
+
+export type OtaCheckView = { available: boolean; version: string | null; platform: string | null; channel: string }
+
+async function otaRequest<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
+  const body = await request(path, method === 'POST' ? { method, body: JSON.stringify({}) } : { method })
+  return (body.data ?? body) as T
+}
+
+export const otaStatus = () => otaRequest<OtaStatusView>(UPDATE_PATHS.otaStatus)
+export const otaCheck = () => otaRequest<{ update: OtaCheckView; status: OtaStatusView }>(UPDATE_PATHS.otaCheck, 'POST')
+export const otaApply = () => otaRequest<{ installed: boolean; version: string | null; status: OtaStatusView }>(UPDATE_PATHS.otaApply, 'POST')
 
 /** 最近一次「问 npm 有没有新版」的结果（`check` 的 `update`；外壳那份 `marketResult` 同形）。 */
 export type MarketUpdateView = {

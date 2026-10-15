@@ -2,7 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { evaluate, normalize, DEFAULT_POLICY } = require('../lib/relay/pairing-policy.js')
+const { evaluate, normalize, hostPlatform, DEFAULT_POLICY } = require('../lib/relay/pairing-policy.js')
 
 test("'code' approves once the transport has already verified the pairing code", () => {
   const decision = evaluate('code', { name: 'iPhone', ip: '203.0.113.7' })
@@ -53,4 +53,20 @@ test('a malformed device payload cannot crash the decision', () => {
 test('a missing device name is reported as unknown rather than empty', () => {
   assert.equal(evaluate('code', { name: '' }).device, 'unknown')
   assert.equal(evaluate('code', { name: 123 }).device, 'unknown')
+})
+
+// The host's own OS must ride along with the approval: the phone paints the device
+// row icon from it, and it cannot wait for the first status poll to know the answer.
+test('the approval carries the host platform, not the pairing device one', () => {
+  assert.equal(hostPlatform().platform, process.platform)
+})
+
+test('the host platform is a bare platform identifier the phone can switch on', () => {
+  const { platform } = hostPlatform()
+  assert.equal(typeof platform, 'string')
+  assert.ok(platform.length > 0)
+  // `evaluate` reports the *phone's* platform from the request; keep them distinct.
+  const decision = evaluate('code', { name: 'iPhone', platform: 'ios' })
+  assert.equal(decision.device, 'iPhone')
+  assert.notEqual(platform, 'ios')
 })

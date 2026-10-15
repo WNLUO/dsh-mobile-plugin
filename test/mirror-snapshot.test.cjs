@@ -83,3 +83,12 @@ test('§3 TTL 是有限的正数（避免「永不过期」重新引入本次缺
   assert.equal(MIRROR_SNAPSHOT_TTL_MS > 0, true)
   assert.equal(MIRROR_SNAPSHOT_TTL_MS <= 60_000, true, 'TTL 过大等于没修')
 })
+
+test('§4 快照原样回主线：不许重写内容字段', () => {
+  // App 侧靠响应自带的 generatedAt 判「这份比我手上的旧」（app 的 session-store
+  // 两份清单各一条内容水位）。局域网这条快路径是**原样**把桌面推来的 body 回给手机的
+  // ——它连 stale/derived 都不标，App 没有第二个字段可依据。所以这里一旦「顺手」把
+  // generatedAt 改成服务时刻，App 就再也分不出新旧，「刚删掉的工作区又回来」重现。
+  assert.match(workerSrc, /^  return body$/m, '快照 body 必须原样返回')
+  assert.doesNotMatch(workerSrc, /generatedAt/, 'worker 不许自己造/改写 generatedAt')
+})

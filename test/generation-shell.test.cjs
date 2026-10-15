@@ -3,19 +3,18 @@
 /**
  * 自更新的**机制**测试：外壳能不能在不重启进程的前提下换掉实现。
  *
- * ## 2026-10 新模型：代从「市场装进 profile 的那一份」来
+ * ## 2026-10 新模型：npm 正式代与设备 OTA 代
  *
- * 从前一代是 OTA 下载、解包、写进 `<包>/lib/.live/<releaseId>/`；中转 OTA 那套已经删掉，
- * 分发交给 DSH 插件市场了。现在入口是**稳定外壳** `lib/index.js`（导出 `name` / `inject` /
- * `apply`，内部 import `lib/shell/{runtime,updater,manager}.js`），而「代」= profile 里
- * 当前装着的那一份插件包：
+ * 正式 npm 包由 DSH 市场装进 profile，紧急完整包落在 `$DSH_HOME/plugin-ota/`。稳定外壳 `lib/index.js`
+ * （导出 `name` / `inject` / `apply`，内部 import `lib/shell/{runtime,updater,manager}.js`）从这两个来源
+ * 装载完整包目录；profile 中的 npm 包通过以下链接定位：
  *
  *   <PROFILE_NODE_MODULES>/dsh-mobile-plugin  --symlink-->  <store>/<id>/dsh-mobile-plugin
  *
  * 市场在 profile 里跑 pnpm：新版装进**一个新的 store 目录**，装完把上面那条链接指过去。
  * 「新目录 = 新 realpath = 新 URL」，这正是当年非得靠 `.live/<releaseId>` 才能拿到的东西
- * （同一路径换代码骗不过 ESM 缓存），所以现在换代不再需要拷贝或下载，只是「重指链接 +
- * 重新 import 一代」。
+ * （同一路径换代码骗不过 ESM 缓存），所以市场更新正式包只需「重指链接 + 重新 import 一代」；
+ * 紧急 OTA 则下载完整包到独立目录。
  *
  * 测试照这个形状造：每一代写在自己的目录里，**换版本 = 写新目录 + 重指链接**。
  * `DSH_MOBILE_PROFILE_NODE_MODULES` 是给测试用的逃生口（指到临时 profile），必须在
@@ -42,8 +41,11 @@ const PLUGIN_PKG = 'dsh-mobile-plugin';
 const PROFILE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-profile-'));
 const PROFILE_NODE_MODULES = path.join(PROFILE_ROOT, 'node_modules');
 const STORE_DIR = path.join(PROFILE_ROOT, 'store');
+const OTA_ROOT = path.join(PROFILE_ROOT, 'plugin-ota');
 const PLUGIN_LINK = path.join(PROFILE_NODE_MODULES, PLUGIN_PKG);
+const PREVIOUS_DSH_HOME = process.env.DSH_HOME;
 fs.mkdirSync(PROFILE_NODE_MODULES, { recursive: true });
+process.env.DSH_HOME = PROFILE_ROOT;
 process.env.DSH_MOBILE_PROFILE_NODE_MODULES = PROFILE_NODE_MODULES;
 
 const shellUrl = pathToFileURL(path.join(PKG_DIR, 'lib', 'index.js')).href;
@@ -54,6 +56,8 @@ const updaterUrl = pathToFileURL(path.join(PKG_DIR, 'lib', 'shell', 'updater.js'
 const BUNDLED_VERSION = JSON.parse(fs.readFileSync(path.join(PKG_DIR, 'package.json'), 'utf8')).version;
 
 test.after(() => {
+  if (PREVIOUS_DSH_HOME === undefined) delete process.env.DSH_HOME;
+  else process.env.DSH_HOME = PREVIOUS_DSH_HOME;
   fs.rmSync(PROFILE_ROOT, { recursive: true, force: true });
 });
 
@@ -92,6 +96,14 @@ function makeGeneration(id, version, implSource) {
   return dir;
 }
 
+function makeOtaGeneration(version, implSource) {
+  const pkgDir = path.join(OTA_ROOT, version, PLUGIN_PKG);
+  fs.mkdirSync(path.join(pkgDir, 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: PLUGIN_PKG, version, type: 'module' }));
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'impl.js'), implSource);
+  return pkgDir;
+}
+
 /** 一代的包目录（`package.json` / `lib/impl.js` 那一层）。 */
 function pkgDirOf(dir) {
   return path.join(dir, PLUGIN_PKG);
@@ -121,6 +133,7 @@ function install(dir) {
 async function resetProfile() {
   const { manager } = await loadShellModules();
   fs.rmSync(STORE_DIR, { recursive: true, force: true });
+  fs.rmSync(OTA_ROOT, { recursive: true, force: true });
   fs.rmSync(PLUGIN_LINK, { recursive: true, force: true });
   manager.invalidateGeneration();
 }
@@ -275,6 +288,63 @@ test('换代：版本号相同时选 profile 里那一份，不能回落到包�
   assert.equal(status.source, 'installed', '同版本号时 profile 里那一份必须胜出');
   assert.equal(manager.resolveGeneration().source, 'installed');
   assert.equal(await routeReply(server, '/api/relay/gen'), 'same-version', '跑起来的必须是装进来的那一代的代码');
+});
+
+test('正式 npm 同号到盘后，运行中的 OTA 代切到 npm 并清理 OTA 目录', async t => {
+  await resetProfile();
+  const { manager } = await loadShellModules();
+  const version = '9.9.9';
+  makeOtaGeneration(version, goodGeneration('ota-same-version'));
+  const { server, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+
+  const before = await waitForStatus(runtime);
+  assert.equal(before.version, version);
+  assert.equal(before.source, 'ota');
+  assert.equal(runtime.deviceOta.status().absorbed, false, 'npm 文件虽同号，活动仍是 OTA 时不能误报已吸收');
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'ota-same-version');
+
+  install(makeGeneration('official-same-version', version, goodGeneration('official-same-version')));
+  const reconciled = await runtime.deviceOta.reconcileOfficial();
+  assert.equal(reconciled.switched, true);
+  const after = runtime.status();
+  assert.equal(after.version, version);
+  assert.equal(after.source, 'installed');
+  assert.equal(manager.resolveGeneration().source, 'installed');
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'official-same-version');
+  assert.equal(fs.existsSync(path.join(OTA_ROOT, version)), false, '正式版接管后 OTA 目录应被清理');
+  assert.equal(runtime.deviceOta.status().otaVersion, null);
+});
+
+test('正式版换代失败时保留 OTA 目录并回滚正在运行的旧代', async t => {
+  await resetProfile();
+  const version = '9.9.7';
+  makeOtaGeneration(version, goodGeneration('ota-survives-failure'));
+  const { server, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+  await waitForStatus(runtime);
+
+  install(makeGeneration('broken-official-switch', version, "throw new Error('official switch failed')"));
+  await assert.rejects(runtime.deviceOta.reconcileOfficial(), /official switch failed/);
+  assert.equal(runtime.status().source, 'ota');
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'ota-survives-failure');
+  assert.equal(fs.existsSync(path.join(OTA_ROOT, version, PLUGIN_PKG, 'package.json')), true, '失败的正式版不能删除磁盘回退包');
+});
+
+test('启动时正式包装载失败，保留的 OTA 代可作为回退继续运行', async t => {
+  await resetProfile();
+  const version = '9.9.8';
+  makeOtaGeneration(version, goodGeneration('ota-fallback'));
+  install(makeGeneration('broken-official', version, "throw new Error('official start failed')"));
+  const { server, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+
+  const status = await waitForStatus(runtime);
+  assert.equal(status.version, version);
+  assert.equal(status.source, 'ota');
+  assert.match(status.lastError, /official start failed/);
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'ota-fallback');
+  assert.equal(fs.existsSync(path.join(OTA_ROOT, version, PLUGIN_PKG, 'package.json')), true, '正式版失败时不能提前删除 OTA 回退包');
 });
 
 test('换代：装进来的新代可以顶上，不必重启进程，旧代的路由被摘干净', async t => {

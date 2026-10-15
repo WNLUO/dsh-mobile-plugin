@@ -42,6 +42,19 @@ test('地址按检测出来的那份给标签，配对卡与直连弹窗共用�
   );
 });
 
+test('调试 OTA 只在本机接口可用时显示，并提供检查与安装入口', () => {
+  const card = read('UpdateCard.tsx');
+  const client = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'lib', 'relayUpdate.ts'), 'utf8');
+  assert.match(card, /本机调试 OTA/);
+  assert.match(card, /检查紧急 OTA/);
+  assert.match(card, /立即安装/);
+  assert.match(card, /无待吸收的 OTA/, 'OTA 目录清理后不能显示成「未被正式版覆盖」');
+  assert.match(card, /setOtaSupported\(false\)/, '仅宿主接口 404 时隐藏调试入口');
+  assert.match(client, /\/api\/relay\/update\/ota\/status/);
+  assert.match(client, /\/api\/relay\/update\/ota\/check/);
+  assert.match(client, /\/api\/relay\/update\/ota\/apply/);
+});
+
 test('宿主说没法就地换代时，更新卡不许把用户往插件市场带', () => {
   const card = read('UpdateCard.tsx');
   // 判据是宿主回的 `available: false`（它自己说这份实现是直接被挂载的）。只认 409 那条错误码
