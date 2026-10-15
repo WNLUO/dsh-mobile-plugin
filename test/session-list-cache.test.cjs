@@ -77,6 +77,7 @@ function makeCtx() {
   const state = {
     items: initialItems(),
     archivedSessionIds: [],
+    modelCatalogCalls: 0,
   };
   const ctx = {
     state,
@@ -96,7 +97,10 @@ function makeCtx() {
           state.items = [...state.items, mkSession('session-new', '', '/ws/a', 4000, { blank: true })];
           return { result: { ok: true, value: { sessionId: 'session-new' } } };
         },
-        models: async () => ({ result: { ok: false, error: { code: 'internal', message: '模型目录不可用' } } }),
+        models: async () => {
+          state.modelCatalogCalls += 1;
+          return { result: { ok: false, error: { code: 'internal', message: '模型目录不可用' } } };
+        },
       },
       workspace: {
         list: async () => ({
@@ -175,6 +179,7 @@ test('新建会话之后它立刻出现在列表里', async () => {
   const res = makeRes();
   await handleNew(ctx, makeReq({ cwd: '/ws/a' }), res);
   assert.equal(res.status, 200);
+  assert.equal(ctx.state.modelCatalogCalls, 0, '新建会话不得同步查询宿主模型目录');
 
   assert.deepEqual(idsOf(await readSessions(ctx)), ['session-a', 'session-kept', 'session-new']);
 });
