@@ -84,10 +84,10 @@ const RELAY_SETUP_URL = 'https://github.com/WNLUO/dsh-mobile-plugin/blob/main/RE
  *
  * `?url=` 指到公开仓库里的那个目录，Cloudflare 会把它复制成用户自己账号下的一份并部署；
  * 用户不用装 wrangler、不用买服务器、也不用有自己的域名（默认给 `workers.dev` 地址）。
- * 地址里的 `tree/main/cloudflare` 是**那个仓库**的布局，改仓库/改目录都得跟着改这里。
+ * `?url=` 指向独立公开仓库的根目录，改仓库或改目录都得跟着改这里。
  */
 const RELAY_DEPLOY_URL =
-  'https://deploy.workers.cloudflare.com/?url=https://github.com/WNLUO/dsh-mobile-server/tree/main/cloudflare'
+  'https://deploy.workers.cloudflare.com/?url=https://github.com/WNLUO/dsh-cloudflare-relay'
 
 /** 直连端口的默认值，取宿主自己的默认端口（`lib/relay/core.js` 的 `defaultState()`）。 */
 const DEFAULT_DIRECT_PORT = '18787'
