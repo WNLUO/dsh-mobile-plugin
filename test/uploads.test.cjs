@@ -31,6 +31,7 @@ const {
   handleUploadFinish,
   handleUploadAbort,
   sanitizeName,
+  sweepExpiredUploads,
   CHUNK_BYTES,
 } = require('../lib/mobile/uploads.js');
 const { readWiring } = require('./lib/wiring.cjs');
@@ -197,6 +198,30 @@ test('chunk 顺序与幂等：跳号 409、重传同一片回当前进度、内�
   } finally {
     await api.close();
     fs.rmSync(inbox, { recursive: true, force: true });
+  }
+});
+
+test('放弃的上传过期后清除内存记录和暂存文件', async () => {
+  const inbox = tempInbox();
+  const api = await serve(inbox);
+  try {
+    const begin = await api.post('/upload/begin', { name: 'abandoned.bin' });
+    const uploadId = begin.body.uploadId;
+    const staging = path.join(inbox, '.staging', `${uploadId}.part`);
+    assert.equal(fs.existsSync(staging), true);
+
+    // 模拟超过 24 小时，避免测试实际等待 TTL。
+    await sweepExpiredUploads(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    assert.equal(fs.existsSync(staging), false);
+    assert.equal((await api.post('/upload/chunk', {
+      uploadId,
+      index: 0,
+      data: Buffer.from('x').toString('base64'),
+    })).status, 404);
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
   }
 });
 
