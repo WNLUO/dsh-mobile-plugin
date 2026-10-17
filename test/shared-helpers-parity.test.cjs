@@ -29,8 +29,17 @@ const { test } = require('node:test')
 
 const ROOT = path.join(__dirname, '..', '..')
 
-const SERVER_HOP_BY_HOP = path.join(ROOT, 'dsh-mobile-server', 'lib', 'proxy-http.js')
+// 权威实现现在在 Rust 版中转里（Node 版 2026-10-22 已删）。它是一份 `&[&str]` 数组，
+// 提取方式与下面那个 Set 字面量不同，见 extractHopByHopRust。
+const SERVER_HOP_BY_HOP = path.join(ROOT, 'server', 'relay', 'rust', 'src', 'headers.rs')
 const PLUGIN_HOP_BY_HOP = path.join(ROOT, 'dsh-mobile-plugin', 'lib', 'relay', 'lan-proxy.js')
+
+/** 从 Rust 版取出 `const HOP_BY_HOP: &[&str] = &[...]` 里的字符串数组。 */
+function extractHopByHopRust(source, file) {
+  const match = source.match(/const HOP_BY_HOP: &\[&str\] = &\[([\s\S]*?)\]/)
+  assert.ok(match, `${file} 里找不到 HOP_BY_HOP 的数组字面量`)
+  return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1])
+}
 
 /** 取出 `const HOP_BY_HOP = new Set([...])` 里的字符串数组。 */
 function extractHopByHop(source, file) {
@@ -40,13 +49,13 @@ function extractHopByHop(source, file) {
 }
 
 test('HOP_BY_HOP 两份拷贝的集合完全一致（含顺序）', () => {
-  const authority = extractHopByHop(fs.readFileSync(SERVER_HOP_BY_HOP, 'utf8'), SERVER_HOP_BY_HOP)
+  const authority = extractHopByHopRust(fs.readFileSync(SERVER_HOP_BY_HOP, 'utf8'), SERVER_HOP_BY_HOP)
   const copy = extractHopByHop(fs.readFileSync(PLUGIN_HOP_BY_HOP, 'utf8'), PLUGIN_HOP_BY_HOP)
   assert.deepEqual(copy, authority, 'HOP_BY_HOP 已漂移：两侧必须一起改')
 })
 
 test('HOP_BY_HOP 覆盖全部逐跳头（漏一个就会把连接语义转发给对端）', () => {
-  const set = extractHopByHop(fs.readFileSync(SERVER_HOP_BY_HOP, 'utf8'), SERVER_HOP_BY_HOP)
+  const set = extractHopByHopRust(fs.readFileSync(SERVER_HOP_BY_HOP, 'utf8'), SERVER_HOP_BY_HOP)
   for (const header of [
     'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
     'te', 'trailer', 'transfer-encoding', 'upgrade', 'content-length',

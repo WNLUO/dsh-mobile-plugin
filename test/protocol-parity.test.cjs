@@ -5,10 +5,16 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { test } = require('node:test')
 
-// 隧道协议是手工同步的两份拷贝：插件包不能跨目录引用中转仓库的文件。
-// 权威实现是 dsh-mobile-server/lib/protocol.js，副本是 lib/relay/protocol.js。
-// 唯一允许的差异是文件顶部的 JSDoc 头注释（路径指向不同）。
-const AUTHORITY = path.join(__dirname, '..', '..', 'dsh-mobile-server', 'lib', 'protocol.js')
+// 隧道协议是手工同步的两份拷贝：插件包不能跨目录引用中转仓库的文件，所以插件
+// 必须自带一份完整实现（类型表 + 编解码）。权威的编解码实现是
+// server/dsh-mobile-server/lib/protocol.js，权威的类型表是共用的
+// server/relay-core/protocol-types.js；副本是 lib/relay/protocol.js。
+//
+// 这里钉的是「行为一致」而不是「源码文本一致」：两份文件的结构本来就可以不同
+// （权威那份把类型表 require 进来，插件这份必须内联），真正要保证的是同样的输入
+// 编出同样的字节、同样的类型编号。文本比对会让一次纯重构假红，行为比对不会。
+const AUTHORITY = path.join(__dirname, '..', '..', 'server', 'dsh-mobile-server', 'src', 'index.mjs')
+const SHARED_TYPES = path.join(__dirname, '..', '..', 'server', 'relay-core', 'protocol-types.js')
 const COPY = path.join(__dirname, '..', 'lib', 'relay', 'protocol.js')
 
 const stripHeader = (source) => source.replace(/^'use strict';\n\n\/\*\*[\s\S]*?\*\/\n/, "'use strict';\n")
@@ -27,19 +33,32 @@ function legacyEncodeFrame(type, id, payload) {
   return buf;
 }
 
-test('副本与权威实现的代码部分逐字节一致', () => {
-  const authority = stripHeader(fs.readFileSync(AUTHORITY, 'utf8')).split('\n')
-  const copy = stripHeader(fs.readFileSync(COPY, 'utf8')).split('\n')
-  assert.equal(copy.length, authority.length, '两侧行数不一致，协议实现已漂移')
-  for (let i = 0; i < authority.length; i += 1) {
-    assert.equal(copy[i], authority[i], `第 ${i + 1} 行与权威实现不一致`)
+test('副本内联的类型表与共用类型表一致', () => {
+  const shared = require(SHARED_TYPES)
+  const copy = require(COPY)
+  assert.deepEqual(copy.T, shared.T, '插件副本的 T 表与 relay-core 共用表不一致')
+  assert.deepEqual(copy.TYPE_NAME, shared.TYPE_NAME, '插件副本的 TYPE_NAME 与共用表不一致')
+  assert.equal(copy.HEADER_LEN, shared.HEADER_LEN)
+  assert.equal(copy.MAX_CLOSE_REASON_BYTES, shared.MAX_CLOSE_REASON_BYTES)
+})
+
+test('副本的 close 编解码逐字节对上（含保留码与超长 reason）', () => {
+  const authority = require(AUTHORITY)
+  const copy = require(COPY)
+  const cases = [[1000, 'normal'], [1006, 'reserved'], [999, 'below'], [5000, 'above'], [1001, '超长的中文原因'.repeat(20)]]
+  for (const [code, reason] of cases) {
+    assert.equal(
+      Buffer.compare(copy.encodeClosePayload(code, reason), authority.encodeClosePayload(code, reason)), 0,
+      `close(${code}) 编码不一致`,
+    )
   }
 })
 
-test('副本导出的类型表与常量与权威实现一致', () => {
-  const authority = require(AUTHORITY)
+test('副本的类型表与共用类型表一致', () => {
+  // 权威的类型表在 relay-core（三份实现共用）；中转移交到 Workers 版之后，
+  // Workers 版把类型表与编解码拆成了两个文件，所以这里比的是那份共用表。
+  const authority = require(SHARED_TYPES)
   const copy = require(COPY)
-  assert.deepEqual(Object.keys(copy).sort(), Object.keys(authority).sort(), '导出名集合不一致')
   assert.deepEqual(copy.T, authority.T, 'T 类型表不一致')
   assert.deepEqual(copy.TYPE_NAME, authority.TYPE_NAME, 'TYPE_NAME 反查表不一致')
   assert.equal(copy.HEADER_LEN, authority.HEADER_LEN)
@@ -47,10 +66,12 @@ test('副本导出的类型表与常量与权威实现一致', () => {
 
 test('两侧对同一消息编码出的字节完全一致', () => {
   const authority = require(AUTHORITY)
+  const types = require(SHARED_TYPES)
   const copy = require(COPY)
   const payload = Buffer.from('protocol-parity')
-  for (const name of Object.keys(authority.T)) {
-    const fromAuthority = authority.encodeFrame(authority.T[name], 7, payload)
+  // 类型编号取自共用表，编解码取自 Workers 版那份实现。
+  for (const name of Object.keys(types.T)) {
+    const fromAuthority = authority.encodeFrame(types.T[name], 7, payload)
     const fromCopy = copy.encodeFrame(copy.T[name], 7, payload)
     assert.equal(Buffer.compare(fromAuthority, fromCopy), 0, `${name} 的编码结果不一致`)
   }
@@ -81,19 +102,23 @@ test('字符串与 JSON 直写最终帧后保持旧 wire 字节', () => {
 })
 
 test('两侧解码器对同一字节流解出相同结果', () => {
+  // Workers 版把解码器做成 `FrameDecoder` 类，插件副本是 `createFrameDecoder` 工厂。
+  // 两边形状不同是必然的（一个跑在边缘运行时、一个是宿主侧脚本），这里比**解出来的结果**。
   const authority = require(AUTHORITY)
+  const types = require(SHARED_TYPES)
   const copy = require(COPY)
   const frame = (type, id, text) => authority.encodeFrame(type, id, Buffer.from(text))
   const stream = Buffer.concat([
-    frame(authority.T.httpHead, 3, JSON.stringify({ status: 200 })),
-    frame(authority.T.httpChunk, 3, 'chunk'),
-    frame(authority.T.httpEnd, 3, ''),
+    frame(types.T.httpHead, 3, JSON.stringify({ status: 200 })),
+    frame(types.T.httpChunk, 3, 'chunk'),
+    frame(types.T.httpEnd, 3, ''),
   ])
-  const decodeAll = (mod) => {
-    const frames = []
-    const push = mod.createFrameDecoder((f) => frames.push({ type: f.type, id: f.id, payload: f.payload.toString('utf8') }))
-    push(stream)
-    return frames
-  }
-  assert.deepEqual(decodeAll(copy), decodeAll(authority))
+
+  const copyFrames = []
+  copy.createFrameDecoder((f) => copyFrames.push({ type: f.type, id: f.id, payload: f.payload.toString('utf8') }))(stream)
+
+  const authorityFrames = []
+  new authority.FrameDecoder((f) => authorityFrames.push({ type: f.type, id: f.id, payload: new TextDecoder().decode(f.payload) })).push(new Uint8Array(stream))
+
+  assert.deepEqual(copyFrames, authorityFrames)
 })

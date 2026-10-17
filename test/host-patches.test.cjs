@@ -134,8 +134,17 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
   // get trap 抛 "cannot get property ... without inject"。所以 inject 也得是二选一的。
   assert.match(
     IMPL,
-    /export const inject = runtimeProvidesApiProxy\(\)\s*\?\s*\['webServer', 'apiProxy', 'sessions'\]\s*:\s*\['webServer', 'sessions'\]/,
-    'inject 必须按运行时二选一：旧运行时要 apiProxy，0.2.0 要不了（会永远 pending）',
+    /export const inject = runtimeProvidesApiProxy\(\)\s*\?\s*\['webServer', 'apiProxy', 'sessions'\]\s*:\s*\['webServer', 'sessions', 'typertGateway'\]/,
+    'inject 必须按运行时二选一：旧运行时要 apiProxy，0.2.0 要 typertGateway（事件流全靠它派发）',
+  );
+  // 不注入 `typertGateway` 的后果不是报错而是**静默降级**：`ctx.get('typertGateway')` 在
+  // 装载那一刻取到空值（它是后装载的服务），每条事件流都抛「宿主版本没有提供该能力」。
+  // 收发消息与会话列表走普通请求因而照常工作，看着只像「刷新不实时」——服务器宿主上
+  // 就这么躺了很久。所以这条与上面二分的是同一件事的两半，别只改一半。
+  assert.match(
+    IMPL,
+    /\['webServer', 'sessions', 'typertGateway'\]/,
+    '0.2.0 这一支必须注入 typertGateway，否则实时推送整条挂掉而其它功能正常',
   );
   // 从前这两条钉的是「外壳要把实现自己声明的 inject 带出来」。2026-10 拆掉外壳与代机制之后
   // `lib/impl.js` 直接就是入口，cordis 拿到的是它自己 `export` 的 inject —— 那层转交没有了，

@@ -74,7 +74,16 @@ pnpm add dsh-mobile-plugin@<版本>
 
 新版插件的管理面板提供「本机调试 OTA」卡片，可手动检查并安装中转发布的紧急完整包。入口仅限宿主本机访问，不会由手机或公网触发；安装后通过实现代切换生效，切换失败会恢复上一代。npm 仍是正式发布源；后续 npm 正式版本达到 OTA 版本时会接管该版本。首次发布带此功能的 npm 包需要重启一次 DSH，让稳定外壳加载 OTA 能力。
 
-发布 OTA 完整包时，在插件仓库根目录执行 `npm pack`，再按中转服务器的部署说明上传到 `dsh-hub.wnluo.com`。
+发布一个紧急完整包：在插件仓库根目录 `npm pack`，把打出来的 tgz 原样 POST 给中转（包本身就是 tar.gz，不用再解包重打）：
+
+```sh
+curl -X POST -H "authorization: Bearer <中转的 OTA 发布 token>" --data-binary @dsh-mobile-plugin-0.1.61.tgz \
+  "https://你的中转/api/desktop-plugins/ota/publish?platform=darwin&channel=stable&version=0.1.61"
+```
+
+`platform` 填 `process.platform`（`darwin` / `linux` / `win32`），`channel` 一般 `stable`。发布接口没配 token 时是关闭的，下载不受影响；版本按号比，最后发的那个才是「最新」。
+
+打包时**别用 macOS 默认的 tar 参数**——带 PAX 扩展头，宿主那边的解析器不认，会报「OTA 包结构不完整」。要 `COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf …`，且条目以 `package/` 打头。
 
 ## 开发
 

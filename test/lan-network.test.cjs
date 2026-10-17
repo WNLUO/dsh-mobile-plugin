@@ -19,6 +19,7 @@ const assert = require('node:assert/strict')
 const {
   ipv4Number,
   isPrivateLanAddress,
+  isLanCandidateAddress,
   isPublicAddress,
   publicUrls,
   isVpnInterface,
@@ -93,6 +94,45 @@ test('isPublicAddress 只认真能从外网拨过来的地址', () => {
   // CGNAT 的两头边界：100.64/10 之内都是，100.63/100.128 就出了这个段。
   assert.equal(isPublicAddress('100.128.0.1'), true)
   assert.equal(isPublicAddress('100.63.255.255'), true)
+})
+
+test('172.16/12 里被容器/虚拟机默认占掉的段不算局域网候选', () => {
+  // 客户现场：一块网卡带着 172.17.0.1 —— 那是 docker0 的网桥地址，手机拨过去到不了。
+  // 它**仍然是私有地址**（isPrivateLanAddress 为真），但不是「能当候选」的地址。
+  assert.equal(isPrivateLanAddress('172.17.0.1'), true)
+  assert.equal(isLanCandidateAddress('172.17.0.1'), false)
+
+  for (const address of [
+    '172.18.0.1', // docker compose 默认网络
+    '172.19.0.1',
+    '172.20.0.1',
+    '172.24.0.1', // kubeadm / overlay
+    '172.31.255.254',
+  ]) {
+    assert.equal(isLanCandidateAddress(address), false, address)
+  }
+
+  // 172.16/12 里没被主流工具默认占用的部分照旧是候选，别把整段砍了。
+  for (const address of ['172.16.0.1', '172.21.5.9', '172.23.255.254']) {
+    assert.equal(isLanCandidateAddress(address), true, address)
+  }
+  // 另外两段 RFC1918 一个字都没变。
+  assert.equal(isLanCandidateAddress('10.0.0.5'), true)
+  assert.equal(isLanCandidateAddress('192.168.31.69'), true)
+  assert.equal(isLanCandidateAddress('210.16.177.228'), false)
+  assert.equal(isLanCandidateAddress('169.254.1.1'), false)
+})
+
+test('docker 网桥上的 172.17.0.1 不会被当成局域网地址摆出来', () => {
+  // 网卡名不在黑名单里也拦得住：判据是地址段，不是网卡叫什么 ——
+  // 有人把 docker 网桥改名成 en0 也不可能因此变成候选。
+  const host = ifaces({
+    en0: '192.168.31.69',
+    eth1: '172.17.0.1',
+  })
+  assert.deepEqual(lanUrls(18787, host), ['http://192.168.31.69:18787'])
+  // 一台机器**只有** 172.17 的时候，候选为空：给一个连不上的地址不如不给。
+  assert.deepEqual(lanUrls(18787, ifaces({ eth1: '172.17.0.1' })), [])
 })
 
 test('publicInterfaces 与 lanInterfaces 共用同一套网卡黑名单与排序', () => {

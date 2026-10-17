@@ -11,9 +11,10 @@ import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@appica/ui-react/select'
 import { Switch } from '@appica/ui-react/switch'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { ConfigPatch, PairingPolicy, StatusView } from '../lib/api.ts'
+import { PUBLIC_RELAYS } from '../lib/links.ts'
 
 type Props = {
   open: boolean
@@ -47,6 +48,8 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
   const [lanEnabled, setLanEnabled] = useState(status.lan.enabled)
   const [pairingPolicy, setPairingPolicy] = useState<PairingPolicy>(status.pairingPolicy)
   const [registerSecret, setRegisterSecret] = useState('')
+  /** 弹窗打开时的落焦目标：容器自己，不是第一个输入框（见下面 `initialFocus`）。 */
+  const dialogRef = useRef<HTMLDivElement | null>(null)
 
   // 只在开窗那一刻灌一次当前值：status 每 3 秒换一个对象，
   // 把它当依赖会让正在敲的字被轮询覆盖掉。
@@ -78,11 +81,17 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      {/* `initialFocus` 指向弹窗容器本身：Base UI 默认会把焦点放到第一个可聚焦元素上，
+          这里就是「设备名」那个输入框——一打开就选中了、光标在闪，用户想先点别的地方
+          还得先把它点掉。焦点仍旧进到弹窗里（读屏与 Esc 都靠它），只是不落在输入框。 */}
+      <DialogContent className="max-w-xl" initialFocus={dialogRef}>
         <DialogHeader>
           <DialogTitle>中转配置</DialogTitle>
         </DialogHeader>
 
+        {/* `tabIndex={-1}` 让容器可以被程序聚焦（且不进 Tab 顺序）。
+            套一层 div 是因为 `DialogBody` 不接受 ref。 */}
+        <div ref={dialogRef} tabIndex={-1} className="outline-none">
         <DialogBody className="flex flex-col gap-4">
           <Field>
             <FieldLabel htmlFor="relay-name">设备名</FieldLabel>
@@ -102,6 +111,44 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
               placeholder="https://example.com"
               onChange={(event) => setRelayUrl(event.target.value)}
             />
+            {/* 公用中转的入口清单。引导页里那条是自动填好的，用户从没记过地址，
+                进了主界面想换回来只能凭记忆敲——所以这里把清单摆出来点选。
+                清单与引导页共用 `PUBLIC_RELAYS`，加一台两边自动跟上；
+                数量会涨，所以定高滚动，别把弹窗顶长。
+                点一下只填地址，不改其它字段——「保存配置」才真正落盘。 */}
+            <div className="mt-1.5 rounded-md bg-background-muted px-3 py-2">
+              <p className="text-xs text-foreground-muted">公用中转</p>
+              <div className="mt-1 max-h-[112px] overflow-y-auto">
+                <div className="flex flex-col gap-0.5">
+                  {PUBLIC_RELAYS.map((item) => {
+                    const picked = relayUrl.trim() === item.url
+                    return (
+                      <button
+                        key={item.url}
+                        type="button"
+                        onClick={() => setRelayUrl(item.url)}
+                        className={`flex w-full items-baseline justify-between gap-3 rounded px-1.5 py-1 text-left ${
+                          picked ? 'bg-background' : 'hover:bg-background'
+                        }`}
+                      >
+                        <span className="font-mono text-xs text-foreground">{item.url}</span>
+                        <span className="shrink-0 text-xs text-foreground-muted">
+                          {picked ? '已选' : item.name}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRelayUrl('')}
+                disabled={relayUrl.trim() === ''}
+                className="mt-1.5 text-xs text-foreground-muted underline-offset-2 hover:underline disabled:opacity-40"
+              >
+                清空（只走局域网直连）
+              </button>
+            </div>
           </Field>
 
           <div className="flex items-center justify-between gap-4 rounded-md bg-background-muted px-3 py-2">
@@ -144,6 +191,7 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
             />
           </Field>
         </DialogBody>
+        </div>
 
         <DialogFooter className="flex justify-end gap-2">
           <Button variant="outline" disabled={busy === 'config'} onClick={() => onOpenChange(false)}>

@@ -3,3 +3,19 @@
 
 /* Appica UI 的类名在 node_modules 里，Tailwind 默认不扫，必须显式指过去 */
 @source '../node_modules/@appica/ui-react/dist';
+
+/*
+ * 提示气泡在弹窗里被「糊掉」的补药。
+ *
+ * Appica 的 toast 胶囊本身是 `bg-background` + `backdrop-blur-xl`，而它的牌子（图标/标题）
+ * 又是 `text-foreground-intense` / `text-foreground`；这些 token 在深色主题下要等
+ * ThemeProvider 的样式落到根上才成立。只在弹窗里弹提示时（防火墙弹窗的「复制」）出现过
+ * 「一团模糊、字看不见」，而首页的提示正常 —— 差别就是弹窗那层 `backdrop-blur` 遮罩。
+ * 这里把胶囊的底色与文字在弹窗之上强制成不透明：宁可少一层毛玻璃，也要让人真能读到。
+ */
+[data-slot='toast'] {
+  background-color: var(--background);
+  color: var(--foreground);
+  border-color: var(--border-overlay, var(--border));
+  isolation: isolate;
+}

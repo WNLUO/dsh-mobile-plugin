@@ -86,6 +86,8 @@ test('无凭据派发每一条路由：谁都得写出响应，不许一个字�
   }
 });
 
+const PAIR = '/api/mobile/v1/pair';
+
 test('公开豁免的体检路由回 200 + 服务名，其余无凭据一律 401', async () => {
   for (const route of ROUTES) {
     const res = fakeRes();
@@ -94,6 +96,13 @@ test('公开豁免的体检路由回 200 + 服务名，其余无凭据一律 401
       assert.equal(res.status, 200);
       assert.equal(res.body.ok, true);
       assert.equal(res.body.service, 'dsh-mobile-plugin', 'App 靠这个字段分辨宿主与中转');
+      continue;
+    }
+    if (route.path === PAIR) {
+      // 配对在「还没有 token」的时刻发生，凭据是配对码本身。空请求体连配对码都没有，
+      // 只能是 400；**不能**是 200——那意味着空请求也能换到凭据。
+      assert.equal(res.status, 400, '空请求体的配对应当被拒');
+      assert.equal(res.body.ok, false);
       continue;
     }
     assert.equal(res.status, 401, `${route.path} 无凭据应当回 401`);

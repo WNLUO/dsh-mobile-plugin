@@ -36,7 +36,8 @@ test('App 的 apiPaths.ts 在（对齐的前提是这张表能被读到）', () 
  * 人加路由时会以为「插件没注册 = 忘了」，然后在插件里再实现一份。
  */
 const RELAY_SERVED = new Map([
-  ['deviceCredentialRevoke', '中转 server.js 的 /api/mobile/v1/device-credential/revoke：吊销中转侧设备凭据，宿主插件不参与（见 app/src/services/deviceCredential.ts 的文件头）'],
+  // 2026-10-22：中转回归纯转发后，`deviceCredentialRevoke` 改由插件自己应答
+  //（`lib/routes/mobile-api.js`），所以从这里拿掉了——它不再是「中转代答」的路径。
 ]);
 
 /**
@@ -65,6 +66,9 @@ const LEGACY_ROUTES = new Map([
  */
 const PUBLIC_ROUTES = new Map([
   ['/health', '地址体检：配对之前就要问「这个地址上是宿主还是中转」。只回 service/apiVersion/version，不含实例信息与能力面；中转侧同路径同样公开'],
+  // 配对本身就在「还没有 token」的时刻发生，包 guarded 就是死循环。它的凭据是**配对码**
+  // 而不是 token：码对得上才签发 token 与设备凭据，连错 5 次锁 60 秒（见 lib/mobile/pairing.js）。
+  ['/pair', '配对：手机用配对码换 token 与设备凭据，此刻还没有 token 可验。凭据是配对码本身，附带失败限流；归宿主应答，中转只按实例标识转发'],
 ]);
 
 /** 从 PATH 对象里抽出所有 `key: '/子路径'`。 */
@@ -97,7 +101,10 @@ test('由中转提供的路径清单本身没腐化（App 里那把钥匙还在�
     assert.ok(new RegExp(`^\\s{2}${key}:`, 'm').test(all), `RELAY_SERVED 里的 ${key} 在 apiPaths.ts 里已经不存在了，请删掉这条豁免`);
     assert.ok(why.length > 20, `RELAY_SERVED 里的 ${key} 得写清为什么由中转提供`);
   }
-  assert.equal(RELAY_SERVED.size, 1);
+  // 2026-10-22 之后中转不再代答任何移动端路径：它是纯转发，所有路径都落到插件。
+  // 将来真出现「只能由中转回答」的路径，把这条数改回去并写明理由——这个数字就是
+  // 提醒你别在不知不觉中让中转重新开始管业务。
+  assert.equal(RELAY_SERVED.size, 0, '中转已经不带业务；若确需新增，请先确认它真的不该由宿主回答');
 });
 
 test('保留的旧客户端路由清单本身没腐化', () => {
@@ -152,5 +159,5 @@ test('公开路由清单本身没腐化', () => {
     assert.ok(table.includes(`'${API_BASE}${sub}'`), `PUBLIC_ROUTES 里的 ${API_BASE}${sub} 插件侧已经没注册了，请删掉这条豁免`);
     assert.ok(why.length > 40, `PUBLIC_ROUTES 里的 ${API_BASE}${sub} 得写清为什么可以公开`);
   }
-  assert.equal(PUBLIC_ROUTES.size, 1, '公开豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
+  assert.equal(PUBLIC_ROUTES.size, 2, '公开豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
 });

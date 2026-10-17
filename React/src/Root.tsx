@@ -44,7 +44,7 @@ export function Root() {
 
   if (forcedSettings) return <App />
 
-  if (forcedSetup) return entered ? <App /> : <Onboarding replay onDone={() => setEntered(true)} />
+  if (forcedSetup) return entered ? <App /> : <Onboarding onDone={() => setEntered(true)} />
 
   if (configured === null) {
     return (
