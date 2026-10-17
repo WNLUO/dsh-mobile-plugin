@@ -5,17 +5,19 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { test } = require('node:test')
 
-// 隧道协议是手工同步的两份拷贝：插件包不能跨目录引用中转仓库的文件，所以插件
-// 必须自带一份完整实现（类型表 + 编解码）。权威的编解码实现是
-// server/dsh-mobile-server/lib/protocol.js，权威的类型表是共用的
-// server/relay-core/protocol-types.js；副本是 lib/relay/protocol.js。
+// 隧道协议的插件副本（`lib/relay/protocol.js`）必须与权威实现逐字节一致。
 //
-// 这里钉的是「行为一致」而不是「源码文本一致」：两份文件的结构本来就可以不同
-// （权威那份把类型表 require 进来，插件这份必须内联），真正要保证的是同样的输入
-// 编出同样的字节、同样的类型编号。文本比对会让一次纯重构假红，行为比对不会。
-const AUTHORITY = path.join(__dirname, '..', '..', 'server', 'dsh-mobile-server', 'src', 'index.mjs')
+// 权威实现有两份：
+//  - **Rust**（`server/relay-core/rust`）：中转跑的，`parity.rs` 拿 node 调本文件
+//    逐字节对撞，那是真正跨语言的那道验证；
+//  - **共用类型表**（`server/relay-core/protocol-types.js`）：类型编号、header 长度、
+//    close code 规则、reason 上限都从这里来。
+//
+// 这里曾经 `require` 一份已经删掉的 JS 实现（`dsh-mobile-server/src/index.mjs`），
+// 它一消失这组就整组报错。现在改为**对着共用类型表算期望值**，不再依赖任何已删文件。
 const SHARED_TYPES = path.join(__dirname, '..', '..', 'server', 'relay-core', 'protocol-types.js')
 const COPY = path.join(__dirname, '..', 'lib', 'relay', 'protocol.js')
+const SHARED = require(SHARED_TYPES)
 
 const stripHeader = (source) => source.replace(/^'use strict';\n\n\/\*\*[\s\S]*?\*\/\n/, "'use strict';\n")
 
@@ -42,15 +44,30 @@ test('副本内联的类型表与共用类型表一致', () => {
   assert.equal(copy.MAX_CLOSE_REASON_BYTES, shared.MAX_CLOSE_REASON_BYTES)
 })
 
-test('副本的 close 编解码逐字节对上（含保留码与超长 reason）', () => {
-  const authority = require(AUTHORITY)
+test('副本的 close 编解码对得上共用表的规则（含保留码与超长 reason）', () => {
   const copy = require(COPY)
   const cases = [[1000, 'normal'], [1006, 'reserved'], [999, 'below'], [5000, 'above'], [1001, '超长的中文原因'.repeat(20)]]
   for (const [code, reason] of cases) {
+    const payload = copy.encodeClosePayload(code, reason)
+    // 期望值按共用表的规则算：不合法（含保留码）一律降级成 1000；reason 按字节截断。
+    const expectedCode = SHARED.validCloseCode(code) ? code : 1000
+    assert.equal(payload.readUInt16BE(0), expectedCode, `close(${code}) 的 code 位不对`)
+
+    const reasonBytes = Buffer.from(reason, 'utf8')
+    const limit = SHARED.MAX_CLOSE_REASON_BYTES
+    // 按字节截断，且**不能把一个多字节字符劈成两半**：截断点落在续字节上时往回退到
+    // 那个字符的起始位置。中文一个字 3 字节，123 正好可能切在中间，所以这条是实的。
+    let end = Math.min(limit, reasonBytes.length)
+    while (end > 0 && end < reasonBytes.length && (reasonBytes[end] & 0xc0) === 0x80) end -= 1
     assert.equal(
-      Buffer.compare(copy.encodeClosePayload(code, reason), authority.encodeClosePayload(code, reason)), 0,
-      `close(${code}) 编码不一致`,
+      Buffer.compare(payload.subarray(2), reasonBytes.subarray(0, end)), 0,
+      `close(${code}) 的 reason 不该是别的字节`,
     )
+
+    // 解回来要是同一对值（不合法的线上值解出来是 1000，但原值要能读到）。
+    const decoded = copy.decodeClosePayload(payload)
+    assert.equal(decoded.code, expectedCode, `close(${code}) 解回来的 code 不对`)
+    assert.equal(decoded.reason, reasonBytes.subarray(0, end).toString('utf8'), `close(${code}) 解回来的 reason 不对`)
   }
 })
 
@@ -65,15 +82,17 @@ test('副本的类型表与共用类型表一致', () => {
 })
 
 test('两侧对同一消息编码出的字节完全一致', () => {
-  const authority = require(AUTHORITY)
   const types = require(SHARED_TYPES)
   const copy = require(COPY)
   const payload = Buffer.from('protocol-parity')
-  // 类型编号取自共用表，编解码取自 Workers 版那份实现。
+  // 帧头形状：1 字节类型 + 4 字节大端 id + 4 字节大端长度 + 载荷，头长取自共用表。
   for (const name of Object.keys(types.T)) {
-    const fromAuthority = authority.encodeFrame(types.T[name], 7, payload)
-    const fromCopy = copy.encodeFrame(copy.T[name], 7, payload)
-    assert.equal(Buffer.compare(fromAuthority, fromCopy), 0, `${name} 的编码结果不一致`)
+    const frame = copy.encodeFrame(types.T[name], 7, payload)
+    assert.equal(frame.length, types.HEADER_LEN + payload.length, `${name} 的帧长不对`)
+    assert.equal(frame[0], types.T[name], `${name} 的类型字节不对`)
+    assert.equal(frame.readUInt32BE(1), 7, `${name} 的 id 位不对`)
+    assert.equal(frame.readUInt32BE(5), payload.length, `${name} 的长度位不对`)
+    assert.equal(Buffer.compare(frame.subarray(types.HEADER_LEN), payload), 0, `${name} 的载荷不对`)
   }
 })
 
@@ -101,24 +120,23 @@ test('字符串与 JSON 直写最终帧后保持旧 wire 字节', () => {
   )
 })
 
-test('两侧解码器对同一字节流解出相同结果', () => {
-  // Workers 版把解码器做成 `FrameDecoder` 类，插件副本是 `createFrameDecoder` 工厂。
-  // 两边形状不同是必然的（一个跑在边缘运行时、一个是宿主侧脚本），这里比**解出来的结果**。
-  const authority = require(AUTHORITY)
+test('解码器能把编码出的多帧字节流原样解回来', () => {
+  // 半包与粘包都靠这个解码器处理：几帧拼成一条流送进去，要按顺序原样解出。
   const types = require(SHARED_TYPES)
   const copy = require(COPY)
-  const frame = (type, id, text) => authority.encodeFrame(type, id, Buffer.from(text))
-  const stream = Buffer.concat([
-    frame(types.T.httpHead, 3, JSON.stringify({ status: 200 })),
-    frame(types.T.httpChunk, 3, 'chunk'),
-    frame(types.T.httpEnd, 3, ''),
-  ])
+  const parts = [
+    [types.T.httpHead, 3, JSON.stringify({ status: 200 })],
+    [types.T.httpChunk, 3, 'chunk'],
+    [types.T.httpEnd, 3, ''],
+  ]
+  const stream = Buffer.concat(parts.map(([type, id, text]) => copy.encodeFrame(type, id, Buffer.from(text))))
 
-  const copyFrames = []
-  copy.createFrameDecoder((f) => copyFrames.push({ type: f.type, id: f.id, payload: f.payload.toString('utf8') }))(stream)
+  const frames = []
+  copy.createFrameDecoder((f) => frames.push({ type: f.type, id: f.id, payload: f.payload.toString('utf8') }))(stream)
 
-  const authorityFrames = []
-  new authority.FrameDecoder((f) => authorityFrames.push({ type: f.type, id: f.id, payload: new TextDecoder().decode(f.payload) })).push(new Uint8Array(stream))
-
-  assert.deepEqual(copyFrames, authorityFrames)
+  assert.deepEqual(
+    frames,
+    parts.map(([type, id, text]) => ({ type, id, payload: text })),
+    '解出来的三帧要和编进去的一模一样',
+  )
 })
