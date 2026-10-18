@@ -5,7 +5,8 @@
  *
  * 这份测试**启动真实的 lan-proxy HTTP 监听**，用 App 实际发出的请求契约打进去，
  * 覆盖静态路由比对无法证明的三件事：
- *   1. 未认证请求拿到的是配对页，而不是 401 —— App 扫码后的手动兜底入口靠它；
+ *   1. 未认证的请求一律拿 JSON 401，**不给任何网页** —— 浏览器导航也一样，
+ *      手机端只有 App 一条路（网页版配对入口 2026-10 已砍掉）；
  *   2. `deny` 策略下「配对码错误」与「码对但被桌面端拒绝」返回完全一样的响应，
  *      配对码不可被逐位探测；
  *   3. 三条 App 侧鉴权路径（Bearer 宿主令牌 / dsh_lan cookie / dshc_ 设备凭据）
@@ -66,10 +67,9 @@ function call(port, { method = 'GET', path: p, headers = {}, body } = {}) {
   })
 }
 
-const PAIR_PAGE_MARK = '连接 DeepSeek Harness'
-const isPairPage = (res) => res.status === 200 && res.body.includes(PAIR_PAGE_MARK)
 const isProxied = (res) => res.status === 200 && res.body.includes('"upstream":true')
-/** 未认证的 API 请求必须是 JSON 401，绝不能是 200 + 配对页。 */
+const isHtml = (res) => /text\/html/.test(String(res.headers['content-type'])) || /<html/i.test(res.body)
+/** 未认证的请求必须是 JSON 401，绝不能是任何 HTML 页面。 */
 const isApiUnauthorized = (res) => {
   if (res.status !== 401) return false
   if (!/application\/json/.test(String(res.headers['content-type']))) return false
@@ -105,7 +105,7 @@ const isApiUnauthorized = (res) => {
     assert.equal(health.status, 200, 'healthz 应返回 200')
     assert.equal(health.body, 'ok')
 
-    // 2. 未认证的 API 请求 → JSON 401（**不能**是 200 + 配对页）。
+    // 2. 未认证的 API 请求 → JSON 401（**不能**是 200 + 任何网页）。
     //
     // 旧实现把 `/api/mobile/v1/*` 也答成 200 + 配对页，App 的 `app/src/api.ts`
     // 会把它当成成功（`response.ok` 为真 → `publishRoute` 把连接通道钉在局域网
@@ -114,20 +114,21 @@ const isApiUnauthorized = (res) => {
     // 通道上：既不回退到中转，也不提示重新配对。
     const anon = await call(LAN_PORT, { path: '/api/mobile/v1/status' })
     assert.ok(isApiUnauthorized(anon), '未认证的 API 请求必须是 JSON 401')
-    assert.ok(!isPairPage(anon), '未认证的 API 请求不得返回 HTML 配对页')
+    assert.ok(!isHtml(anon), '未认证的 API 请求不得返回 HTML')
     assert.ok(!isProxied(anon), '未认证不得被代理到宿主')
 
-    // 2b. 浏览器导航（Accept 含 text/html）仍拿配对页：手机浏览器直接打开局域网
-    //     地址输入配对码这个入口必须保留。
+    // 2b. 浏览器导航（Accept 含 text/html）同样拿 JSON 401：网页版配对页与配对后
+    //     能进入的网页本体 2026-10 已整体砍掉，手机端只剩 App 一条路。
     const browse = await call(LAN_PORT, {
       path: '/',
       headers: { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
     })
-    assert.ok(isPairPage(browse), '浏览器导航应返回配对页')
+    assert.ok(isApiUnauthorized(browse), '浏览器导航也不得拿到网页，只回 JSON 401')
+    assert.ok(!isHtml(browse), '浏览器导航不得返回 HTML 配对页')
 
-    // 2c. 不带 Accept 的程序化请求（curl / RN fetch 默认）也不得拿到 HTML
+    // 2c. 不带 Accept 的程序化请求（curl / RN fetch 默认）同理
     const bare = await call(LAN_PORT, { path: '/' })
-    assert.ok(isApiUnauthorized(bare), '非 HTML 客户端不得拿到配对页')
+    assert.ok(isApiUnauthorized(bare), '非 HTML 客户端同样只拿 JSON 401')
 
     // 3. 配对码位数不符 → 400
     const malformed = await call(LAN_PORT, {
@@ -245,12 +246,11 @@ const isApiUnauthorized = (res) => {
     })
     assert.ok(isProxied(cookieAfterRevoke), 'cookie 与设备凭据独立')
 
-    // 14. 登出清 cookie，且属性与下发时一致（否则部分客户端删不掉）
+    // 14. 网页版配对入口的登出路由已随配对页一起删除：它现在只是一条未知路径，
+    //     未认证时与其它路径一样回 JSON 401，不再有任何清 cookie 的行为。
     const logout = await call(LAN_PORT, { path: '/__lan_logout' })
-    assert.equal(logout.status, 302)
-    assert.match(String(logout.headers['set-cookie']), /^dsh_lan=;/)
-    assert.match(String(logout.headers['set-cookie']), /Path=\//)
-    assert.match(String(logout.headers['set-cookie']), /Max-Age=0/)
+    assert.equal(logout.status, 401, '登出路由已删，应按未认证处理')
+    assert.equal(logout.headers['set-cookie'], undefined, '不得再下发清 cookie 的响应头')
 
     console.log('lan direct e2e tests passed')
   } finally {
