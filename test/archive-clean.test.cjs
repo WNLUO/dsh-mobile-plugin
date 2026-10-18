@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * 「清理所有已归档」必须按归档集合清理，不得被会话列表里的状态标记缩小范围。
+ * 「清理所有已归档」必须按归档集合清理，不得被会话列表里的状态标记缩小范围；
+ * 并且清理只删日志，不在进程里擦宿主的归档集合（擦了会让桌面端把已删的行放回列表）。
  */
 
 const test = require('node:test');
@@ -13,11 +14,7 @@ const { Readable } = require('node:stream');
 const { zstdCompressSync } = require('node:zlib');
 const { handleClearArchived } = require('../lib/mobile/archive-clean.js');
 const { buildSessionsResponse } = require('../lib/mobile/sessions.js');
-const {
-  sessionListResponseState,
-  deletedSessionIdsOf,
-  pendingUnarchiveSessionIdsOf,
-} = require('../lib/mobile/session-cache.js');
+const { sessionListResponseState, deletedSessionIdsOf } = require('../lib/mobile/session-cache.js');
 
 function makeReq(body, { chunkSize = 0, delayMs = 0 } = {}) {
   return Readable.from(deferredJsonChunks(body, chunkSize, delayMs));
@@ -97,13 +94,10 @@ test('清理会话集合中的所有归档 ID，不受 running / blank 摘要标
             if (failWorkspaceList) throw new Error('workspace.list unavailable');
             return { result: { ok: true, value: { archivedSessionIds } } };
           },
-          // 擦归档集合必须发生在删目录之后：调用这一刻日志已经不在，否则这段窗口里
-          // 会话「名字没了、日志还在」，看着就像清理只是把它移出了归档。
+          // 进程里擦归档集合 = 把桌面端快照里已经删掉的行放回正常列表（用户报的「清理完
+          // 它们又回来了，重启 DSH 才真的消失」）。收尾只在宿主启动时做，这里一次都不许调。
           unarchiveSession: async (request) => {
             unarchived.push(request.payload.sessionId);
-            const index = archivedSessionIds.indexOf(request.payload.sessionId);
-            if (index >= 0) archivedSessionIds.splice(index, 1);
-            assert.equal(fs.existsSync(path.join(home, 'sessions', '--home-node--', request.payload.sessionId)), false, '擦归档集合时日志必须已经删掉');
             return { result: { ok: true, value: { archivedSessionIds: [] } } };
           },
         },
@@ -121,21 +115,68 @@ test('清理会话集合中的所有归档 ID，不受 running / blank 摘要标
     assert.equal(res.status, 200);
     // running 与 blank 各删掉一个；migrating 只有非规范名日志（宿主也不认），unarchived 不在归档集里。
     assert.equal(res.body.deleted, 2);
+    assert.deepEqual(res.body, { ok: true, deleted: 2 }, '回执只报真删掉的条数');
     assert.equal(fs.existsSync(running), false);
     assert.equal(fs.existsSync(blank), false);
     assert.equal(fs.existsSync(kept), true);
     assert.equal(fs.existsSync(migrating), true, '非规范名日志不是已提交的代次，不许当成会话删掉');
-    assert.deepEqual([...unarchived].sort(), ['session-blank', 'session-running'], '只擦真删掉的：没日志的 id 别从归档集合里抹掉，否则那一行凭空消失');
-    // 真删掉的（running/blank）不许再挂在归档集合里；migrating 的日志没删成，名字也得留着，
-    // 否则「已归档」里那一行会凭空消失而日志还在磁盘上。
-    assert.deepEqual([...res.body.archivedSessionIds].sort(), [42, 'session-migrating'].sort(), '清掉的 id 不能继续挂在归档集合里，没删掉的也不许被抹掉');
-    assert.deepEqual(res.body.unarchiveFailedSessionIds, [], '成功擦除集合时不报告失败项');
+    assert.deepEqual(unarchived, [], '清理只删日志：进程里擦归档集合会让桌面端把已删的行放回列表');
     assert.equal(cache.value, null);
     assert.deepEqual([...deletedSessionIdsOf(ctx)].sort(), ['session-blank', 'session-running']);
     failWorkspaceList = true;
     const refreshed = await buildSessionsResponse(ctx);
     assert.equal(refreshed.status, 200);
     assert.deepEqual(refreshed.body.items.map((item) => item.sessionId), ['session-unarchived'], '即使宿主 sessions.list 仍带着已删会话，清理后的移动列表也必须过滤掉它们');
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('更早一次删到一半留下的空归档：再清一次要按已删记账，宿主的旧清单也得被压住', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-archive-clean-'));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    const alive = writeSession(home, 'session-alive');
+    // 老版本删掉日志、抛错前没记进删除集：目录已经不在了。
+    // Windows 上删不掉的目录：只剩宿主锁着的 session.lock。
+    const lockedOnly = path.join(home, 'sessions', '--home-node--', 'session-locked-only');
+    fs.mkdirSync(lockedOnly, { recursive: true });
+    fs.writeFileSync(path.join(lockedOnly, 'session.lock'), '');
+    const archivedSessionIds = ['session-alive', 'session-lost-log', 'session-locked-only'];
+    let listFails = false;
+    const ctx = {
+      state: {},
+      apiProxy: {
+        sessions: {
+          list: async () => ({ result: { ok: true, value: { items: archivedSessionIds.map((sessionId) => ({ sessionId, running: false, blank: false })) } } }),
+        },
+        workspace: {
+          list: async () => {
+            if (listFails) throw new Error('workspace.list unavailable');
+            return { result: { ok: true, value: { archivedSessionIds } } };
+          },
+          unarchiveSession: async () => ({ result: { ok: true, value: {} } }),
+        },
+      },
+    };
+    const req = makeReq({ confirm: true });
+    req.headers = {};
+    const res = makeRes();
+
+    await handleClearArchived(ctx, req, res);
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.deleted, 3, '盘上已经没数据的归档也算清掉了，否则用户看到删了 0 条、列表却还在');
+    assert.deepEqual([...deletedSessionIdsOf(ctx)].sort(), [...archivedSessionIds].sort());
+    assert.equal(fs.existsSync(alive), false);
+    assert.equal(fs.existsSync(lockedOnly), true, '只剩锁文件的空目录删不掉，不影响记账');
+    listFails = true;
+    const refreshed = await buildSessionsResponse(ctx);
+    assert.equal(refreshed.status, 200);
+    assert.deepEqual(refreshed.body.items, [], '宿主进程内清单还挂着这三条时，重建列表必须一条都不剩');
   } finally {
     if (previousHome === undefined) delete process.env.DSH_HOME;
     else process.env.DSH_HOME = previousHome;
@@ -166,7 +207,7 @@ test('body 分片且块之间空闲时仍能读到 confirm', async () => {
   await handleClearArchived(ctx, req, res);
 
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { ok: true, deleted: 0, archivedSessionIds: [] });
+  assert.deepEqual(res.body, { ok: true, deleted: 0 });
   assert.deepEqual(calls, ['list'], '读到 confirm 才继续往下走');
 });
 
@@ -190,46 +231,38 @@ test('读日志头不走系统 zstd 命令', () => {
   assert.match(source, /createZstdDecompress/, '压缩日志必须用 Node 自带的 zstd 解');
 });
 
-test('擦归档集合失败不影响删除结果：日志删了、立刻生效', async () => {
-  // 用户报过：点清理后会话只是被移出了归档、必须重启 DSH 才真的消失。根因是「先擦集合、
-  // 后删日志」，中途失败就留下名字没了、日志还在的会话。改成先删后擦之后，日志一没就是
-  // 真的清理掉了；擦集合是收尾，它失败不该把已经成功的删除判成失败。
+test('重复清理不会去擦归档集合：桌面端那份快照还挂在同一个进程上', async () => {
+  // 用户报过：手机端清理完全部已归档的对话，桌面端列表里它们又全回来了，重启 DSH 才消失。
+  // 根因是清理后插件把 id 从宿主归档集合里擦掉，宿主广播集合变化，桌面端就把自己快照里
+  // 那些已经没有日志、本来被归档藏着的行放回正常列表。所以擦集合一律不在进程里做。
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-archive-clean-'));
   const previousHome = process.env.DSH_HOME;
   process.env.DSH_HOME = home;
   try {
     const doomed = writeSession(home, 'session-doomed');
-    let archivedSessionIds = ['session-doomed'];
-    let failUnarchive = true;
+    const stillArchived = ['session-doomed'];
     let unarchiveCalls = 0;
     const ctx = {
       state: {},
       apiProxy: {
         workspace: {
-          list: async () => ({ result: { ok: true, value: { archivedSessionIds } } }),
+          list: async () => ({ result: { ok: true, value: { archivedSessionIds: [...stillArchived] } } }),
           unarchiveSession: async () => {
             unarchiveCalls += 1;
-            if (failUnarchive) return { result: { ok: false, error: { code: 'gateway/unavailable', message: '宿主不在' } } };
-            archivedSessionIds = [];
-            return { result: { ok: true, value: { archivedSessionIds } } };
+            return { result: { ok: true, value: { archivedSessionIds: [] } } };
           },
         },
       },
     };
-    const req = makeReq({ confirm: true });
-    req.headers = {};
-    const res = makeRes();
 
-    await handleClearArchived(ctx, req, res);
+    const firstReq = makeReq({ confirm: true });
+    firstReq.headers = {};
+    const first = makeRes();
+    await handleClearArchived(ctx, firstReq, first);
+    assert.equal(first.status, 200);
+    assert.equal(first.body.deleted, 1);
+    assert.equal(fs.existsSync(doomed), false);
 
-    assert.equal(fs.existsSync(doomed), false, '擦集合失败也不能让日志留下来：删了就是删了');
-    assert.equal(res.status, 200);
-    assert.equal(res.body.deleted, 1);
-    assert.deepEqual(res.body.archivedSessionIds, ['session-doomed'], '宿主未确认取消归档时，集合快照仍须保留该 ID');
-    assert.deepEqual(res.body.unarchiveFailedSessionIds, ['session-doomed'], '向 App 返回可重试失败项');
-    assert.deepEqual([...pendingUnarchiveSessionIdsOf(ctx)], ['session-doomed']);
-
-    failUnarchive = false;
     const retryReq = makeReq({ confirm: true });
     retryReq.headers = {};
     const retryRes = makeRes();
@@ -237,51 +270,8 @@ test('擦归档集合失败不影响删除结果：日志删了、立刻生效',
 
     assert.equal(retryRes.status, 200);
     assert.equal(retryRes.body.deleted, 0, '已删日志不应再次计入删除数量');
-    assert.deepEqual(retryRes.body.archivedSessionIds, []);
-    assert.deepEqual(retryRes.body.unarchiveFailedSessionIds, []);
-    assert.equal(unarchiveCalls, 2, '重试必须重新调用宿主取消归档');
-    assert.deepEqual([...pendingUnarchiveSessionIdsOf(ctx)], []);
-  } finally {
-    if (previousHome === undefined) delete process.env.DSH_HOME;
-    else process.env.DSH_HOME = previousHome;
-    fs.rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('删日志发生在擦归档集合之前：清理不必等宿主重启就生效', async () => {
-  // 这条守住顺序本身。反过来（先擦后删）时，只要中途失败或链路超时，用户看到的就是
-  // 「清理把会话移出了归档但没删」——正是这个 bug 的原始形态。
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-archive-clean-'));
-  const previousHome = process.env.DSH_HOME;
-  process.env.DSH_HOME = home;
-  try {
-    const doomed = writeSession(home, 'session-doomed');
-    const stillArchived = ['session-doomed'];
-    const observedAtUnarchive = [];
-    const ctx = {
-      state: {},
-      apiProxy: {
-        workspace: {
-          list: async () => ({ result: { ok: true, value: { archivedSessionIds: [...stillArchived] } } }),
-          unarchiveSession: async (request) => {
-            observedAtUnarchive.push(fs.existsSync(path.join(home, 'sessions', '--home-node--', request.payload.sessionId)));
-            const index = stillArchived.indexOf(request.payload.sessionId);
-            if (index >= 0) stillArchived.splice(index, 1);
-            return { result: { ok: true, value: { archivedSessionIds: [...stillArchived] } } };
-          },
-        },
-      },
-    };
-    const req = makeReq({ confirm: true });
-    req.headers = {};
-    const res = makeRes();
-
-    await handleClearArchived(ctx, req, res);
-
-    assert.equal(res.status, 200);
-    assert.equal(res.body.deleted, 1);
-    assert.deepEqual(observedAtUnarchive, [false], '擦归档集合时日志必须已经不在：否则这段窗口里它只是被移出了归档');
-    assert.equal(fs.existsSync(doomed), false);
+    assert.deepEqual([...stillArchived], ['session-doomed'], '归档集合里留着的死 id 不显示在任何地方，等宿主下次启动时修剪');
+    assert.equal(unarchiveCalls, 0, '两次清理都不许动归档集合');
   } finally {
     if (previousHome === undefined) delete process.env.DSH_HOME;
     else process.env.DSH_HOME = previousHome;

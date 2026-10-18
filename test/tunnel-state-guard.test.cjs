@@ -51,7 +51,7 @@ function bootWorker() {
     deliverRegistered() { this.registered = true; this.opts.onRegistered() }
   }
   const api = new Function('deps', `
-    const { config, core, RelayTunnel, upstream, lanUrls, lanUrlPort, snapshotRead, parentJson, log, publishState } = deps;
+    const { config, core, RelayTunnel, upstream, lanUrls, lanUrlPort, currentLanUrls, snapshotRead, parentJson, log, publishState } = deps;
     let tunnel = null;
     let tunnelState = 'off';
     let tunnelError = null;
@@ -78,6 +78,8 @@ function bootWorker() {
     upstream: () => ({}),
     lanUrls: () => [],
     lanUrlPort: () => 18787,
+    // startTunnel 里的局域网候选改走 worker 的 currentLanUrls()；按真源码的同名依赖注入。
+    currentLanUrls: () => [],
     snapshotRead: async () => null,
     parentJson: async () => ({ approved: false }),
     log,

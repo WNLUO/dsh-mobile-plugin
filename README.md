@@ -74,16 +74,19 @@ pnpm add dsh-mobile-plugin@<版本>
 
 新版插件的管理面板提供「本机调试 OTA」卡片，可手动检查并安装中转发布的紧急完整包。入口仅限宿主本机访问，不会由手机或公网触发；安装后通过实现代切换生效，切换失败会恢复上一代。npm 仍是正式发布源；后续 npm 正式版本达到 OTA 版本时会接管该版本。首次发布带此功能的 npm 包需要重启一次 DSH，让稳定外壳加载 OTA 能力。
 
-发布一个紧急完整包：在插件仓库根目录 `npm pack`，把打出来的 tgz 原样 POST 给中转（包本身就是 tar.gz，不用再解包重打）：
+发布一个紧急完整包：用仓库里的打包脚本，不要手工 `tar`。
 
 ```sh
-curl -X POST -H "authorization: Bearer <中转的 OTA 发布 token>" --data-binary @dsh-mobile-plugin-0.1.61.tgz \
-  "https://你的中转/api/desktop-plugins/ota/publish?platform=darwin&channel=stable&version=0.1.61"
+# 只打包（产物在当前目录）
+node scripts/pack-ota.mjs
+
+# 打包并发布，发布后会下载回来核对哈希
+node scripts/pack-ota.mjs --publish https://你的中转 --token <中转的 OTA 发布 token>
 ```
 
-`platform` 填 `process.platform`（`darwin` / `linux` / `win32`），`channel` 一般 `stable`。发布接口没配 token 时是关闭的，下载不受影响；版本按号比，最后发的那个才是「最新」。
+脚本做四件事：文件清单问 `npm pack --dry-run --json` 要（**不碰系统 tar**，三个平台同一份逻辑）、往包里写一份 `lib/ota-manifest.json`（版本 + 每个文件的路径与字节数）、用客户端的真解包器自检、发布后再下载回来比 sha256。中转那边也记哈希，客户端装之前会核对——半个包、被中间层改过的包都装不上去。
 
-打包时**别用 macOS 默认的 tar 参数**——带 PAX 扩展头，宿主那边的解析器不认，会报「OTA 包结构不完整」。要 `COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf …`，且条目以 `package/` 打头。
+`--platform` 默认 `process.platform`（`darwin` / `linux` / `win32`）；这个插件是纯 JS，也可以 `--platform any` 发一份三个系统通用，客户端在自己平台没有包时会回落去问 `any`。`channel` 一般 `stable`。发布接口没配 token 时是关闭的，下载不受影响；版本按号比，最后发的那个才是「最新」。
 
 ## 开发
 

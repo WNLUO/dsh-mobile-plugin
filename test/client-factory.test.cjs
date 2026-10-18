@@ -794,40 +794,90 @@ test('绿点同步：有桌面服务时两条 effect 都挂上，各带一个标
     [
       'mobile-plugin: settings dictionaries',
       undefined,
-      'mobile-plugin: 桌面端已读上报',
       'mobile-plugin: 会话清单服务',
+      'mobile-plugin: 桌面端已读上报',
       'mobile-plugin: 已读回执应用',
       'mobile-plugin: 客户端半边自检上报',
     ],
   );
 });
 
-test('方向一：桌面端未读掉出去才上报；首帧全量未读与会话消失都不算读过', async () => {
-  const store = statusStore([['s1', { completionUnread: true }], ['s2', { completionUnread: true }]]);
+test('方向一：首帧一条都不报（桌面重开页面时未读是空的，照单全收会灭掉手机上真的未读）', async () => {
+  // 桌面那份 `completionUnread` 只在浏览器内存里，页面一重开就全空。所以「快照里现在
+  // 不是未读」根本不能当成「用户读过」——首帧必须什么都不报。
+  const store = statusStore([['s1', { completionUnread: false }], ['s2', { completionUnread: false }]]);
+  // 清单里这两条上次动的时间早于页面打开：本次页面根本没见它们变过。
+  const sessions = sessionsService({ rows: { s1: { updatedAt: 100 }, s2: { updatedAt: 200 } } });
+  const env = materialize({
+    storage: createStorage({ 'other.key': '{}' }),
+    services: { uiSession: { sessionStatus: store }, sessions },
+  });
+  await settle();
+  await env.timers.tick(2000);
+  await env.timers.tick(2000);
+  assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), []);
+});
+
+test('方向一：普通的点开（未读掉出去）照报，不依赖清单有没有 updatedAt', async () => {
+  const store = statusStore([['s1', { completionUnread: true }]]);
   const env = materialize({
     storage: createStorage({ 'other.key': '{}' }),
     services: { uiSession: { sessionStatus: store } },
   });
   await settle();
-  // 首帧：两个都还在未读 —— 那是「还没读」，不是「刚读过」，报上去就把它们也灭了。
   await env.timers.tick(2000);
-  assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), []);
+  assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), [], '还没读的不能报，报上去就把它的点灭了');
 
-  // 用户在桌面点开了 s1。
-  store.set([['s1', { completionUnread: false }], ['s2', { completionUnread: true }]]);
+  store.set([['s1', { completionUnread: false }]]);
   await env.timers.tick(2000);
   assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), [{ sessionIds: ['s1'] }]);
+  // 报过就不再重复（每 2s 扫一次，没去重会变成持续灌流）。
+  await env.timers.tick(2000);
+  assert.equal(bodiesOf(env, DESKTOP_READ_ENDPOINT).length, 1);
+});
 
-  // 列表还没加载完（快照里什么都没有）：消失不等于读过，不许再报一次。
-  store.set([]);
+test('方向一：页面打开之后变过、现在不是未读的会话要补报（漏采那一瞬间也能自愈）', async () => {
+  const store = statusStore([['s1', { completionUnread: false }]]);
+  const sessions = sessionsService({ rows: { s1: { updatedAt: Date.now() + 60_000 } } });
+  const env = materialize({
+    storage: createStorage({ 'other.key': '{}' }),
+    services: { uiSession: { sessionStatus: store }, sessions },
+  });
+  await settle();
   await env.timers.tick(2000);
   assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), [{ sessionIds: ['s1'] }]);
 });
 
-test('方向一：桌面正开着的会话也算读过（它永远不进未读集合，边沿对它不成立）', async () => {
-  // 真机截图（2026-10-10）里那一格：会话开在桌面主视图里，用户正看着它读完，
-  // 手机上却一直亮着绿点 —— 因为 `observeRunning` 对 mainView 会话直接跳过、
-  // `reconcileStatus` 还会主动删，所以「未读掉出去」这个边沿对它一次都不会发生。
+test('方向一：正在跑的会话不算读完，跑起来要摘掉标记、读掉之后再报一次', async () => {
+  const store = statusStore([['s1', { completionUnread: true }]]);
+  const env = materialize({
+    storage: createStorage({ 'other.key': '{}' }),
+    services: { uiSession: { sessionStatus: store } },
+  });
+  await settle();
+  await env.timers.tick(2000);
+  store.set([['s1', { completionUnread: false }]]);
+  await env.timers.tick(2000);
+  assert.equal(bodiesOf(env, DESKTOP_READ_ENDPOINT).length, 1);
+
+  // 又跑了一轮：运行中不算读完，标记摘掉。
+  store.set([['s1', { completionUnread: false, running: true }]]);
+  await env.timers.tick(2000);
+  assert.equal(bodiesOf(env, DESKTOP_READ_ENDPOINT).length, 1, '正在跑的这一轮结局还没出来');
+
+  // 跑完还没读 → 未读；读过之后要能再报一次。
+  store.set([['s1', { completionUnread: true }]]);
+  await env.timers.tick(2000);
+  assert.equal(bodiesOf(env, DESKTOP_READ_ENDPOINT).length, 1);
+  store.set([['s1', { completionUnread: false }]]);
+  await env.timers.tick(2000);
+  assert.equal(bodiesOf(env, DESKTOP_READ_ENDPOINT).length, 2, '新一轮读掉之后必须再对齐一次');
+});
+
+test('方向一：桌面正开着的会话也算读过（它永远不进未读集合）', async () => {
+  // 2026-10-10 真机截图：会话开在桌面主视图里，mainView 会话根本不进未读集合
+  // （`observeRunning` 跳过、`reconcileStatus` 主动删），「未读掉出去」的边沿对它一次
+  // 都不会发生。判据里单独留「正开着」这一条就是为了它。
   const store = statusStore([['open1', { completionUnread: false, running: false }]]);
   const sessions = sessionsService({ rows: { open1: { updatedAt: 100, retainedBy: { mainView: 1 } } } });
   const env = materialize({
@@ -835,40 +885,23 @@ test('方向一：桌面正开着的会话也算读过（它永远不进未读�
     services: { uiSession: { sessionStatus: store }, sessions },
   });
   await settle();
-  await env.timers.tick(2000); // 首帧只建基线
   await env.timers.tick(2000);
   assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), [{ sessionIds: ['open1'] }]);
-
-  // 报过就不再重复报（它是每 2s 扫一次的，没有去重会变成持续灌流）。
-  await env.timers.tick(2000);
-  assert.equal(bodiesOf(env, DESKTOP_READ_ENDPOINT).length, 1);
-
-  // 它跑起来了：正在跑的会话不算「读完了」，也不该继续报。
-  store.set([['open1', { completionUnread: false, running: true }]]);
-  await env.timers.tick(2000);
-  assert.equal(bodiesOf(env, DESKTOP_READ_ENDPOINT).length, 1);
-
-  // 这一轮又结束、它仍然开着 ⇒ 重新报一次（新一轮的完成提醒该在手机上灭掉）。
-  store.set([['open1', { completionUnread: false, running: false }]]);
-  await env.timers.tick(2000);
-  const bodies = bodiesOf(env, DESKTOP_READ_ENDPOINT);
-  assert.equal(bodies.length, 2, '跑完一轮之后要重新报一次');
-  assert.deepEqual(bodies[1], { sessionIds: ['open1'] });
 });
 
-test('方向一：没开在桌面里的会话不受「正开着」这条影响（不能顺手把别人的绿点灭了）', async () => {
-  const store = statusStore([['idle1', { completionUnread: false, running: false }]]);
-  const sessions = sessionsService({ rows: { idle1: { updatedAt: 100, retainedBy: {} } } });
+test('方向一：会话从快照里消失不算读过（列表还没加载完 / 会话被删）', async () => {
+  const store = statusStore([['s1', { completionUnread: true }]]);
   const env = materialize({
     storage: createStorage({ 'other.key': '{}' }),
-    services: { uiSession: { sessionStatus: store }, sessions },
+    services: { uiSession: { sessionStatus: store } },
   });
   await settle();
   await env.timers.tick(2000);
+  store.set([]);
   await env.timers.tick(2000);
-  assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), []);
+  await env.timers.tick(2000);
+  assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), [], '消失只是没得报，不能凭空报一条');
 });
-
 test('方向二：手机端读过的会话，在桌面页面里就地 retain+release 摘掉绿点', async () => {
   const sessions = sessionsService({ rows: { s1: { updatedAt: 100 } } });
   const { impl } = routedFetch({

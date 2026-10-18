@@ -1,3 +1,4 @@
+// 镜像推送事件通道与单飞合并的源码契约和行为回归测试。
 'use strict'
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
@@ -22,9 +23,11 @@ test('逐块流式增量不触发镜像推送', () => {
   assert.notEqual(loop, -1, '缺少 mux 消费循环')
   const skip = SOURCE.indexOf("if (p?.event?.type === 'assistant/chunk') continue;", loop)
   assert.notEqual(skip, -1, 'assistant/chunk 未被跳过，每条增量都会推一次全量快照')
+  const observed = SOURCE.indexOf('observeCompletionEvent(ctx, sessionId, p?.event);', loop)
+  assert.notEqual(observed, -1, 'turn/start 未进入完成状态跟踪')
   const push = SOURCE.indexOf('void pushSessionImmediately(sessionId);', loop)
   assert.notEqual(push, -1, '缺少会话事件推送')
-  assert.ok(skip < push, 'chunk 跳过必须发生在推送之前，否则闸门形同虚设')
+  assert.ok(observed < skip && skip < push, '完成边沿要先记录，chunk 再跳过，其他事件继续推送')
 })
 
 test('会话立即推送按会话单飞合并', () => {

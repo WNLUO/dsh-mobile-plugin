@@ -18,10 +18,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  observeCompletionEvent,
   updateCompletionStates,
   confirmCompletionFromHistory,
 } = require('../lib/mobile/completion.js');
-const { completionStateOf } = require('../lib/mobile/session-cache.js');
+const { completionStateOf, markCompletionRead } = require('../lib/mobile/session-cache.js');
 
 const AT = 1780000000000;
 
@@ -96,6 +97,17 @@ test('max-tokens / aborted：不算完成，也不亮红点', () => {
   assert.equal(aborted.failure, undefined);
 });
 
+test('事件流直接确认短轮次，不依赖列表采到运行中或补读历史', () => {
+  const ctx = {};
+  updateCompletionStates(ctx, [{ sessionId: 's-fast', running: false }], 'phone');
+  for (const event of turnEvents(11, { kind: 'completed' })) {
+    observeCompletionEvent(ctx, 's-fast', event);
+  }
+  const state = completionStateOf(ctx, 'phone').get('s-fast');
+  assert.equal(state.completed, true);
+  assert.equal(state.turn, 11);
+});
+
 test('正常完成的轮次仍然报完成（回归）', () => {
   const ctx = {};
   const state = observeIdleEdge(ctx, 'phone', 's-ok', null, { kind: 'completed' });
@@ -134,4 +146,58 @@ test('interrupted 的 assistant 仍不算完成（既有铁律不被本次改动
   events[1].data.interrupted = true;
   confirmCompletionFromHistory(state, events, false);
   assert.equal(state.completed, false);
+});
+
+// ── 提醒算不算数由时间水位决定，不再由「有没有亲眼看见它跑」决定 ─────────────
+// 2026-10-17 真机：桌面上亮着绿点 / 红点，手机上什么都没有。根因就是旧判据要求
+// `wasRunning`（先看见 running 再看见 idle）——宿主没采到那一瞬间，这一轮就永远不亮。
+
+const NOW = Date.now();
+
+/** 同上，但结束时刻可控：用来区分「本进程之前的老轮次」与「刚刚跑完的一轮」。 */
+function turnEventsAt(turn, reason, endedAt) {
+  return [
+    { type: 'turn/start', seq: 1, data: { turn } },
+    { type: 'assistant/message', seq: 10, data: { turn } },
+    { type: 'turn/end', seq: 20, time: endedAt, data: { turn, reason } },
+  ];
+}
+
+test('宿主没看见 running 的那一轮，只要结束在本进程之后，也要亮', () => {
+  const ctx = {};
+  // 只有空闲快照：从来没有一份快照采到 running，也没有实时 turn/start。
+  updateCompletionStates(ctx, [{ sessionId: 's-missed', running: false }], 'phone');
+  const state = completionStateOf(ctx, 'phone').get('s-missed');
+  confirmCompletionFromHistory(state, turnEventsAt(7, { kind: 'completed' }, NOW + 5_000), false);
+  assert.equal(state.completed, true, '没采到运行中不等于这一轮没发生');
+});
+
+test('冷启动不重播：本进程启动之前就结束的轮次不亮', () => {
+  const ctx = {};
+  updateCompletionStates(ctx, [{ sessionId: 's-old', running: false }], 'phone');
+  const state = completionStateOf(ctx, 'phone').get('s-old');
+  confirmCompletionFromHistory(state, turnEventsAt(7, { kind: 'completed' }, 1_000), false);
+  assert.equal(state.completed, false);
+  confirmCompletionFromHistory(state, turnEventsAt(8, { kind: 'error' }, 1_000), false);
+  assert.equal(state.failure, undefined, '老失败也不能在冷启动时冒出来');
+});
+
+test('读过的那一轮不会再亮回来，之后新跑完的一轮照样亮', () => {
+  const ctx = {};
+  updateCompletionStates(ctx, [{ sessionId: 's-read', running: false }], 'phone');
+  const state = completionStateOf(ctx, 'phone').get('s-read');
+  confirmCompletionFromHistory(state, turnEventsAt(7, { kind: 'error', error: { code: 'AUTH' } }, NOW + 1_000), false);
+  assert.equal(state.failure.code, 'AUTH');
+
+  markCompletionRead(ctx, 'phone', 's-read', NOW + 2_000);
+  assert.equal(state.completed, false);
+  assert.equal(state.failure, undefined, '读过就该灭');
+
+  // 同一份 history 再折一次（列表每 15s 一轮都会折）：不能又亮回来。
+  confirmCompletionFromHistory(state, turnEventsAt(7, { kind: 'error', error: { code: 'AUTH' } }, NOW + 1_000), false);
+  assert.equal(state.failure, undefined, '已读水位之前的轮次不许复活');
+
+  // 新一轮真的跑完了：越过水位，必须重新亮。
+  confirmCompletionFromHistory(state, turnEventsAt(9, { kind: 'completed' }, NOW + 3_000), false);
+  assert.equal(state.completed, true);
 });

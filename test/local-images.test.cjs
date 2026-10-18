@@ -79,6 +79,46 @@ test('file:// 形式的绝对路径能内联', () => withTempDir(async (dir) => 
   assert.ok(out.includes('data:image/png;base64,'), out);
 }));
 
+test('代码块与行内代码里的图片语法保持字面（那是写法示例，不是图）', () => withTempDir(async (dir) => {
+  const shot = path.join(dir, 'shot.png');
+  fs.writeFileSync(shot, TINY_PNG);
+  const text = [
+    '写法和真图：',
+    '',
+    '```md',
+    `![示例](${shot})`,
+    '```',
+    '',
+    '~~~',
+    `![波浪号围栏](${shot})`,
+    '~~~',
+    '',
+    '````',
+    '```',
+    `![四反引号围栏](${shot})`,
+    '```',
+    '````',
+    '',
+    `\`![行内](${shot})\``,
+    '',
+    `![真图](${shot})`,
+  ].join('\n');
+  const out = await inlineTextImages(text);
+  assert.ok(out.includes(`\`\`\`md\n![示例](${shot})\n\`\`\``), '反引号围栏必须原样保留');
+  assert.ok(out.includes(`~~~\n![波浪号围栏](${shot})\n~~~`), '波浪号围栏同样原样保留');
+  assert.ok(out.includes(`\`\`\`\n![四反引号围栏](${shot})\n\`\`\``), '4 个反引号的围栏不能被 3 个的闭合行提前关掉');
+  assert.ok(out.includes(`\`![行内](${shot})\``), '行内代码必须原样保留');
+  assert.ok(out.includes('![真图](data:image/png;base64,'), '围栏外的真图仍要内联');
+  assert.equal((out.match(/data:image\/png;base64,/g) || []).length, 1, '只有代码块外那一处能变成 data URI');
+}));
+
+test('未闭合的围栏一直保护到文末', () => withTempDir(async (dir) => {
+  const shot = path.join(dir, 'shot.png');
+  fs.writeFileSync(shot, TINY_PNG);
+  const text = `示例：\n\n\`\`\`\n![x](${shot})\n`;
+  assert.equal(await inlineTextImages(text), text);
+}));
+
 test('不是图片的地址一律保持字面 markdown', () => withTempDir(async (dir) => {
   const shot = path.join(dir, 'shot.png');
   fs.writeFileSync(shot, TINY_PNG);

@@ -321,6 +321,30 @@ test('host-bridge 的四层依赖方向是单向的，装配留在最外层', ()
   );
 });
 
+// 网关调用必须**全部**经过 transport.js。0.2.1 起每个请求都要自带 Peer 身份
+// （assertPeerLive），绕开传输层直连 `ctx.get('typertGateway')` 就是对 undefined
+// 读 `.signal`：命令目录因此静默变空（「+」菜单只剩添加媒体 / 添加文件），@ 补全与
+// 插件清单则整块报错。这条把「还有谁在直连」钉成一次全目录扫描，新增模块照抄旧写法
+// 会当场红，而不是等真机上某个 UI 一片空白才发现。
+test('网关直连只许出现在 host-bridge/transport.js', () => {
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!/\.(js|cjs)$/.test(entry.name)) continue;
+      const rel = path.relative(MOB, full).split(path.sep).join('/');
+      if (rel === 'host-bridge/transport.js') continue;
+      const src = read(full);
+      // 去掉注释再判：说明「为什么不能直连」的注释本身不该触发这条守卫。
+      const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      if (/gateway\.invoke\s*\(|get\(['"]typertGateway['"]\)/.test(code)) offenders.push(rel);
+    }
+  };
+  walk(MOB);
+  assert.deepEqual(offenders, [], `这些模块绕开了 host-bridge/transport.js：${offenders.join('、')}`);
+});
+
 // sessions.js 1964 → 393 行后，剩下的只是会话列表 + 新建 + 排队动作。按域拆出去的九个子
 // 模块必须各守自己的行数区间：只要有人把某个域又搬回 sessions.js，这条就红。
 // 钉「谁住在哪」比钉行数更耐改，所以这里两样都查，但行数区间给得宽，防的是膨胀不是搬回。
@@ -331,7 +355,7 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
 
   const HOME = {
     'attachments.js': ['resolveEventAttachments'],
-    'completion.js': ['updateCompletionStates', 'confirmCompletionFromHistory'],
+    'completion.js': ['observeCompletionEvent', 'updateCompletionStates', 'confirmCompletionFromHistory'],
     'session-models.js': ['buildModelsSnapshot', 'handleModels', 'handleSelectModel', 'safeModelsValue'],
     'session-search.js': ['sanitizeSearchQuery', 'handleSessionSearch'],
     'session-send.js': ['promptOnce', 'handleSend', 'handleCommands', 'handleFork', 'handleSessionAttachment'],

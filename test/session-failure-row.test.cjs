@@ -15,6 +15,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildSessionsResponse } = require('../lib/mobile/sessions.js');
+const { clearCompletionForAllDevices } = require('../lib/mobile/session-cache.js');
 
 const SID = 'session-fail';
 
@@ -44,7 +45,7 @@ function makeDriver() {
       workspace: { list: async () => ({ result: { ok: true, value: { items: [], archivedSessionIds: [] } } }) },
     },
   };
-  return async function step(events, { running, updatedAt }) {
+  const step = async function step(events, { running, updatedAt }) {
     current.events = events;
     current.running = running;
     current.updatedAt = updatedAt;
@@ -52,6 +53,8 @@ function makeDriver() {
     assert.equal(response.status, 200);
     return response.body.items.find((item) => item.sessionId === SID);
   };
+  step.ctx = ctx;
+  return step;
 }
 
 const turnStart = (turn) => ({ event: { type: 'turn/start', seq: 1, time: 10, data: { turn } } });
@@ -101,4 +104,27 @@ test('失败标记跨下一轮延续：失败后用户又发了一句话，红�
   const row = await step(nextTurn, { running: true, updatedAt: 300 });
   assert.equal(row.running, true);
   assert.equal(row.lastTurnError.turn, 7, '红点必须等到被清掉为止，不能因为新轮开始就消失');
+});
+
+test('桌面读过之后同一轮不再挂着；之后真的跑完一轮照样亮', async () => {
+  const step = makeDriver();
+  await step(FAILED, { running: true, updatedAt: 100 });
+  const failed = await step(FAILED, { running: false, updatedAt: 101 });
+  assert.equal(failed.lastTurnError.turn, 7);
+
+  // 桌面说「我读过了」：清所有设备维度上的提醒。
+  clearCompletionForAllDevices(step.ctx, SID);
+  const cleared = await step(FAILED, { running: false, updatedAt: 101 });
+  assert.equal(cleared.lastTurnError, undefined, '读过的失败不许在下一次列表里复活');
+
+  // 新一轮真的跑完了（结束时刻越过已读水位）：必须重新亮。
+  const now = Date.now();
+  const SUCCEEDED_LATER = [
+    { event: { type: 'turn/start', seq: 1, time: now, data: { turn: 12 } } },
+    { event: { type: 'assistant/message', seq: 2, time: now, data: { turn: 12, message: { role: 'assistant', content: [{ type: 'text', text: '…' }] } } } },
+    { event: { type: 'turn/end', seq: 3, time: now + 1_000, data: { turn: 12, reason: { kind: 'completed' } } } },
+  ];
+  const done = await step(SUCCEEDED_LATER, { running: false, updatedAt: 300 });
+  assert.equal(done.completed, true);
+  assert.equal(done.lastTurnError, undefined);
 });

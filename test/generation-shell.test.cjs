@@ -38,14 +38,27 @@ const PLUGIN_PKG = 'dsh-mobile-plugin';
 
 // 一个临时 profile：node_modules 在其下，每一代写进它旁边的 store/（形状同 pnpm）。
 // 整个文件共用这一个 profile 根 —— manager.js 在模块加载时就把路径定死了，换不了。
-const PROFILE_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-profile-'));
+// 真机形状：`DSH_HOME` 是 `~/.dsh`，profile 是它下面的 `profiles/desktop`，而 OTA 落在
+// `DSH_HOME/plugin-ota/`。从前这两者共用一个根目录，于是 OTA 代**顺手**就能沿祖先目录
+// 解析到 profile 的 node_modules —— 「OTA 包在真实 home 里 import 不到依赖」这个真机
+// 故障（`Cannot find package '@deepseek-ai/schemastery'`）在测试里一次都复现不出来。
+const HOME_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-home-'));
+const PROFILE_ROOT = path.join(HOME_ROOT, 'profiles', 'desktop');
 const PROFILE_NODE_MODULES = path.join(PROFILE_ROOT, 'node_modules');
 const STORE_DIR = path.join(PROFILE_ROOT, 'store');
-const OTA_ROOT = path.join(PROFILE_ROOT, 'plugin-ota');
+// OTA 包落在 **profile 里面**（`<profile>/.dsh-mobile-ota`）：宿主的模块解析拦截只认
+// `profiles/` 树内的模块，树外连宿主的 peer 都解析不到（见 manager.js 的 moveOtaRootIntoProfile）。
+const OTA_ROOT = path.join(PROFILE_ROOT, '.dsh-mobile-ota');
 const PLUGIN_LINK = path.join(PROFILE_NODE_MODULES, PLUGIN_PKG);
 const PREVIOUS_DSH_HOME = process.env.DSH_HOME;
 fs.mkdirSync(PROFILE_NODE_MODULES, { recursive: true });
-process.env.DSH_HOME = PROFILE_ROOT;
+
+// 只存在于 profile 的包：OTA 代的裸包名能解析到它，就证明解析走的是 profile 那一份。
+const FIXTURE_PKG = 'dsh-mobile-fixture-peer';
+fs.mkdirSync(path.join(PROFILE_NODE_MODULES, FIXTURE_PKG), { recursive: true });
+fs.writeFileSync(path.join(PROFILE_NODE_MODULES, FIXTURE_PKG, 'package.json'), JSON.stringify({ name: FIXTURE_PKG, version: '1.0.0', type: 'module', main: 'index.js' }));
+fs.writeFileSync(path.join(PROFILE_NODE_MODULES, FIXTURE_PKG, 'index.js'), "export const mark = 'fixture-ok';\n");
+process.env.DSH_HOME = HOME_ROOT;
 process.env.DSH_MOBILE_PROFILE_NODE_MODULES = PROFILE_NODE_MODULES;
 
 const shellUrl = pathToFileURL(path.join(PKG_DIR, 'lib', 'index.js')).href;
@@ -58,7 +71,7 @@ const BUNDLED_VERSION = JSON.parse(fs.readFileSync(path.join(PKG_DIR, 'package.j
 test.after(() => {
   if (PREVIOUS_DSH_HOME === undefined) delete process.env.DSH_HOME;
   else process.env.DSH_HOME = PREVIOUS_DSH_HOME;
-  fs.rmSync(PROFILE_ROOT, { recursive: true, force: true });
+  fs.rmSync(HOME_ROOT, { recursive: true, force: true });
 });
 
 /** 外壳那几个模块只 import 一次（ESM 会缓存），之后各用例共享同一个实例。 */
@@ -206,6 +219,21 @@ export function apply(ctx) {
 }
 `;
 
+/**
+ * 带**裸包名** import 的一代：这个包只在 profile 的 `node_modules` 里。
+ *
+ * OTA 路径（`<home>/plugin-ota/<version>/`）上没有任何 `node_modules`，所以这一代能不能
+ * 装载，直接取决于外壳有没有把 profile 那一份接进它的祖先目录。
+ */
+const FIXTURE_GENERATION = mark => `
+import { mark as fixtureMark } from '${FIXTURE_PKG}'
+export const name = 'dsh-mobile-plugin'
+export const inject = ['webServer', 'sessions']
+export function apply(ctx) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/api/relay/fixture', handler: async (req, res) => { res.end('${mark}:' + fixtureMark) } }), 'fixture route')
+}
+`;
+
 const BROKEN = `
 export const name = 'dsh-mobile-plugin'
 export const inject = ['webServer', 'sessions']
@@ -288,6 +316,28 @@ test('换代：版本号相同时选 profile 里那一份，不能回落到包�
   assert.equal(status.source, 'installed', '同版本号时 profile 里那一份必须胜出');
   assert.equal(manager.resolveGeneration().source, 'installed');
   assert.equal(await routeReply(server, '/api/relay/gen'), 'same-version', '跑起来的必须是装进来的那一代的代码');
+});
+
+test('OTA 代：裸包名沿 profile 的 node_modules 解析（真机 home 形状）', async t => {
+  await resetProfile();
+  const version = '9.9.20';
+  makeOtaGeneration(version, FIXTURE_GENERATION('ota-fixture'));
+  const { server, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+
+  const status = await waitForStatus(runtime);
+  assert.equal(status.source, 'ota', `OTA 代必须装载成功，失败原因：${status.lastError}`);
+  assert.equal(status.version, version);
+  assert.equal(
+    await routeReply(server, '/api/relay/fixture'),
+    'ota-fixture:fixture-ok',
+    'OTA 代里的裸包名必须解析到 profile 那一份依赖',
+  );
+  assert.equal(
+    fs.readlinkSync(path.join(OTA_ROOT, version, 'node_modules')),
+    PROFILE_NODE_MODULES,
+    '版本目录要有一条指向 profile node_modules 的软链',
+  );
 });
 
 test('正式 npm 同号到盘后，运行中的 OTA 代切到 npm 并清理 OTA 目录', async t => {

@@ -335,13 +335,14 @@ test('index.js 挂了两条路由并 require 了新模块', () => {
   assert.match(src, /route\('\/api\/mobile\/v1\/session-references', references\.handleSessionReferences\)/);
 });
 
-test('references.js 不碰 apiProxy，只走 typertGateway', () => {
+test('references.js 不碰 apiProxy，只走 host-bridge 的 invoke', () => {
   const src = readSource('lib/mobile/references.js');
-  assert.match(src, /ctx\.get\('typertGateway'\)/);
+  assert.match(src, /require\('\.\/host-bridge\/transport\.js'\)/);
+  assert.match(src, /invoke\(ctx, namespace, method, \{ agentId, query \}, new AbortController\(\)\.signal\)/);
   // 注释里可以提 apiProxy（解释为什么不能走它），但不能真的调用
   assert.equal(src.includes('ctx.apiProxy'), false);
   assert.equal(/apiProxy\s*\./.test(src), false);
-  assert.match(src, /namespace: 'fileReferences'/);
-  assert.match(src, /namespace: 'sessionReferenceResolver'/);
-  assert.match(src, /method: 'candidates'/);
+  // 直连 ctx.get('typertGateway') 会绕开 Peer 身份（0.2.1 起网关要求每个请求自带）
+  assert.equal(src.includes("ctx.get('typertGateway')"), false);
+  assert.doesNotMatch(src, /gateway\.invoke\(\{/); // 注释里提到 invoke() 可以，真的调用不行
 });
