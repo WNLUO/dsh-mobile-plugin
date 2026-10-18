@@ -65,7 +65,15 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 没有任何实现搬回来。
   // 417 → 424（2026-10-17，typertGateway 注入）：`inject` 那一支要加 `typertGateway`，
   // 外加六行解释「不注入不是报错而是静默降级」。全是声明与注释，没有实现搬回来。
-  assert.ok(lines <= 424, `lib/impl.js 回到 ${lines} 行了；超过 424 说明实现又被搬回装配层`);
+  // 417 → 424（2026-10-17，typertGateway 注入）：`inject` 那一支要加 `typertGateway`，
+  // 外加六行解释「不注入不是报错而是静默降级」。全是声明与注释，没有实现搬回来。
+  // 424 → 431（2026-10-19，内存自检台账）：台账本体住在 `lib/mobile/self-check.cjs`，
+  // 装配层只把**本文件已有**的四个取值器转交给控制面（sidecar 快照、镜像记账两枚、
+  // 局域网 stats），外加三行注释说清「侧车内存与流数只有 worker 的 /status 快照这一条
+  // 通道」。那四个取值器全都是本文件已有的东西（`sidecarLifecycle.getSnapshot`、
+  // `mirror.getMirrorPush`、`mirror.getPushFailures`），一行实现都没有搬回来；
+  // `getLanProxyStats` 是取值器，不是逻辑。
+  assert.ok(lines <= 431, `lib/impl.js 回到 ${lines} 行了；超过 431 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

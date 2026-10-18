@@ -549,6 +549,60 @@ export function apply() {
 });
 
 /**
+ * 开发机回路：**版本号没变、只改了盘上那几个文件**，也要能就地重新装载。
+ *
+ * 这条与「市场装新版」是两件事：那边每次都是新目录（新 realpath），天然绕开全部缓存；
+ * 开发机是在**同一个目录**里改文件。默认的换代判据看到「版本身份一致」就直接返回
+ * （那段早返回本来是为了省掉一次无意义的装卸），于是改完代码再触发一次什么都不会发生 ——
+ * 现场表现就是「我改了、也触发了，还是旧行为」。
+ *
+ * `runtime.reload(undefined, { reread: true })` 先把这一代从 `imported` 里作废，再让
+ * `importGeneration` 清掉 CJS 子树，强制重新读盘。这里钉两件事：不带 reread 时**确实
+ * 什么都不换**（说明默认行为没被这次改动带偏），带了就**必须**读到新代码。
+ */
+test('开发机：同一目录里改了文件，reread 能就地换上新代码（版本号不变）', async t => {
+  await resetProfile();
+  const { manager } = await loadShellModules();
+  const LEAF_GEN = `
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
+const leaf = require('./relay/leaf.js')
+export const name = 'dsh-mobile-plugin'
+export const inject = ['webServer', 'sessions']
+export function apply(ctx) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/api/relay/leaf', handler: async (req, res) => { res.end(leaf.value) } }), 'leaf route')
+}
+`;
+  const dir = makeGeneration('devloop', '2.0.0', LEAF_GEN);
+  writeLeaf(dir, 'disk-v1');
+  install(dir);
+
+  const { server, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+  const before = await waitForStatus(runtime);
+  assert.equal(before.version, '2.0.0');
+  assert.equal(await routeReply(server, '/api/relay/leaf'), 'disk-v1');
+
+  // 原地改文件（版本号、目录都不动）——这就是开发机改完代码的样子。
+  writeLeaf(dir, 'disk-v2');
+
+  // 先确认默认行为没变：身份一致就不装卸，仍是旧代码。
+  const same = await runtime.reload();
+  assert.equal(same.version, '2.0.0');
+  assert.equal(await routeReply(server, '/api/relay/leaf'), 'disk-v1', '不带 reread 的 reload 不该换代码：它只负责「换一代」');
+
+  // reread：作废缓存 + 清 CJS 子树，重新读盘。走外壳暴露的那个服务方法 —— 路由
+  // (`/api/relay/reload-implementation`) 调的也是它，测试与真实入口必须同一条路。
+  assert.equal(typeof runtime.reread, 'function', '外壳服务要暴露 reread（路由就调它）');
+  const reread = await runtime.reread();
+  assert.equal(reread.version, '2.0.0', '版本号没变，换的是同一份目录里的新代码');
+  assert.equal(reread.lastError, null);
+  assert.equal(await routeReply(server, '/api/relay/leaf'), 'disk-v2', 'reread 之后必须读到盘上新写的那份');
+  assert.equal(server.routes.size, 1, '换代替换而不是叠加：路由数不应增长');
+  assert.equal(manager.installedVersion(), '2.0.0');
+});
+
+/**
  * 外壳变了**不再阻止**换代，只如实上报。
  *
  * 「外壳同源才放行、否则要求完整重启」那套已经不存在了：外壳换不掉（它在进程启动时被

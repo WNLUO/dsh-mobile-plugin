@@ -249,3 +249,44 @@ test('write 返回 false 时等 drain 再继续，不硬塞', async () => {
     await pending;
   } finally { h.restore(); }
 });
+
+/**
+ * 写帧只能有一份实现。
+ *
+ * 两条流曾经各有一份几乎相同的 `writeSse` / `bufferedBytesOf` / `stableEventId`，于是
+ * 2026-10-17 那次 OOM 修了会话流那份、隔一轮才发现设备流那份还漏着 —— 同一个坑修两遍。
+ * 现在实现在 `lib/shared/sse-write.js`，两条流只声明自己的策略（丢帧口径、要不要填充、
+ * 写不动时等不等 drain）。这条用例钉住「别再各自长回一份」。
+ */
+test('写帧、水位与稳定 id 只有一份实现，两条流只声明策略', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const MOBILE = path.join(__dirname, '..', 'lib', 'mobile');
+  const SHARED = path.join(__dirname, '..', 'lib', 'shared', 'sse-write.js');
+  const read = (file) => fs.readFileSync(file, 'utf8');
+
+  const shared = read(SHARED);
+  for (const name of ['bufferedBytesOf', 'stableEventId', 'writeSse', 'waitForDrain']) {
+    assert.match(shared, new RegExp(`^function ${name}\\(`, 'm'), `${name} 应定义在 lib/shared/sse-write.js`);
+  }
+
+  // 两条流都必须从共享模块取，且不许再自带这些实现（薄封装 writeSse 可以留，它只是声明策略）。
+  for (const file of ['stream.js', 'events.js']) {
+    const source = read(path.join(MOBILE, file));
+    assert.match(
+      source,
+      /require\(['"]\.\.\/shared\/sse-write\.js['"]\)/,
+      `${file} 没有从 lib/shared/sse-write.js 取写帧实现`,
+    );
+    for (const name of ['bufferedBytesOf', 'stableEventId', 'waitForDrain']) {
+      assert.doesNotMatch(
+        source,
+        new RegExp(`^function ${name}\\(`, 'm'),
+        `${file} 又自己实现了一份 ${name} —— 写帧必须只有一份实现`,
+      );
+    }
+    assert.doesNotMatch(source, /^const SSE_SHED_BUFFERED_BYTES =/m, `${file} 又自带了一份软水位常量`);
+    assert.doesNotMatch(source, /^const SSE_CLOSE_BUFFERED_BYTES =/m, `${file} 又自带了一份硬水位常量`);
+    assert.doesNotMatch(source, /crypto\.createHash/, `${file} 又自己算了一份事件 id 摘要`);
+  }
+});

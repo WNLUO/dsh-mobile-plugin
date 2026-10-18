@@ -86,6 +86,8 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/addresses',
     '/api/relay/reconnect',
     '/api/relay/restart-sidecar',
+    // 开发机的「就地重载」（版本号不变、只把盘上这份重新装载一遍，见 A1-47）。
+    '/api/relay/reload-implementation',
     // 自更新那四条（2026-10 搬回外壳之后重新有）：状态 / 查更新 / 装并就地换代 / 自动开关。
     '/api/relay/update/status',
     '/api/relay/update/check',

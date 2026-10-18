@@ -1,5 +1,6 @@
 // 冒烟渲染：在 node 里把各张卡与配置弹窗渲染一遍，抓运行期崩（不依赖浏览器）。
 // 注意：Base UI 的弹窗走 portal，SSR 渲染出来是空字符串，弹窗要另用浏览器验收。
+import { ToastProvider } from '@appica/ui-react/toast'
 import { fileURLToPath } from 'node:url'
 import { createElement as h } from 'react'
 import { renderToString } from 'react-dom/server'
@@ -48,7 +49,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -57,6 +58,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join] = await Promise.all([
   server.ssrLoadModule('/src/App.tsx'),
   server.ssrLoadModule('/src/Onboarding.tsx'),
   server.ssrLoadModule('/src/components/JoinGroupButton.tsx'),
+  server.ssrLoadModule('/src/components/ThemeToggle.tsx'),
 ])
 
 const noop = () => {}
@@ -146,6 +148,10 @@ const cases = [
   // 悬浮那颗「加入交流群」独立于两张卡，单独过一遍：它要贴住右下角（`fixed`）、
   // 文字和微信图标都得在。点开之后是什么还没定，所以只看按钮在不在。
   ['JoinGroupButton', h(Join.JoinGroupButton, {}), '加入交流群'],
+  // 右上角那颗日间 / 夜间切换：SSR 里没有 ThemeProvider（`useTheme` 回空值 ⇒ 当作还没定
+  // 主题），所以这一遍只冒烟「按钮在、无障碍名给的是下一步」；图标换不换、贴没贴住右上角
+  // 要看真浏览器（`fixed end-6 top-6 z-40` 在类名里，渲染出来看不见位置）。
+  ['ThemeToggle', h(Toggle.ThemeToggle, {}), 'aria-label="切换到夜间模式"'],
 ]
 
 let failed = 0
@@ -153,7 +159,9 @@ let failed = 0
 // 光看「没崩」分不出「渲染了提示块」还是「这条分支根本没进去」。
 for (const [label, element, must] of cases) {
   try {
-    const html = renderToString(element)
+    // 提示胶囊的 provider 与真实页面同款（见 `src/main.tsx`）：`useNotify` 在**渲染期**
+    // 就取 `useToastManager()`，没有 provider 直接抛，卡片级用例会整片报假红。
+    const html = renderToString(h(ToastProvider, {}, element))
     if (must && !html.includes(must)) {
       failed += 1
       console.log(`FAIL ${label}: 渲染出来了，但缺少「${must}」（这条分支没进去？）`)
