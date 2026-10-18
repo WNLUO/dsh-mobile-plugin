@@ -47,7 +47,10 @@ const FULL_DEPS = (ctx) => ({
     streams: { relaySseOpen: 3 },
   }),
   getLanProxyStats: () => ({ upstreamOpen: 11, sseOpen: 4 }),
-  getMirrorPush: () => ({ pushedAt: 1700000000000, ok: true, error: null, skippedBodies: 2, skipReason: 'body missing' }),
+  getMirrorPush: () => ({
+    pushedAt: 1700000000000, ok: true, error: null, skippedBodies: 2, skipReason: 'body missing',
+    listSessions: 12, listActiveSessions: 3, listSubagents: 2, listAt: 1700000000001,
+  }),
   getMirrorPushFailures: () => [{ sessionId: 'a' }, { sessionId: 'b' }],
   credentials: { listActive: () => [{ deviceId: 'd1' }, { deviceId: 'd2' }, { deviceId: 'd3' }] },
 });
@@ -115,6 +118,11 @@ test('「拿不到」报 null 并记进 unavailable，绝不拿 0 顶替', () =>
   assert.equal(body.mirror.skippedBodies, null);
   assert.equal(body.mirror.pushFailures, null);
   assert.equal(body.mirror.cachedSessions, null);
+  // 清单规模同样「拿不到就是 null」：报 0 会被读成「一个会话都没有」。
+  assert.equal(body.mirror.listSessions, null);
+  assert.equal(body.mirror.listActiveSessions, null);
+  assert.equal(body.mirror.listSubagents, null);
+  assert.equal(body.mirror.listAt, null);
   assert.equal(body.credentials.active, null);
   // 每一处「不知道」都必须能在 unavailable 里找到对应字段名。
   const joined = body.unavailable.join('\n');
@@ -136,6 +144,12 @@ test('接入真值时不报 unavailable，且数字真的来自依赖', () => {
   assert.equal(body.mirror.ok, true);
   assert.equal(body.mirror.skippedBodies, 2);
   assert.equal(body.mirror.pushFailures, 2);
+  // 清单规模：插件侧能诚实报出的「会话有多少」。「宿主内存里挂着多少会话」插件看不到，
+  // 所以这几条只准报清单口径（口径见 self-check.cjs 文件头）。
+  assert.equal(body.mirror.listSessions, 12);
+  assert.equal(body.mirror.listActiveSessions, 3);
+  assert.equal(body.mirror.listSubagents, 2);
+  assert.equal(body.mirror.listAt, 1700000000001);
   assert.equal(body.mirror.cachedSessions, 2, '镜像缓存条目数要读的是 ctx 上那张真表');
   assert.equal(body.mirror.cachedMessages, 400);
   assert.ok(body.mirror.cachedBytes > 400 * 50, '估算字节至少要覆盖消息正文');

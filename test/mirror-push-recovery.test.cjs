@@ -122,8 +122,9 @@ async function withPusher(state, run) {
   const sessionSignal = createSessionSignal();
   const pushed = [];
   const sidecar = { fail: false };
+  const ctx = makeCtx(state);
   const pusher = createMirrorPusher({
-    ctx: makeCtx(state),
+    ctx,
     tunnelConnected: () => true,
     getSidecar: () => ({
       pushSync: async (payload) => {
@@ -136,7 +137,7 @@ async function withPusher(state, run) {
   });
   const stop = pusher.start();
   try {
-    await run({ pusher, pushed, sidecar, h, listSignal, sessionSignal });
+    await run({ pusher, pushed, sidecar, h, listSignal, sessionSignal, ctx });
   } finally {
     stop();
     h.restore();
@@ -391,4 +392,62 @@ test('恢复相关的三条语义都有源码契约钉着', () => {
     !/data = await buildSessionData\(id, s, \{ priority: 'cold' \}\);\s*\} catch \(error\) \{[\s\S]{0,120}?throw error;/.test(SOURCE),
     '冷轮转里构建失败又 rethrow：一个坏会话会把整轮清单推送带走',
   );
+});
+
+/**
+ * 子会话的正文**刻意不建** —— 它不是「读失败」，别记进故障账。
+ *
+ * 真机现象（2026-10-19）：镜像每隔 5 秒重试一次读某个子会话的正文，永远被宿主拒
+ * （`session/agent-busy: subagent Sessions require their durable parent address`），
+ * `skippedBodies` 一路涨（4 分钟 408 → 451），日志里那条 skip 永远说不清哪坏了。
+ * 手机读子代理走的是子代理那条专用通道（带父会话地址与 mode），镜像这份正文没人用，
+ * 所以正解是**提前认出清单行、根本不发那次请求**，并且不把它算成失败。
+ *
+ * 断言必须成对：子会话不读普通历史，而普通会话照旧读 —— 少了后半条，「整条读取路径都坏了」
+ * 也能让前半条变绿。
+ */
+test('子会话正文刻意不建：不发那次注定被拒的读，也不进 skippedBodies', async () => {
+  const CHILD = 'mirror-subagent-child';
+  const parent = mkItem({ sessionId: SID });
+  const child = { ...mkItem({ sessionId: CHILD }), origin: 'subagent', parentSessionId: SID };
+  await withPusher({ items: [parent, child], events: [] }, async ({ pusher, pushed, ctx }) => {
+    // 初始那次推送（start() 里的 pushMirror）已经把两个会话都过了一遍：用它钉载荷形状。
+    await waitFor(() => pushed.length >= 1);
+    const first = pushed[0];
+    // 清单规模也要真的记下来：自检台账读的就是这三个数（记漏了台账就永远 0）。
+    const diag = pusher.getMirrorPush();
+    assert.equal(diag.listSessions, 2, '清单里的会话总数要记下来');
+    assert.equal(diag.listSubagents, 1, '其中子会话数要记下来');
+    assert.ok(diag.listActiveSessions >= 1, '在跑的会话要算进活跃数');
+    assert.ok(diag.listAt > 0, '要记下这份读数的时间，否则看不出它是不是陈的');
+    assert.equal(first.messages[SID] !== undefined, true, '普通会话的正文照旧进镜像（对照）');
+    assert.equal(first.messages[CHILD], undefined, '子会话不该有正文槽位');
+    assert.equal(
+      ((first.sessions && first.sessions.items) || []).some((row) => row.sessionId === CHILD),
+      true,
+      '清单行本身照旧推给手机：App 靠 origin/parentSessionId 认子代理',
+    );
+
+    // 再装探针单独驱一次，才能确定「那一次读到底发没发」。
+    // 注意信封形状：`ctx.apiProxy.sessions.history` 收到的是 `{ rpcId, method, payload }`
+    // （见 lib/mobile/rpc.js 的 callSessions），会话 id 在 `payload` 里。
+    const readIds = [];
+    const realHistory = ctx.apiProxy.sessions.history;
+    ctx.apiProxy.sessions.history = async (envelope, signal) => {
+      readIds.push(String(envelope && envelope.payload && envelope.payload.sessionId));
+      return realHistory(envelope, signal);
+    };
+
+    pusher.pushSessionImmediately(CHILD);
+    await flush(80);
+    assert.equal(readIds.includes(CHILD), false,
+      `子会话不该去读普通历史（宿主会按 durable parent address 拒掉），实际读了 ${JSON.stringify(readIds)}`);
+    assert.equal(pusher.getMirrorPush().skippedBodies, 0,
+      '按设计跳过的子会话不是失败，不许进 skippedBodies（真机上就是这个计数一直涨）');
+
+    pusher.pushSessionImmediately(SID);
+    await flush(80);
+    assert.equal(readIds.includes(SID), true,
+      `普通会话必须照旧读历史，否则上面那条「没读」可能只是整条路径坏了，实际读了 ${JSON.stringify(readIds)}`);
+  });
 });
