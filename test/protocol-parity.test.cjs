@@ -72,8 +72,7 @@ test('副本的 close 编解码对得上共用表的规则（含保留码与超�
 })
 
 test('副本的类型表与共用类型表一致', () => {
-  // 权威的类型表在 relay-core（三份实现共用）；中转移交到 Workers 版之后，
-  // Workers 版把类型表与编解码拆成了两个文件，所以这里比的是那份共用表。
+  // 权威的类型表在 relay-core，插件这份是内联副本，这里比的是两边是否一致。
   const authority = require(SHARED_TYPES)
   const copy = require(COPY)
   assert.deepEqual(copy.T, authority.T, 'T 类型表不一致')

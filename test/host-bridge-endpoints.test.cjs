@@ -164,6 +164,20 @@ test('每条端点打给宿主的 namespace / method / args 键名与金标准�
   assert.deepEqual(mismatches, [], `端点表与金标准不一致：\n${mismatches.join('\n')}`);
 });
 
+test('session.prompt defaults an omitted mode to queue and preserves explicit modes', async () => {
+  const ctx = makeCtx();
+  const api = createApiProxy(ctx);
+  for (const [payload, expected] of [
+    [{ sessionId: 's-1', content: [{ type: 'text', text: 'hello' }] }, 'queue'],
+    [{ sessionId: 's-1', mode: 'steer', content: [{ type: 'text', text: 'hello' }] }, 'steer'],
+  ]) {
+    ctx.calls.length = 0;
+    await api.sessions.prompt({ rpcId: 'mobile', payload });
+    const call = ctx.calls.find((item) => item.namespace === 'session' && item.method === 'prompt');
+    assert.equal(call.args.request.mode, expected);
+  }
+});
+
 test('端点表不出现 shell / 系统设置这类越界命名空间', () => {
   // 移动端 API 的边界就是这一条：宿主能力很多，但手机端只能拿到会话/消息/审批/工作区
   // 这几类。键表里多出一个 namespace 就等于悄悄扩了权限。

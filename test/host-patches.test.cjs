@@ -119,9 +119,17 @@ test('没有 insert 的层原样穿过（web-runtime 的 config 行那种）', (
 // ---------------------------------------------------------------------------
 
 test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不装桥', () => {
+  // 判据只许有一条（`hasHostApiProxy`），兼容桥与审批桥共用它：写成两处各调一次
+  // `runtimeProvidesApiProxy()` 迟早分叉，而分叉的代价是「老运行时多 provide 一次」
+  // （整棵树加载失败）或「0.2.x 少装审批桥」（手机上看不到审批卡）。
   assert.match(
     IMPL,
-    /if \(!runtimeProvidesApiProxy\(\)\) ctx\.reflect\.provide\('apiProxy', createApiProxy\(ctx\)\)/,
+    /const hasHostApiProxy = runtimeProvidesApiProxy\(\)/,
+    '判据必须来自 runtimeProvidesApiProxy()，不能写死',
+  );
+  assert.match(
+    IMPL,
+    /if \(!hasHostApiProxy\) ctx\.reflect\.provide\('apiProxy', createApiProxy\(ctx\)\)/,
     '无条件 provide 会在老运行时撞上宿主的 apiProxy，整棵树加载失败',
   );
   assert.match(

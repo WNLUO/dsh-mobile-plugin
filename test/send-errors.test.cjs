@@ -1,5 +1,7 @@
 'use strict';
 
+/** Mobile send handler: accepted modes pass through and omitted mode defaults at the host bridge. */
+
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -62,6 +64,32 @@ test('requires an explicit accepted acknowledgement', async () => {
   await handleSend(ctx, request(payload), res);
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, { ok: true, accepted: true });
+});
+
+test('omitted send mode remains absent from the mobile payload for host-bridge defaulting', async () => {
+  let received;
+  const ctx = ctxWithPrompt(async (value) => {
+    received = value;
+    return { result: { ok: true, value: { accepted: true } } };
+  });
+  const res = response();
+  await handleSend(ctx, request({ sessionId: 's-1', content: [{ type: 'text', text: 'hello' }] }), res);
+  assert.equal(res.status, 200);
+  assert.equal(Object.hasOwn(received.payload, 'mode'), false);
+});
+
+test('explicit busy-send modes are passed through unchanged', async () => {
+  for (const mode of ['queue', 'steer']) {
+    let received;
+    const ctx = ctxWithPrompt(async (value) => {
+      received = value;
+      return { result: { ok: true, value: { accepted: true } } };
+    });
+    const res = response();
+    await handleSend(ctx, request({ sessionId: 's-1', mode, content: [{ type: 'text', text: 'hello' }] }), res);
+    assert.equal(res.status, 200);
+    assert.equal(received.payload.mode, mode);
+  }
 });
 
 // ── 宿主错误的 details 透传 ────────────────────────────────────────

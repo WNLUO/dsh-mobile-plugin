@@ -1,15 +1,16 @@
+/**
+ * 插件副本的 close 帧载荷编解码守卫。
+ *
+ * 这组用例只跑插件副本：`decodeClosePayload` 的 `raw` / `validCode` 两个诊断字段
+ * 是**插件副本自己的形状**，实际消费方（手机 WS 的关闭帧）只用 `code` 与 `reason`。
+ * 所以不「同一套断言跑两份实现」（那会把两边的返回形状硬绑在一起），
+ * 跨实现的字节一致性由 protocol-parity.test.cjs 与 relay-core 的 Rust 对撞测试负责。
+ */
 'use strict'
 const assert = require('node:assert/strict')
 const path = require('node:path')
 const { test } = require('node:test')
 
-// 这组用例只跑插件副本。2026-10-22 Node 版中转删除后，中转侧的协议实现换成了
-// Workers 版（`server/dsh-mobile-server/src/index.mjs`），它的 `decodeClosePayload`
-// 只返回 `{ code, reason }`——没有 `raw` / `validCode` 这两个诊断字段。那两样在这里
-// 是**插件副本自己的形状**，实际消费方（手机 WS 的关闭帧）只用 `code` 与 `reason`。
-//
-// 所以不再「同一套断言跑两份实现」（那会把两边的返回形状硬绑在一起），
-// 跨实现的字节一致性由 protocol-parity.test.cjs 与 relay-core 的 Rust 对撞测试负责。
 const COPY = path.join(__dirname, '..', 'lib', 'relay', 'protocol.js')
 
 for (const [label, file] of [['插件副本', COPY]]) {

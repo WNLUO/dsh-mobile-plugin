@@ -73,7 +73,14 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 通道」。那四个取值器全都是本文件已有的东西（`sidecarLifecycle.getSnapshot`、
   // `mirror.getMirrorPush`、`mirror.getPushFailures`），一行实现都没有搬回来；
   // `getLanProxyStats` 是取值器，不是逻辑。
-  assert.ok(lines <= 431, `lib/impl.js 回到 ${lines} 行了；超过 431 说明实现又被搬回装配层`);
+  // 431 → 436（2026-10-19，审批桥）：装配层只多出「装载一行 + 判据一个 const」——
+  // `installApprovalBridge` 与兼容桥**同生共死**（判据 `hasHostApiProxy` 由原来那行
+  // `if (!runtimeProvidesApiProxy())` 提出来，省得同一判据写两遍而分叉），外加两行
+  // 说明为什么两条桥的判据必须同源。审批桥本体住在 `lib/mobile/approvals.js`。
+  // 436 → 438（2026-10-19，提问桥）：同样只有「装载一行 + 判据复用」，本体住在
+  // `lib/mobile/questions.js`（`user-questions/request` 钩子，覆盖 ask_user_question 与
+  // 计划评审）；判据仍是同一个 `hasHostApiProxy`，没有新逻辑进装配层。
+  assert.ok(lines <= 438, `lib/impl.js 回到 ${lines} 行了；超过 438 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {
