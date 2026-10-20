@@ -110,3 +110,36 @@ test('connection 读取抛错时退化为不带身份，而不是把整条调用
   const result = await invoke(ctx, 'session', 'list', { _request: {} });
   assert.equal(result.error, undefined);
 });
+
+test('宿主刚重启、网关晚一步就绪时，事件流等一小会儿再看一次而不是直接报没能力', async () => {
+  const gateway = legacyGateway();
+  let reads = 0;
+  const ctx = {
+    get(name) {
+      if (name !== 'typertGateway') return undefined;
+      reads += 1;
+      return reads > 1 ? gateway : undefined;
+    },
+  };
+  const frames = await openStream(ctx, 'workspace', 'follow', {});
+  assert.deepEqual(frames, ['frame']);
+  assert.equal(reads, 2, '取不到要重取一次，而不是把第一眼的空值当结论');
+});
+
+test('宿主确实没有网关能力时仍然如实回报，不把等待当成结论', async () => {
+  await assert.rejects(
+    () => openStream(ctxOf({}), 'workspace', 'follow', {}),
+    (error) => error.code === 'host-unavailable',
+  );
+});
+
+test('等待期间连接已断开就立刻放弃，不把整个窗口拖给调用方', async () => {
+  const ac = new AbortController();
+  ac.abort();
+  const started = Date.now();
+  await assert.rejects(
+    () => openStream(ctxOf({}), 'workspace', 'follow', {}, ac.signal),
+    (error) => error.code === 'host-unavailable',
+  );
+  assert.ok(Date.now() - started < 500, `已断开时不该等满窗口（${Date.now() - started}ms）`);
+});
