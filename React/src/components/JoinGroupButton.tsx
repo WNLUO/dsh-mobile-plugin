@@ -11,7 +11,7 @@
  * `[&_svg:not([class*='stroke-'])]:stroke-[1.85]` 会给它描一道 1.85 的边，
  * 所以显式带上 `stroke-` 类把这条规则挡掉（实心标不要描边）。
  *
- * 二维码图与官网「微信交流群」用的是同一张（`website/src/assets/wechat-group.jpg`，
+ * 二维码图与官网「微信交流群」用的是同一张（`website/src/assets/wechat-group.png`，
  * 两边各存一份）：官网那边是独立站点、打不进插件产物，插件产物又是单文件内联，
  * 引不到仓外。换群时两个地方都要换。
  */
@@ -25,10 +25,10 @@ import {
 import { Button } from '@appica/ui-react/button'
 import { useState } from 'react'
 
-import wechatGroup from '../assets/wechat-group.jpg'
+import wechatGroup from '../assets/wechat-group.png'
 
 /** 二维码是张方图，窗宽按它给：再宽就只剩白边了。 */
-const QR_ALT = 'AI-HUB 壹号群二维码：用微信或企业微信扫码加入'
+const QR_ALT = '微信群二维码：用微信或企业微信扫码加入'
 
 function WechatIcon() {
   return (
