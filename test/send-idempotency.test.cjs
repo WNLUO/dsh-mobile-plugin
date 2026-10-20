@@ -43,3 +43,18 @@ test('concurrent sends with the same clientMessageId share one prompt', async ()
   assert.equal(ra, rb);
   assert.equal(calls, 1);
 });
+
+test('把 clientMessageId 作为宿主 prompt 的 requestId 送过去', async () => {
+  const seen = [];
+  const ctx = {
+    apiProxy: {
+      sessions: {
+        prompt: async (arg) => { seen.push(arg); return { result: { ok: true, value: { accepted: true } } }; },
+      },
+    },
+  };
+  await promptOnce(ctx, 'cm-9', { sessionId: 's-1', mode: 'queue', content: [{ type: 'text', text: 'hi' }] });
+  assert.equal(seen.length, 1);
+  // 宿主把 requestId 记成 user 消息的 source.rpcId，App 靠它（`mobile:` 前缀）认领自己的乐观行。
+  assert.equal(seen[0].payload.requestId, 'mobile:cm-9');
+});

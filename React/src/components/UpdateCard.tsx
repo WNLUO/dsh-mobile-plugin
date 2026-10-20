@@ -503,21 +503,6 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             </Alert>
           ) : null}
 
-          {/* 本地来源一律说清这台是怎么更新的，四种来源分别是四句话。 */}
-          {localSource ? (
-            <Alert variant="info" className="mt-3">
-              <AlertIcon />
-              <AlertTitle>{'这台不是从 npm 装的'}</AlertTitle>
-              <AlertDescription>
-                {marketSource === 'linked'
-                  ? 'profile 里它是 link: 装的（多半是开发时故意指过去的）。改成 npm 版会把那个指向换掉，本地改动从此不生效，所以这里不装、也没给自动更新。'
-                  : marketSource === 'file'
-                    ? 'profile 里它是 file: 装的本机包（开发版）。改成 npm 版会把本地那份覆盖掉，本地改动从此不生效，所以这里不装、也没给自动更新。'
-                    : 'profile 里它是 workspace: 装的（指向本仓库的包）。改成 npm 版会把那个指向换掉，所以这里不装、也没给自动更新。'}
-                {'这一台的更新由改代码的人来做：同步文件之后让宿主就地重载。要换回按版号安装，先在 设置 → 插件 里按包名重装一次。'}
-              </AlertDescription>
-            </Alert>
-          ) : null}
 
           {/* 宿主自己记下来的最近一次失败（自动更新失败也落在这里）。 */}
           {host.lastError ? (
@@ -579,21 +564,6 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             </InfoRow>
           </InfoList>
 
-          {/* 本地来源一律说清这台是怎么更新的（四种来源四句话）。 */}
-          {localSource ? (
-            <Alert variant="info" className="mt-3">
-              <AlertIcon />
-              <AlertTitle>{'这台不是从 npm 装的'}</AlertTitle>
-              <AlertDescription>
-                {marketSource === 'linked'
-                  ? 'profile 里它是 link: 装的（多半是开发时故意指过去的）。改成 npm 版会把那个指向换掉，本地改动从此不生效，所以这里不装。'
-                  : marketSource === 'file'
-                    ? 'profile 里它是 file: 装的本机包（开发版）。改成 npm 版会把本地那份覆盖掉，本地改动从此不生效，所以这里不装。'
-                    : 'profile 里它是 workspace: 装的（指向本仓库的包）。改成 npm 版会把那个指向换掉，所以这里不装。'}
-                {'这一台的更新由改代码的人来做：同步文件之后让宿主就地重载。要换回按版号安装，先在 设置 → 插件 里按包名重装一次。'}
-              </AlertDescription>
-            </Alert>
-          ) : null}
 
           <div className="mt-3 flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="md" disabled={idle} onClick={onRestartSidecar}>

@@ -76,6 +76,13 @@ test('调试 OTA 只在本机接口可用时显示，并提供检查与安装入
   assert.match(client, /\/api\/relay\/update\/ota\/apply/);
 });
 
+test('非 npm 来源仍隐藏安装按钮，但不显示来源提示条', () => {
+  const card = read('UpdateCard.tsx');
+  assert.match(card, /localSource \? null : \(/, '本地来源仍要隐藏自动更新开关');
+  assert.match(card, /localSource \? null : \(\s*<Button variant="primary"/, '本地来源仍要隐藏立即更新按钮');
+  assert.ok(!card.includes('这台不是从 npm 装的'), '不再显示非 npm 来源提示条');
+});
+
 test('宿主说没法就地换代时，更新卡不许把用户往插件市场带', () => {
   const card = read('UpdateCard.tsx');
   // 判据是宿主回的 `available: false`（它自己说这份实现是直接被挂载的）。只认 409 那条错误码
