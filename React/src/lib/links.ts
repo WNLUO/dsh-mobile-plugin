@@ -18,7 +18,7 @@ export const APP_DOWNLOAD_URL = 'https://ai-hub.wnluo.com/'
  * `/healthz`，`name` 只在界面上显示。
  */
 export const PUBLIC_RELAYS: { name: string; url: string }[] = [
-  { name: '公用中转 1', url: 'https://ai-hub-jd-1.wnluo.com' },
+  { name: '公用中转 1', url: 'https://ai-hub-de-1.wnluo.com' },
 ]
 
 /** 列表里的第一条：没有任何偏好时的默认选择。 */
