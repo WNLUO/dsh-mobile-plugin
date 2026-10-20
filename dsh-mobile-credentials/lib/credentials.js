@@ -117,6 +117,29 @@ function listActive() {
   load();
   return records.filter((record) => !record.revokedAt && (!record.expiresAt || record.expiresAt > Date.now())).map(({ instanceId, deviceId, createdAt, expiresAt }) => ({ instanceId, deviceId, createdAt, ...(expiresAt ? { expiresAt } : {}) }));
 }
+/** 一份镜像最多带这么多条摘要：长期反复配对不该把推送清单撑成累赘。 */
+const MAX_ACTIVE_DIGESTS = 200;
+/**
+ * 本实例签发过、仍然有效的凭据摘要，按签发时间从新到旧。
+ *
+ * 中转的离线镜像缓存要在桌面宿主上线之前判断「来读缓存的人是不是配对过的手机」，而它手上
+ * 只有手机发来的 `dshc_` 原文 —— 这里给出同一口径的 sha256（落盘存的本来就是这个摘要，
+ * 原文从未留存），它自己算一遍就能比对。吊销与过期在这里现读现滤，撤销一台设备后下一次
+ * 推送就少一条。
+ */
+function activeDigests(instanceId) {
+  load();
+  const now = Date.now();
+  const live = [];
+  // 记录只在新签发时追加，所以倒着走就是 createdAt 倒序：超出上限时被截掉的是最老的，
+  // 同毫秒签发的几条也保持签发顺序而不是凭运气。
+  for (let i = records.length - 1; i >= 0 && live.length < MAX_ACTIVE_DIGESTS; i -= 1) {
+    const record = records[i];
+    if (record.instanceId !== instanceId || !isLive(record, now)) continue;
+    live.push({ hash: record.hash, ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}) });
+  }
+  return live;
+}
 function revokeDevice(instanceId, deviceId) {
   load();
   let count = 0;
@@ -132,4 +155,4 @@ function revokeAllByInstance(instanceId) {
   if (count) save();
   return count;
 }
-module.exports = { FILE, DEFAULT_TTL_MS, issue, find, lookup, isLive, isActiveDevice, revoke, revokeDevice, revokeAllByInstance, listActive };
+module.exports = { FILE, DEFAULT_TTL_MS, issue, find, lookup, isLive, isActiveDevice, activeDigests, revoke, revokeDevice, revokeAllByInstance, listActive };
