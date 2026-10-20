@@ -214,20 +214,36 @@ test('接线：事件文本里的本机图片在派生出的消息里也是内�
   assert.ok(deriveMessages([untouched])[0].text.includes(`![截图](${shot})`), '预算用尽时保持字面 markdown');
 }));
 
-test('接线：历史图片附件取回失败仍投影为可重试附件，不泄漏内部块 JSON', async () => {
-  const event = {
-    seq: 4,
-    time: 1_700_000_000_001,
-    type: 'assistant/message',
-    data: { message: { role: 'assistant', content: [
-      { type: 'text', text: '图片见附件' },
-      { type: 'image', mediaType: 'image/png', attachment: { attachmentId: 'missing-image', mediaType: 'image/png' }, name: 'preview.png' },
-    ] } },
-  };
+const attachmentEvent = () => ({
+  seq: 4,
+  time: 1_700_000_000_001,
+  type: 'assistant/message',
+  data: { message: { role: 'assistant', content: [
+    { type: 'text', text: '图片见附件' },
+    { type: 'image', mediaType: 'image/png', attachment: { attachmentId: 'missing-image', mediaType: 'image/png' }, name: 'preview.png' },
+  ] } },
+});
+
+test('接线（取字节模式）：历史图片附件取回失败仍投影为可重试附件，不泄漏内部块 JSON', async () => {
   const ctx = { apiProxy: { sessions: { attachment: async () => { throw new Error('attachment unavailable'); } } } };
-  const resolved = await resolveEventAttachments(ctx, 'sess-1', event);
+  const resolved = await resolveEventAttachments(ctx, 'sess-1', attachmentEvent(), { referencesOnly: false });
   const [item] = deriveMessages([resolved]);
   assert.equal(item.text, '图片见附件');
   assert.deepEqual(item.unavailableImages, [{ attachmentId: 'missing-image', mediaType: 'image/png', name: 'preview.png' }]);
   assert.equal(item.blocks.some((block) => block.text?.includes('dataUnavailable')), false);
+});
+
+// 默认（引用模式）是会话正文图片的正式契约：只下发 attachmentId、不带 data，且**一次宿主
+// RPC 都不发**。这条钉的就是「探针式的取字节」不能再回来——它曾让一页 200 条带十几张
+// 截图的响应接近 10MB，每次进会话都要重传一遍。
+test('接线（引用模式）：图片只下发 attachmentId、不带 data，也不发附件 RPC', async () => {
+  let calls = 0;
+  const ctx = { apiProxy: { sessions: { attachment: async () => { calls += 1; throw new Error('不该被调用'); } } } };
+  const resolved = await resolveEventAttachments(ctx, 'sess-1', attachmentEvent());
+  assert.equal(calls, 0, '引用模式不该发宿主 attachment RPC');
+  const [item] = deriveMessages([resolved]);
+  assert.equal(item.text, '图片见附件');
+  assert.deepEqual(item.images, [{ mediaType: 'image/png', name: 'preview.png', attachmentId: 'missing-image' }]);
+  assert.equal(Object.hasOwn(item.images[0], 'data'), false, '引用条目不许带 data');
+  assert.equal(item.unavailableImages, undefined, '引用模式下取不到字节不是「失败」，是没取');
 });

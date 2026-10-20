@@ -1,3 +1,4 @@
+/** Session model directory response and cache contract. */
 'use strict';
 
 const test = require('node:test');
@@ -27,6 +28,7 @@ test('model catalog cache coalesces requests and keeps reasoning metadata safe',
   const value = {
     current: { provider: 'p', model: 'm', reasoningEffort: 'high' },
     routable: true,
+    routableProviders: ['p', 'q', '', 42],
     revision: 7,
     groups: [{
       id: 'p',
@@ -61,6 +63,7 @@ test('model catalog cache coalesces requests and keeps reasoning metadata safe',
   assert.equal(first.body.groups[0].models[0].apiKey, undefined);
   assert.equal(first.body.failures[0].secret, undefined);
   assert.equal(first.body.meta.source, 'host');
+  assert.deepEqual(first.body.routableProviders, ['p', 'q']);
 
   const cached = response();
   await handleModels(ctx, request(), cached);

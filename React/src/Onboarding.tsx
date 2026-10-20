@@ -366,6 +366,8 @@ export function Onboarding({ onDone }: Props) {
 
   const choice = addresses?.lan ?? []
   const publicChoice = addresses?.public ?? []
+  // 第三份：IPv6 全球单播。只能看 —— 谁快由手机侧实测决定（见 AddressPicker 的文件头）。
+  const ipv6Choice = addresses?.ipv6 ?? []
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6">
@@ -481,6 +483,22 @@ export function Onboarding({ onDone }: Props) {
                       <span className="font-mono text-xs text-foreground-muted">{item.url}</span>
                       <span className="shrink-0 text-xs text-foreground-muted">
                         {item.interface ? `公网地址 · ${item.interface}` : '公网地址'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {/*
+                IPv6 那份同样只摆出来：手机不在这个网络里时，直连要走它，但「走不走、谁更快」
+                由手机侧拿它和公网中转实测比出来，所以这里不给单选圈。
+              */}
+              {ipv6Choice.length > 0 ? (
+                <ul className="mt-1.5 flex flex-col gap-1">
+                  {ipv6Choice.map((item) => (
+                    <li key={item.address} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <span className="font-mono text-xs text-foreground-muted">{item.url}</span>
+                      <span className="shrink-0 text-xs text-foreground-muted">
+                        {item.interface ? `IPv6 直连 · ${item.interface}（手机按实测择优）` : 'IPv6 直连（手机按实测择优）'}
                       </span>
                     </li>
                   ))}

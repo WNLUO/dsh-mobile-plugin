@@ -73,11 +73,12 @@ export type AddressEntry = {
 }
 
 /**
- * `/api/relay/addresses` 的回答：这台机器检测到的地址，按**局域网 / 公网**分开。
+ * `/api/relay/addresses` 的回答：这台机器检测到的地址，按**局域网 / 公网 / IPv6**分开。
  *
- * 宿主刻意分成两份（见插件侧 `lib/relay/lan-network.cjs` 的两个函数）：局域网那份是
- * RFC1918，公网那份排掉了回环、链路本地、CGNAT、基准测试这些拨不通的段。界面据此
- * 告诉用户「手机里该填哪个」，而不是把一份混在一起的列表丢给他。
+ * 宿主刻意分成三份（见插件侧 `lib/relay/lan-network.cjs` 的三个函数）：局域网那份是
+ * RFC1918，公网那份排掉了回环、链路本地、CGNAT、基准测试这些拨不通的段，IPv6 那份是
+ * **全球单播**（`2000::/3`，排掉 6to4 / Teredo / 文档段）—— 手机不在同一个网络时唯一
+ * 可能拨到的那一类。界面据此告诉用户「手机里该填哪个」，而不是把一份混在一起的列表丢给他。
  */
 export type AddressBook = {
   ok?: boolean
@@ -92,6 +93,14 @@ export type AddressBook = {
   preferred?: string
   lan: AddressEntry[]
   public: AddressEntry[]
+  /**
+   * IPv6 全球单播候选（老宿主没有这个字段，读成空数组）。
+   *
+   * **只显示、不能选**：这一份由手机侧拿它和公网中转**实测比速度**来择优，宿主不替它排，
+   * 所以它不参与 `preferred`（那个选择只作用于上面两份）。`address` 是裸地址，`url`
+   * 才带方括号 —— 拼 URL 的地方别自己拿 `address` 去拼（见 `AddressPicker` 的 `urlOf`）。
+   */
+  ipv6?: AddressEntry[]
 }
 
 export type PairingInfo = {

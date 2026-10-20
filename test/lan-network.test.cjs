@@ -11,6 +11,12 @@
  * 地址来自 SafeLine WAF 的 `safeline-ce`（192.168.0.1/24）。旧的黑名单没有
  * `safeline`，于是 `lanUrls()` 只返回 `http://192.168.0.1:18787` —— 一个 WAF
  * 容器地址。下面的用例把它钉死。
+ *
+ * 2026-10 起这个文件还钉着**第三份清单**：IPv6 全球单播候选（手机不在同一个 Wi-Fi 里、
+ * 从公网拨进来时唯一有可能直连的那条地址）。它的判据面比 IPv4 那两份窄得多 —— 只认
+ * `2000::/3`，并在其中排掉 6to4 / Teredo / 文档段这三段「长得像公网却收不到入站」的地址；
+ * 它同样**不并进**上面那份局域网清单（有私网就只带私网，见 `docs/decisions.md` 2026-10-11
+ * 那条，以及本文件末尾那条刻意钉死的边界回归）。
  */
 
 const test = require('node:test')
@@ -28,6 +34,12 @@ const {
   lanInterfaces,
   lanUrls,
   lanCandidates,
+  advertisedCandidates,
+  ipv6Number,
+  isGlobalUnicastV6,
+  ipv6Interfaces,
+  ipv6Urls,
+  ipv6Candidates,
   orderCandidates,
 } = require('../lib/relay/lan-network.cjs')
 
@@ -36,6 +48,15 @@ function ifaces(spec) {
   const out = {}
   for (const [name, addresses] of Object.entries(spec)) {
     out[name] = [].concat(addresses).map((address) => ({ address, family: 'IPv4', internal: false }))
+  }
+  return out
+}
+
+/** 同上，但按 os.networkInterfaces() 里 IPv6 那一条的形状写 family:'IPv6'。 */
+function v6ifaces(spec) {
+  const out = {}
+  for (const [name, addresses] of Object.entries(spec)) {
+    out[name] = [].concat(addresses).map((address) => ({ address, family: 'IPv6', internal: false }))
   }
   return out
 }
@@ -302,4 +323,173 @@ test('只有一条或空清单时不折腾', () => {
     { address: '10.0.0.9' },
     null,
   ])
+})
+
+/**
+ * 手机不在同一个 Wi-Fi 里时，唯一有可能直连进来的就是**宿主这块网卡上的 IPv6 全球单播
+ * 地址**。下面这一组钉的是它的判据面：收哪些、不收哪些、产出什么形状、去重按什么算。
+ *
+ * 为什么判据必须写得这么死：这些地址会被塞进二维码、由 App 拿去直连，错收一条的代价是
+ * 手机上多一次拨不通的探测（和 IPv4 那份同一个道理）；而**假公网**（6to4 / Teredo）更糟
+ * ——它们看起来像公网地址、事实上要靠一台外部中继才通，报出去等于骗 App 去走一条死路。
+ */
+test('ipv6Number 剥掉方括号与 zone id，支持压缩写法与内嵌 IPv4 尾巴', () => {
+  const base = ipv6Number('240e::1')
+  assert.equal(base, 0x240e0000000000000000000000000001n)
+  assert.equal(ipv6Number('[240e::1]'), base)
+  // macOS 上 os.networkInterfaces() 会给带 zone 的地址写成 `fe80::1%en0`，方括号与 zone
+  // id 都先剥掉再解 —— 剥不掉就整条解析失败，这块网卡的地址会被静默漏掉。
+  assert.equal(ipv6Number('240e::1%en0'), base)
+  // 压缩写法、展开写法与大小写解出来是同一个数值（去重按这个值算，见后面那条）。
+  assert.equal(ipv6Number('240e:1:2::998'), ipv6Number('240E:1:2:0:0:0:0:998'))
+  // 内嵌 IPv4 尾巴折成最后两段。
+  assert.equal(ipv6Number('::ffff:192.168.1.1'), 0xffffc0a80101n)
+  // 非法串一律 null：看不懂的文本绝不能当成地址发出去。
+  for (const bad of ['not-an-ip', '[240e::1]:18787', '', '192.168.1.1', '240e::1::2', '240e:1:2:3:4:5:6:7:8']) {
+    assert.equal(ipv6Number(bad), null, bad)
+  }
+})
+
+test('isGlobalUnicastV6 只收 2000::/3，并排掉三种长得像公网的假地址', () => {
+  for (const address of [
+    '240e::1', // 中国电信的段，就是「手机在别的网络里拨回来」那条
+    '240e:1:2::998',
+    '240E:0:0:0:0:0:0:1',
+    '[240e::1]',
+    '2000::',
+    '3fff:ffff::1',
+    '2001:4860:4860::8888', // 2001::/32 只吃掉 2001:0000:/32，这个是真的公网地址
+  ]) {
+    assert.equal(isGlobalUnicastV6(address), true, address)
+  }
+  // 2000::/3 的两头之外不是全球单播。
+  for (const address of ['1fff::1', '4000::1']) assert.equal(isGlobalUnicastV6(address), false, address)
+  // 三种「长得像公网却收不到入站」：6to4（要靠公网中继）、Teredo（隧道端点）、文档段。
+  for (const address of ['2002::1', '2002:0102:0304::1', '2001::1', '2001:0:0:0:0:0:0:1', '2001:db8::1']) {
+    assert.equal(isGlobalUnicastV6(address), false, address)
+  }
+  // 非全球单播：链路本地 / ULA / 已废弃的站点本地 / 组播 / 回环 / 未指定 / IPv4 映射。
+  for (const address of [
+    'fe80::1',
+    'fc00::1',
+    'fd00::1',
+    'fec0::1',
+    'ff00::1',
+    'ff02::1',
+    '::1',
+    '::',
+    '::ffff:192.168.1.1',
+  ]) {
+    assert.equal(isGlobalUnicastV6(address), false, address)
+  }
+  // 解析不出来的串同样一律 false。
+  for (const address of ['not-an-ip', '[240e::1]:18787', '', '192.168.1.1', null, undefined]) {
+    assert.equal(isGlobalUnicastV6(address), false, String(address))
+  }
+})
+
+test('zone id 与内嵌 IPv4 尾巴：剥得掉，但不等于放行', () => {
+  // zone id 只对本链路有意义，剥它是为了让后面那层判定能跑；剥完仍是链路本地，一律不收。
+  assert.equal(ipv6Number('fe80::1%en0'), ipv6Number('fe80::1'))
+  assert.equal(isGlobalUnicastV6('fe80::1%en0'), false)
+  assert.equal(isGlobalUnicastV6('[fe80::1%en0]'), false)
+  // 带 zone id 的全球单播照旧收得到（别因为多了一截 zone 就把整块网卡丢掉）。
+  assert.equal(isGlobalUnicastV6('240e::1%en0'), true)
+  // 内嵌 IPv4 尾巴：`::ffff:192.168.1.1` 是 IPv4 映射地址，解得出数值但不是全球单播；
+  // 收下它等于让手机去拨 `http://[::ffff:192.168.1.1]:18787` 这种到不了的地方。
+  assert.equal(isGlobalUnicastV6('::ffff:192.168.1.1'), false)
+  assert.equal(isGlobalUnicastV6('::ffff:8.8.8.8'), false)
+})
+
+test('IPv6 候选的 url 带方括号，address 留裸地址', () => {
+  const host = v6ifaces({ en0: '240e::1' })
+  assert.deepEqual(ipv6Candidates(18787, host), [
+    { url: 'http://[240e::1]:18787', interface: 'en0', family: 'IPv6', address: '240e::1' },
+  ])
+  // 裸着拼出来是 `http://240e::1:18787` —— 一个解析不出来的坏地址，App 拨过去必失败。
+  const [candidate] = ipv6Candidates(18787, host)
+  assert.equal(candidate.url.includes('['), true)
+  assert.equal(candidate.address.includes('['), false)
+  // 面板的「手机优先用这条」是按**裸地址**匹配的（`orderCandidates`）：address 一旦也带上
+  // 方括号，用户选过的那条就再也匹配不上，那次选择等于白做。
+  const picked = orderCandidates(ipv6Candidates(18787, v6ifaces({ eth0: '240e::2', en0: '240e::1' })), '240e::1')
+  assert.equal(picked[0].url, 'http://[240e::1]:18787')
+  assert.equal(picked[0].address, '240e::1')
+})
+
+test('同一个地址的压缩、展开与大小写写法只算一条候选', () => {
+  const same = v6ifaces({
+    en0: ['240e:1:2::998', '240E:1:2:0:0:0:0:998', '240e:1:2:0:0:0:0:998'],
+  })
+  assert.equal(ipv6Urls(18787, same).length, 1)
+  // 跨网卡的同一个地址同样只算一条 —— 它挂在两块网卡上也还是一个地址，各探一次是白花一次超时。
+  // 去重发生在按网卡优先级排序之后，所以留下的是 rank 更靠前的那块的写法。
+  assert.deepEqual(
+    ipv6Urls(18787, v6ifaces({ en0: '240e:1:2::998', eth0: '240E:1:2:0:0:0:0:998' })),
+    ['http://[240E:1:2:0:0:0:0:998]:18787'],
+  )
+})
+
+test('IPv6 候选最多 4 条', () => {
+  // 上限是为二维码设的：候选随二维码一起被带走，条数一多二维码就密到扫不动。
+  const many = {}
+  for (let i = 1; i <= 8; i += 1) many[`eth${i}`] = `240e::${i}`
+  assert.equal(ipv6Interfaces(18787, v6ifaces(many)).length, 4)
+  assert.equal(ipv6Urls(18787, v6ifaces(many)).length, 4)
+  // 一条稳定地址 + 两条临时地址是常见的一台机器，别把上限当成「只留一条」。
+  assert.equal(ipv6Urls(18787, v6ifaces({ en0: ['240e::1', '240e::2', '240e::3'] })).length, 3)
+})
+
+test('虚拟 / VPN 网卡与 internal 网卡上的 IPv6 一律跳过', () => {
+  const host = v6ifaces({
+    lo0: '::1',
+    en0: '240e::1',
+    docker0: '240e::9',
+    utun3: '240e::10',
+    awdl0: '240e::11',
+    'safeline-ce': '240e::12',
+  })
+  assert.deepEqual(ipv6Urls(18787, host), ['http://[240e::1]:18787'])
+  // internal: true 的地址不摆出来（lo0 那条就是），显式再来一条全球单播的钉住它。
+  const internal = v6ifaces({ en0: '240e::1' })
+  internal.en0.push({ address: '240e::2', family: 'IPv6', internal: true })
+  assert.deepEqual(ipv6Urls(18787, internal), ['http://[240e::1]:18787'])
+})
+
+test('family 必须显式对上，IPv4 记录与缺 family 的畸形条目不进 IPv6 候选', () => {
+  // 注意 `ifaces()` 助手把一切写成 family:'IPv4'：拿它喂 IPv6 这几份清单必须一无所获，
+  // 否则「IPv4 记录漏进 IPv6 候选」会被当成通过。
+  assert.deepEqual(ipv6Urls(18787, ifaces({ en0: '240e::1' })), [])
+  // os.networkInterfaces() 在新版本 node 上给数字 6，两种写法都得认。
+  assert.deepEqual(ipv6Urls(18787, { en0: [{ address: '240e::1', family: 6, internal: false }] }), [
+    'http://[240e::1]:18787',
+  ])
+  assert.deepEqual(ipv6Urls(18787, { en0: [{ address: '240e::1', family: 4, internal: false }] }), [])
+  assert.deepEqual(ipv6Urls(18787, { en0: [{ address: '240e::1', internal: false }] }), [])
+})
+
+test('IPv6 清单的空 / 异常入参不抛错', () => {
+  assert.deepEqual(ipv6Urls(18787, {}), [])
+  assert.deepEqual(ipv6Urls(18787, null), [])
+  assert.deepEqual(ipv6Urls(18787, { eth0: null }), [])
+  assert.deepEqual(ipv6Urls(18787, { eth0: [null, { address: '240e::1' }] }), [])
+  assert.deepEqual(ipv6Urls(18787, { eth0: [null, { address: '240e::1', family: 'IPv6', internal: false }] }), [
+    'http://[240e::1]:18787',
+  ])
+  // 整条枚举炸掉时回空清单：`ipv6Candidates` 喂的是二维码与 /connection-info，
+  // 不能让一份畸形网卡快照把整条控制面拖下水。
+  assert.deepEqual(ipv6Candidates(18787, { eth0: 42 }), [])
+})
+
+test('只有 IPv6、没有任何 IPv4 的机器上 advertisedCandidates 仍然为空', () => {
+  // 刻意设计（`docs/decisions.md` 2026-10-11）：那份清单的语义是「手机和这台机器在同一个
+  // Wi-Fi 里能直连的地址」，有私网就只带私网；IPv6 那份单独走 `ipv6Candidates`、由 App 另开
+  // 一条通道（它要和公网中转比速度，退避窗口也不同），**不并进来**。
+  const onlyV6 = {
+    lo0: [{ address: '::1', family: 'IPv6', internal: true }],
+    en0: [{ address: '240e::1', family: 'IPv6', internal: false }],
+  }
+  assert.deepEqual(advertisedCandidates(18787, onlyV6), [])
+  // 同一份快照在 IPv6 那份清单里照常产出：回空是因为「不掺进来」，不是因为枚举瞎了。
+  assert.deepEqual(ipv6Urls(18787, onlyV6), ['http://[240e::1]:18787'])
 })

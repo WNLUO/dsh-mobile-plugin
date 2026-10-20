@@ -233,3 +233,65 @@ test('响应 error 也要中止订阅（不只是 close）', async () => {
     assert.equal(res.ended, true);
   } finally { h.restore(); }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 数据心跳：让 App 自己数得到「这条流还在说话」
+// ─────────────────────────────────────────────────────────────────────────────
+// 注释行（`: keepalive`）只是保活，客户端一个事件都收不到。而「流被正常收尾」（中转重启、
+// 隧道掉了、宿主自己结束响应）在 App 那边看起来和「这条流还开着」一模一样 ——
+// react-native-sse 在 readyState 走到 DONE 时既不派发 error 也不派发 close。所以每一拍
+// 保活还要补一帧**数据**心跳，App 两拍没收到就主动断开重连。
+test('每拍保活同时写一帧 session/heartbeat 数据帧', async () => {
+  const h = harness();
+  const ctl = controllableMux();
+  try {
+    const res = response();
+    const pending = handleStream(ctxWith(ctl.mux), request('/api/mobile/v1/session/stream?sessionId=s-1'), res);
+    await flush();
+    h.intervals[0].fn();
+    const frames = dataFrames(res.chunks);
+    const beat = frames.find((f) => f.type === 'session/heartbeat');
+    assert.ok(beat, 'keepalive 那一拍必须写一帧 session/heartbeat');
+    assert.equal(beat.sessionId, 's-1');
+    assert.equal(beat.seq, undefined, '心跳没有事件身份，绝不能带 seq（会污染回放水位）');
+    ctl.release();
+    await pending;
+  } finally { h.restore(); }
+});
+
+test('心跳写失败按客户端已消失收尾，不空转', async () => {
+  const h = harness();
+  const ctl = controllableMux();
+  try {
+    // 第 1 次写（`: connected`）成功，第 2 次（注释行）也成功，心跳那一次开始抛错。
+    const res = response({ failAfter: 2 });
+    const pending = handleStream(ctxWith(ctl.mux), request('/api/mobile/v1/session/stream?sessionId=s-1'), res);
+    await flush();
+    h.intervals[0].fn();
+    assert.equal(res.ended, true, '心跳写不出去也必须收尾，否则 relay 永远收不到 httpEnd');
+    assert.equal(h.intervals[0].cleared, true);
+    assert.ok(h.logs.some((l) => l.includes('heartbeat write failed')), '必须留下可 grep 的日志');
+    ctl.release();
+    await pending;
+  } finally { h.restore(); }
+});
+
+test('心跳在软水位上不被 shed（丢了它 App 会把健康的流判死）', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'lib', 'mobile', 'stream.js'), 'utf8');
+  assert.ok(/shedWhenBuffered: \(value\) => !isApprovalPayload\(value\) && !isLivenessHeartbeat\(value\)/.test(source),
+    '心跳必须和审批帧一样被保住：软水位上丢了它，App 会在 35s 后重连一条完全健康的连接');
+  assert.ok(!/lastDeliveredSeq = .*heartbeat/.test(source), '心跳不带 seq，绝不能推进回放水位');
+});
+
+test('心跳间隔与 App 认的一致（跨仓契约）', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'stream.js'), 'utf8');
+  assert.ok(/const HEARTBEAT_MS = 15_000;/.test(source), 'stream.js 的 HEARTBEAT_MS 必须是 15s');
+  const appLiveness = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'app', 'src', 'services', 'viewmodels', 'stream-liveness.ts'),
+    'utf8',
+  );
+  assert.ok(/export const STREAM_HEARTBEAT_MS = 15_000;/.test(appLiveness),
+    'App 侧的 STREAM_HEARTBEAT_MS 必须同样是 15s');
+});

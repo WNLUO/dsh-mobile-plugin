@@ -49,7 +49,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -59,10 +59,16 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle] = await Promise.a
   server.ssrLoadModule('/src/Onboarding.tsx'),
   server.ssrLoadModule('/src/components/JoinGroupButton.tsx'),
   server.ssrLoadModule('/src/components/ThemeToggle.tsx'),
+  server.ssrLoadModule('/src/components/AddressPicker.tsx'),
 ])
 
 const noop = () => {}
-/** 地址库（`/api/relay/addresses`）：一块有线 + 一块无线的局域网地址，另有一条公网。 */
+/**
+ * 地址库（`/api/relay/addresses`）：一块有线 + 一块无线的局域网地址，另有一条公网与两条 IPv6。
+ *
+ * IPv6 那两条按**真机现场**给：本机实测一台电信宽带的 `en1` 上就是「一条 `::998` 稳定地址 +
+ * 一条随机后缀的隐私地址」，两条都是真 GUA。这里用它来冒烟「第三份只显示、不进单选」那条路。
+ */
 const addressBook = {
   ok: true,
   port: 51864,
@@ -72,7 +78,29 @@ const addressBook = {
     { address: '172.16.5.5', url: 'http://172.16.5.5:51864', interface: 'eth1', family: 'IPv4' },
   ],
   public: [{ address: '203.0.113.7', url: 'http://203.0.113.7:51864', interface: 'eth0', family: 'IPv4' }],
+  ipv6: [
+    {
+      address: '240e:338:5213:6c11::998',
+      url: 'http://[240e:338:5213:6c11::998]:51864',
+      interface: 'en1',
+      family: 'IPv6',
+    },
+    {
+      address: '240e:338:5213:6c11:cd0:2748:2a39:ecea',
+      url: 'http://[240e:338:5213:6c11:cd0:2748:2a39:ecea]:51864',
+      interface: 'en1',
+      family: 'IPv6',
+    },
+  ],
 }
+
+/**
+ * 只有 IPv6 的机器：一条私网、一条公网都没有。
+ *
+ * 这一台是「可选项为空」那一支的**唯一**入口 —— 从前那里直接退成「还没取到地址」，而
+ * 这串地址正是这台机器在公网上的唯一入口，退掉等于用户在面板上看不到任何能用的地址。
+ */
+const ipv6OnlyBook = { ok: true, port: 18787, preferred: '', lan: [], public: [], ipv6: addressBook.ipv6 }
 
 /** 服务器那台：一条私网都没有，候选全落在公网那份上（用户 2026-10-11 截图那个现场）。 */
 const serverBook = {
@@ -140,6 +168,11 @@ const cases = [
   ['RelayConfigDialog', h(Dialog.RelayConfigDialog, { open: true, onOpenChange: noop, status, busy: '', onSave: noop })],
   ['LanDialog', h(Lan.LanDialog, { open: true, onOpenChange: noop, status, lanUrls: pairing.lanUrls, addressBook, busy: '', onSave: noop, onSavePreferred: noop })],
   ['LanDialog（没地址）', h(Lan.LanDialog, { open: true, onOpenChange: noop, status: { ...status, lan: { ...status.lan, enabled: false, state: 'off', port: 0 } }, lanUrls: [], addressBook: null, busy: 'lan', onSave: noop, onSavePreferred: noop })],
+  // 地址选择器单独过一遍：配对卡里那处地址默认遮着（见上一条注释），SSR 看不到内容，
+  // 所以第三份（IPv6）到底画没画出来只能直接渲染这个组件看。
+  ['AddressPicker（有私网 + 公网 + IPv6）', h(Picker.AddressPicker, { book: addressBook, port: 51864, value: '172.16.5.5', onChange: noop }), 'IPv6 直连'],
+  ['AddressPicker（只有 IPv6）', h(Picker.AddressPicker, { book: ipv6OnlyBook, port: 18787, value: '', onChange: noop }), 'http://[240e:338:5213:6c11::998]:18787'],
+  ['AddressPicker（老宿主没有 ipv6 字段）', h(Picker.AddressPicker, { book: serverBook, port: 18787, value: '', onChange: noop }), '公网地址'],
   ['App（首屏）', h(Alert.App)],
   // 引导页只看得到第一页：后面几页靠页面内部状态推进，SSR 里 effect 不跑。
   // 四页的完整流程要用浏览器点（见 .../api/relay/panel/setup）。

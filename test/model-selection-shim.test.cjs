@@ -69,6 +69,8 @@ test('会话投影有 next 时用它覆盖全局默认，且 projections 带 req
   assert.equal(out.result.ok, true);
   assert.deepEqual(selectionOf(out), { provider: 'p', model: 'session-model', reasoningEffort: 'high' });
   assert.equal(out.result.value.routable, true);
+  assert.deepEqual(out.result.value.routableProviders, ['p', 'q']);
+  assert.deepEqual(out.result.value.groups, CATALOG.groups, 'compatibility bridge leaves catalog filtering to the APP');
   assert.deepEqual(calls.find((c) => c.method === 'projections').args, { request: { sessionId: 's-1' } });
 });
 

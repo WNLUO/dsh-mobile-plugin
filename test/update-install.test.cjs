@@ -10,8 +10,9 @@
  *     代码没换）。这条专门有一条用例，把「只看退出码」的写法钉死。
  *   · **找不到包管理器就如实失败**，不许猜、不许假装装好了：桌面端由 GUI 拉起时 PATH 很
  *     干净，pnpm 常常不在里面。
- *   · **`link:` 来源不碰**：那是有人故意把插件指向本地目录（开发时），装一次 npm 版会把
- *     那个指向悄悄改掉。`file:` 的 tgz 照装（换成注册表来源正是想要的）。
+ *   · **只有注册表来源才装**：`link:` / `file:` / `workspace:` 都是有人明确安排的装法
+ *     （开发机就这么跑），装一次 npm 版会把那个指向换掉、本地改动从此不生效。这道门排在
+ *     挑包管理器之前 —— 「这台不该装」与「这台装不了」是两件事，不能混成同一条失败。
  *   · **只有 force 才跳过「新发布先晾一会儿」**：平时不该绕供应链那点等待。
  *
  * 假包管理器是**真的可执行文件**（临时目录里的 sh 脚本 + 真 spawn），所以 cwd、参数、
@@ -199,22 +200,46 @@ test('找不到包管理器：如实失败，绝不假装装好了', async () =>
   assert.equal(result.command, null, '没跑起来就不该有一个装成过的命令');
 });
 
-test('link: 来源不碰：那是有人故意指向本地目录', async () => {
-  const profile = makeProfile('linked', '0.1.60');
+test('非 npm 来源一律不碰：link: / file: / workspace: 都是有人明确安排的装法', async () => {
+  const cases = [
+    ['linked', 'link:/tmp/some-checkout'],
+    ['file', 'file:./dsh-mobile-plugin-0.1.93.tgz'],
+    ['workspace', 'workspace:*'],
+  ];
+  for (const [label, spec] of cases) {
+    const profile = makeProfile(`gate-${label}`, '0.1.60');
+    fs.writeFileSync(
+      path.join(profile.profileDir, 'package.json'),
+      JSON.stringify({ name: 'p', dependencies: { [PLUGIN]: spec } }),
+    );
+    const fake = makeFakePnpm(`gate-${label}`);
+    const result = await installLatest({
+      profileNodeModules: profile.nodeModules,
+      version: '0.2.0',
+      dirs: [fake.binDir],
+      env: isolatedEnv(fake.binDir),
+    });
+    assert.equal(result.installed, false, `${label} 不该装上`);
+    assert.equal(result.failure.code, 'LOCAL_SOURCE', `${label} 要回 LOCAL_SOURCE`);
+    assert.deepEqual(fake.calls(), [], `${label} 连包管理器都不该探一次`);
+  }
+});
+
+test('来源那道门排在挑包管理器之前：没有包管理器的本机也要先说清「这台不该装」', async () => {
+  const profile = makeProfile('gate-order', '0.1.60');
   fs.writeFileSync(
     path.join(profile.profileDir, 'package.json'),
-    JSON.stringify({ name: 'p', dependencies: { [PLUGIN]: 'link:/tmp/some-checkout' } }),
+    JSON.stringify({ name: 'p', dependencies: { [PLUGIN]: 'file:./x.tgz' } }),
   );
-  const fake = makeFakePnpm('linked');
+  const empty = path.join(TMP, 'gate-order-empty-bin');
+  fs.mkdirSync(empty, { recursive: true });
   const result = await installLatest({
     profileNodeModules: profile.nodeModules,
     version: '0.2.0',
-    dirs: [fake.binDir],
-    env: isolatedEnv(fake.binDir),
+    dirs: [empty],
+    env: { PATH: '', HOME: TMP },
   });
-  assert.equal(result.installed, false);
-  assert.equal(result.failure.code, 'LINKED_SOURCE');
-  assert.deepEqual(fake.calls(), [], '不该去跑包管理器');
+  assert.equal(result.failure.code, 'LOCAL_SOURCE', '「不该装」必须排在「装不了」前面');
 });
 
 test('只有 force 才跳过「新发布先晾一会儿」那道门槛', async () => {

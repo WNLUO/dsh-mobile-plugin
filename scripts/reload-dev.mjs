@@ -25,14 +25,15 @@
  *
  * ## 用法
  *
- *   node dsh-mobile-plugin/scripts/reload-dev.mjs                       # 同步 lib/ + 重载
+ *   node dsh-mobile-plugin/scripts/reload-dev.mjs                       # 同步整个包 + 重载
  *   node dsh-mobile-plugin/scripts/reload-dev.mjs --only lib/routes/x.js # 只同步这几个
  *   node dsh-mobile-plugin/scripts/reload-dev.mjs --dry-run             # 只看会拷哪些文件
  *   node dsh-mobile-plugin/scripts/reload-dev.mjs --port 52772
  *
- * ⚠ 默认会把 `lib/` 下**所有**与盘上不同的文件都拷过去。仓库里同时可能有别的对话没做完
- * 的改动，所以默认行为适合「这一份仓库就是我想跑的样子」；只想推自己改的那几个文件时
- * 用 `--only`（可重复）。
+ * ⚠ 默认会把包内**所有**与盘上不同的文件都拷过去（面板产物、preset、yml、内联凭据库都算，
+ * 只有 `React/` 构建源码、`test/`、`scripts/`、依赖与 tgz 不进 profile）。仓库里同时可能有
+ * 别的对话没做完的改动，所以默认行为适合「这一份仓库就是我想跑的样子」；只想推自己改的那
+ * 几个文件时用 `--only`（可重复）。
  *
  * 端口默认自己找：扫本机监听端口，挑那个答得出 `/api/relay/status` 的宿主。
  */
@@ -93,16 +94,32 @@ function installedDir() {
   }
 }
 
-/** 仓库里要同步的那批文件（相对包根）：只有 `lib/`，也就是宿主真正加载的实现。 */
+/**
+ * 仓库里要同步的那批文件（相对包根）。
+ *
+ * **整个包的内容都同步，不只是 js**：2026-10-20 之前这里只收 js/cjs/mjs，于是
+ * 面板产物（`lib/panel/index.html`）、`lib` 各子目录里那几份 `package.json`（CJS 声明）、
+ * `config/agent-presets` 的 preset、`cordis.mobile-host.yml`、`host.js`、内联的凭据包全都
+ * 推不过去 —— 改完这些再跑一次同步，界面上一点变化都没有，而脚本还报「已就地重新装载」。
+ * 要的是「仓库这一份原样搬过去」，所以按排除法收：只跳过那些**不该进 profile**的东西
+ * （构建源码、测试、脚本、依赖、打包出的 tgz），其余一律同步。
+ *
+ * 由 `test/reload-dev-scope.test.cjs` 钉住这张表的两端。
+ */
+const EXCLUDED_DIRS = new Set(['node_modules', 'React', 'test', 'scripts', 'dist', '.git'])
+const EXCLUDED_FILES = new Set(['.gitignore', 'LICENSE', 'pnpm-lock.yaml'])
+const EXCLUDED_SUFFIXES = ['.tgz', '.log', '.DS_Store']
+
 function collectSourceFiles(dir, prefix = '') {
   const out = []
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const rel = prefix ? path.posix.join(prefix, entry.name) : entry.name
     if (entry.isDirectory()) {
-      // `node_modules` 与凭据包不算实现（凭据包由安装带进来，且它是独立版本）。
-      if (entry.name === 'node_modules' || entry.name === `${PLUGIN_PKG}-credentials`) continue
+      if (EXCLUDED_DIRS.has(entry.name)) continue
       out.push(...collectSourceFiles(path.join(dir, entry.name), rel))
-    } else if (entry.name.endsWith('.js') || entry.name.endsWith('.cjs') || entry.name.endsWith('.mjs')) {
+    } else {
+      if (EXCLUDED_FILES.has(entry.name)) continue
+      if (EXCLUDED_SUFFIXES.some(suffix => entry.name.endsWith(suffix))) continue
       out.push(rel)
     }
   }
@@ -165,30 +182,51 @@ async function hostStatus(port) {
   }
 }
 
-/** 同步：只拷内容真的变了的文件，并报出拷了哪些。 */
-function syncInto(target) {
-  const source = PLUGIN_ROOT
+/** 算出「哪些文件与盘上不同」，先不拷 —— 拷之前要先过语法这一关。 */
+function planChanges(target) {
   const only = onlyFiles()
-  const files = only.length
-    ? only
-    : collectSourceFiles(path.join(PLUGIN_ROOT, 'lib')).map(rel => path.posix.join('lib', rel))
+  const files = only.length ? only : collectSourceFiles(PLUGIN_ROOT)
   const changed = []
   for (const rel of files) {
-    const from = path.join(source, rel)
-    const to = path.join(target, rel)
     let same = false
     try {
-      same = fs.readFileSync(from).equals(fs.readFileSync(to))
+      same = fs.readFileSync(path.join(PLUGIN_ROOT, rel)).equals(fs.readFileSync(path.join(target, rel)))
     } catch {
       same = false
     }
-    if (same) continue
-    changed.push(rel)
-    if (DRY_RUN) continue
-    fs.mkdirSync(path.dirname(to), { recursive: true })
-    fs.copyFileSync(from, to)
+    if (!same) changed.push(rel)
   }
   return changed
+}
+
+/** 真正拷过去（演练时什么都不做）。 */
+function applyChanges(target, changed) {
+  for (const rel of changed) {
+    if (DRY_RUN) continue
+    const to = path.join(target, rel)
+    fs.mkdirSync(path.dirname(to), { recursive: true })
+    fs.copyFileSync(path.join(PLUGIN_ROOT, rel), to)
+  }
+}
+
+/**
+ * 拷过去的东西**能不能被 Node 加载**。
+ *
+ * 判据只给 js 类：一个语法错误推进 profile，下一次换代就会装载失败、外壳回滚到旧代，
+ * 表现成「同步完了但什么都没变」，而 `node --check` 一秒就能说清是哪一行。
+ * 非 js（面板产物、preset、yml）不在这里管 —— 它们由各自的守卫（`panel-artifact` 等）钉。
+ */
+function syntaxProblems(files) {
+  const bad = []
+  for (const rel of files) {
+    if (!/\.(js|cjs|mjs)$/.test(rel)) continue
+    try {
+      execFileSync(process.execPath, ['--check', rel], { cwd: PLUGIN_ROOT, stdio: ['ignore', 'ignore', 'pipe'] })
+    } catch (error) {
+      bad.push({ rel, message: String(error?.stderr || error?.message || error).trim().split('\n').slice(0, 3).join('\n') })
+    }
+  }
+  return bad
 }
 
 async function main() {
@@ -198,16 +236,26 @@ async function main() {
   }
   say(`目标（宿主真正加载的那一份）：${target}`)
 
-  const changed = syncInto(target)
+  const changed = planChanges(target)
   const shellTouched = changed.filter(isShellFile)
   const implChanged = changed.filter(rel => !isShellFile(rel))
 
   if (!changed.length) {
     say('没有文件变化（仓库那份与装着的这份逐字节一致）。')
   } else {
-    say(`${DRY_RUN ? '（演练）会拷' : '已拷'} ${changed.length} 个文件：`)
+    say(`${DRY_RUN ? '（演练）会拷' : '会拷'} ${changed.length} 个文件：`)
     for (const rel of changed) say(`  ${isShellFile(rel) ? '· 外壳 ' : '  '}${rel}`)
   }
+
+  // 语法先过一遍再落盘：一个坏文件推进 profile，换代时装载失败、外壳回滚旧代，
+  // 现场表现成「同步完了但什么都没变」—— 比在这里停下难查得多。
+  const bad = syntaxProblems(changed)
+  if (bad.length) {
+    for (const item of bad) warn(`✖ ${item.rel} 语法不过：\n${item.message}`)
+    fail(`有 ${bad.length} 个文件语法不过，什么都没拷、也没有重载。修好再跑一次。`)
+  }
+
+  applyChanges(target, changed)
 
   if (DRY_RUN) {
     say('\n演练结束，没有触发重载。')

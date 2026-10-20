@@ -5,25 +5,27 @@
  *
  * 背景：App 有完整的问题面板（`app/src/hooks/useChatStream.ts:246` 的
  * `question/requested` → `app/src/components/UserQuestionDock.tsx` →
- * `respondQuestion`），宿主侧 `@deepseek-ai/dsh-host-apiproxy` 也已经注册了
- * `ctx.userQuestions` 提供者（把 `ask()` 桥接成 mux 的 `question/requested` 帧），
- * 插件的 `lib/mobile/questions.js` 也实现了回答端点 —— 但**没有任何一行把工具本身
- * 挂进工具目录**：`config/agent-presets/standard/agent.cordis.yml` 缺
- * `tool-ask-user` 行，`package.json` 也缺 `@deepseek-ai/dsh-tool-ask-user` 依赖。
+ * `respondQuestion`），插件的 `lib/mobile/questions.js` 听着 `user-questions/request`
+ * 钩子（0.2.x 的形状）并实现了回答端点 —— 但**没有任何一行把工具本身挂进工具目录**：
+ * `config/agent-presets/standard/agent.cordis.yml` 缺 `tool-ask-user` 行，
+ * `package.json` 也缺 `@deepseek-ai/dsh-tool-ask-user` 依赖。
  *
  * 后果是模型的工具清单里没有 `ask_user_question`，于是它只会回一句
  * 「there's no `ask_user_question` tool available in this session」，
  * 问题面板永远不会出现。这个测试把三处一起钉住：依赖、preset 行、工具身份。
  *
  * 为什么这条依赖**必须留在 dependencies**（别再当冗余清掉）：
- * `config/agent-presets/standard/agent.cordis.yml` 里另外 20 个 @deepseek-ai/* 裸名
- * 都由 `dsh-base` 供给（每个宿主都带 dsh-base），`dsh-host-apiproxy` 由 `dsh-web-app`
- * 供给，唯独 `dsh-tool-ask-user` **全树无人声明** —— 扫遍 node_modules 下所有
- * @deepseek-ai 包的 package.json 的 dependencies/peerDependencies，
- * dsh-base、dsh-web-app、dsh-app-boot、dsh-cmdline 都没有它。所以一旦从
- * dependencies 拿掉，一次干净安装就会让 preset 那一行解析失败，工具静默消失。
- * （桌面 profile 暂时看不出问题：它从宿主 asar 的 DSH 0.2.0-rc.2 树里碰巧能解析到，
- * 而且桌面走的是 dsh-web-app 自己的 preset，根本不加载这个文件。）
+ * 这份 preset 是**本包自带的**（`host.js` 把 agent-presets 的根指到本包
+ * `config/agent-presets`），它按裸名解析 `@deepseek-ai/dsh-tool-ask-user` 时会落到
+ * **本包自己的 node_modules**——所以本包不安一份，这一行就解析失败、工具静默消失。
+ *
+ * 版本号必须**精确钉在运行时那一代**（当前运行时 0.2.0-rc.2，所以钉 0.2.0-rc.2）。
+ * 这个包的 peerDependencies 是逐版本紧咬的（0.1.1-rc.2 要 `dsh-agent ^0.1.1-rc.2`，
+ * 0.2.0-rc.2 要 `dsh-agent 0.2.0-rc.2`），而 `dsh-app-boot` 的装载检查只要遇到
+ * 对不上的 peer 就**整行禁用**——不是降级，是不加载。现象正是上面那句「没有这个工具」，
+ * 只剩一行 `disabling profile plugin row "tool-ask-user"` 的启动日志。运行时抬代时
+ * 这里要跟着抬，否则同样的静默失效会再来一次。
+ *（旧运行时 0.1.x 那一侧已不再支持：本包现在只跟 0.2.x。）
  *
  * 运行：node --test test/ask-user-tool.test.cjs
  */
@@ -66,7 +68,7 @@ test('preset 的 standard 工具目录里挂上了 ask_user_question 工具', ()
   assert.equal(row.disabled, false, '该行不得被 disabled，否则工具不会出现在工具目录里')
 })
 
-test('package.json 依赖里声明了该工具包（全树无人供给，只能自己带）', () => {
+test('package.json 依赖里声明了该工具包（preset 从本包自己的树解析）', () => {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'))
   const version = manifest.dependencies && manifest.dependencies[TOOL_NAME]
   assert.ok(version, `package.json dependencies 缺少 ${TOOL_NAME}，preset 行会解析失败`)
@@ -79,7 +81,7 @@ test('已安装的工具包确实导出 ask_user_question 且注入 userQuestion
   const source = fs.readFileSync(entry, 'utf8')
   assert.match(source, /name:\s*"ask_user_question"/, '工具名必须是 ask_user_question')
   assert.match(source, /inject\s*=\s*\[[^\]]*"tools"/, '工具必须注入 tools')
-  assert.match(source, /inject\s*=\s*\[[^\]]*"userQuestions"/, '工具必须注入 userQuestions（apiproxy 注册的桥接）')
+  assert.match(source, /inject\s*=\s*\[[^\]]*"userQuestions"/, '工具必须注入 userQuestions（问题面板那条 seam）')
 })
 
 test('插件的回答端点仍然存在（工具产出的 rpcId 要有地方回传）', () => {

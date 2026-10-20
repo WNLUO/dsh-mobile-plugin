@@ -399,10 +399,12 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
     'handleSessionAttachment',
     'handleStop', 'handleRename', 'handleFork', 'handleModels', 'handleSelectModel', 'handleStats',
     'handleSessionSearch', 'handleAgentPresets', 'handleNew', 'handleGoalAction', 'handleQueueUpdate',
+    // 正文水位探针（App 进对话前问「正文到哪了」）：只读 sessionSignal 快照，不发 RPC。
+    'handleSessionHead',
   ];
   const table = sessions.slice(sessions.indexOf('module.exports = {'));
   const exported = [...table.matchAll(/^  ([A-Za-z_]\w*),$/gm)].map((m) => m[1]);
-  assert.deepEqual(exported.sort(), [...FACADE].sort(), 'sessions.js 的导出面变了（拆分前 37 个，加单图重取后 38 个）');
+  assert.deepEqual(exported.sort(), [...FACADE].sort(), 'sessions.js 的导出面变了（拆分前 37 个，加单图重取与正文水位探针后 39 个）');
   // 实现必须来自子模块：导出表里出现一个本文件没 require 过的名字，就有人手抄了一份。
   const prelude = sessions.slice(0, sessions.indexOf('module.exports = {'));
   for (const name of exported) {

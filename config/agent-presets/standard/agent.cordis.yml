@@ -162,9 +162,12 @@
       searchTimeoutMs: 60000
   # Without this row the mobile host's tool catalog has no `ask_user_question`,
   # so the App's question dock could never appear: the model simply reports that
-  # the tool is unavailable. `@deepseek-ai/dsh-host-apiproxy` already registers
-  # the `ctx.userQuestions` provider that bridges `ask()` to the mux
-  # `question/requested` frame, and the plugin's `lib/mobile/questions.js`
-  # answers it — only the tool row was missing.
+  # the tool is unavailable. The plugin's `lib/mobile/questions.js` listens on
+  # the `user-questions/request` hook (0.2.x shape) and answers it — only the
+  # tool row was missing.
+  #
+  # The package must be pinned to the runtime's own generation (0.2.0-rc.2):
+  # its peerDependencies track the runtime release exactly, and the loader
+  # disables the whole row — rather than degrade — when one does not match.
   - id: tool-ask-user
     name: '@deepseek-ai/dsh-tool-ask-user'

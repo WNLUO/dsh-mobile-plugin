@@ -42,6 +42,27 @@ test('地址按检测出来的那份给标签，配对卡与直连弹窗共用�
   );
 });
 
+test('IPv6 那份只摆出来、不进「手机优先用这条」那个选择', () => {
+  const picker = read('AddressPicker.tsx');
+  // 必须真的会画这一份（宿主 2026-10 起就会报，画不出来等于这条链路在界面上不存在）。
+  assert.match(picker, /IPv6 直连/, '选择器必须会写「IPv6 直连」这一种标签');
+  assert.match(picker, /book\?\.ipv6/, '第三份要从地址库的 ipv6 字段读');
+  // **不能进单选**：这一份由手机侧拿它和公网中转实测比速度来择优，做成可选中等于骗人
+  // （与下面那条「能选的必须与 advertisedCandidates 同口径」是同一条约定）。
+  const pickable = picker.slice(picker.indexOf('export function pickableAddresses'), picker.indexOf('export function otherAddresses'));
+  assert.ok(!/ipv6/.test(pickable), 'pickableAddresses 里出现了 ipv6：那一份不能被选中，宿主也不按它排序');
+  // 只有 IPv6 的机器不许退成「还没取到地址」——那正是这个地址唯一有用武之地的场景。
+  assert.ok(
+    !/if \(pickable\.length === 0\) \{\s*if \(fallbackUrls\.length > 0\)/.test(picker),
+    '可选项为空时直接退 fallbackUrls：只有 IPv6 的机器上那一条会被整段跳掉',
+  );
+  // 裸 IPv6 拼 URL 必须套方括号，否则产出的是 `http://240e::1:18787` 这种坏地址。
+  assert.match(picker, /address\.includes\(':'\) \? `\[\$\{address\}\]`/, 'IPv6 字面量拼 URL 时必须套方括号');
+  // 引导页那份自己渲染地址清单，同样要带上这一份。
+  const onboarding = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'Onboarding.tsx'), 'utf8');
+  assert.match(onboarding, /IPv6 直连/, '引导页的地址清单也要把 IPv6 那份摆出来');
+});
+
 test('调试 OTA 只在本机接口可用时显示，并提供检查与安装入口', () => {
   const card = read('UpdateCard.tsx');
   const client = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'lib', 'relayUpdate.ts'), 'utf8');

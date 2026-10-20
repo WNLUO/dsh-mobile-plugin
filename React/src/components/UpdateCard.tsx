@@ -365,6 +365,15 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
   // 免得刚好赶上静默那一次没查成时整行空着。
   const latestOnline = update?.latestVersion ?? host?.marketResult?.latestVersion ?? null
   const marketSource = update?.source ?? host?.marketResult?.source ?? null
+  /**
+   * 这台是不是从注册表装的。
+   *
+   * 只有注册表来源才该由注册表来更新：`link:` / `file:` / `workspace:` 是有人明确安排的
+   * 装法（开发机就这么跑），点一次「立即更新」会把那个指向换成 npm 版，本地改动从此不生效。
+   * 所以这一格不只用来写说明，还**决定那几颗按钮给不给** —— 宿主那边也拒（同一个判据），
+   * 两头一致，免得出现「按钮在、点了报错」。
+   */
+  const localSource = marketSource === 'linked' || marketSource === 'file' || marketSource === 'workspace'
   const hasUpdate = update?.updateAvailable ?? host?.marketResult?.updateAvailable ?? false
   const installedOnDisk = host?.installedVersion ?? null
   const summary = host?.lastApply ? applyText(host.lastApply) : null
@@ -426,22 +435,26 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
 
       {hostMode && host ? (
         <>
-          {/* 开关。放在信息行上面：它是这张卡唯一会被改的东西，先说清楚它在干什么。 */}
-          <label className="mt-1 flex items-start justify-between gap-4 border-b border-border-muted py-3">
-            <span className="min-w-0">
-              <span className="block text-sm text-foreground">{'自动更新'}</span>
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              {savingAuto ? <Spinner /> : null}
-              <Switch
-                size="md"
-                checked={host.autoUpdate}
-                disabled={idle || savingAuto}
-                onCheckedChange={(next) => void flipAuto(next)}
-                aria-label={'自动更新'}
-              />
-            </span>
-          </label>
+          {/* 开关。放在信息行上面：它是这张卡唯一会被改的东西，先说清楚它在干什么。
+              本地来源（link: / file: / workspace:）时整颗开关不摆 —— 自动更新走的是同一条
+              「装注册表版」的路，开着它等于让后台自己把开发版覆盖掉，而这台恰恰不该这么装。 */}
+          {localSource ? null : (
+            <label className="mt-1 flex items-start justify-between gap-4 border-b border-border-muted py-3">
+              <span className="min-w-0">
+                <span className="block text-sm text-foreground">{'自动更新'}</span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {savingAuto ? <Spinner /> : null}
+                <Switch
+                  size="md"
+                  checked={host.autoUpdate}
+                  disabled={idle || savingAuto}
+                  onCheckedChange={(next) => void flipAuto(next)}
+                  aria-label={'自动更新'}
+                />
+              </span>
+            </label>
+          )}
 
           <InfoList>
             <InfoRow label={'运行中版本'} mono>
@@ -490,13 +503,19 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             </Alert>
           ) : null}
 
-          {/* 只有 `link:` 要说一句：`file:` 的 tgz 与版号一样都能自己装（装上就换成注册表
-              来源，那正是想要的）。 */}
-          {marketSource === 'linked' ? (
-            <Alert variant="warning" className="mt-3">
+          {/* 本地来源一律说清这台是怎么更新的，四种来源分别是四句话。 */}
+          {localSource ? (
+            <Alert variant="info" className="mt-3">
               <AlertIcon />
-              <AlertTitle>{'这个插件指向一个本地目录'}</AlertTitle>
-              <AlertDescription>{'profile 里它是 link: 装的（多半是开发时故意指过去的）。自己装会把那个指向改掉，所以更新不动它：要换回按版号安装，先在 设置 → 插件 里按包名重装一次。'}</AlertDescription>
+              <AlertTitle>{'这台不是从 npm 装的'}</AlertTitle>
+              <AlertDescription>
+                {marketSource === 'linked'
+                  ? 'profile 里它是 link: 装的（多半是开发时故意指过去的）。改成 npm 版会把那个指向换掉，本地改动从此不生效，所以这里不装、也没给自动更新。'
+                  : marketSource === 'file'
+                    ? 'profile 里它是 file: 装的本机包（开发版）。改成 npm 版会把本地那份覆盖掉，本地改动从此不生效，所以这里不装、也没给自动更新。'
+                    : 'profile 里它是 workspace: 装的（指向本仓库的包）。改成 npm 版会把那个指向换掉，所以这里不装、也没给自动更新。'}
+                {'这一台的更新由改代码的人来做：同步文件之后让宿主就地重载。要换回按版号安装，先在 设置 → 插件 里按包名重装一次。'}
+              </AlertDescription>
             </Alert>
           ) : null}
 
@@ -516,14 +535,19 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             <Button variant="outline" size="md" disabled={idle} onClick={() => void check()}>
               {working === 'check' ? '正在检查…' : '检查更新'}
             </Button>
-            <Button variant="primary" size="md" disabled={idle} onClick={() => void apply(false)}>
-              {working === 'apply' ? '正在更新…' : '立即更新'}
-            </Button>
+            {/* 非 npm 来源不给这两颗：宿主那边同样会拒（`LOCAL_SOURCE`），按钮留着只会在点了
+                之后弹一句「这台不该这么装」。 */}
+            {localSource ? null : (
+              <Button variant="primary" size="md" disabled={idle} onClick={() => void apply(false)}>
+                {working === 'apply' ? '正在更新…' : '立即更新'}
+              </Button>
+            )}
           </div>
 
           {/* 市场对「刚发布、还没过 release-age 门槛」的版本会先拒一次。这时才轮到 force：
-              平时不给这个选项，免得不小心绕过供应链策略。 */}
-          {hasUpdate || (summary !== null && !summary.ok) ? (
+              平时不给这个选项，免得不小心绕过供应链策略。force 也过不了来源那道门，所以
+              本地来源时这颗同样不摆。 */}
+          {!localSource && (hasUpdate || (summary !== null && !summary.ok)) ? (
             <div className="mt-2 flex justify-end">
               <Button variant="ghost" size="sm" disabled={idle} onClick={() => void apply(true)}>
                 {'强制更新（有对话在跑、或刚发布的，也照装）'}
@@ -555,13 +579,19 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             </InfoRow>
           </InfoList>
 
-          {/* 只有 `link:` 要说一句：`file:` 的 tgz 与版号一样都能自己装（装上就换成注册表
-              来源，那正是想要的）。 */}
-          {marketSource === 'linked' ? (
-            <Alert variant="warning" className="mt-3">
+          {/* 本地来源一律说清这台是怎么更新的（四种来源四句话）。 */}
+          {localSource ? (
+            <Alert variant="info" className="mt-3">
               <AlertIcon />
-              <AlertTitle>{'这个插件指向一个本地目录'}</AlertTitle>
-              <AlertDescription>{'profile 里它是 link: 装的（多半是开发时故意指过去的）。自己装会把那个指向改掉，所以更新不动它：要换回按版号安装，先在 设置 → 插件 里按包名重装一次。'}</AlertDescription>
+              <AlertTitle>{'这台不是从 npm 装的'}</AlertTitle>
+              <AlertDescription>
+                {marketSource === 'linked'
+                  ? 'profile 里它是 link: 装的（多半是开发时故意指过去的）。改成 npm 版会把那个指向换掉，本地改动从此不生效，所以这里不装。'
+                  : marketSource === 'file'
+                    ? 'profile 里它是 file: 装的本机包（开发版）。改成 npm 版会把本地那份覆盖掉，本地改动从此不生效，所以这里不装。'
+                    : 'profile 里它是 workspace: 装的（指向本仓库的包）。改成 npm 版会把那个指向换掉，所以这里不装。'}
+                {'这一台的更新由改代码的人来做：同步文件之后让宿主就地重载。要换回按版号安装，先在 设置 → 插件 里按包名重装一次。'}
+              </AlertDescription>
             </Alert>
           ) : null}
 
@@ -572,7 +602,8 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             <Button variant="outline" size="md" disabled={idle} onClick={() => void marketOnlyCheck()}>
               {working === 'check' ? '正在检查…' : '检查更新'}
             </Button>
-            {host !== null ? (
+            {/* 与宿主模式那一支同一条判据：非 npm 来源不给「立即更新」。 */}
+            {host !== null && !localSource ? (
               <Button variant="primary" size="md" disabled={idle} onClick={() => void apply(false)}>
                 {working === 'apply' ? '正在更新…' : '立即更新'}
               </Button>
