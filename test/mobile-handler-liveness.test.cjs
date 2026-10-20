@@ -25,7 +25,7 @@
  * 具体字段对不对是各 handler 自己的契约测试的事，这里只管「这条路还活着」。
  */
 
-const test = require('node:test');
+const { after, before, test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
@@ -41,6 +41,29 @@ const STREAMING_ROUTES = new Set([
   '/api/mobile/v1/session/stream',
   '/api/mobile/v1/events/stream',
 ]);
+
+/**
+ * 「手机上查插件更新」那条路由**不需要外壳**，所以在空宿主下也真的会去问 npm 注册表 ——
+ * 真发出去要等 8 秒超时，撞上下面那条「1 秒内必须回包」的判据，红的是「守卫里混进了一次
+ * 真实网络请求」，而不是 handler 挂住了。这一轮把 `fetch` 换成一个只认注册表地址的假答：
+ * 问别的地址一律当场抛，免得以后真有 handler hang 在网络那一步还被这层假答盖住。
+ * 网络与超时那一半由 `update-registry.test.cjs` 管。
+ */
+let savedFetch = null;
+
+before(() => {
+  savedFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (!String(url).includes('/dsh-mobile-plugin/latest')) {
+      throw new Error(`活体守卫里不该发真实请求：${url}`);
+    }
+    return { ok: true, status: 200, json: async () => ({ version: '0.1.99' }) };
+  };
+});
+
+after(() => {
+  globalThis.fetch = savedFetch;
+});
 
 /**
  * 空宿主：任何属性都可取、任何调用都回一个合法的空信封。
