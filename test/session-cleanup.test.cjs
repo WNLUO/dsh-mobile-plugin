@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * 会话清理的两半：agent 工具 `session_cleanup` 的删除分支只删日志、不碰宿主归档集合；
- * 归档集合里那些日志已经没了的老 id 只在宿主启动时修剪一次。
+ * 会话清理的两半：agent 工具 `session_cleanup` 的删除分支只排队、不碰宿主归档集合；
+ * 队里的日志与归档集合里那些日志已经没了的老 id 都只在宿主启动时处理一次。
  *
  * 移动端那条路由（/workspace/clear-archived）另有 test/archive-clean.test.cjs，两边共用
  * lib/session-cleanup.cjs 的同一份落地代码，所以两边都得钉住同一套口径。
@@ -18,6 +18,9 @@ const {
   cleanupSessions,
   pruneOrphanedArchivedSessions,
   pruneOrphanedArchivedSessionsOnce,
+  deleteQueuedArchivedSessions,
+  queueArchivedClearIds,
+  readPendingArchivedClearIds,
 } = require('../lib/session-cleanup.cjs');
 
 /** 造一份宿主真会写出来的会话日志（0 代以外都带 `.vN`，压缩件带 `.zstd`）。 */
@@ -62,7 +65,24 @@ function cleanupCtx(sessionIds) {
   };
 }
 
-test('delete：只删日志，不在进程里擦宿主归档集合', withHome(async (home) => {
+test('archive 分支不受影响：归档仍然当场写回宿主', withHome(async (home) => {
+  writeSession(home, 'session-old');
+  const ctx = cleanupCtx(['session-old']);
+  const archived = [];
+  ctx.apiProxy.workspace.archiveSession = async (request) => {
+    archived.push(request.payload.sessionId);
+    return envelope({});
+  };
+
+  const outcome = await cleanupSessions(ctx, { action: 'archive', olderThanMinutes: 0, sessionIds: ['session-old'] });
+
+  assert.equal(outcome.archived, 1);
+  assert.deepEqual(archived, ['session-old'], '归档是一次宿主写，与删磁盘无关，不许跟着改成排队');
+}));
+
+test('delete：只排队，进程里一条日志都不删、也不擦宿主归档集合', withHome(async (home) => {
+  // 进程活着时删日志，宿主随时可能去打开一条已经不存在的文件 —— 那是未捕获的 ENOENT，
+  // 宿主对未捕获异常零容忍，整个进程退出（2026-10-20 桌面端闪退就是这么来的）。
   const doomed = ['session-a', 'session-b'].map((id) => writeSession(home, id));
   const unarchived = [];
   const ctx = {
@@ -82,14 +102,16 @@ test('delete：只删日志，不在进程里擦宿主归档集合', withHome(as
 
   const outcome = await cleanupSessions(ctx, { action: 'delete', confirm: true, sessionIds: ['session-a', 'session-b'] });
 
-  assert.equal(outcome.deleted, 2);
+  assert.equal(outcome.deleted, 2, '排进队列即视为这次要清掉的条数');
   assert.deepEqual(unarchived, [], '删日志就够；归档集合留到宿主启动时修剪');
-  for (const directory of doomed) assert.equal(fs.existsSync(directory), false);
+  for (const directory of doomed) assert.equal(fs.existsSync(directory), true, '进程里不许删磁盘');
+  assert.deepEqual(readPendingArchivedClearIds().sort(), ['session-a', 'session-b'], '两条都排进了待删队列');
 }));
 
-test('delete：Windows 上目录被宿主的锁文件占住（ENOTEMPTY）时，日志已删就算删成', withHome(async (home) => {
+test('启动删队列：Windows 上目录被宿主的锁文件占住（ENOTEMPTY）时，日志已删就算删成', withHome(async (home) => {
   const locked = writeSession(home, 'session-locked');
   const next = writeSession(home, 'session-next');
+  queueArchivedClearIds(['session-locked', 'session-next']);
   const realRmSync = fs.rmSync;
   let injected = false;
   // 模拟 Windows：日志已经被 unlink 掉，目录里只剩宿主握着句柄的 session.lock
@@ -106,20 +128,21 @@ test('delete：Windows 上目录被宿主的锁文件占住（ENOTEMPTY）时，
     return realRmSync(target, options);
   };
   try {
-    const outcome = await cleanupSessions(cleanupCtx(['session-locked', 'session-next']), {
-      action: 'delete', confirm: true, sessionIds: ['session-locked', 'session-next'],
-    });
-    assert.equal(outcome.deleted, 2);
+    const sweep = await deleteQueuedArchivedSessions();
+    assert.deepEqual(sweep.deleted.sort(), ['session-locked', 'session-next']);
+    assert.deepEqual(sweep.kept, []);
     assert.equal(injected, true, '这条用例必须真的走到 ENOTEMPTY 分支');
     assert.equal(fs.existsSync(path.join(locked, 'session.v4.jsonl.zstd')), false, '日志已经删掉');
     assert.equal(fs.existsSync(next), false, '前一条的 ENOTEMPTY 不许连累后面的会话');
+    assert.deepEqual(readPendingArchivedClearIds(), [], '删成的都出队');
   } finally {
     fs.rmSync = realRmSync;
   }
 }));
 
-test('delete：目录删不掉且日志还在时必须报错，不能吞成删成', withHome(async (home) => {
+test('启动删队列：目录删不掉且日志还在时，那个 id 留在队里等下次启动', withHome(async (home) => {
   const kept = writeSession(home, 'session-kept');
+  queueArchivedClearIds(['session-kept']);
   const realRmSync = fs.rmSync;
   fs.rmSync = (target, options) => {
     if (target === kept) {
@@ -129,12 +152,15 @@ test('delete：目录删不掉且日志还在时必须报错，不能吞成删�
     }
     return realRmSync(target, options);
   };
+  const logs = [];
   try {
-    await assert.rejects(
-      cleanupSessions(cleanupCtx(['session-kept']), { action: 'delete', confirm: true, sessionIds: ['session-kept'] }),
-      /删除会话 session-kept 失败：ENOTEMPTY/,
-    );
+    const sweep = await deleteQueuedArchivedSessions((message) => logs.push(message));
+    assert.deepEqual(sweep.deleted, [], '日志还在就不算删成');
+    assert.deepEqual(sweep.kept, ['session-kept'], '删不掉的必须留在队里，下次启动再试');
+    assert.deepEqual(readPendingArchivedClearIds(), ['session-kept']);
     assert.equal(fs.existsSync(path.join(kept, 'session.v4.jsonl.zstd')), true, '日志没删掉就是真失败');
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /删除会话 session-kept 失败/);
   } finally {
     fs.rmSync = realRmSync;
   }
@@ -197,9 +223,11 @@ test('启动修剪：擦不动的不算修剪成功', withHome(async () => {
   assert.equal(await pruneOrphanedArchivedSessions(ctx), 0);
 }));
 
-test('启动修剪失败只落一行日志，且每个宿主进程只跑一次', withHome(async () => {
+test('启动收尾：队里的日志先删掉，宿主的 workspace 还没就绪就重试，整轮只跑一次', withHome(async (home) => {
   // 代际热替换会重跑 apply，但桌面端那份会话列表快照挂在同一个宿主进程上：这份「进程里
-  // 不许擦归档集合」的约束必须按进程而不是按代来守。
+  // 不许动磁盘、不许擦归档集合」的约束必须按进程而不是按代来守。
+  const doomed = writeSession(home, 'session-doomed');
+  queueArchivedClearIds(['session-doomed']);
   let listCalls = 0;
   const logs = [];
   const ctx = {
@@ -214,9 +242,16 @@ test('启动修剪失败只落一行日志，且每个宿主进程只跑一次',
   };
 
   await pruneOrphanedArchivedSessionsOnce(ctx, (message) => logs.push(message));
+  const callsAfterFirst = listCalls;
   await pruneOrphanedArchivedSessionsOnce(ctx, (message) => logs.push(message));
 
-  assert.equal(listCalls, 1);
-  assert.equal(logs.length, 1);
-  assert.match(logs[0], /宿主不在/);
+  // 日志先删掉了：这一步不依赖宿主，也不该被后面的失败连坐。
+  assert.equal(fs.existsSync(doomed), false);
+  assert.deepEqual(readPendingArchivedClearIds(), [], '删成的已经出队');
+  // 0.2.x 的 workspace.list 是 workspace.follow 的首帧，刚启动时常常还没开出来：
+  // 失败要重试几次，不能像以前那样一次失败就把这一轮收尾整个丢掉。
+  assert.ok(callsAfterFirst > 1, `workspace.list 失败后应重试，实际只调了 ${callsAfterFirst} 次`);
+  assert.equal(listCalls, callsAfterFirst, '第二次调用整轮不再跑（每进程一次）');
+  assert.equal(logs.length, 2, '一行删队列、一行修剪最终失败');
+  assert.match(logs[1], /宿主不在/);
 }));

@@ -1,25 +1,28 @@
 // Regression guards for the relay protocol wire format and its synchronized copies.
 'use strict'
 const assert = require('node:assert/strict')
-const fs = require('node:fs')
 const path = require('node:path')
 const { test } = require('node:test')
 
-// 隧道协议的插件副本（`lib/relay/protocol.js`）必须与权威实现逐字节一致。
-//
-// 权威实现有两份：
-//  - **Rust**（`server/relay-core/rust`）：中转跑的，`parity.rs` 拿 node 调本文件
-//    逐字节对撞，那是真正跨语言的那道验证；
-//  - **共用类型表**（`server/relay-core/protocol-types.js`）：类型编号、header 长度、
-//    close code 规则、reason 上限都从这里来。
-//
-// 这里曾经 `require` 一份已经删掉的 JS 实现（`dsh-mobile-server/src/index.mjs`），
-// 它一消失这组就整组报错。现在改为**对着共用类型表算期望值**，不再依赖任何已删文件。
-const SHARED_TYPES = path.join(__dirname, '..', '..', 'server', 'relay-core', 'protocol-types.js')
+// 插件是独立发布的包，协议测试不依赖中转仓库的检出。帧编号与线格式在这里
+// 以固定期望值覆盖；中转仓库另有 Rust 与 JS 测试实现的逐字节对撞。
 const COPY = path.join(__dirname, '..', 'lib', 'relay', 'protocol.js')
-const SHARED = require(SHARED_TYPES)
-
-const stripHeader = (source) => source.replace(/^'use strict';\n\n\/\*\*[\s\S]*?\*\/\n/, "'use strict';\n")
+const EXPECTED_TYPES = {
+  register: 0x01, registered: 0x02, updatePairing: 0x03,
+  httpRequest: 0x04, httpBody: 0x05, httpHead: 0x06, httpChunk: 0x07,
+  httpEnd: 0x08, httpError: 0x09, wsUpgrade: 0x0a, wsOpen: 0x0b,
+  wsError: 0x0c, wsText: 0x0d, wsBinary: 0x0e, wsClose: 0x0f,
+  ping: 0x10, pong: 0x11, pairRequest: 0x12, pairConfirm: 0x13,
+  httpCancel: 0x14, httpPause: 0x15, httpResume: 0x16, sync: 0x17,
+  revokeAll: 0x18, revokeAllAck: 0x19,
+}
+const SHARED = {
+  T: EXPECTED_TYPES,
+  TYPE_NAME: Object.fromEntries(Object.entries(EXPECTED_TYPES).map(([name, code]) => [code, name])),
+  HEADER_LEN: 9,
+  MAX_CLOSE_REASON_BYTES: 123,
+  validCloseCode: (code) => Number.isInteger(code) && code >= 1000 && code <= 4999 && ![1004, 1005, 1006, 1015].includes(code),
+}
 
 function legacyEncodeFrame(type, id, payload) {
   let body;
@@ -35,13 +38,12 @@ function legacyEncodeFrame(type, id, payload) {
   return buf;
 }
 
-test('副本内联的类型表与共用类型表一致', () => {
-  const shared = require(SHARED_TYPES)
+test('插件内联帧类型与线格式常量符合协议编号', () => {
   const copy = require(COPY)
-  assert.deepEqual(copy.T, shared.T, '插件副本的 T 表与 relay-core 共用表不一致')
-  assert.deepEqual(copy.TYPE_NAME, shared.TYPE_NAME, '插件副本的 TYPE_NAME 与共用表不一致')
-  assert.equal(copy.HEADER_LEN, shared.HEADER_LEN)
-  assert.equal(copy.MAX_CLOSE_REASON_BYTES, shared.MAX_CLOSE_REASON_BYTES)
+  assert.deepEqual(copy.T, SHARED.T)
+  assert.deepEqual(copy.TYPE_NAME, SHARED.TYPE_NAME)
+  assert.equal(copy.HEADER_LEN, SHARED.HEADER_LEN)
+  assert.equal(copy.MAX_CLOSE_REASON_BYTES, SHARED.MAX_CLOSE_REASON_BYTES)
 })
 
 test('副本的 close 编解码对得上共用表的规则（含保留码与超长 reason）', () => {
@@ -49,7 +51,7 @@ test('副本的 close 编解码对得上共用表的规则（含保留码与超�
   const cases = [[1000, 'normal'], [1006, 'reserved'], [999, 'below'], [5000, 'above'], [1001, '超长的中文原因'.repeat(20)]]
   for (const [code, reason] of cases) {
     const payload = copy.encodeClosePayload(code, reason)
-    // 期望值按共用表的规则算：不合法（含保留码）一律降级成 1000；reason 按字节截断。
+    // 非法（含保留码）close code 降级为 1000；reason 按字节截断。
     const expectedCode = SHARED.validCloseCode(code) ? code : 1000
     assert.equal(payload.readUInt16BE(0), expectedCode, `close(${code}) 的 code 位不对`)
 
@@ -71,20 +73,11 @@ test('副本的 close 编解码对得上共用表的规则（含保留码与超�
   }
 })
 
-test('副本的类型表与共用类型表一致', () => {
-  // 权威的类型表在 relay-core，插件这份是内联副本，这里比的是两边是否一致。
-  const authority = require(SHARED_TYPES)
-  const copy = require(COPY)
-  assert.deepEqual(copy.T, authority.T, 'T 类型表不一致')
-  assert.deepEqual(copy.TYPE_NAME, authority.TYPE_NAME, 'TYPE_NAME 反查表不一致')
-  assert.equal(copy.HEADER_LEN, authority.HEADER_LEN)
-})
-
-test('两侧对同一消息编码出的字节完全一致', () => {
-  const types = require(SHARED_TYPES)
+test('每种帧类型都使用相同帧头格式和原始载荷', () => {
+  const types = SHARED
   const copy = require(COPY)
   const payload = Buffer.from('protocol-parity')
-  // 帧头形状：1 字节类型 + 4 字节大端 id + 4 字节大端长度 + 载荷，头长取自共用表。
+  // 帧头是 1 字节类型 + 4 字节大端 id + 4 字节大端长度，之后是载荷。
   for (const name of Object.keys(types.T)) {
     const frame = copy.encodeFrame(types.T[name], 7, payload)
     assert.equal(frame.length, types.HEADER_LEN + payload.length, `${name} 的帧长不对`)
@@ -121,7 +114,7 @@ test('字符串与 JSON 直写最终帧后保持旧 wire 字节', () => {
 
 test('解码器能把编码出的多帧字节流原样解回来', () => {
   // 半包与粘包都靠这个解码器处理：几帧拼成一条流送进去，要按顺序原样解出。
-  const types = require(SHARED_TYPES)
+  const types = SHARED
   const copy = require(COPY)
   const parts = [
     [types.T.httpHead, 3, JSON.stringify({ status: 200 })],

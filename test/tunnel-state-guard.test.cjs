@@ -34,7 +34,7 @@ assert.ok(START_TUNNEL_BODY.length > 0, '应能在 worker 源码里定位 startT
 // startTunnel 跑的就是生产逻辑。
 function bootWorker() {
   const instances = []
-  const log = { reconnects: 0, stopped: [], publishes: 0 }
+  const log = { reconnects: 0, stopped: [], publishes: 0, resets: 0 }
   class StubRelayTunnel {
     constructor(opts) {
       this.opts = opts
@@ -51,7 +51,7 @@ function bootWorker() {
     deliverRegistered() { this.registered = true; this.opts.onRegistered() }
   }
   const api = new Function('deps', `
-    const { config, core, RelayTunnel, upstream, lanUrls, lanUrlPort, currentLanUrls, snapshotRead, parentJson, log, publishState } = deps;
+    const { config, core, RelayTunnel, upstream, lanUrls, lanUrlPort, currentLanUrls, snapshotRead, parentJson, log, publishState, reconnect } = deps;
     let tunnel = null;
     let tunnelState = 'off';
     let tunnelError = null;
@@ -82,6 +82,8 @@ function bootWorker() {
     currentLanUrls: () => [],
     snapshotRead: async () => null,
     parentJson: async () => ({ approved: false }),
+    // 重连退避账：连上之后必须清零（否则连续失败几次后就永远停在 30s 上）。
+    reconnect: { reset: () => { log.resets += 1 } },
     log,
     // worker 的 publishState()：状态跳变要立刻经 IPC 推给宿主，别等 10s 健康轮询。
     // 这里只数调用次数；「推的是不是真状态」由下面的契约断言钉住。
@@ -199,10 +201,12 @@ function bootWorker() {
   assert.equal(w.log.publishes, 3, '重建（connecting）上报')
   first.deliverRegistered()
   assert.equal(w.log.publishes, 3, '过期实例的注册帧不得上报状态跳变')
+  assert.equal(w.log.resets, 1, '过期实例的注册帧不得清掉重连退避账（清了就等于放过一次重连风暴）')
 
   const second = w.instances[1]
   second.deliverRegistered()
   assert.equal(w.log.publishes, 4, '新实例真正连上才上报 connected')
+  assert.equal(w.log.resets, 2, '当前实例注册成功必须清账，否则连错几次后永远停在 30s 退避上')
   second.opts.onClose(1006, 'gone')
   assert.equal(w.log.publishes, 5, '断线必须立刻上报 error（宿主据此停止推镜像，而不是再撞 10s 超时）')
 }

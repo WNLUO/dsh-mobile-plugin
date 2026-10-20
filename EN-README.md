@@ -54,7 +54,7 @@ When running headless, use these local endpoints to manage remote connectivity:
 
 The mobile API requires a Bearer token. The device event stream, `GET /api/mobile/v1/events/stream`, forwards host events over SSE. Session creation accepts `workspaceId` or `cwd`; `workspaceId` takes precedence and assigns the session to that workspace. Session ordering from the mobile app is synchronized with the host workspace.
 
-The default pairing policy is `code`, which allows pairing with a valid pairing code. Set it to `deny` to reject all new pairing requests. Automatic archiving only hides eligible inactive sessions; it does not delete logs. The `session_cleanup` tool can archive sessions or permanently delete already-archived sessions. Deletion is irreversible and requires explicit confirmation.
+The default pairing policy is `code`, which allows pairing with a valid pairing code. Set it to `deny` to reject all new pairing requests. Automatic archiving only hides eligible inactive sessions; it does not delete logs. The `session_cleanup` tool can archive sessions or permanently delete already-archived sessions. Deletion is irreversible and requires explicit confirmation. Deletion is queued: the sessions disappear from lists immediately, while their logs and projection cache are removed from disk the next time the host starts — the host has no delete-session API, and removing files underneath a running host makes it open a log that no longer exists, which is an uncaught error that takes the whole host process down.
 
 ## Headless deployment
 

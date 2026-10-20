@@ -5,10 +5,8 @@
  *
  * 插件包与中转服务器是两个独立部署单元，不能跨目录 require（插件会被拷到
  * `~/.dsh/plugins/`，中转是独立进程），所以 `HOP_BY_HOP` 各有一份手工同步的拷贝。
- * 这份测试把它们钉在一起：源码逐项等价 + 覆盖全部逐跳头。
- *
- * 权威实现取服务器侧 `dsh-mobile-server/lib/proxy-http.js`，副本取插件侧
- * `dsh-mobile-plugin/lib/relay/lan-proxy.js`。
+ * 插件独立发布，因此本测试钉住完整的逐跳头集合；本地存在独立中转仓库检出时
+ * 再与 Rust 实现逐项比对。
  *
  * 曾经这里还钉着 `safeEqual`（权威 `dsh-mobile-server/lib/pair.js`）与 `isFreshRequest`
  * （权威 `dsh-mobile-server/lib/fresh-request.js`）。2026-10-16 自建版精简成纯转发后，
@@ -31,7 +29,11 @@ const ROOT = path.join(__dirname, '..', '..')
 
 // 权威实现现在在 Rust 版中转里（Node 版 2026-10-22 已删）。它是一份 `&[&str]` 数组，
 // 提取方式与下面那个 Set 字面量不同，见 extractHopByHopRust。
-const SERVER_HOP_BY_HOP = path.join(ROOT, 'server', 'relay', 'rust', 'src', 'headers.rs')
+const SERVER_HOP_BY_HOP = path.join(ROOT, 'server', 'dsh-mobile-server', 'server', 'relay', 'rust', 'src', 'headers.rs')
+const EXPECTED = [
+  'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+  'te', 'trailer', 'transfer-encoding', 'upgrade', 'content-length',
+]
 const PLUGIN_HOP_BY_HOP = path.join(ROOT, 'dsh-mobile-plugin', 'lib', 'relay', 'lan-proxy.js')
 
 /** 从 Rust 版取出 `const HOP_BY_HOP: &[&str] = &[...]` 里的字符串数组。 */
@@ -48,14 +50,18 @@ function extractHopByHop(source, file) {
   return [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
 }
 
-test('HOP_BY_HOP 两份拷贝的集合完全一致（含顺序）', () => {
-  const authority = extractHopByHopRust(fs.readFileSync(SERVER_HOP_BY_HOP, 'utf8'), SERVER_HOP_BY_HOP)
+test('插件 HOP_BY_HOP 保持完整线格式契约', () => {
   const copy = extractHopByHop(fs.readFileSync(PLUGIN_HOP_BY_HOP, 'utf8'), PLUGIN_HOP_BY_HOP)
-  assert.deepEqual(copy, authority, 'HOP_BY_HOP 已漂移：两侧必须一起改')
+  assert.deepEqual(copy, EXPECTED)
+})
+
+test('本地中转检出存在时，HOP_BY_HOP 两份拷贝完全一致', { skip: !fs.existsSync(SERVER_HOP_BY_HOP) }, () => {
+  const authority = extractHopByHopRust(fs.readFileSync(SERVER_HOP_BY_HOP, 'utf8'), SERVER_HOP_BY_HOP)
+  assert.deepEqual(authority, EXPECTED, '中转与插件的逐跳头集合不一致')
 })
 
 test('HOP_BY_HOP 覆盖全部逐跳头（漏一个就会把连接语义转发给对端）', () => {
-  const set = extractHopByHopRust(fs.readFileSync(SERVER_HOP_BY_HOP, 'utf8'), SERVER_HOP_BY_HOP)
+  const set = extractHopByHop(fs.readFileSync(PLUGIN_HOP_BY_HOP, 'utf8'), PLUGIN_HOP_BY_HOP)
   for (const header of [
     'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
     'te', 'trailer', 'transfer-encoding', 'upgrade', 'content-length',

@@ -63,7 +63,10 @@ test('普通会话继续走 sessions.history', async () => {
   }
 });
 
-test('子代理用 durable parent address 调 subagents.history', async () => {
+test('子代理走同一条 session.history，只是 payload 带上父会话与模式', async () => {
+  // 宿主 0.2.1 起已经没有 `subagents.history` 这个远程方法（只剩 prompt / interrupt /
+  // list），继续调它就是 host-unavailable → 手机端一条「请求失败 (HTTP 503)」。子会话的
+  // 历史与普通会话走同一条 session.page，差别只在 durable 地址（宿主 validateAddress 认）。
   const host = await serve();
   try {
     const response = await fetch(host.url(
@@ -71,20 +74,19 @@ test('子代理用 durable parent address 调 subagents.history', async () => {
     ));
     assert.equal(response.status, 200);
     assert.equal((await response.json()).ok, true);
-    assert.equal(host.calls.length, 1);
-    assert.equal(host.calls[0].namespace, 'subagents');
+    assert.equal(host.calls.length, 1, '不再调 subagents.history');
+    assert.equal(host.calls[0].namespace, 'sessions');
     assert.deepEqual(host.calls[0].request, {
       rpcId: 'mobile',
-      method: 'subagent.history',
+      method: 'session.history',
       payload: {
+        sessionId: 'child-1',
         parentSessionId: 'parent-1',
-        childSessionId: 'child-1',
         mode: 'continuable',
         maxMessages: 25,
         beforeSeq: 17,
       },
     });
-    assert.ok(host.calls[0].signal instanceof AbortSignal);
   } finally {
     await host.close();
   }

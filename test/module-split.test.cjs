@@ -270,8 +270,9 @@ test('按 ctx 隔离的可变状态只在 session-cache.js 与 rpc.js 里', () =
   }
   assert.deepEqual([...owners.keys()].sort(), ['rpc.js', 'session-cache.js'], `模块级 WeakMap 跑到了 ${[...owners.keys()].join('、')}`);
   // 归档清理新增 deletedSessionIds，避免宿主旧列表快照复活已删除会话。
-  // 其它表覆盖模型目录 / 列表响应 / 预览 / 预览在途 / 预览时钟 / 镜像历史 / 完成态 / 完成代际 / 发送幂等 / 写操作幂等。
-  assert.equal(owners.get('session-cache.js'), 11, '会话侧的十一张表（含已删除会话 ID）：状态均按 ctx 隔离');
+  // 其它表覆盖模型目录 / 列表响应 / 预览 / 预览在途 / 预览时钟 / 镜像历史 / 完成态 /
+  // 完成代际 / 上一轮事实 / 发送幂等 / 写操作幂等。
+  assert.equal(owners.get('session-cache.js'), 12, '会话侧的十二张表（含已删除会话 ID 与上一轮事实）：状态均按 ctx 隔离');
   // session-cache.js 是叶子：它不许反过来依赖任何会话模块。
   assert.doesNotMatch(read(path.join(MOB, 'session-cache.js')), /require\(/);
   // 对外路径不变：这五个访问器仍从 sessions.js 转出。
@@ -356,6 +357,7 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
   const HOME = {
     'attachments.js': ['resolveEventAttachments'],
     'completion.js': ['observeCompletionEvent', 'updateCompletionStates', 'confirmCompletionFromHistory'],
+    'session-last-turn.js': ['settleOutcome', 'recordLastTurn', 'lastTurnOf'],
     'session-models.js': ['buildModelsSnapshot', 'handleModels', 'handleSelectModel', 'safeModelsValue'],
     'session-search.js': ['sanitizeSearchQuery', 'handleSessionSearch'],
     'session-send.js': ['promptOnce', 'handleSend', 'handleCommands', 'handleFork', 'handleSessionAttachment'],
@@ -365,7 +367,7 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
     'session-presets.js': ['handleAgentPresets'],
   };
   const CEILING = {
-    'attachments.js': 160, 'completion.js': 140, 'session-models.js': 220,
+    'attachments.js': 160, 'completion.js': 150, 'session-last-turn.js': 130, 'session-models.js': 220,
     'session-search.js': 120, 'session-send.js': 330, 'session-snapshot.js': 200,
     'session-mirror.js': 200, 'session-goal.js': 90, 'session-presets.js': 100,
   };

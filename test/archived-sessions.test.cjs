@@ -159,9 +159,10 @@ test('工作区快照在宿主报错时照旧返回错误体', async () => {
 test('源码契约：会话列表读归档集合、工作区快照不再丢弃该字段', () => {
   const sessionsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'sessions.js'), 'utf8');
   const workspacesSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'workspaces.js'), 'utf8');
-  assert.match(sessionsSrc, /ctx\.apiProxy\.workspace\.list\(/);
-  // 读归档集合的助手改名了：现在它同一次 RPC 里把 archivedSessionIds 与 pinnedSessionIds
-  // 一起取回来（见 pinned-sessions.test.cjs），「会话列表必须自己读归档集合」这条不变。
+  // 取归档 / 置顶集合的那次 RPC 住在 session-flags.js（会话列表与后台监控共用一份判定），
+  // 「会话列表必须自己读归档集合」这条不变：sessions.js 仍要调那个助手。
+  const flagsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'session-flags.js'), 'utf8');
+  assert.match(flagsSrc, /ctx\.apiProxy\.workspace\.list\(/);
   assert.match(sessionsSrc, /workspaceSessionFlags\(ctx\)/);
   assert.doesNotMatch(sessionsSrc, /const allSummaries = value\.items \|\| \[\];/);
   // 6054bb2 起快照多带 generatedAt/revision/emptyConfirmed，返回也改成多行，

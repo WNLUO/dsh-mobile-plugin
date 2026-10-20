@@ -61,7 +61,6 @@ const GOLDEN = {
   'host.listDirectory': ['directoryPicker', 'list', ['path']],  // 不是 host 命名空间，是宿主的 directoryPicker
   'host.createDirectory': ['directoryPicker', 'createDirectory', ['name', 'path']],
   'skills.list': ['skills', 'list', ['request']],
-  'subagents.history': ['subagents', 'history', ['request']],
   'subagents.prompt': ['subagents', 'prompt', ['request']],
   'subagents.interrupt': ['subagents', 'interruptByParent', ['childSessionId', 'mode', 'parentSessionId']],
   'subagents.list': null, // 合成：从会话投影里出目录

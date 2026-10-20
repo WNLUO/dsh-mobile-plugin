@@ -2,7 +2,11 @@
 
 /**
  * 「清理所有已归档」必须按归档集合清理，不得被会话列表里的状态标记缩小范围；
- * 并且清理只删日志，不在进程里擦宿主的归档集合（擦了会让桌面端把已删的行放回列表）。
+ * 并且进程活着的时候一条日志都不许删 —— 只排队，日志留到宿主下次启动时删。
+ *
+ * 为什么是排队：宿主没有「删除会话」接口，进程活着时它随时可能去打开一条刚被删掉的日志，
+ * 那是没人接的 ENOENT；宿主对未捕获异常零容忍，整个进程退出，桌面端跟着闪退
+ * （2026-10-20 真机：清 315 条时踩到一条 0 轮次的空白归档会话）。
  */
 
 const test = require('node:test');
@@ -15,6 +19,12 @@ const { zstdCompressSync } = require('node:zlib');
 const { handleClearArchived } = require('../lib/mobile/archive-clean.js');
 const { buildSessionsResponse } = require('../lib/mobile/sessions.js');
 const { sessionListResponseState, deletedSessionIdsOf } = require('../lib/mobile/session-cache.js');
+const {
+  queueArchivedClearIds,
+  readPendingArchivedClearIds,
+  restoreQueuedArchivedClearIds,
+  deleteQueuedArchivedSessions,
+} = require('../lib/session-cleanup.cjs');
 
 function makeReq(body, { chunkSize = 0, delayMs = 0 } = {}) {
   return Readable.from(deferredJsonChunks(body, chunkSize, delayMs));
@@ -113,20 +123,35 @@ test('清理会话集合中的所有归档 ID，不受 running / blank 摘要标
     await handleClearArchived(ctx, req, res);
 
     assert.equal(res.status, 200);
-    // running 与 blank 各删掉一个；migrating 只有非规范名日志（宿主也不认），unarchived 不在归档集里。
-    assert.equal(res.body.deleted, 2);
-    assert.deepEqual(res.body, { ok: true, deleted: 2 }, '回执只报真删掉的条数');
-    assert.equal(fs.existsSync(running), false);
-    assert.equal(fs.existsSync(blank), false);
+    assert.deepEqual(res.body, { ok: true, deleted: 3 }, '回执报的是这次排进队列、手机上立刻消失的条数');
+    // 进程活着时一条日志都不许删：宿主随时可能去打开它们，文件不在就是未捕获的 ENOENT。
+    assert.equal(fs.existsSync(running), true, '清理请求不许在进程里删磁盘');
+    assert.equal(fs.existsSync(blank), true);
+    assert.equal(fs.existsSync(migrating), true);
     assert.equal(fs.existsSync(kept), true);
-    assert.equal(fs.existsSync(migrating), true, '非规范名日志不是已提交的代次，不许当成会话删掉');
+    assert.deepEqual(
+      readPendingArchivedClearIds().sort(),
+      ['session-blank', 'session-migrating', 'session-running'],
+      '归档集合里的三条都排进了待删队列（42 不是字符串 id，不排）',
+    );
     assert.deepEqual(unarchived, [], '清理只删日志：进程里擦归档集合会让桌面端把已删的行放回列表');
     assert.equal(cache.value, null);
-    assert.deepEqual([...deletedSessionIdsOf(ctx)].sort(), ['session-blank', 'session-running']);
+    assert.deepEqual([...deletedSessionIdsOf(ctx)].sort(), ['session-blank', 'session-migrating', 'session-running']);
     failWorkspaceList = true;
     const refreshed = await buildSessionsResponse(ctx);
     assert.equal(refreshed.status, 200);
-    assert.deepEqual(refreshed.body.items.map((item) => item.sessionId), ['session-unarchived'], '即使宿主 sessions.list 仍带着已删会话，清理后的移动列表也必须过滤掉它们');
+    assert.deepEqual(refreshed.body.items.map((item) => item.sessionId), ['session-unarchived'], '即使宿主 sessions.list 仍带着这些会话，清理后的移动列表也必须过滤掉它们');
+
+    // 宿主下次启动：这时才真的删磁盘。非规范名日志不是已提交的代次，宿主自己不认，
+    // 清理也不认 —— 它留在队里等下一次，不算删成。
+    const sweep = await deleteQueuedArchivedSessions();
+    assert.deepEqual(sweep.deleted.sort(), ['session-blank', 'session-running']);
+    assert.deepEqual(sweep.kept, ['session-migrating']);
+    assert.equal(fs.existsSync(running), false);
+    assert.equal(fs.existsSync(blank), false);
+    assert.equal(fs.existsSync(migrating), true, '非规范名日志不是已提交的代次，不许当成会话删掉');
+    assert.equal(fs.existsSync(kept), true, '不在队列里的会话一条都不许动');
+    assert.deepEqual(readPendingArchivedClearIds(), ['session-migrating'], '删成的不留在队里，没删成的留着等下次启动');
   } finally {
     if (previousHome === undefined) delete process.env.DSH_HOME;
     else process.env.DSH_HOME = previousHome;
@@ -169,10 +194,17 @@ test('更早一次删到一半留下的空归档：再清一次要按已删记�
     await handleClearArchived(ctx, req, res);
 
     assert.equal(res.status, 200);
-    assert.equal(res.body.deleted, 3, '盘上已经没数据的归档也算清掉了，否则用户看到删了 0 条、列表却还在');
+    assert.equal(res.body.deleted, 3, '盘上已经没数据的归档也要记账，否则用户看到删了 0 条、列表却还在');
     assert.deepEqual([...deletedSessionIdsOf(ctx)].sort(), [...archivedSessionIds].sort());
+    assert.equal(fs.existsSync(alive), true, '清理请求不动磁盘');
+
+    // 宿主下次启动：日志还在的那条真删掉，盘上已经没有数据的（目录没了 / 只剩锁文件）直接出队。
+    const sweep = await deleteQueuedArchivedSessions();
+    assert.deepEqual(sweep.deleted.sort(), [...archivedSessionIds].sort());
+    assert.deepEqual(sweep.kept, []);
     assert.equal(fs.existsSync(alive), false);
     assert.equal(fs.existsSync(lockedOnly), true, '只剩锁文件的空目录删不掉，不影响记账');
+    assert.deepEqual(readPendingArchivedClearIds(), [], '队里不留已经处理过的 id');
     listFails = true;
     const refreshed = await buildSessionsResponse(ctx);
     assert.equal(refreshed.status, 200);
@@ -261,7 +293,7 @@ test('重复清理不会去擦归档集合：桌面端那份快照还挂在同�
     await handleClearArchived(ctx, firstReq, first);
     assert.equal(first.status, 200);
     assert.equal(first.body.deleted, 1);
-    assert.equal(fs.existsSync(doomed), false);
+    assert.equal(fs.existsSync(doomed), true, '点清理不删磁盘');
 
     const retryReq = makeReq({ confirm: true });
     retryReq.headers = {};
@@ -269,7 +301,8 @@ test('重复清理不会去擦归档集合：桌面端那份快照还挂在同�
     await handleClearArchived(ctx, retryReq, retryRes);
 
     assert.equal(retryRes.status, 200);
-    assert.equal(retryRes.body.deleted, 0, '已删日志不应再次计入删除数量');
+    assert.equal(retryRes.body.deleted, 1, '宿主还没删，再点一次它仍然是「这次要清掉的」那一条');
+    assert.deepEqual(readPendingArchivedClearIds(), ['session-doomed'], '排队是并集：同一条点两次只占一个位置');
     assert.deepEqual([...stillArchived], ['session-doomed'], '归档集合里留着的死 id 不显示在任何地方，等宿主下次启动时修剪');
     assert.equal(unarchiveCalls, 0, '两次清理都不许动归档集合');
   } finally {
@@ -277,4 +310,78 @@ test('重复清理不会去擦归档集合：桌面端那份快照还挂在同�
     else process.env.DSH_HOME = previousHome;
     fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+test('插件重载 / 宿主重启之后，队列里的会话仍然不显示', async () => {
+  // 删除集是进程内的；队列是磁盘上的。漏了这一步，用户会看到「清理过的会话在下次换插件
+  // 版本（代际热替换）之后原样回来」—— 那时日志还在、宿主归档集合也还没修剪。
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-archive-clean-'));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    writeSession(home, 'session-queued');
+    queueArchivedClearIds(['session-queued']);
+    const ctx = {
+      state: {},
+      apiProxy: {
+        sessions: {
+          list: async () => ({ result: { ok: true, value: { items: [{ sessionId: 'session-queued', running: false, blank: false }] } } }),
+        },
+        workspace: { list: async () => { throw new Error('workspace.list unavailable'); } },
+      },
+    };
+
+    assert.deepEqual(restoreQueuedArchivedClearIds(ctx), ['session-queued']);
+    assert.deepEqual([...deletedSessionIdsOf(ctx)], ['session-queued'], '装载插件时要把队列补进删除集');
+    const refreshed = await buildSessionsResponse(ctx);
+    assert.equal(refreshed.status, 200);
+    assert.deepEqual(refreshed.body.items, [], '队列里排着的会话在新进程里也必须被压住');
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('队列写不进去时整次清理失败，不许回「已清理」', async () => {
+  // 排不上队却说删掉了 = 重启之后它们原样回来。路由会把异常变成 500（guarded 的统一信封），
+  // App 侧照旧弹错误、用户还能再点一次。
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-archive-clean-'));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    writeSession(home, 'session-doomed');
+    // 队列文件的位置被一个目录占了，改名的最后一步必然失败。
+    fs.mkdirSync(path.join(home, 'mobile-archived-clear.json'), { recursive: true });
+    const ctx = {
+      state: {},
+      apiProxy: {
+        workspace: { list: async () => ({ result: { ok: true, value: { archivedSessionIds: ['session-doomed'] } } }) },
+      },
+    };
+    const req = makeReq({ confirm: true });
+    req.headers = {};
+    const res = makeRes();
+
+    await assert.rejects(handleClearArchived(ctx, req, res), /ENOTDIR|EISDIR|EEXIST|ENOENT/);
+    assert.equal(res.status, null, '没写成功就不许回任何成功回执');
+    assert.deepEqual([...deletedSessionIdsOf(ctx)], [], '失败时不记账，用户再点一次还能重排');
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('启动收尾先删队里的日志、再擦归档集合', () => {
+  // 顺序是有意义的：归档集合的擦除要等宿主把 workspace 服务挂起来，而删日志越早越安全
+  // （那时桌面端还没连上、宿主手上也没有热会话）。
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'session-cleanup.cjs'), 'utf8');
+  const once = source.slice(source.indexOf('async function pruneOrphanedArchivedSessionsOnce'));
+  const sweepAt = once.indexOf('deleteQueuedArchivedSessions(log, ctx)');
+  const pruneAt = once.indexOf('pruneOrphanedArchivedSessions(ctx)');
+  assert.ok(sweepAt > 0, '启动收尾必须删掉队里排着的日志');
+  assert.ok(pruneAt > sweepAt, '删日志要在擦归档集合之前');
+  const install = source.slice(source.indexOf('function installSessionCleanup'));
+  assert.match(install, /restoreQueuedArchivedClearIds\(ctx\)/, '装载时必须把队列补进删除集，否则插件一重载它们就复活');
 });

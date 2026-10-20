@@ -24,6 +24,7 @@ const path = require('node:path');
 const { handleDeviceStream } = require('../lib/mobile/events.js');
 const { listSignal: sharedListSignal } = require('../lib/shared/list-signal.js');
 const { sessionSignal: sharedSessionSignal } = require('../lib/shared/session-signal.js');
+const { desktopViewSignal: sharedDesktopViewSignal } = require('../lib/shared/desktop-view-signal.js');
 
 const SOURCE = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'events.js'), 'utf8');
 
@@ -204,4 +205,27 @@ test('连上补发：一帧清单变更 + 每个已知会话一帧水位，且�
   assert.equal(secondPayloads.filter((payload) => payload.type === 'device/list-changed').length, 1);
   assert.equal(secondPayloads.filter((payload) => payload.type === 'device/session-activity').length, 1);
   assert.equal(sharedSessionSignal.peek('s-replay'), 42, '补发不许把水位往上推');
+});
+
+// 桌面侧栏折叠态：手机过去按 5 分钟最短间隔去问 GET /desktop-view（因为列表 revision
+// 不含它）。这条帧让它改成「变了才拉」，所以断流重连后也必须补一帧 —— 否则那一次变化
+// 落在断流窗口里就丢了，而 App 那边已经没有任何轮询会把它捡回来。
+test('连上补发：桌面折叠态变了也要补一帧（只发 updatedAt，不发内容）', async () => {
+  assert.equal(sharedDesktopViewSignal.bump(1_700_000_333_000), true, 'bump 失败则本用例无意义');
+
+  const result = await streamWith([]);
+  const viewFrames = result.events
+    .map((event) => event.payload)
+    .filter((payload) => payload.type === 'device/desktop-view-changed');
+  assert.equal(viewFrames.length, 1, '重连后没有补发折叠态变更');
+  assert.equal(viewFrames[0].updatedAt, 1_700_000_333_000);
+  assert.ok(viewFrames[0].at > 0);
+  // 帧只带版本号：内容仍然由 App 去 GET /desktop-view 取，这条流不做数据同步。
+  assert.equal(viewFrames[0].groupExpansion, undefined);
+  assert.equal(sharedDesktopViewSignal.snapshot().updatedAt, 1_700_000_333_000, '补发不许前移基准');
+});
+
+test('events.js 收尾必须注销折叠态订阅（源码契约）', () => {
+  assert.ok(SOURCE.includes('unsubscribeDesktopView'), '订阅了却不出现在收尾里，句柄会一直挂在信号总线上');
+  assert.ok(SOURCE.includes('unsubscribeDesktopView();'), '收尾没有调用注销');
 });

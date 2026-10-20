@@ -128,6 +128,7 @@ function mountRoutes() {
     hostMetadata: () => ({}),
     getSidecarSnapshot: () => ({}),
     safeLanCandidates: () => [],
+    safeIpv6Candidates: () => [],
     lanPortInUse: () => 0,
     preview: { handleUpgrade() {} },
     core: {},
