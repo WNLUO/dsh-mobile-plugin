@@ -5,6 +5,7 @@ The AI-HUB mobile companion plugin for DSH. It provides the mobile API, remote c
 ## Download the AI-HUB mobile app
 
 - [Android APK](https://app.wnluo.com/public/apps/14)
+- [Android APK (GitHub)](https://github.com/WNLUO/dsh-mobile-plugin/releases/latest/download/ai-hub-android.apk); [older versions](https://github.com/WNLUO/dsh-mobile-plugin/releases)
 - [App Store](https://apps.apple.com/us/app/ai-hub/id6821681438) (If the page is temporarily unavailable, the app may still be awaiting Apple review approval.)
 - [TestFlight beta](https://testflight.apple.com/join/4fn5PCMD)
 
@@ -82,6 +83,7 @@ This is the public release repository, and its root is the npm package root. Dev
 - The npm package's `repository` field links it to the plugin-list entry. Changes to this field take effect in the registry with the next publish.
 - To add the plugin to awesome-dsh-plugin, submit `data/plugins/<owner>__<repo>.yml`. Numbers and API names in the description must be verifiable in the code. The listing requires `description.en` and `category: remote`; the package must declare `dsh.bundle`, and the repository must have the `dsh-plugin` topic.
 - The repository-age check reruns automatically after the repository is one day old. Screenshots can be provided through `screenshots.json`; otherwise, the marketplace may find them in this README.
+- The GitHub release page carries the mobile app's APK (linked at the top). Keep the asset name fixed at `ai-hub-android.apk` and publish it as a full release: drafts and pre-releases never become "latest", which would break that direct link. Plugin versions ship to npm, so no plugin releases are created here.
 - Privacy policy: [PRIVACY.md](PRIVACY.md). Support and FAQ: [SUPPORT.md](SUPPORT.md).
 
 ### Publish a new version

@@ -7,6 +7,7 @@ AI-HUB 手机端插件，为 DSH 提供移动 API、远程连接和局域网代�
 ## 下载 AI-HUB 手机 App
 
 - [Android APK](https://app.wnluo.com/public/apps/14)
+- [Android APK（GitHub 渠道）](https://github.com/WNLUO/dsh-mobile-plugin/releases/latest/download/ai-hub-android.apk)；[历史版本](https://github.com/WNLUO/dsh-mobile-plugin/releases)
 - [App Store](https://apps.apple.com/us/app/ai-hub/id6821681438)（若暂时无法打开，可能是 App 仍在等待苹果审核通过。）
 - [TestFlight 测试版](https://testflight.apple.com/join/4fn5PCMD)
 
@@ -104,6 +105,7 @@ npm test
 - npm 包的 `repository` 字段用于关联插件列表条目；修改后需再次发布，注册表信息才会更新。
 - 插件列表收录通过向 awesome-dsh-plugin 提交 `data/plugins/<owner>__<repo>.yml` 完成。描述中的数字和 API 名称应能由代码核实；列表要求 `description.en`、`category: remote`，包需声明 `dsh.bundle`，仓库需有 `dsh-plugin` topic。
 - 仓库创建满一天的检查会自动重跑；截图可通过 `screenshots.json` 提供，也可由市场从 README 查找。
+- GitHub 的 release 页放手机 App 的 APK（下载入口见开头那一节）：资产名固定用 `ai-hub-android.apk`，并且发成正式版 —— 草稿与预发布都不会成为「最新」，README 里那条直连会随之断掉。插件自身走 npm 发布，不在本仓库发 release。
 - 隐私政策：[PRIVACY.md](PRIVACY.md)。技术支持与常见问题：[SUPPORT.md](SUPPORT.md)。
 
 ### 发布新版本
