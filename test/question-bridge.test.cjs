@@ -107,7 +107,8 @@ const planReview = () => ({
     question: 'Approve this plan and leave plan mode?',
     detail: '# 计划\n\n1. 改插件',
     options: [{ label: '允许执行' }, { label: '继续规划' }],
-    intent: { kind: 'plan-review', approve: '允许执行' },
+    // 宿主的真实 intent 还带一个内部句柄 callId；它绝不能被转到手机上。
+    intent: { kind: 'plan-review', approve: '允许执行', callId: 'call-9f3c' },
   }],
   agent: { session: { id: 's-1' } },
 });
@@ -149,6 +150,7 @@ test('手机接入时补发，卡里必须是帧级 rpcId 与完整问题', asyn
   assert.equal(typeof card.rpcId, 'string');
   assert.ok(card.rpcId.length > 0, '帧级 rpcId 不能缺');
   assert.deepEqual(card.questions, [{ id: 'q1', question: '用哪个端口？', options: [{ label: '8787' }, { label: '9000' }] }]);
+  assert.equal('intent' in card.questions[0], false, '普通提问不该凭空多一个空 intent');
 });
 
 test('计划评审走同一条桥：detail（计划正文）与两个选项都送到手机上', async () => {
@@ -161,6 +163,10 @@ test('计划评审走同一条桥：detail（计划正文）与两个选项都�
   assert.equal(card.questions[0].detail, '# 计划\n\n1. 改插件');
   assert.equal(card.questions[0].header, 'Plan review');
   assert.equal(card.questions[0].options.length, 2);
+  assert.equal(card.questions[0].intent.kind, 'plan-review', '手机靠它把卡渲染成「计划待审」');
+  assert.equal(card.questions[0].intent.approve, '允许执行', '批准按钮用宿主给的标签');
+  assert.deepEqual(Object.keys(card.questions[0].intent).sort(), ['approve', 'kind'], 'intent 只带这两格');
+  assert.equal(JSON.stringify(card).includes('call-9f3c'), false, 'callId 是宿主内部句柄，绝不能进帧');
   assert.equal(questions.pendingKind('s-1'), 'plan-review', '列表页该显示「计划评审」而不是「提问」');
 });
 

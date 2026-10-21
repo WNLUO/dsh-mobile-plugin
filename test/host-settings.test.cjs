@@ -431,3 +431,40 @@ test('接线：lib/index.js 注册了路由，模块导出了两个 handler', ()
   assert.equal(typeof mod.handleHostSettings, 'function');
   assert.equal(typeof mod.handleLlmProviders, 'function');
 });
+
+test('llm/models：把宿主的模型目录压成选择器形状（空组与坏条目丢掉、名字兜底）', async () => {
+  const { handleLlmModels } = require('../lib/mobile/host-settings.js');
+  const ctx = {
+    apiProxy: {
+      llm: {
+        models: async () => ({
+          result: {
+            ok: true,
+            value: {
+              groups: [
+                { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }, { id: '', name: '坏条目' }] },
+                { id: 'noname', name: '', models: [{ id: 'm1', name: '' }] },
+                { id: 'empty', name: '空组', models: [] },
+                { id: '', name: '没 id', models: [{ id: 'x', name: 'X' }] },
+              ],
+            },
+          },
+        }),
+      },
+    },
+  };
+  const res = {
+    statusCode: 0,
+    payload: '',
+    writeHead(status) { this.statusCode = status; },
+    end(chunk) { this.payload = chunk === undefined ? '' : String(chunk); },
+  };
+  await handleLlmModels(ctx, { url: '/llm/models', headers: {} }, res);
+  const body = JSON.parse(res.payload);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(body.groups.map((group) => group.provider), ['deepseek-official', 'noname']);
+  assert.deepEqual(body.groups[0].models, [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }]);
+  // 名字缺失时用 id 兜底，界面不会出现空白行。
+  assert.equal(body.groups[1].displayName, 'noname');
+  assert.equal(body.groups[1].models[0].name, 'm1');
+});

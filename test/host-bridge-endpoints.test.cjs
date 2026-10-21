@@ -43,6 +43,7 @@ const GOLDEN = {
   'sessions.updateQueue': ['session', 'updateQueue', ['request']],
   'sessions.fork': ['session', 'fork', ['request']],
   'sessions.models': null, // 合成：走 session/modelCatalog 再拼回旧形状
+  'llm.models': null,      // 合成：同一个 modelCatalog，不带 sessionId（宿主级模型目录）
   'agentPresets.list': ['agentPresets', 'list', []],  // descriptor 不收参数
   'agentPresets.read': ['agentPresets', 'read', ['agentPreset']],
   'agentPresets.select': ['agentPresets', 'select', ['agentId', 'agentPreset']],

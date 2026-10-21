@@ -40,8 +40,10 @@ function makeProject(t) {
   return dir;
 }
 
-function ctxFor(projectPath) {
+function ctxFor(projectPath, extra = {}) {
   return {
+    // 模型服务只在 AI 写提交信息那条路上被问到；其余用例不提供它。
+    get: (name) => (name === 'llm' ? extra.llm : undefined),
     apiProxy: {
       workspace: {
         list: async () => ({
@@ -371,4 +373,164 @@ test('语言占比的口径：第三方 / 数据 / 生成物不进语言条，�
   assert.equal(names.includes('JavaScript'), false, 'vendor 里的大文件不该算进 JavaScript');
   const total = languages.reduce((sum, item) => sum + item.percent, 0);
   assert.ok(Math.abs(total - 100) < 1, `百分比合计应当接近 100，实际 ${total}`);
+});
+
+// ── push：只推当前分支到它的上游，永不强制 ─────────────────────────────────
+
+/** 一个本地裸仓库当远端；返回它的路径。 */
+function makeBareRemote(t) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-git-remote-')));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  execFileSync('git', ['init', '--bare', '-q', dir], { encoding: 'utf8' });
+  // 裸仓库默认 HEAD 指向 master，先拨到 main：否则 clone 出来的工作副本默认在 master 上。
+  execFileSync('git', ['--git-dir', dir, 'symbolic-ref', 'HEAD', 'refs/heads/main'], { encoding: 'utf8' });
+  return dir;
+}
+
+function commitFile(dir, name, body, message) {
+  fs.writeFileSync(path.join(dir, name), body);
+  sh(dir, 'add', name);
+  sh(dir, 'commit', '-q', '-m', message);
+}
+
+test('推送：没有上游直接拒（NO_UPSTREAM），不是让它连一次远端再报英文', async (t) => {
+  const project = makeProject(t);
+  const result = await call(gitApi.handleGitPush, ctxFor(project), '/api/mobile/v1/git/push', { workspaceId: 'w1' });
+  assert.equal(result.status, 409);
+  assert.equal(result.body.error.code, 'NO_UPSTREAM');
+});
+
+test('推送：推到真远端，之后 ahead 归零、远端拿到那个提交', async (t) => {
+  const project = makeProject(t);
+  const remote = makeBareRemote(t);
+  sh(project, 'remote', 'add', 'origin', remote);
+  sh(project, 'push', '-q', '-u', 'origin', 'main');
+  commitFile(project, 'new.txt', 'pushed from phone\n', '手机上提交的一次');
+
+  const before = await call(gitApi.handleGitRepo, ctxFor(project), `/api/mobile/v1/git/repo${q({ workspaceId: 'w1' })}`);
+  assert.equal(before.body.ahead, 1);
+
+  const result = await call(gitApi.handleGitPush, ctxFor(project), '/api/mobile/v1/git/push', { workspaceId: 'w1' });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.branch, 'main');
+  assert.equal(result.body.ahead, 0);
+  assert.equal(sh(project, 'rev-parse', 'HEAD').trim(), execFileSync('git', ['--git-dir', remote, 'rev-parse', 'main'], { encoding: 'utf8' }).trim());
+});
+
+test('推送：远端有本地没有的提交时拒掉（REJECTED），并提示回电脑上拉', async (t) => {
+  const project = makeProject(t);
+  const remote = makeBareRemote(t);
+  sh(project, 'remote', 'add', 'origin', remote);
+  sh(project, 'push', '-q', '-u', 'origin', 'main');
+
+  // 另一台机器（另一个 clone）先推了一条上去。
+  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-git-other-clone-')));
+  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
+  sh(os.tmpdir(), 'clone', '-q', remote, other);
+  sh(other, 'checkout', '-q', '-B', 'main');
+  sh(other, 'config', 'user.email', 'dev@example.com');
+  sh(other, 'config', 'user.name', 'Dev');
+  commitFile(other, 'from-other.txt', 'other machine\n', '另一台机器的提交');
+  sh(other, 'push', '-q', 'origin', 'main');
+
+  commitFile(project, 'mine.txt', 'local\n', '本地新提交');
+  const result = await call(gitApi.handleGitPush, ctxFor(project), '/api/mobile/v1/git/push', { workspaceId: 'w1' });
+  assert.equal(result.status, 409);
+  assert.equal(result.body.error.code, 'REJECTED');
+});
+
+test('推送：远端地址不存在给 REMOTE_UNAVAILABLE（不把 git 的英文原样丢给手机）', async (t) => {
+  const project = makeProject(t);
+  const remote = makeBareRemote(t);
+  sh(project, 'remote', 'add', 'origin', remote);
+  sh(project, 'push', '-q', '-u', 'origin', 'main');
+  // 上游已经建好，再把地址改坏：模拟「远端没了 / 地址写错」。
+  sh(project, 'remote', 'set-url', 'origin', path.join(os.tmpdir(), 'dsh-no-such-remote'));
+  commitFile(project, 'x.txt', 'x\n', '再来一条');
+  const result = await call(gitApi.handleGitPush, ctxFor(project), '/api/mobile/v1/git/push', { workspaceId: 'w1' });
+  assert.equal(result.status, 502);
+  assert.equal(result.body.error.code, 'REMOTE_UNAVAILABLE');
+});
+
+// ── AI 写提交信息：只填框，不提交 ─────────────────────────────────────────
+
+/** 一个假的宿主 llm 服务：按给定的块序列流淌。 */
+function fakeLlm(chunks) {
+  return {
+    stream: () => (async function* () { for (const chunk of chunks) yield chunk; })(),
+  };
+}
+
+test('AI 提交信息：没暂存就拒，不白调一次模型', async (t) => {
+  const project = makeProject(t);
+  let called = 0;
+  const llm = { stream: () => { called += 1; return (async function* () {})(); } };
+  const result = await call(gitApi.handleGitCommitMessage, ctxFor(project, { llm }), '/api/mobile/v1/git/commit-message', {
+    workspaceId: 'w1', provider: 'deepseek-official', model: 'deepseek-chat',
+  });
+  assert.equal(result.status, 400);
+  assert.equal(result.body.error.code, 'NOTHING_STAGED');
+  assert.equal(called, 0);
+});
+
+test('AI 提交信息：模型的代码块 / 引号 / 句号被剥掉，只回一行', async (t) => {
+  const project = makeProject(t);
+  fs.writeFileSync(path.join(project, 'a.txt'), 'one\ntwo\nthree\nfour\n');
+  sh(project, 'add', 'a.txt');
+  const seen = [];
+  const llm = {
+    stream(request) {
+      seen.push(request);
+      return fakeLlm([
+        { type: 'text-delta', text: '```text\n' },
+        { type: 'text-delta', text: 'feat(git): 变更栏加一颗推送按钮。\n' },
+        { type: 'text-delta', text: '```' },
+        { type: 'finish', reason: { kind: 'done' } },
+      ]).stream(request);
+    },
+  };
+  const result = await call(gitApi.handleGitCommitMessage, ctxFor(project, { llm }), '/api/mobile/v1/git/commit-message', {
+    workspaceId: 'w1', provider: 'deepseek-official', model: 'deepseek-chat',
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.message, 'feat(git): 变更栏加一颗推送按钮');
+  // 提示词里带上了已暂存的文件名与 diff，且指定了模型的 provider / model。
+  assert.equal(seen[0].provider, 'deepseek-official');
+  assert.equal(seen[0].model, 'deepseek-chat');
+  assert.match(seen[0].messages[0].content[0].text, /a\.txt/);
+  assert.match(seen[0].messages[0].content[0].text, /\+four/);
+  assert.match(seen[0].system, /Conventional Commits/);
+});
+
+test('AI 提交信息：模型那边失败 / 没回话都给 LLM_FAILED，不把半截话填进框', async (t) => {
+  const project = makeProject(t);
+  fs.writeFileSync(path.join(project, 'a.txt'), 'x\n');
+  sh(project, 'add', 'a.txt');
+
+  const failed = {
+    stream: () => fakeLlm([{ type: 'finish', reason: { kind: 'error', failure: { message: '额度用完了' } } }]).stream(),
+  };
+  const first = await call(gitApi.handleGitCommitMessage, ctxFor(project, { llm: failed }), '/api/mobile/v1/git/commit-message', {
+    workspaceId: 'w1', provider: 'p', model: 'm',
+  });
+  assert.equal(first.status, 502);
+  assert.equal(first.body.error.code, 'LLM_FAILED');
+
+  const silent = { stream: () => fakeLlm([{ type: 'finish', reason: { kind: 'done' } }]).stream() };
+  const second = await call(gitApi.handleGitCommitMessage, ctxFor(project, { llm: silent }), '/api/mobile/v1/git/commit-message', {
+    workspaceId: 'w1', provider: 'p', model: 'm',
+  });
+  assert.equal(second.status, 502);
+  assert.equal(second.body.error.code, 'LLM_FAILED');
+});
+
+test('AI 提交信息：宿主机上没有模型服务给 LLM_UNAVAILABLE', async (t) => {
+  const project = makeProject(t);
+  fs.writeFileSync(path.join(project, 'a.txt'), 'y\n');
+  sh(project, 'add', 'a.txt');
+  const result = await call(gitApi.handleGitCommitMessage, ctxFor(project), '/api/mobile/v1/git/commit-message', {
+    workspaceId: 'w1', provider: 'p', model: 'm',
+  });
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error.code, 'LLM_UNAVAILABLE');
 });
