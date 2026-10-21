@@ -167,5 +167,8 @@ test('源码契约：会话列表读归档集合、工作区快照不再丢弃�
   assert.doesNotMatch(sessionsSrc, /const allSummaries = value\.items \|\| \[\];/);
   // 6054bb2 起快照多带 generatedAt/revision/emptyConfirmed，返回也改成多行，
   // 但 archivedSessionIds 仍须紧跟 items 一起返回（不能被新鲜度字段挤掉）。
-  assert.match(workspacesSrc, /return \{\s*ok: true,\s*items,\s*archivedSessionIds,/);
+  // 2026-10-22 起 items 先过 attachGitMarkers 挂 Git 仓库标记（回的是那份 marked），
+  // 断言跟着实现改，条件不变：归档集合必须和清单一起回。
+  assert.match(workspacesSrc, /const marked = await attachGitMarkers\(items,/);
+  assert.match(workspacesSrc, /return \{\s*ok: true,\s*items: marked,\s*archivedSessionIds,/);
 });

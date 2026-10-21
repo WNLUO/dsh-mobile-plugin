@@ -276,13 +276,13 @@ test('宿主没有 schedule 服务：四条都是 503 schedule-unavailable，不
     for (const [path, query] of cases) {
       const res = await host.get(path, query);
       assert.equal(res.status, 503, `${path} 在无 schedule 服务的宿主上应回 503`);
-      assert.deepEqual(res.body, { ok: false, code: 'schedule-unavailable', message: '宿主没有定时任务服务' });
+      assert.deepEqual(res.body, { ok: false, error: { code: 'schedule-unavailable', message: '宿主没有定时任务服务' } });
       assert.equal('records' in res.body, false, '不能回一个看起来像空列表的 200');
     }
     const del = await host.post(`${BASE}/delete`, { sessionId: 'session-a', id: 'schedule-weekly' });
     assert.equal(del.status, 503);
-    assert.equal(del.body.code, 'schedule-unavailable');
-    assert.deepEqual(del.body, { ok: false, code: 'schedule-unavailable', message: '宿主没有定时任务服务' });
+    assert.equal(del.body.error.code, 'schedule-unavailable');
+    assert.deepEqual(del.body, { ok: false, error: { code: 'schedule-unavailable', message: '宿主没有定时任务服务' } });
   });
 });
 
@@ -290,7 +290,7 @@ test('宿主调用抛错：502 + 原文；带已知码就透传那个码', async
   await withHost({ catalog: () => { throw new Error('宿主磁盘满了'); } }, async (host) => {
     const res = await host.get(`${BASE}/catalog`);
     assert.equal(res.status, 502);
-    assert.deepEqual(res.body, { ok: false, code: 'schedule_failed', message: '宿主磁盘满了' });
+    assert.deepEqual(res.body, { ok: false, error: { code: 'schedule_failed', message: '宿主磁盘满了' } });
   });
 
   await withHost({
@@ -300,15 +300,15 @@ test('宿主调用抛错：502 + 原文；带已知码就透传那个码', async
   }, async (host) => {
     const res = await host.get(`${BASE}/history`, '?sessionId=session-a&id=schedule-weekly');
     assert.equal(res.status, 502);
-    assert.equal(res.body.code, 'invalid_rule');
-    assert.equal(res.body.message, 'limit 不在 1–100');
+    assert.equal(res.body.error.code, 'invalid_rule');
+    assert.equal(res.body.error.message, 'limit 不在 1–100');
     assert.equal(res.body.ok, false);
   });
 
   await withHost({ delete: () => { throw new Error('写盘失败'); } }, async (host) => {
     const res = await host.post(`${BASE}/delete`, { sessionId: 'session-a', id: 'schedule-weekly' });
     assert.equal(res.status, 502);
-    assert.equal(res.body.message, '写盘失败');
+    assert.equal(res.body.error.message, '写盘失败');
   });
 });
 
@@ -321,12 +321,12 @@ test('缺参数与 limit 越界：400，且压根不往宿主发请求', async (
     ]) {
       const res = await host.get(path, query);
       assert.equal(res.status, 400, `${path}${query} 应回 400`);
-      assert.equal(res.body.code, 'invalid_selector');
+      assert.equal(res.body.error.code, 'invalid_selector');
     }
     for (const limit of ['0', '101', 'abc', '1.5', '-3', '']) {
       const res = await host.get(`${BASE}/history`, `?sessionId=session-a&id=schedule-weekly&limit=${encodeURIComponent(limit)}`);
       assert.equal(res.status, 400, `limit=${JSON.stringify(limit)} 应回 400`);
-      assert.equal(res.body.code, 'invalid_limit');
+      assert.equal(res.body.error.code, 'invalid_limit');
     }
     assert.equal(host.calls.list.length, 0, '参数不合法时不该去问宿主');
     assert.equal(host.calls.history.length, 0);
@@ -334,7 +334,7 @@ test('缺参数与 limit 越界：400，且压根不往宿主发请求', async (
     for (const body of [{}, { sessionId: 'session-a' }, { id: 'schedule-weekly' }]) {
       const res = await host.post(`${BASE}/delete`, body);
       assert.equal(res.status, 400);
-      assert.equal(res.body.code, 'invalid_selector');
+      assert.equal(res.body.error.code, 'invalid_selector');
     }
     assert.equal(host.calls.delete.length, 0);
 
@@ -352,14 +352,14 @@ test('history 的两类宿主结果码：任务不存在 404、游标失效 409'
     const res = await host.get(`${BASE}/history`, '?sessionId=session-a&id=schedule-weekly');
     assert.equal(res.status, 404);
     assert.equal(res.body.ok, false);
-    assert.equal(res.body.code, 'schedule_not_found');
+    assert.equal(res.body.error.code, 'schedule_not_found');
   });
 
   await withHost({ history: () => ({ id: 'schedule-weekly', code: 'delivery_cursor_not_found' }) }, async (host) => {
     const res = await host.get(`${BASE}/history`, '?sessionId=session-a&id=schedule-weekly&before=m-9');
     assert.equal(res.status, 409);
     assert.equal(res.body.ok, false);
-    assert.equal(res.body.code, 'delivery_cursor_not_found');
+    assert.equal(res.body.error.code, 'delivery_cursor_not_found');
   });
 });
 
@@ -404,12 +404,14 @@ test('收敛：可选字段坏了只丢字段，超长截断不丢整条', async
     }),
     { id: 'schedule-every', kind: 'every', title: '每小时', prompt: 'p', everySeconds: 0, sessionId: 'session-a', status: 'active' },
     { id: 'schedule-after', kind: 'after', title: '一分钟后', prompt: 'p', afterSeconds: '60', sessionId: 'session-a', status: 'active' },
+    // at 没有专有字段：宿主残留的 expression / time 不许顺手转发。
+    { id: 'schedule-at', kind: 'at', title: '到点一次', prompt: 'p', expression: '0 9 * * *', time: '09:00:00.000', sessionId: 'session-a', status: 'active' },
   ];
   await withHost({ catalog: () => rows }, async (host) => {
     const res = await host.get(`${BASE}/catalog`);
     assert.equal(res.status, 200);
-    assert.equal(res.body.records.length, 3, '可选字段坏掉不该连累整条');
-    const [first, every, after] = res.body.records;
+    assert.equal(res.body.records.length, 4, '可选字段坏掉不该连累整条');
+    const [first, every, after, at] = res.body.records;
     assert.equal('scheduledAt' in first, false, 'scheduledAt 不是字符串 → 只丢这个字段');
     assert.equal('weekdays' in first, false, 'weekdays 混字符串 → 只丢这个字段');
     assert.equal(first.timeZone.length, 64);
@@ -418,6 +420,11 @@ test('收敛：可选字段坏了只丢字段，超长截断不丢整条', async
     assert.equal('everySeconds' in every, false, 'everySeconds=0 不是正数');
     assert.equal('afterSeconds' in after, false, 'afterSeconds 是字符串不算数');
     assert.equal(after.kind, 'after');
+    assert.deepEqual(
+      Object.keys(at).sort(),
+      ['id', 'kind', 'prompt', 'sessionId', 'state', 'title'],
+      'at 只该有基础字段',
+    );
   });
 });
 
