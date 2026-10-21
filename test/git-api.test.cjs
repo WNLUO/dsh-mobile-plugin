@@ -461,7 +461,7 @@ function fakeLlm(chunks) {
   };
 }
 
-test('AI 提交信息：没暂存就拒，不白调一次模型', async (t) => {
+test('AI 提交信息：工作区干净就拒，不白调一次模型', async (t) => {
   const project = makeProject(t);
   let called = 0;
   const llm = { stream: () => { called += 1; return (async function* () {})(); } };
@@ -469,8 +469,33 @@ test('AI 提交信息：没暂存就拒，不白调一次模型', async (t) => {
     workspaceId: 'w1', provider: 'deepseek-official', model: 'deepseek-chat',
   });
   assert.equal(result.status, 400);
-  assert.equal(result.body.error.code, 'NOTHING_STAGED');
+  assert.equal(result.body.error.code, 'NOTHING_TO_COMMIT');
   assert.equal(called, 0);
+});
+
+test('AI 提交信息：只有未暂存 / 未跟踪的改动也能写（跟 VSCode 那颗一样）', async (t) => {
+  const project = makeProject(t);
+  fs.writeFileSync(path.join(project, 'a.txt'), 'one\ntwo\nthree\nfour\n');
+  fs.writeFileSync(path.join(project, 'brand-new.txt'), 'untracked\n');
+  const seen = [];
+  const llm = {
+    stream(request) {
+      seen.push(request);
+      return fakeLlm([
+        { type: 'text-delta', text: 'fix(git): 手上有未暂存的改动也要能写信息' },
+        { type: 'finish', reason: { kind: 'done' } },
+      ]).stream(request);
+    },
+  };
+  const result = await call(gitApi.handleGitCommitMessage, ctxFor(project, { llm }), '/api/mobile/v1/git/commit-message', {
+    workspaceId: 'w1', provider: 'p', model: 'm',
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.message, 'fix(git): 手上有未暂存的改动也要能写信息');
+  const prompt = seen[0].messages[0].content[0].text;
+  // 未跟踪文件只有名字，没有内容。
+  assert.match(prompt, /brand-new\.txt/);
+  assert.match(prompt, /\+four/);
 });
 
 test('AI 提交信息：模型的代码块 / 引号 / 句号被剥掉，只回一行', async (t) => {
@@ -533,4 +558,41 @@ test('AI 提交信息：宿主机上没有模型服务给 LLM_UNAVAILABLE', asyn
   });
   assert.equal(result.status, 503);
   assert.equal(result.body.error.code, 'LLM_UNAVAILABLE');
+});
+
+test('AI 提交信息：文件多时给全量清单 + 抽样 diff，答复里的要点行也保留', async (t) => {
+  const project = makeProject(t);
+  for (let index = 0; index < 12; index += 1) {
+    fs.writeFileSync(path.join(project, `f${index}.txt`), `line ${index}\n`);
+  }
+  sh(project, 'add', '-A');
+  const seen = [];
+  const llm = {
+    stream(request) {
+      seen.push(request);
+      return fakeLlm([
+        { type: 'text-delta', text: 'refactor(app): 把若干脚本拆成小文件\n' },
+        { type: 'text-delta', text: '- 脚本：按职责拆开\n' },
+        { type: 'text-delta', text: '• 测试：补上对应的断言。\n' },
+        { type: 'text-delta', text: '这一行是解释，不该留。\n' },
+        { type: 'text-delta', text: '- 第三行要点\n- 第四行要点\n- 第五行要点\n' },
+        { type: 'finish', reason: { kind: 'done' } },
+      ]).stream(request);
+    },
+  };
+  const result = await call(gitApi.handleGitCommitMessage, ctxFor(project, { llm }), '/api/mobile/v1/git/commit-message', {
+    workspaceId: 'w1', provider: 'p', model: 'm',
+  });
+  assert.equal(result.status, 200);
+  const lines = result.body.message.split('\n');
+  assert.equal(lines[0], 'refactor(app): 把若干脚本拆成小文件');
+  // 要点行最多四条，`•` 统一成 `- `，句末句号去掉。
+  assert.ok(lines.length <= 5, `要点最多四条，实际 ${lines.length - 1}`);
+  assert.ok(lines.slice(1).every((line) => line.startsWith('- ')));
+  assert.equal(lines[2], '- 测试：补上对应的断言');
+
+  const prompt = seen[0].messages[0].content[0].text;
+  assert.match(prompt, /一共 12 个文件/);
+  assert.match(prompt, /这只是抽样/);
+  assert.match(prompt, /f11\.txt/);
 });

@@ -84,6 +84,44 @@ test('已安装的工具包确实导出 ask_user_question 且注入 userQuestion
   assert.match(source, /inject\s*=\s*\[[^\]]*"userQuestions"/, '工具必须注入 userQuestions（问题面板那条 seam）')
 })
 
+/**
+ * `present` 是**同一类**坑，2026-10-22 补上：手机这份 preset 里一直缺这一行。
+ *
+ * 后果不是「交付卡丑一点」，而是**完全没有交付卡** —— 模型在手机上根本没有「把文件交给
+ * 用户」这个动作，只能写完文件什么也不说；App 那边就退化成「从 write/edit 反推」，于是
+ * 每改一次都冒一张卡、而用命令行改出来的一张都没有（用户就是这么报的）。
+ *
+ * 版本同样必须钉在运行时那一代：0.2.1 的 `present` 要 `dsh-agent 0.2.1-rc.2`，对不上时
+ * `dsh-app-boot` 会整行禁用，模型只会说「没有这个工具」。
+ */
+test('preset 的 standard 工具目录里挂上了 present 工具', () => {
+  const rows = readPresetRows(fs.readFileSync(PRESET, 'utf8'))
+  const row = rows.find((entry) => entry.name === '@deepseek-ai/dsh-tool-present')
+  assert.ok(row, `agent.cordis.yml 缺少 name: '@deepseek-ai/dsh-tool-present' 的行`)
+  assert.equal(row.id, 'tool-present', '该行的 id 应为 tool-present')
+  assert.equal(row.disabled, false, '该行不得被 disabled')
+})
+
+test('present 的依赖版本与 ask-user 钉在同一代运行时上', () => {
+  const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'))
+  const deps = manifest.dependencies || {}
+  const present = deps['@deepseek-ai/dsh-tool-present']
+  const ask = deps['@deepseek-ai/dsh-tool-ask-user']
+  assert.ok(present, 'package.json dependencies 缺少 @deepseek-ai/dsh-tool-present')
+  // 两条都按精确版本钉；同一代运行时下两者应一致 —— 一个 0.2.0 一个 0.2.1 时，
+  // 低的那一代会被兼容检查整行禁用，而现象只是「工具不见了」。
+  assert.equal(present, ask, `present(${present}) 与 ask-user(${ask}) 应钉在同一代运行时`)
+})
+
+test('已安装的 present 工具确实叫 present 且注入 sessionProjections', () => {
+  const entry = path.join(PACKAGE_DIR, 'node_modules', '@deepseek-ai', 'dsh-tool-present', 'lib', 'index.js')
+  assert.ok(fs.existsSync(entry), 'dsh-tool-present 未安装到 node_modules，宿主启动时会解析失败')
+  const source = fs.readFileSync(entry, 'utf8')
+  assert.match(source, /name:\s*"present"/, '工具名必须是 present')
+  assert.match(source, /inject\s*=\s*\[[^\]]*"sessionProjections"/, '它靠 sessionProjections 读 turnBoundary')
+  assert.match(source, /deliverables\/presented/, '成功落定后必须追加 deliverables/presented 事件')
+})
+
 test('插件的回答端点仍然存在（工具产出的 rpcId 要有地方回传）', () => {
   const index = readWiring()
   assert.match(index, /\/api\/mobile\/v1\/question\/respond/, '插件缺少 question/respond 路由')

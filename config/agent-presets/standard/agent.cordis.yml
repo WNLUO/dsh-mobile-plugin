@@ -171,3 +171,16 @@
   # disables the whole row — rather than degrade — when one does not match.
   - id: tool-ask-user
     name: '@deepseek-ai/dsh-tool-ask-user'
+  # `present` 是模型**显式声明交付文件**的那一行。桌面 `standard` preset 里一直有它
+  # （`@deepseek-ai/dsh-web-app/presets/standard.patch.yml`），手机这份漏了 —— 于是手机
+  # 上的模型完全没有「把文件交付给用户」这个动作，只能写完文件什么也不说；App 那边只好
+  # 拿 write/edit 成功去反推，结果「每改一次都冒一张卡、用命令行改的却一张都没有」。
+  #
+  # 它只做两件事：校验路径是会话文件系统里真实存在的普通文件，然后把
+  # `deliverables/presented` 事件追加进会话日志。卡片该不该出现，由**模型叫不叫这个工具**
+  # 决定，不由「有没有文件被改」决定 —— 这是桌面的口径。
+  #
+  # 版本必须钉在运行时那一代（当前 0.2.1-rc.2）：它的 peerDependencies 逐版本紧咬，
+  # 对不上时 `dsh-app-boot` 会**整行禁用**（不是降级），现象是模型说「没有这个工具」。
+  - id: tool-present
+    name: '@deepseek-ai/dsh-tool-present'

@@ -45,7 +45,8 @@
     "test": "node --test test/*.test.cjs && node test/lan-direct-e2e.cjs && node test/sidecar-facade.cjs"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-tool-ask-user": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-tool-ask-user": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tool-present": "0.2.1-rc.2",
     "qrcode": "1.5.4",
     "ws": "8.18.0"
   },
