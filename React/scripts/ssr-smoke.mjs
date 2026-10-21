@@ -49,7 +49,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -60,6 +60,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker] = await P
   server.ssrLoadModule('/src/components/JoinGroupButton.tsx'),
   server.ssrLoadModule('/src/components/ThemeToggle.tsx'),
   server.ssrLoadModule('/src/components/AddressPicker.tsx'),
+  server.ssrLoadModule('/src/components/InboxCard.tsx'),
 ])
 
 const noop = () => {}
@@ -165,6 +166,9 @@ const cases = [
   // （ssr-smoke 没有全局 fetch 打桩，见 `noop` 上面的说明）。
   ['UpdateCard', h(Upd.UpdateCard, { version: '0.1.47', busy: '', onRestartSidecar: noop }), '插件更新'],
   ['UpdateCard（正在重启 sidecar）', h(Upd.UpdateCard, { version: '0.1.47', busy: 'restart', onRestartSidecar: noop })],
+  // 收件文件卡：与 UpdateCard 同一个处境 —— 它先问 `/api/relay/inbox/status`，SSR 里
+  // effect 不跑，所以这一遍只冒烟「标题 + 正在读收件目录」那一屏。
+  ['InboxCard', h(Inbox.InboxCard), '收件文件'],
   ['RelayConfigDialog', h(Dialog.RelayConfigDialog, { open: true, onOpenChange: noop, status, busy: '', onSave: noop })],
   ['LanDialog', h(Lan.LanDialog, { open: true, onOpenChange: noop, status, lanUrls: pairing.lanUrls, addressBook, busy: '', onSave: noop, onSavePreferred: noop })],
   ['LanDialog（没地址）', h(Lan.LanDialog, { open: true, onOpenChange: noop, status: { ...status, lan: { ...status.lan, enabled: false, state: 'off', port: 0 } }, lanUrls: [], addressBook: null, busy: 'lan', onSave: noop, onSavePreferred: noop })],

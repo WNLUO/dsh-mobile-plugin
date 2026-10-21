@@ -17,6 +17,7 @@ import { LanDialog } from './components/LanDialog.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
+import { InboxCard } from './components/InboxCard.tsx'
 import {
   apiGet,
   apiPost,
@@ -269,6 +270,10 @@ export function App() {
             busy={busy}
             onRestartSidecar={() => void restartSidecar()}
           />
+
+          {/* 手机传上来的文件落在宿主的收件目录里，只在「删掉对话」时带不走它们 ——
+              这张卡是那个目录唯一的出口（见 components/InboxCard.tsx）。 */}
+          <InboxCard />
         </div>
 
         {/* 连接状态是只读的观察窗：挂在右侧，滚动时跟着走，不跟下面这些操作抢位置。
