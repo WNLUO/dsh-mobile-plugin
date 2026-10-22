@@ -258,6 +258,14 @@ test('/__lan_pair：原生全球 IPv6 来源被拒，IPv4 来源照旧配对', a
     assert.equal(grant.ok, true)
     assert.equal(grant.token, HOST_TOKEN)
     assert.match(grant.deviceCredential, /^dshc_/)
+    // 配对响应要带回宿主自己的直连候选：手输公网地址（域名 / 公网 IP）配对时没有二维码，
+    // 手机只记住那一个公网地址；回家后它若打不通（路由器不支持回环），这批候选是手机
+    // 找到内网地址的唯一来源。
+    assert.ok(Array.isArray(grant.lanUrls) && grant.lanUrls.length > 0, '配对响应要带回直连候选')
+    assert.ok(grant.lanUrls.every((url) => /^http:\/\/[^/]+:\d+$/.test(url)), `候选形状不对：${JSON.stringify(grant.lanUrls)}`)
+    if (grant.ipv6Candidates !== undefined) {
+      assert.ok(Array.isArray(grant.ipv6Candidates), 'IPv6 候选若给出必须是数组')
+    }
     assert.equal(approved.length, 1, 'IPv4 来源应照旧送达桌面端授权')
   } finally {
     proxy.stop()

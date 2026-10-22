@@ -52,16 +52,25 @@ function fakeReq(payload, ip = '10.0.0.1') {
   return req
 }
 
-function makeHandler({ policy = 'code' } = {}) {
+function makeHandler({ policy = 'code', lanEnabled = false, lan = [], v6 = [] } = {}) {
   const issued = []
-  const state = { instanceId: INSTANCE, pairingCode: CODE, lanSecret: SECRET, pairingPolicy: policy }
+  const state = { instanceId: INSTANCE, pairingCode: CODE, lanSecret: SECRET, pairingPolicy: policy, lanEnabled }
   const credentials = {
     issue(instanceId, device, token) {
       issued.push({ instanceId, device })
       return { deviceId: device.deviceId || 'dev-1', credential: 'dshc_test', expiresAt: 1 }
     },
   }
-  const handler = createPairHandler({ state, core, credentials, pairingApproval, log: (...a) => issues.push(a) })
+  const handler = createPairHandler({
+    state,
+    core,
+    credentials,
+    pairingApproval,
+    lanCandidates: () => lan,
+    ipv6Candidates: () => v6,
+    lanPort: () => 18787,
+    log: (...a) => issues.push(a),
+  })
   return { handler, issued }
 }
 
@@ -90,6 +99,33 @@ test('配对码正确时签发 token 与设备凭据', async () => {
   assert.equal(res.body.deviceId, 'dev-1')
   assert.equal(issued.length, 1, '凭据库应当被调用一次')
   assert.equal(issued[0].instanceId, INSTANCE)
+})
+
+test('配对响应带回宿主的直连候选（手输公网地址时手机靠它回家）', async () => {
+  resetPairLocks()
+  const lan = [{ url: 'http://192.168.31.5:18787', address: '192.168.31.5' }]
+  const v6 = [{ url: 'http://[240e::1]:18787', address: '240e::1' }]
+  const { handler } = makeHandler({ lanEnabled: true, lan, v6 })
+  const res = fakeRes()
+  await handler(fakeReq({ code: CODE, device: { deviceId: 'dev-1' } }), res)
+
+  assert.equal(res.status, 200)
+  // App 的 `doPair` 合并的就是这两个字段（见 app/src/services/pairApi.ts）：手输公网地址
+  // 配对没有二维码，配对响应是手机拿到内网地址的唯一机会；少了它，回家后公网地址打不通
+  // 就只能删设备重配。
+  assert.deepEqual(res.body.lanUrls, ['http://192.168.31.5:18787'])
+  assert.deepEqual(res.body.ipv6Candidates, ['http://[240e::1]:18787'])
+})
+
+test('关掉局域网直连时配对响应不带候选', async () => {
+  resetPairLocks()
+  const { handler } = makeHandler({ lanEnabled: false, lan: [{ url: 'http://192.168.31.5:18787' }] })
+  const res = fakeRes()
+  await handler(fakeReq({ code: CODE, device: { deviceId: 'dev-1' } }), res)
+
+  assert.equal(res.status, 200)
+  assert.equal(res.body.lanUrls, undefined)
+  assert.equal(res.body.ipv6Candidates, undefined)
 })
 
 test('配对码错误被拒，且不签发凭据', async () => {
