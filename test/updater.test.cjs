@@ -139,15 +139,14 @@ test('OPERATION_BUSY / AGENTS_RUNNING 这类失败标成可重试，不当故障
   assert.equal(outcome.failure.code, 'AGENTS_RUNNING');
 });
 
-test('自动更新开关落在 DSH_HOME 下，缺省必须是关', async () => {
+test('自动更新未设置时默认开启，显式关闭与坏配置仍不自动安装', async () => {
   const updater = await loadUpdater();
-  assert.equal(updater.autoUpdateEnabled(), false, '自动装东西这种事，缺省必须在用户这一侧');
+  assert.equal(updater.autoUpdateEnabled(), true, '未设置时自动安装正式版');
   assert.equal(updater.autoUpdateFilePath(), path.join(DSH_HOME, 'storages', 'mobile-plugin', 'auto-update.json'));
   assert.equal(updater.setAutoUpdate(true), true);
   assert.equal(updater.autoUpdateEnabled(), true);
   assert.equal(updater.setAutoUpdate(false), false);
-  assert.equal(updater.autoUpdateEnabled(), false);
-  // 读坏了也当关：宁可不动，也不要因为一个坏文件开始自动装。
+  assert.equal(updater.autoUpdateEnabled(), false, '用户明确关闭后保持关闭');
   fs.writeFileSync(updater.autoUpdateFilePath(), '{ 坏 json');
-  assert.equal(updater.autoUpdateEnabled(), false);
+  assert.equal(updater.autoUpdateEnabled(), false, '配置损坏时不自动安装');
 });

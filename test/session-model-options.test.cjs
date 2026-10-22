@@ -40,7 +40,11 @@ function contextOf(overrides = {}) {
       settings: {
         describe: async (request) => {
           calls.push(['describe', request]);
-          return overrides.describe ? overrides.describe(request) : { result: { ok: true, value: [NAMESPACE] } };
+          // 真实远程那层的形状是 SettingsDescribeValue{ writable, hasDocument, namespaces }；
+          // 只按「直接是数组」写会一辈子读不到（2026-10-23 现场：选项行不出现）。
+          return overrides.describe
+            ? overrides.describe(request)
+            : { result: { ok: true, value: { writable: true, hasDocument: true, namespaces: [NAMESPACE] } } };
         },
         mutate: async (request) => {
           calls.push(['mutate', request]);
@@ -94,8 +98,12 @@ test('readModelOptions：按 provider 找来源，读当前值；不相关的 pr
 });
 
 test('readModelOptions：设置读不到（插件没装）是空数组，不是故障', async () => {
-  const { ctx } = contextOf({ describe: () => ({ result: { ok: true, value: [] } }) });
+  const { ctx } = contextOf({ describe: () => ({ result: { ok: true, value: { writable: true, namespaces: [] } } }) });
   assert.deepEqual(await readModelOptions(ctx, 'openai-codex'), []);
+
+  // 宿主进程内那层直接回数组，也认。
+  const local = contextOf({ describe: () => ({ result: { ok: true, value: [NAMESPACE] } }) });
+  assert.equal((await readModelOptions(local.ctx, 'openai-codex')).length, 2);
 
   const failing = contextOf({ describe: () => ({ result: { ok: false, error: { code: 'host-unavailable', message: 'no' } } }) });
   assert.deepEqual(await readModelOptions(failing.ctx, 'openai-codex'), []);
