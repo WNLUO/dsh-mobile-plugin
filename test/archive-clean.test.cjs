@@ -16,7 +16,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { Readable } = require('node:stream');
 const { zstdCompressSync } = require('node:zlib');
-const { handleClearArchived } = require('../lib/mobile/archive-clean.js');
+const { handleClearArchived, CLEAR_ARCHIVED_COLLECT_BUDGET_MS } = require('../lib/mobile/archive-clean.js');
+const { DEFAULT_BUDGET_MS } = require('../lib/mobile/stats-collect.cjs');
+const ledger = require('../lib/mobile/stats-ledger.cjs');
 const { buildSessionsResponse } = require('../lib/mobile/sessions.js');
 const { sessionListResponseState, deletedSessionIdsOf } = require('../lib/mobile/session-cache.js');
 const {
@@ -384,4 +386,84 @@ test('启动收尾先删队里的日志、再擦归档集合', () => {
   assert.ok(pruneAt > sweepAt, '删日志要在擦归档集合之前');
   const install = source.slice(source.indexOf('function installSessionCleanup'));
   assert.match(install, /restoreQueuedArchivedClearIds\(ctx\)/, '装载时必须把队列补进删除集，否则插件一重载它们就复活');
+});
+
+test('清理前补采：归档会话的用量在排队删除前全部入账，且不读最后一句', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-archive-stats-'));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  ledger.forgetLedger();
+  try {
+    let historyReads = 0;
+    const archivedSessionIds = ['session-a', 'session-b', 'session-c'];
+    const items = archivedSessionIds.map((sessionId, index) => ({
+      sessionId,
+      title: `会话${index}`,
+      cwd: '/tmp/proj',
+      updatedAt: Date.now() - index * 1000,
+    }));
+    const ctx = {
+      state: {},
+      apiProxy: {
+        sessions: {
+          list: async () => ({ result: { ok: true, value: { items } } }),
+          projections: async (request) => {
+            const amount = { 'session-a': 10, 'session-b': 20, 'session-c': 30 }[request.payload.sessionId] || 0;
+            return {
+              result: {
+                ok: true,
+                value: {
+                  values: {
+                    tokenUsage: { uncachedInputTokens: amount, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 1 },
+                    sessionStats: { turns: 1, steps: 1, llmMs: 0, toolMs: 0 },
+                  },
+                },
+              },
+            };
+          },
+          // 补采跳过预览：这条一被调到就说明又把省下来的时间花在读日志上了。
+          history: async () => {
+            historyReads += 1;
+            return { result: { ok: true, value: { events: [] } } };
+          },
+        },
+        workspace: {
+          list: async () => ({
+            result: {
+              ok: true,
+              value: { archivedSessionIds, workspaces: [{ name: '项目', cwd: '/tmp/proj' }] },
+            },
+          }),
+        },
+      },
+    };
+    const req = makeReq({ confirm: true });
+    req.headers = {};
+    const res = makeRes();
+
+    await handleClearArchived(ctx, req, res);
+
+    assert.equal(res.status, 200);
+    assert.equal(historyReads, 0, '清理前补采不许读会话日志');
+    const book = ledger.readLedger();
+    assert.deepEqual(Object.keys(book.sessions).sort(), archivedSessionIds, '归档里的每一条都要入账');
+    assert.equal(book.sessions['session-a'].billed.uncachedInputTokens, 10);
+    assert.equal(book.sessions['session-b'].billed.uncachedInputTokens, 20);
+    assert.equal(book.sessions['session-c'].billed.uncachedInputTokens, 30);
+    assert.equal(book.sessions['session-a'].lastText, '', '跳过预览后首次见到的会话没有最后一句');
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+    ledger.forgetLedger();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('清理前补采的预算比统计页宽，且卡在 App 单发请求的 8 秒之内', () => {
+  assert.ok(CLEAR_ARCHIVED_COLLECT_BUDGET_MS > DEFAULT_BUDGET_MS, '删除不可恢复，不能沿用统计页的 1.5 秒');
+  assert.ok(CLEAR_ARCHIVED_COLLECT_BUDGET_MS < 8_000, '超过 App 单发请求预算就会被当成超时');
+
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'archive-clean.js'), 'utf8');
+  assert.match(source, /budgetMs: CLEAR_ARCHIVED_COLLECT_BUDGET_MS/);
+  assert.match(source, /skipPreview: true/);
 });

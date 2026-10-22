@@ -140,7 +140,7 @@ test('范围折算：7d 固定七列、补零、KPI 与活跃天数只算窗口�
   assert.equal(overview.kpi.activeMs, 700);
   assert.equal(overview.kpi.days, 1);
   assert.equal(overview.kpi.sessions, 1, '窗口外那条会话不上卡片');
-  assert.equal(overview.heatmap.length, 56, '热力图固定八周');
+  assert.equal(overview.heatmap.length, ledger.HEATMAP_DAYS, '热力图给满数据窗口，页面按宽度截');
 
   const all = ledger.summarize(book, 'all', now);
   assert.equal(all.kpi.sessions, 2, 'all 把老会话也带出来');
@@ -164,7 +164,7 @@ test('会话消失（归档后清理）之后历史数字还在，只标成已�
   assert.equal(sorted.sessions[1].gone, true);
 });
 
-test('会话卡片有上限，超出的从最老的裁掉；按天的账不受裁剪影响', () => {
+test('会话卡片有上限，超出的退场（不上卡但仍留水位）；按天的账不受裁剪影响', () => {
   const book = { version: 1, updatedAt: 0, days: {}, sessions: {}, composition: null };
   const baseAt = Date.UTC(2026, 9, 1);
   for (let index = 0; index < ledger.MAX_SESSIONS + 12; index += 1) {
@@ -173,13 +173,41 @@ test('会话卡片有上限，超出的从最老的裁掉；按天的账不受�
       at: baseAt + index * 60000,
       delta: usage({ uncachedInputTokens: 1 }),
     });
+    // 采集会把宿主累计值记成水位；这里手动补上，退场记录要留的就是它。
+    book.sessions[`s${index}`].watermark = usage({ uncachedInputTokens: 1 });
   }
   ledger.trim(book);
-  assert.equal(Object.keys(book.sessions).length, ledger.MAX_SESSIONS);
-  assert.ok(!book.sessions.s0, '最老的被裁掉');
-  assert.ok(book.sessions[`s${ledger.MAX_SESSIONS + 11}`], '最新的留着');
+  assert.equal(Object.keys(book.sessions).length, ledger.MAX_SESSIONS + 12, '记录一条都没删');
+  assert.equal(book.sessions.s0.retired, true, '最老的退场');
+  assert.ok(book.sessions.s0.watermark, '退场记录仍留水位');
+  assert.ok(!book.sessions[`s${ledger.MAX_SESSIONS + 11}`].retired, '最新的还在场上');
+  const overview = ledger.summarize(book, 'all', baseAt + 60 * 86400000);
+  assert.equal(overview.sessions.length, ledger.MAX_SESSIONS, '退场的不上卡片');
+  assert.ok(!overview.sessions.some((row) => row.sessionId === 's0'));
   const total = Object.values(book.days).reduce((sum, day) => sum + day.uncachedInputTokens, 0);
   assert.equal(total, ledger.MAX_SESSIONS + 12, '总量还在（裁剪只动卡片，不动账）');
+});
+
+test('退场的会话再活跃：只记增量，不把整段历史重记一遍', () => {
+  const book = { version: 1, updatedAt: 0, days: {}, sessions: {}, composition: null };
+  const baseAt = Date.UTC(2026, 9, 1);
+  for (let index = 0; index < ledger.MAX_SESSIONS + 5; index += 1) {
+    ledger.applyDelta(book, {
+      sessionId: `s${index}`,
+      at: baseAt + index * 60000,
+      delta: usage({ uncachedInputTokens: 1 }),
+    });
+    book.sessions[`s${index}`].watermark = usage({ uncachedInputTokens: 1 });
+  }
+  ledger.trim(book);
+  assert.equal(book.sessions.s0.retired, true);
+
+  // 水位 = 宿主累计（1）。它又跑了 9 个 token：增量只该多记 9。
+  const before = Object.values(book.days).reduce((sum, day) => sum + day.uncachedInputTokens, 0);
+  ledger.applyDelta(book, { sessionId: 's0', at: baseAt + 86400000, delta: usage({ uncachedInputTokens: 9 }) });
+  const after = Object.values(book.days).reduce((sum, day) => sum + day.uncachedInputTokens, 0);
+  assert.equal(after - before, 9, '只记这一次的增量');
+  assert.equal(book.sessions.s0.retired, false, '回到场上');
 });
 
 test('落盘再读回：结构一致，坏文件当空账本', async () => {
@@ -237,6 +265,24 @@ test('采集：60 秒内重复请求不再读投影', async () => {
     const afterFirst = reads;
     await collectStats(ctx, {});
     assert.equal(reads, afterFirst, '一分钟内的第二次采集不该再打宿主');
+  });
+});
+
+test('清理前补采（skipPreview）只读投影，不为卡片摘要读历史', async () => {
+  await withHome(async () => {
+    let historyReads = 0;
+    const items = [{ sessionId: 's1', title: 'x', updatedAt: Date.now() }];
+    const ctx = fakeCtx({ items, projectionsById: { s1: tokenProjection(33, 3) } });
+    ctx.apiProxy.sessions.history = () => {
+      historyReads += 1;
+      return { result: { ok: true, value: { events: [] } } };
+    };
+
+    const book = await collectStats(ctx, { force: true, skipPreview: true });
+
+    assert.equal(historyReads, 0, '清理前补采不许再读会话日志');
+    assert.equal(book.sessions.s1.billed.uncachedInputTokens, 33, '数字照常入账');
+    assert.equal(book.sessions.s1.lastText, '', '首次见到的会话没有最后一句');
   });
 });
 

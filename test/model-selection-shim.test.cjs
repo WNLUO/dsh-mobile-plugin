@@ -115,3 +115,26 @@ test('不带 sessionId 时不发 projections 请求', async () => {
   assert.equal(out.result.ok, true);
   assert.equal(calls.some((c) => c.method === 'projections'), false);
 });
+
+test('单独回一份全局默认：会话自己选过模型时 current 与 defaultModel 不同', async () => {
+  const { ctx } = makeCtx({
+    modelCatalogValue: CATALOG,
+    projectionValue: { asOfSeq: 1, values: { modelSelection: { next: { provider: 'p', model: 'session-model' } } } },
+  });
+  const out = await modelCatalog(ctx, { sessionId: 's-1' });
+
+  // current 是这个会话实际会用的；defaultModel 是宿主给新会话的默认 —— App 不能拿前者顶后者。
+  assert.deepEqual(out.result.value.current, { provider: 'p', model: 'session-model' });
+  assert.deepEqual(out.result.value.defaultModel, { provider: 'p', model: 'global-default', reasoningEffort: 'low' });
+});
+
+test('宿主没给默认模型时不下发 defaultModel（App 宁可显示「选择模型」也不猜）', async () => {
+  const { ctx } = makeCtx({
+    modelCatalogValue: { routableProviders: ['p'], groups: [] },
+    projectionValue: { asOfSeq: 1, values: { modelSelection: { next: { provider: 'p', model: 'session-model' } } } },
+  });
+  const out = await modelCatalog(ctx, { sessionId: 's-1' });
+
+  assert.deepEqual(out.result.value.current, { provider: 'p', model: 'session-model' });
+  assert.equal('defaultModel' in out.result.value, false);
+});

@@ -1,4 +1,12 @@
 'use strict'
+
+/**
+ * 流式增量合成的守卫：0.2.0 宿主把逐块增量挪进了 follow 流的 `assistant-stream` 通知
+ * （必须显式 `assistantStream: true` 才发），兼容桥要把它合成回 `assistant/chunk`；
+ * 另外**首帧 snapshot 里那份「正在跑的那一步」的压缩基线**也必须展开成增量帧 ——
+ * 中途进入会话的人只有这一份，开跑之前的实时帧宿主不补发。
+ */
+
 const assert = require('node:assert/strict')
 const { Readable } = require('node:stream')
 const { test } = require('node:test')
@@ -69,6 +77,53 @@ test('实时增量通知合成 assistant/chunk 事件（无 seq、带 turn/step�
   // 无 seq 是刻意的：合成事件没有持久化身份，不能参与客户端的序门/去重/续传水位。
   assert.equal(events.some((frame) => 'seq' in frame.payload.event), false, '合成增量带了 seq，客户端会把它当成真实事件水位');
   assert.equal(events.every((frame) => frame.payload.sessionId === SID), true);
+});
+
+test('中途进入会话：首帧基线里已生成的那一步要还原成增量帧（同一块合并、带 turn/step）', async () => {
+  // 宿主 follow 的第一帧带着「正在跑的那一步」的压缩基线；不接这一段，中途进来的人
+  // 前半段正文与 Think 明细就永远是空的（开跑之前的实时帧宿主不会补发）。
+  const { ctx } = makeCtx([
+    {
+      type: 'snapshot',
+      cursor: 12,
+      assistantStream: {
+        revision: 4,
+        activeAttempt: {
+          attemptId: 'a-1',
+          startedAfterSeq: 9,
+          turn: 3,
+          step: 2,
+          nextIndex: 8,
+          stream: [
+            { type: 'reasoning-chunks', index: 0, time0: 100, dt: [10, 10], texts: ['想', '一', '下'] },
+            { type: 'text-chunks', index: 1, time0: 200, dt: [5], texts: ['你', '好'] },
+            { type: 'chunk', time: 300, chunk: { type: 'block-start', index: 2, id: 'c-1', name: 'read' } },
+            { type: 'tool-call-chunks', index: 2, id: 'c-1', name: 'read', time0: 310, dt: [2], args: ['{"pa', 'th":1}'] },
+          ],
+        },
+      },
+    },
+    { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'a-1', revision: 5, index: 8, time: 400, chunk: { type: 'text-delta', index: 3, text: '实时' } } },
+  ]);
+
+  const events = eventFrames(await collect(muxFrames(ctx, { payload: { sessionId: SID } })));
+  const chunks = events.map((frame) => frame.payload.event.data);
+  assert.deepEqual(chunks.map((data) => data.chunk.type), ['reasoning-delta', 'text-delta', 'block-start', 'tool-call-delta', 'text-delta']);
+  // 同一块的连续 delta 合成一帧：几千帧逐字帧会把 App 的守门缓冲挤爆。
+  assert.equal(chunks[0].chunk.text, '想一下');
+  assert.equal(chunks[1].chunk.text, '你好');
+  assert.equal(chunks[2].chunk.index, 2);
+  assert.equal(chunks[3].chunk.argumentsDelta, '{"path":1}');
+  // 基线里的帧同样要带作用域，否则 App 不知道怎么把这段草稿归属到哪一步，
+  // 后续实时增量也与它对不上号。
+  assert.equal(chunks.every((data) => data.turn === 3 && data.step === 2), true);
+  assert.equal(chunks[4].chunk.text, '实时');
+  assert.equal(events.some((frame) => 'seq' in frame.payload.event), false);
+
+  // 没有 activeAttempt（空闲会话）时一帧都不发。
+  const idle = makeCtx([{ type: 'snapshot', cursor: 9, assistantStream: { revision: 3, activeAttempt: null } }]);
+  const idleEvents = eventFrames(await collect(muxFrames(idle.ctx, { payload: { sessionId: SID } })));
+  assert.equal(idleEvents.length, 0);
 });
 
 test('通知里的 chunk 一旦开始，事件流里同类型的 assistant/chunk 事件不再重复交付', async () => {

@@ -27,6 +27,8 @@
 
 const { after, before, test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
@@ -50,8 +52,15 @@ const STREAMING_ROUTES = new Set([
  * 网络与超时那一半由 `update-registry.test.cjs` 管。
  */
 let savedFetch = null;
+let savedHome = null;
 
 before(() => {
+  // 宿主家里有真账本（`mobile-stats.json`）：统计那条路由会把里面的会话标题 / 最后一句
+  // 原样回出去，而这台机器上正好有一条的正文就是「Cannot read property …」—— 下面那条
+  // 「不许回代码级错误」的判据直接把用户正文当成崩溃信息判红了。活体守卫只关心接线，
+  // 给它一个空家：跟 archive-clean 那套一样，测完还原。
+  savedHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-liveness-'));
   savedFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     if (!String(url).includes('/dsh-mobile-plugin/latest')) {
@@ -63,6 +72,8 @@ before(() => {
 
 after(() => {
   globalThis.fetch = savedFetch;
+  if (savedHome === undefined) delete process.env.DSH_HOME;
+  else process.env.DSH_HOME = savedHome;
 });
 
 /**

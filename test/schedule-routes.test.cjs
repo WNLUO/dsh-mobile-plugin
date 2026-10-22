@@ -194,30 +194,49 @@ test('catalog：手机形状（state 由 status 收敛），并带 serverNow', a
   });
 });
 
-test('list：裸记录补上请求里的 sessionId，state 恒为 active', async () => {
-  const bare = {
+test('list：从目录里筛出该会话的全部任务（active + inactive 都要）', async () => {
+  const every = {
     id: 'schedule-every',
+    sessionId: 'session-b',
+    status: 'active',
     kind: 'every',
     title: '每小时看一次构建',
     prompt: '看构建',
     scheduledAt: '2026-10-21T03:00:00.000Z',
     everySeconds: 3600,
   };
-  await withHost({ list: () => [bare] }, async (host) => {
+  // 一次性任务跑完就是 inactive：从前这条被宿主 list 挡掉，手机上等于「任务凭空没了」。
+  const done = {
+    id: 'schedule-once',
+    sessionId: 'session-b',
+    status: 'inactive',
+    kind: 'at',
+    title: '明早提醒我',
+    prompt: '提醒',
+    scheduledAt: '2026-10-20T01:00:00.000Z',
+  };
+  const other = {
+    id: 'schedule-other',
+    sessionId: 'session-a',
+    status: 'active',
+    kind: 'every',
+    title: '别的会话的任务',
+    prompt: '无关',
+    scheduledAt: '2026-10-21T03:00:00.000Z',
+    everySeconds: 600,
+  };
+  await withHost({ catalog: () => [every, done, other] }, async (host) => {
     const res = await host.get(`${BASE}/list`, '?sessionId=session-b');
     assert.equal(res.status, 200);
-    assert.deepEqual(host.calls.list, [{ sessionId: 'session-b' }]);
-    assert.equal(res.body.records.length, 1);
-    const record = res.body.records[0];
-    assert.equal(record.sessionId, 'session-b');
-    assert.equal(record.state, 'active');
-    assert.equal(record.everySeconds, 3600);
-    assert.deepEqual(
-      Object.keys(record).sort(),
-      ['everySeconds', 'id', 'kind', 'prompt', 'scheduledAt', 'sessionId', 'state', 'title'],
-    );
-    assert.equal('lastDelivery' in record, false);
-    assert.equal('status' in record, false);
+    assert.deepEqual(host.calls.list, [], '不再问宿主的 list（它只回还在跑的裸记录）');
+    assert.equal(host.calls.catalog, 1);
+    assert.deepEqual(res.body.records.map((r) => r.id).sort(), ['schedule-every', 'schedule-once']);
+    const byId = Object.fromEntries(res.body.records.map((r) => [r.id, r]));
+    assert.equal(byId['schedule-every'].state, 'active');
+    assert.equal(byId['schedule-once'].state, 'inactive', '已结束的必须如实标成 inactive');
+    assert.equal(byId['schedule-every'].everySeconds, 3600);
+    assert.equal('status' in byId['schedule-every'], false, 'status 不往手机端透');
+    assert.equal(typeof res.body.serverNow, 'number', '按会话看也要带宿主的钟');
   });
 });
 

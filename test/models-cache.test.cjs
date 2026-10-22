@@ -27,6 +27,7 @@ test('model catalog cache coalesces requests and keeps reasoning metadata safe',
   const pending = new Promise((resolve) => { release = resolve; });
   const value = {
     current: { provider: 'p', model: 'm', reasoningEffort: 'high' },
+    defaultModel: { provider: 'q', model: 'global-default', reasoningEffort: 'low', secret: 'must not escape' },
     routable: true,
     routableProviders: ['p', 'q', '', 42],
     revision: 7,
@@ -64,11 +65,24 @@ test('model catalog cache coalesces requests and keeps reasoning metadata safe',
   assert.equal(first.body.failures[0].secret, undefined);
   assert.equal(first.body.meta.source, 'host');
   assert.deepEqual(first.body.routableProviders, ['p', 'q']);
+  // 全局默认是给「新对话」显示用的，必须与会话自己的 current 分开带出去，且只留白名单字段。
+  assert.deepEqual(first.body.defaultModel, { provider: 'q', model: 'global-default', reasoningEffort: 'low' });
+  assert.equal(first.body.current.model, 'm');
 
   const cached = response();
   await handleModels(ctx, request(), cached);
   assert.equal(calls, 1);
   assert.equal(cached.body.groups[0].models[0].name, 'Model');
+  assert.deepEqual(cached.body.defaultModel, { provider: 'q', model: 'global-default', reasoningEffort: 'low' });
+});
+
+test('默认模型缺 provider 或 model 时整条丢掉，不留半截', async () => {
+  const value = { current: { provider: 'p', model: 'm' }, defaultModel: { provider: 'q' }, routable: true, groups: [] };
+  const ctx = { apiProxy: { sessions: { models: async () => ({ result: { ok: true, value } }) } } };
+  const out = response();
+  await handleModels(ctx, request(), out);
+  assert.equal('defaultModel' in out.body, false);
+  assert.equal(out.body.current.model, 'm');
 });
 
 test('fresh bypasses the 20s cache, coalesces concurrent fresh reads, and wins over older normal requests', async () => {

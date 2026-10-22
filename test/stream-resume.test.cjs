@@ -78,6 +78,7 @@ test('reconnect replays history after lastSeq then dedupes the mux boundary', as
   assert.deepEqual(seqs, [6, 7, 8, 9, undefined]);
   assert.equal(frames[0].type, 'assistant/message');
   assert.equal(frames.at(-1).type, 'session/resync-required');
+  assert.equal(frames.at(-1).final, true, '流正常收尾的 gap 帧必须带 final，App 才能立刻换连接重放');
 });
 
 test('reconnect with no resume point forwards only live frames', async () => {
@@ -130,4 +131,5 @@ test('signals an authoritative resync when replay history has a gap', async () =
   // lastSeq 重连重放，而不是把静默断流当正常状态（见 stream-liveness.test.cjs）。
   assert.deepEqual(frames.map((frame) => frame.seq ?? frame.type), [10, 11, 'session/resync-required', 12, 'session/resync-required']);
   assert.equal(frames[2].oldestSeq, 10);
+  assert.equal(frames[2].final, undefined, '回放缺口只补权威历史，不关流（否则会重连风暴）');
 });

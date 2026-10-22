@@ -154,6 +154,26 @@ test('软水位只丢增量，有 seq 的事件照常送出去', async () => {
   } finally { h.restore(); }
 });
 
+test('软水位不丢没有 seq 的控制帧（队列 / 任务 / gap）', async () => {
+  const h = harness();
+  const sessionId = 's-backpressure-controls';
+  const res = response({ socketBufferedBytes: 5 * 1024 * 1024 });
+  const ctl = muxOf([
+    { type: 'session/queue', sessionId, items: [{ id: 'q-1', text: 'queued' }] },
+    { type: 'session/jobs', sessionId, jobs: [{ id: 'j-1', status: 'running' }] },
+  ]);
+  try {
+    const pending = handleStream(ctxWith(ctl.mux), request(`/api/mobile/v1/session/stream?sessionId=${sessionId}`), res);
+    await flush();
+    const types = dataFrames(res.chunks).map((f) => f.type);
+    assert.ok(types.includes('session/queue'), '队列控制帧没有 seq，但丢了没有回放路径');
+    assert.ok(types.includes('session/jobs'), '任务控制帧同样不能按「无 seq」丢掉');
+    assert.equal(res.ended, false, '丢草稿不该把连接收掉');
+    ctl.release();
+    await pending;
+  } finally { h.restore(); }
+});
+
 test('写缓冲超过硬水位时收尾，让客户端带 lastSeq 重连补缺', async () => {
   const h = harness();
   const sessionId = 's-backpressure-close';

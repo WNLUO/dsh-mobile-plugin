@@ -92,6 +92,51 @@ test('子代理走同一条 session.history，只是 payload 带上父会话与�
   }
 });
 
+test('工具落定补丁取自整个窗口：游标越过结果 seq 也要回传', async () => {
+  const events = [
+    {
+      event: {
+        type: 'tool/result',
+        seq: 5,
+        data: {
+          message: {
+            source: { callId: 'call-old' },
+            content: [{ type: 'text', text: 'older result' }],
+          },
+        },
+      },
+    },
+    {
+      event: {
+        type: 'tool/result',
+        seq: 6,
+        data: {
+          error: { code: 'interrupted' },
+          message: {
+            isError: true,
+            source: { callId: 'call-stopped' },
+            content: [{ type: 'text', text: 'interrupted result' }],
+          },
+        },
+      },
+    },
+  ];
+  const host = await serve({ sessionsHistory: async () => okValue({ events, hasMore: false }) });
+  try {
+    // afterSeq=10 让这两条事件都落在增量窗口之外，但工具卡仍需被补成最终态。
+    const response = await fetch(host.url('?sessionId=root-1&afterSeq=10'));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.items, [], '窗口内没有消息行');
+    assert.deepEqual(body.toolResults, [
+      { callId: 'call-old', state: 'ok', output: 'older result' },
+      { callId: 'call-stopped', state: 'stopped', output: 'interrupted result' },
+    ]);
+  } finally {
+    await host.close();
+  }
+});
+
 test('不完整或未知模式的子代理地址在本地拒绝', async () => {
   const host = await serve();
   try {
