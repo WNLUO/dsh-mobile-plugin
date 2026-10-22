@@ -88,6 +88,46 @@ test('宿主没报版本 / 盘上没有版本号：都不许当成功', async ()
   assert.equal(noDisk.ok, false);
 });
 
+test('整包装上去了，但 profile 的声明还指着旧的一份：不算成功（重启就退回旧版）', async () => {
+  const { verifyReload } = await load();
+  const verdict = verifyReload({
+    repoVersion: '0.1.97',
+    diskVersion: '0.1.97',
+    runningVersion: '0.1.97',
+    lastError: null,
+    declaredSpec: 'file:dsh-mobile-plugin-0.1.93.tgz',
+    expectedSpec: 'file:dsh-mobile-plugin-dev-1792710000000.tgz',
+  });
+  assert.equal(verdict.ok, false);
+  const text = verdict.failures.join('\n');
+  // 变异证明：删掉这条判据，本用例立刻变红（那时会 ok 且 failures 为空）。
+  assert.match(text, /重启会退回旧的一份/);
+
+  const aligned = verifyReload({
+    repoVersion: '0.1.97',
+    diskVersion: '0.1.97',
+    runningVersion: '0.1.97',
+    lastError: null,
+    declaredSpec: 'file:dsh-mobile-plugin-dev-1792710000000.tgz',
+    expectedSpec: 'file:dsh-mobile-plugin-dev-1792710000000.tgz',
+  });
+  assert.equal(aligned.ok, true, '声明指对了就过');
+});
+
+test('--only 那条快路不落安装声明：不拿这条判据卡它', async () => {
+  const { verifyReload } = await load();
+  const verdict = verifyReload({
+    repoVersion: '0.1.97',
+    diskVersion: '0.1.93',
+    runningVersion: '0.1.93',
+    lastError: null,
+    partial: true,
+    declaredSpec: 'file:dsh-mobile-plugin-0.1.93.tgz',
+    expectedSpec: null,
+  });
+  assert.equal(verdict.ok, true);
+});
+
 test('开跑前那几行：盘上还是声明的冻结安装包时，直接说成「被重装打回过」', async () => {
   const { describeDrift } = await load();
 
@@ -99,7 +139,7 @@ test('开跑前那几行：盘上还是声明的冻结安装包时，直接说�
   const normal = describeDrift({ repoVersion: '0.1.97', diskVersion: '0.1.97', installVersion: '0.1.93' });
   assert.equal(normal.length, 1, '盘上与仓库一致时不该再解释一遍为什么是旧的');
 
-  // 声明的安装包读不到（npm / link 装法）也要照实说「这次会修成仓库这一份」，不许静默。
+  // 声明的安装包读不到（npm / link 装法）也要照实说「这次会装成仓库这一份」，不许静默。
   const npmInstalled = describeDrift({ repoVersion: '0.1.97', diskVersion: '0.1.94', installVersion: null });
-  assert.match(npmInstalled.join('\n'), /盘上修成仓库这一份/);
+  assert.match(npmInstalled.join('\n'), /装成仓库这一份/);
 });

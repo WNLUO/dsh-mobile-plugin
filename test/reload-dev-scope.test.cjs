@@ -1,20 +1,22 @@
 'use strict';
 
 /**
- * 守卫：开发机同步脚本（`scripts/reload-dev.mjs`）到底把哪些文件搬进 profile。
+ * 守卫：开发机同步脚本（`scripts/reload-dev.mjs`）到底把哪些文件装进 profile。
  *
- * 起因：这个脚本原来只收 `lib/` 下的 js/cjs/mjs，于是**面板产物**（`lib/panel/index.html`）、
- * `lib` 各子目录里的 `package.json`（那几个目录的 `"type": "commonjs"` 声明）、
- * `config/agent-presets` 的 preset、`cordis.mobile-host.yml`、`host.js`、内联的凭据包全都
- * 推不过去。改完这些再跑一次同步，界面一点变化都没有，而脚本还报「已就地重新装载」——
- * 2026-10-20 之前它就是这副样子。
+ * 起因有两层。第一层（2026-10-20）：脚本原来只收 `lib/` 下的 js/cjs/mjs，于是**面板产物**
+ * （`lib/panel/index.html`）、`lib` 各子目录里的 `package.json`（那几个目录的 `"type":
+ * "commonjs"` 声明）、`config/agent-presets` 的 preset、`cordis.mobile-host.yml`、`host.js`、
+ * 内联的凭据包全都推不过去，改完这些再跑一次同步界面一点变化都没有，而脚本还报「已就地
+ * 重新装载」。第二层（2026-10-23）：装进去的东西**不是 profile 声明的产物**，重启 DSH 时
+ * 宿主按声明重装一遍，装回来的又是旧快照 —— 表现是「热重载过了，重启又是旧版」。
  *
- * 这里钉两端：
- *   1. **该同步的一个都不能漏**：上列每一类各派一个代表，必须出现在同步清单里；
- *   2. **不该进 profile 的一个都不能进**：`React/` 构建源码、`test/`、`scripts/`、依赖、
- *      tgz 与 pnpm 锁文件。
- *
- * 判据是脚本自己导出的那张表，不是重新抄一份规则 —— 抄一份等于把这份守卫变成第二份实现。
+ * 现在默认那条路的判据是**包自己的 `files` 白名单**（`npm pack --dry-run` 说了算），所以
+ * 这里钉三件事：
+ *   1. 包清单必须收住运行时要读的每一类文件（实现、面板产物、子目录声明、preset、yml、
+ *      凭据库、`host.js`）；
+ *   2. 包清单必须排掉构建源码、测试、脚本、依赖、tgz 与锁文件；
+ *   3. 脚本必须真的走「打包 + 依赖声明改写 + 运行时 pnpm install」这套动作，不能悄悄退回
+ *      逐文件拷贝 —— 退回就又是那个重启就回退的 bug。
  *
  * 运行：node --test test/reload-dev-scope.test.cjs
  */
@@ -23,56 +25,38 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const { execFileSync } = require('node:child_process');
+const os = require('node:os');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(PLUGIN_ROOT, 'scripts', 'reload-dev.mjs');
 
-/** 脚本是 ESM、且只在跑 `main()` 时才有副作用；读源码取那张表比 import 它更稳。 */
+/** 脚本是 ESM、且只在跑 `main()` 时才有副作用；读源码取常量比 import 它更稳。 */
 const source = fs.readFileSync(SCRIPT, 'utf8');
 
-/** 从源码里取出排除表（三个常量），按脚本自己的写法解析。 */
-function readExcludedDirs() {
-  const match = source.match(/const EXCLUDED_DIRS = new Set\(\[([^\]]*)\]\)/);
-  assert.ok(match, '脚本里找不到 EXCLUDED_DIRS：排除表是本守卫的判据，改名字要同步改这里');
-  return [...match[1].matchAll(/'([^']+)'/g)].map(item => item[1]);
+/** 包清单：直接问 npm，别在这里再抄一份 `files` 规则（抄一份就是第二份实现）。 */
+function packedFiles() {
+  const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], {
+    cwd: PLUGIN_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const parsed = JSON.parse(raw);
+  const list = Array.isArray(parsed) ? parsed[0]?.files : parsed?.files;
+  assert.ok(Array.isArray(list), 'npm pack --dry-run --json 没给出文件清单');
+  return list.map(item => item.path);
 }
 
-const EXCLUDED_DIRS = readExcludedDirs();
-
-/**
- * 把脚本的排除规则在**这份真实包目录**上跑一遍，得到「会同步哪些文件」。
- *
- * 直接调脚本的 `collectSourceFiles` 更短，但它是模块内部的私有函数、没有导出；为了不让
- * 这份守卫反过来逼脚本导出一个只给测试用的口子，这里照同一套规则走一遍，并用两端断言
- * 把「规则本身」钉住（漏改一处就会红）。
- */
-function collect(dir, prefix = '') {
-  const out = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const rel = prefix ? path.posix.join(prefix, entry.name) : entry.name;
-    if (entry.isDirectory()) {
-      if (EXCLUDED_DIRS.includes(entry.name)) continue;
-      out.push(...collect(path.join(dir, entry.name), rel));
-    } else {
-      if (entry.name === '.gitignore' || entry.name === 'LICENSE' || entry.name === 'pnpm-lock.yaml') continue;
-      if (entry.name.endsWith('.tgz') || entry.name.endsWith('.log') || entry.name.endsWith('.DS_Store')) continue;
-      out.push(rel);
-    }
-  }
-  return out;
-}
-
-const FILES = collect(PLUGIN_ROOT);
+const FILES = packedFiles();
 const has = rel => FILES.includes(rel);
 
-test('脚本的排除表不含 lib/ —— 实现、面板产物与子目录声明都要同步', () => {
-  assert.deepEqual(EXCLUDED_DIRS.filter(dir => dir.startsWith('lib')), [], 'lib/ 不能被整目录排除');
+test('包清单收住了实现、面板产物与子目录声明', () => {
   for (const rel of ['lib/impl.js', 'lib/panel/index.html', 'lib/routes/package.json']) {
-    assert.ok(has(rel), `${rel} 必须进同步清单`);
+    assert.ok(has(rel), `${rel} 必须在包里`);
   }
 });
 
-test('宿主启动时要读的那些非 js 文件也要同步（缺了就是「改了没生效」）', () => {
+test('宿主运行时要读的那些非 js 文件也在包里（缺了就是「改了没生效」）', () => {
   for (const rel of [
     'cordis.patch.yml',
     'cordis.mobile-host.yml',
@@ -83,20 +67,76 @@ test('宿主启动时要读的那些非 js 文件也要同步（缺了就是「�
     'dsh-mobile-credentials/lib/credentials.js',
     'dsh-mobile-credentials/package.json',
   ]) {
-    assert.ok(has(rel), `${rel} 必须进同步清单`);
+    assert.ok(has(rel), `${rel} 必须在包里`);
   }
 });
 
-test('构建源码、测试、脚本、依赖与打包产物不进 profile', () => {
+test('构建源码、测试、脚本、依赖与打包产物不进包', () => {
   assert.ok(!FILES.some(rel => rel.startsWith('React/')), 'React/ 是构建源码，不随实现走');
-  assert.ok(!FILES.some(rel => rel.startsWith('test/')), 'test/ 不进 profile');
-  assert.ok(!FILES.some(rel => rel.startsWith('scripts/')), 'scripts/ 不进 profile');
-  assert.ok(!FILES.some(rel => rel.includes('node_modules')), '依赖不进 profile');
-  assert.ok(!FILES.some(rel => rel.endsWith('.tgz')), '打包产物不进 profile');
+  assert.ok(!FILES.some(rel => rel.startsWith('test/')), 'test/ 不进包');
+  assert.ok(!FILES.some(rel => rel.startsWith('scripts/')), 'scripts/ 不进包');
+  assert.ok(!FILES.some(rel => rel.includes('node_modules')), '依赖不进包');
+  assert.ok(!FILES.some(rel => rel.endsWith('.tgz')), '打包产物不进包');
   assert.ok(!has('pnpm-lock.yaml'), 'profile 有自己的锁文件，别覆盖它');
 });
 
-test('同步清单里不存在会覆盖 profile 关键文件的意外路径', () => {
+test('包清单里不存在会跳出包根的意外路径', () => {
   const dangerous = FILES.filter(rel => rel.startsWith('..') || path.isAbsolute(rel));
-  assert.deepEqual(dangerous, [], '同步清单里不许出现跳出包根的路径');
+  assert.deepEqual(dangerous, [], '包清单里不许出现跳出包根的路径');
+});
+
+test('默认那条路必须走打包 + 改依赖声明 + 运行时 pnpm 安装', () => {
+  // 这三样缺一条，重启就会退回旧快照：只拷文件 → 安装不是声明的产物；不打进 profile →
+  // 安装读不到那一份；不用运行时 pnpm → 布局与锁文件格式对不上。
+  assert.match(source, /execFileSync\('npm', \['pack', '--pack-destination'/, '默认路要真的打包');
+  assert.match(source, /pointDeclarationAt/, '默认路要把依赖声明指到刚打出来的那一份');
+  assert.match(source, /'install', '--no-frozen-lockfile'/, '默认路要用 pnpm 更新锁文件后安装');
+  assert.match(source, /runtimePnpm\(\)/, '默认路要用运行时自带那个 pnpm');
+  assert.match(source, /reload-implementation/, '两条路都要触发就地重载');
+});
+
+test('--only 只收包白名单里的路径：构建源码 / 测试 / 包外的东西当场拒掉', () => {
+  // 真的跑一次脚本（对着一个临时 DSH_HOME 里的假 profile），断言的是一条真实行为：
+  // 不在包白名单里的路径（这里是 React 构建源码）必须以非零退出，且把原因说出来。
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-reload-scope-'));
+  const profile = path.join(home, 'profiles', 'desktop');
+  const target = path.join(profile, 'node_modules', 'dsh-mobile-plugin');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.cpSync(PLUGIN_ROOT, target, {
+    recursive: true,
+    filter: source => !source.includes(`${path.sep}node_modules`),
+  });
+  fs.writeFileSync(
+    path.join(profile, 'package.json'),
+    `${JSON.stringify({ name: 'dsh-profile-desktop', dependencies: { 'dsh-mobile-plugin': 'file:dsh-mobile-plugin-0.0.0.tgz' } }, null, 2)}\n`,
+  );
+
+  const runScript = extra => {
+    try {
+      const stdout = execFileSync(process.execPath, [SCRIPT, ...extra], {
+        cwd: PLUGIN_ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, DSH_HOME: home },
+      });
+      return { code: 0, out: stdout };
+    } catch (error) {
+      return { code: error.status ?? 1, out: `${error.stdout ?? ''}${error.stderr ?? ''}` };
+    }
+  };
+
+  try {
+    const outside = runScript(['--only', 'React/src/demo/host.ts', '--dry-run']);
+    assert.notEqual(outside.code, 0, 'React/ 里的文件不在包白名单里，必须拒掉');
+    assert.match(outside.out, /白名单/, '拒掉时要说明原因（不在包白名单里）');
+
+    const missing = runScript(['--only', 'lib/pack-excludes-me.js', '--dry-run']);
+    assert.notEqual(missing.code, 0, '仓库里没有的路径必须拒掉');
+    assert.match(missing.out, /仓库里没有这个文件/);
+
+    const inside = runScript(['--only', 'lib/impl.js', '--dry-run']);
+    assert.equal(inside.code, 0, '包里有的文件要能走这条快路');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

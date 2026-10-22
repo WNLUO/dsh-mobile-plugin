@@ -1,18 +1,23 @@
 #!/usr/bin/env node
 /**
- * 开发机：把仓库里的插件改动同步进 profile 那一份，再让它**就地重新装载**（不重启 DSH）。
+ * 开发机：把仓库里的插件改动**装进 profile**，再让它**就地重新装载**（不重启 DSH）。
  *
- * ## 为什么需要它
+ * ## 为什么是「打包 + 正规安装」而不是「拷文件」
  *
  * 宿主加载的是 profile 里装着的那一份（见 docs/dev-map-parts/03-plugin.md 的 A3-42），
- * 不是仓库源码。改完仓库必须做两件事才看得见效果：
+ * 而 profile 的依赖声明写的是一个 `file:` 指向的 tgz。以前这里把仓库文件逐份拷进
+ * `<profile>/node_modules/dsh-mobile-plugin/`：文件确实换了、就地重载也确实生效，但
+ * **那份安装不是 profile 声明的产物**。重启 DSH 时宿主按 `package.json` + `pnpm-lock.yaml`
+ * 重跑一遍安装，装回来的又是声明里那个冻结的旧 tgz —— 表现就是「热重载过了，重启又是旧版」
+ * （2026-10-23 用户报的正是这个）。
  *
- *   1. 把改动的文件拷进 `<profile>/node_modules/dsh-mobile-plugin/`（realpath，pnpm 的
- *      store 目录）；
- *   2. 让外壳把这一代重新装一遍 —— `POST /api/relay/reload-implementation`。
+ * 所以默认这条路把两件事合成一件：`npm pack` 出当前仓库的包 → 放进 profile → 把 profile
+ * 的依赖声明与锁文件都指到它 → 用**运行时自带的那个 pnpm** 装一遍 → 就地重载。装完盘上那份
+ * 就是声明的那一份，重启装出来的必然也是它。
  *
- * 第 2 步以前没有：外壳的换代码判据是「版本身份变了没有」，而开发机改的是**同一个目录
- * 里的文件**，身份一点没变，于是触发多少次都是旧代码，只能重启 DSH。
+ * 路径不会变：本机 profile 是 hoisted 布局，`node_modules/dsh-mobile-plugin` 是实体目录，
+ * 重装前后 `realpath` 一致，所以**装完仍然就地重载，不用重启**（换装法那种「新目录 = 新
+ * realpath」才要重启一次，这里不是）。
  *
  * ## 它能做到什么、做不到什么
  *
@@ -20,20 +25,17 @@
  * 也就是日常改动的几乎全部。
  *
  * 换不掉：**外壳自己**（`lib/index.js` + `lib/shell/*`）。它们在进程启动时被 Node 缓存，
- * 换掉它们只能重启。脚本会把这两种情况分开报：只动了实现 = 已生效；连外壳一起动了 =
- * 实现生效、外壳那部分仍要重启一次。
+ * 换掉它们只能重启。脚本会把这两种情况分开报。
  *
  * ## 用法
  *
- *   node dsh-mobile-plugin/scripts/reload-dev.mjs                       # 同步整个包 + 重载
- *   node dsh-mobile-plugin/scripts/reload-dev.mjs --only lib/routes/x.js # 只同步这几个
- *   node dsh-mobile-plugin/scripts/reload-dev.mjs --dry-run             # 只看会拷哪些文件
+ *   node dsh-mobile-plugin/scripts/reload-dev.mjs                       # 打包 + 安装 + 重载
+ *   node dsh-mobile-plugin/scripts/reload-dev.mjs --dry-run             # 只说会做什么
+ *   node dsh-mobile-plugin/scripts/reload-dev.mjs --only lib/routes/x.js # 只推这几个文件
  *   node dsh-mobile-plugin/scripts/reload-dev.mjs --port 52772
  *
- * ⚠ 默认会把包内**所有**与盘上不同的文件都拷过去（面板产物、preset、yml、内联凭据库都算，
- * 只有 `React/` 构建源码、`test/`、`scripts/`、依赖与 tgz 不进 profile）。仓库里同时可能有
- * 别的对话没做完的改动，所以默认行为适合「这一份仓库就是我想跑的样子」；只想推自己改的那
- * 几个文件时用 `--only`（可重复）。
+ * `--only` 是「仓库里有别的对话没做完的改动，我只要自己这几个」时的快路：它只拷这几个文件，
+ * **不落进安装声明**，重启会退回声明里那一份。要让重启也保留，跑一次不带 `--only` 的。
  *
  * 端口默认自己找：扫本机监听端口，挑那个答得出 `/api/relay/status` 的宿主。
  */
@@ -47,6 +49,11 @@ import { describeDrift, verifyReload } from './lib/reload-verdict.mjs'
 
 const PLUGIN_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const PLUGIN_PKG = 'dsh-mobile-plugin'
+/** 开发包名带时间戳：保证每次装的是「刚打出来这一份」，而不是 pnpm 认出来的同名旧包。 */
+const DEV_TARBALL_PREFIX = `${PLUGIN_PKG}-dev-`
+/** profile 里留几份开发包与几份安装目录备份：回滚只要最近那几份。 */
+const DEV_TARBALL_KEEP = 2
+const DEV_BACKUP_KEEP = 3
 
 const args = process.argv.slice(2)
 const hasFlag = name => args.includes(`--${name}`)
@@ -60,6 +67,7 @@ const onlyFiles = () => args.reduce((out, item, index) => {
   return out
 }, [])
 const DRY_RUN = hasFlag('dry-run')
+const PARTIAL = onlyFiles().length > 0
 
 const say = message => process.stdout.write(`${message}\n`)
 const warn = message => process.stderr.write(`${message}\n`)
@@ -79,29 +87,39 @@ function profileName() {
   return process.env.DSH_PROFILE || flagValue('profile') || 'desktop'
 }
 
+/** profile 根目录：读它的依赖声明，也把开发包放进去。 */
+function profileDir() {
+  return path.join(dshHome(), 'profiles', profileName())
+}
+
+/** profile 的 `node_modules/<插件>`：实体目录或链接都指到这里。 */
+function installedLink() {
+  return path.join(profileDir(), 'node_modules', PLUGIN_PKG)
+}
+
 /**
  * profile 里装着的那一份的**真实路径**。
  *
- * 必须走 realpath：pnpm 把包放在 store 里，`node_modules/dsh-mobile-plugin` 只是链接，
- * 而外壳装载与 CJS 缓存都按真实路径算（见 lib/shell/manager.js 的 installedPackageDir）。
- * 往链接那一层拷，改的是一份没人在读的影子。
+ * 必须走 realpath：pnpm 可能把包放在 store 里、`node_modules/<插件>` 只是个链接，而外壳装载
+ * 与 CJS 缓存都按真实路径算（见 lib/shell/manager.js 的 installedPackageDir）。往链接那一层
+ * 拷，改的是一份没人在读的影子。
  */
 function installedDir() {
-  const link = path.join(dshHome(), 'profiles', profileName(), 'node_modules', PLUGIN_PKG)
   try {
-    return fs.realpathSync(link)
+    return fs.realpathSync(installedLink())
   } catch {
     return null
   }
 }
 
-/** profile 根目录：读它的依赖声明，用来解释「盘上为什么是旧的那一版」。 */
-function profileDir() {
-  return path.join(dshHome(), 'profiles', profileName())
+/** 运行时自带的 pnpm：profile 的依赖布局就是它装出来的，别换成系统里那个。 */
+function runtimePnpm() {
+  return path.join(dshHome(), 'dsh-runtimes', 'dsh-primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.cjs')
 }
 
 /** 读某个目录里那份 package.json 的版本号，读不到回 null。 */
 function packageVersion(dir) {
+  if (!dir) return null
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))?.version ?? null
   } catch {
@@ -109,54 +127,67 @@ function packageVersion(dir) {
   }
 }
 
-/**
- * profile 的依赖声明里那个**冻结的安装包**是什么版本。
- *
- * 开发机装的是 `file:` 指向某个 tgz（本机是 `dsh-mobile-plugin-0.1.93.tgz`）。盘上那份一旦
- * 等于它、又不等于仓库，就说明这份开发版已经被某次重装打回安装包里的内容 —— 判据取
- * 声明本身，不去猜构建产物。
- */
-function installSpecVersion() {
+/** profile 的依赖声明原文（`file:` 那种 spec）。 */
+function declaredSpec() {
   try {
     const raw = JSON.parse(fs.readFileSync(path.join(profileDir(), 'package.json'), 'utf8'))
-    const spec = String(raw?.dependencies?.[PLUGIN_PKG] ?? '')
-    const match = /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\.tgz$/i.exec(spec)
-    return match ? match[1] : null
+    return String(raw?.dependencies?.[PLUGIN_PKG] ?? '')
   } catch {
-    return null
+    return ''
   }
 }
 
 /**
- * 仓库里要同步的那批文件（相对包根）。
+ * profile 的依赖声明里那个**冻结的安装包**是什么版本。
  *
- * **整个包的内容都同步，不只是 js**：2026-10-20 之前这里只收 js/cjs/mjs，于是
- * 面板产物（`lib/panel/index.html`）、`lib` 各子目录里那几份 `package.json`（CJS 声明）、
- * `config/agent-presets` 的 preset、`cordis.mobile-host.yml`、`host.js`、内联的凭据包全都
- * 推不过去 —— 改完这些再跑一次同步，界面上一点变化都没有，而脚本还报「已就地重新装载」。
- * 要的是「仓库这一份原样搬过去」，所以按排除法收：只跳过那些**不该进 profile**的东西
- * （构建源码、测试、脚本、依赖、打包出的 tgz），其余一律同步。
- *
- * 由 `test/reload-dev-scope.test.cjs` 钉住这张表的两端。
+ * 盘上那份一旦等于它、又不等于仓库，就说明这份开发版已经被某次重装打回安装包里的内容 ——
+ * 判据取声明本身，不去猜构建产物。
  */
-const EXCLUDED_DIRS = new Set(['node_modules', 'React', 'test', 'scripts', 'dist', '.git'])
-const EXCLUDED_FILES = new Set(['.gitignore', 'LICENSE', 'pnpm-lock.yaml'])
-const EXCLUDED_SUFFIXES = ['.tgz', '.log', '.DS_Store']
+function installSpecVersion() {
+  const match = /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\.tgz$/i.exec(declaredSpec())
+  return match ? match[1] : null
+}
 
-function collectSourceFiles(dir, prefix = '') {
-  const out = []
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const rel = prefix ? path.posix.join(prefix, entry.name) : entry.name
-    if (entry.isDirectory()) {
-      if (EXCLUDED_DIRS.has(entry.name)) continue
-      out.push(...collectSourceFiles(path.join(dir, entry.name), rel))
+/**
+ * 要进 profile 的那批文件（相对包根）。
+ *
+ * 判据是**包自己的 `files` 白名单**（`npm pack --dry-run --json` 说了算），不是这里另抄一份
+ * 规则：真正发出去的包就是按它收的，开发机装的必须是同一份。两端由
+ * `test/reload-dev-scope.test.cjs` 钉住：该进包的一个不能漏，`React/` `test/` `scripts/`
+ * `node_modules` 与 tgz 一个不能进。
+ */
+function packedFiles() {
+  let raw
+  try {
+    raw = execFileSync('npm', ['pack', '--dry-run', '--json'], { cwd: PLUGIN_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (error) {
+    fail(`读不出包内容（npm pack --dry-run 失败）：${String(error?.stderr || error?.message || error).trim()}`)
+  }
+  const parsed = JSON.parse(raw)
+  const list = Array.isArray(parsed) ? parsed[0]?.files : parsed?.files
+  if (!Array.isArray(list)) fail('npm pack --dry-run 没给出文件清单：这个 npm 版本不支持 --json？')
+  return list.map(item => String(item.path))
+}
+
+/**
+ * `--only` 那份清单里的相对路径要能在**包清单**里找到。
+ *
+ * 包白名单是「什么东西会随包发出去」的唯一判据：一个既不在仓库、也不在包里的路径，拷过去只是
+ * 在 profile 里放一份谁都不会更新的孤儿文件，所以这里当场拒掉而不是照拷。`React/` 构建源码、
+ * `test/`、`scripts/` 也因此在 --only 这条路上同样进不去。
+ */
+function ensurePackable(files, packed) {
+  const known = new Set(packed)
+  const bad = []
+  for (const rel of files) {
+    if (known.has(rel)) continue
+    if (fs.existsSync(path.join(PLUGIN_ROOT, rel))) {
+      bad.push(`${rel}（在仓库里，但不在这个包的 files 白名单里 —— 装了也不会随包走）`)
     } else {
-      if (EXCLUDED_FILES.has(entry.name)) continue
-      if (EXCLUDED_SUFFIXES.some(suffix => entry.name.endsWith(suffix))) continue
-      out.push(rel)
+      bad.push(`${rel}（仓库里没有这个文件）`)
     }
   }
-  return out
+  if (bad.length) fail(`--only 里这几个路径不能用：\n  ${bad.join('\n  ')}`)
 }
 
 const SHELL_FILES = new Set([
@@ -215,35 +246,8 @@ async function hostStatus(port) {
   }
 }
 
-/** 算出「哪些文件与盘上不同」，先不拷 —— 拷之前要先过语法这一关。 */
-function planChanges(target) {
-  const only = onlyFiles()
-  const files = only.length ? only : collectSourceFiles(PLUGIN_ROOT)
-  const changed = []
-  for (const rel of files) {
-    let same = false
-    try {
-      same = fs.readFileSync(path.join(PLUGIN_ROOT, rel)).equals(fs.readFileSync(path.join(target, rel)))
-    } catch {
-      same = false
-    }
-    if (!same) changed.push(rel)
-  }
-  return changed
-}
-
-/** 真正拷过去（演练时什么都不做）。 */
-function applyChanges(target, changed) {
-  for (const rel of changed) {
-    if (DRY_RUN) continue
-    const to = path.join(target, rel)
-    fs.mkdirSync(path.dirname(to), { recursive: true })
-    fs.copyFileSync(path.join(PLUGIN_ROOT, rel), to)
-  }
-}
-
 /**
- * 拷过去的东西**能不能被 Node 加载**。
+ * 要推进 profile 的东西**能不能被 Node 加载**。
  *
  * 判据只给 js 类：一个语法错误推进 profile，下一次换代就会装载失败、外壳回滚到旧代，
  * 表现成「同步完了但什么都没变」，而 `node --check` 一秒就能说清是哪一行。
@@ -262,59 +266,215 @@ function syntaxProblems(files) {
   return bad
 }
 
-async function main() {
-  const target = installedDir()
-  if (!target) {
-    fail(`profile 里没装 ${PLUGIN_PKG}：${path.join(dshHome(), 'profiles', profileName(), 'node_modules', PLUGIN_PKG)} 不存在。先装一次（npm/市场），这条路之后才有意义。`)
+/** 算出「哪些文件与盘上不同」，先不动 —— 动手之前要先过语法这一关。 */
+function planChanges(target, files) {
+  const changed = []
+  for (const rel of files) {
+    let same = false
+    try {
+      same = fs.readFileSync(path.join(PLUGIN_ROOT, rel)).equals(fs.readFileSync(path.join(target, rel)))
+    } catch {
+      same = false
+    }
+    if (!same) changed.push(rel)
   }
-  say(`目标（宿主真正加载的那一份）：${target}`)
+  return changed
+}
 
-  // 先把「仓库 / 盘上 / 声明」三个版本摆出来：盘上为什么是旧的，答案通常就在这几行里。
-  const repoVersion = packageVersion(PLUGIN_ROOT)
-  for (const line of describeDrift({
-    repoVersion,
-    diskVersion: packageVersion(target),
-    installVersion: installSpecVersion(),
-  })) say(line)
+/**
+ * 装完 / 拷完逐文件对账：范围是刚刚动过的那批文件。
+ *
+ * 版本号相同不代表内容相同（同号重打，或者 pnpm 拿缓存里的同名旧包顶回来），只有逐字节比
+ * 一遍才能回答「盘上这份是不是我仓库里这份」。对账不过就是失败 —— 不能打 ✔。
+ */
+function driftedFrom(target, files) {
+  return files.filter(rel => {
+    try {
+      return !fs.readFileSync(path.join(PLUGIN_ROOT, rel)).equals(fs.readFileSync(path.join(target, rel)))
+    } catch {
+      return true
+    }
+  })
+}
 
-  const changed = planChanges(target)
+/** 把 profile 的依赖声明改成指向某个 spec（其余字段原样保留），返回改动前原文。 */
+function pointDeclarationAt(spec) {
+  const file = path.join(profileDir(), 'package.json')
+  const before = fs.readFileSync(file, 'utf8')
+  const manifest = JSON.parse(before)
+  manifest.dependencies = { ...(manifest.dependencies ?? {}), [PLUGIN_PKG]: spec }
+  fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`)
+  return before
+}
+
+/** 旧开发包只留最近几份，别让 profile 里堆一辈子 tgz。 */
+function pruneDevTarballs(keepName) {
+  let names
+  try {
+    names = fs.readdirSync(profileDir())
+  } catch {
+    return
+  }
+  const mine = names
+    .filter(name => name.startsWith(DEV_TARBALL_PREFIX) && name.endsWith('.tgz') && name !== keepName)
+    .sort()
+  for (const name of mine.slice(0, Math.max(0, mine.length - (DEV_TARBALL_KEEP - 1)))) {
+    fs.rmSync(path.join(profileDir(), name), { force: true })
+  }
+}
+
+/** 装之前把盘上那一份整个备份下来（装坏了还能拷回去）。失败不挡安装。 */
+function backupInstalled(target) {
+  try {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const root = path.join(profileDir(), '.plugin-backups')
+    const dir = path.join(root, `${PLUGIN_PKG}-dev-${packageVersion(target) ?? 'unknown'}-${stamp}`)
+    fs.mkdirSync(root, { recursive: true })
+    fs.cpSync(target, dir, { recursive: true })
+    const mine = fs.readdirSync(root).filter(name => name.startsWith(`${PLUGIN_PKG}-dev-`)).sort()
+    for (const name of mine.slice(0, Math.max(0, mine.length - DEV_BACKUP_KEEP))) {
+      fs.rmSync(path.join(root, name), { recursive: true, force: true })
+    }
+    return dir
+  } catch (error) {
+    warn(`（备份这次没做成，不影响安装：${error?.message || error}）`)
+    return null
+  }
+}
+
+/** 默认那条路：打包 → 放进 profile → 声明与锁文件指过去 → 运行时 pnpm 装一遍。 */
+function installPackedPackage() {
+  const pnpm = runtimePnpm()
+  if (!fs.existsSync(pnpm)) {
+    fail(`找不到运行时自带的 pnpm：${pnpm}。profile 的依赖布局是它装出来的，别用系统里那个。`)
+  }
+
+  const files = packedFiles()
+  const target = installedDir()
+
+  // 语法先过一遍再打包：一个坏文件装进 profile，换代时装载失败、外壳回滚旧代，
+  // 现场表现成「同步完了但什么都没变」—— 比在这里停下难查得多。
+  const bad = syntaxProblems(files)
+  if (bad.length) {
+    for (const item of bad) warn(`✖ ${item.rel} 语法不过：\n${item.message}`)
+    fail(`有 ${bad.length} 个文件语法不过，什么都没装、也没有重载。修好再跑一次。`)
+  }
+
+  const changed = planChanges(target, files)
   const shellTouched = changed.filter(isShellFile)
-  const implChanged = changed.filter(rel => !isShellFile(rel))
-
   if (!changed.length) {
     say('没有文件变化（仓库那份与装着的这份逐字节一致）。')
+  } else {
+    say(`${DRY_RUN ? '（演练）会装' : '会装'}仓库这一份（包内共 ${files.length} 个文件，其中 ${changed.length} 个与盘上不同）：`)
+    for (const rel of changed.slice(0, 40)) say(`  ${isShellFile(rel) ? '· 外壳 ' : '  '}${rel}`)
+    if (changed.length > 40) say(`  … 另有 ${changed.length - 40} 个`)
+  }
+  if (DRY_RUN) return { files, changed, shellTouched, dryRun: true }
+
+  // 备份只在真有东西要换的时候做：没有变化还要装一遍的话，备份只是白堆副本。
+  const backup = changed.length ? backupInstalled(target) : null
+  if (backup) say(`先备份了装的那一份：${backup}`)
+
+  // 打包：产物先进临时目录，再改名搬进 profile —— 别把 tgz 留在仓库树里。
+  const devName = `${DEV_TARBALL_PREFIX}${Date.now()}.tgz`
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-pack-'))
+  try {
+    const raw = execFileSync('npm', ['pack', '--pack-destination', tmpDir, '--json'], { cwd: PLUGIN_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+    const parsed = JSON.parse(raw)
+    const packed = path.join(tmpDir, String((Array.isArray(parsed) ? parsed[0] : parsed)?.filename ?? ''))
+    if (!fs.existsSync(packed)) throw new Error(`打包产物没找到：${packed}`)
+    fs.copyFileSync(packed, path.join(profileDir(), devName))
+  } catch (error) {
+    fail(`打包失败：${error?.message || error}`)
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+
+  // 依赖声明指过去；锁文件交给 pnpm 自己更新（手改会与它记的完整性字段对不上）。
+  const manifestBefore = pointDeclarationAt(`file:${devName}`)
+
+  try {
+    execFileSync(process.execPath, [pnpm, 'install', '--no-frozen-lockfile'], { cwd: profileDir(), stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' })
+  } catch (error) {
+    // 装不上：声明退回去，别留一个指向半份东西的安装表，下次启动会被它拖住。
+    fs.writeFileSync(path.join(profileDir(), 'package.json'), manifestBefore)
+    try {
+      execFileSync(process.execPath, [pnpm, 'install', '--frozen-lockfile'], { cwd: profileDir(), stdio: ['ignore', 'ignore', 'ignore'] })
+    } catch { /* 退不回去也要把原因说出来 */ }
+    fs.rmSync(path.join(profileDir(), devName), { force: true })
+    fail(`安装失败（依赖声明已经退回去了）：\n${String(error?.stdout || error?.stderr || error?.message || error).trim().split('\n').slice(-8).join('\n')}`)
+  }
+
+  pruneDevTarballs(devName)
+
+  if (!packageVersion(installedDir())) fail('装完读不到盘上的版本号：这份安装不完整。')
+  const drifted = driftedFrom(installedDir(), files)
+  if (drifted.length) {
+    fail(`装完盘上仍有 ${drifted.length} 个文件与仓库不一致（${drifted.slice(0, 5).join('、')}${drifted.length > 5 ? ' …' : ''}）：这次装的东西不对，别当成功。`)
+  }
+
+  return { files, changed, shellTouched, devName, dryRun: false }
+}
+
+/** `--only` 那条快路：只把这几个文件拷进 profile（不落进安装声明）。 */
+function syncPartial(files) {
+  ensurePackable(files, packedFiles())
+
+  const target = installedDir()
+  const changed = planChanges(target, files)
+  const shellTouched = changed.filter(isShellFile)
+  if (!changed.length) {
+    say('这几个文件与盘上逐字节一致，没有变化。')
   } else {
     say(`${DRY_RUN ? '（演练）会拷' : '会拷'} ${changed.length} 个文件：`)
     for (const rel of changed) say(`  ${isShellFile(rel) ? '· 外壳 ' : '  '}${rel}`)
   }
 
-  // 语法先过一遍再落盘：一个坏文件推进 profile，换代时装载失败、外壳回滚旧代，
-  // 现场表现成「同步完了但什么都没变」—— 比在这里停下难查得多。
   const bad = syntaxProblems(changed)
   if (bad.length) {
     for (const item of bad) warn(`✖ ${item.rel} 语法不过：\n${item.message}`)
     fail(`有 ${bad.length} 个文件语法不过，什么都没拷、也没有重载。修好再跑一次。`)
   }
+  if (DRY_RUN) return { changed, shellTouched, dryRun: true }
 
-  applyChanges(target, changed)
-
-  if (DRY_RUN) {
-    say('\n演练结束，没有触发重载。')
-    return
+  for (const rel of changed) {
+    const to = path.join(target, rel)
+    fs.mkdirSync(path.dirname(to), { recursive: true })
+    fs.copyFileSync(path.join(PLUGIN_ROOT, rel), to)
   }
 
-  // 拷完再对一遍盘：写不进去、或者拷的这一刻有别的东西在改这份安装（重装 / 另一个会话
-  // 同步），都会在这里露出来，而不是等到「界面没变」才去查。
-  const stuck = planChanges(target)
+  const stuck = driftedFrom(target, changed)
   if (stuck.length) {
     fail(`拷过一遍之后，盘上仍有 ${stuck.length} 个文件与仓库不一致：${stuck.slice(0, 5).join('、')}${stuck.length > 5 ? ' …' : ''}\n  多半有别的东西同时在动这份安装（重装、或者另一个会话在跑同一件事）。停一下再跑。`)
   }
-  const diskVersion = packageVersion(target)
+  return { changed, shellTouched, dryRun: false }
+}
+
+async function main() {
+  if (!installedDir()) {
+    fail(`profile 里没装 ${PLUGIN_PKG}：${installedLink()} 不存在。先装一次（npm/市场），这条路之后才有意义。`)
+  }
+  say(`目标（宿主真正加载的那一份）：${installedDir()}`)
+
+  // 先把「仓库 / 盘上 / 声明」三个版本摆出来：盘上为什么是旧的，答案通常就在这几行里。
+  const repoVersion = packageVersion(PLUGIN_ROOT)
+  for (const line of describeDrift({
+    repoVersion,
+    diskVersion: packageVersion(installedDir()),
+    installVersion: installSpecVersion(),
+  })) say(line)
+
+  const run = PARTIAL ? syncPartial(onlyFiles()) : installPackedPackage()
+
+  if (run.dryRun) {
+    say(PARTIAL
+      ? '\n演练结束，没有触发重载。'
+      : `\n演练结束：会打包（${run.files.length} 个文件）→ 放进 profile → 依赖声明与锁文件指过去 → 运行时 pnpm install → 触发就地重载。`)
+    return
+  }
 
   const port = await findHostPort()
-  if (!port) {
-    fail('找不到宿主的控制面端口（没有哪个本机端口答得出 /api/relay/status）。用 --port <端口> 指定。')
-  }
+  if (!port) fail('找不到宿主的控制面端口（没有哪个本机端口答得出 /api/relay/status）。用 --port <端口> 指定。')
   say(`\n宿主控制面：http://127.0.0.1:${port}`)
 
   let res
@@ -335,42 +495,47 @@ async function main() {
     // 这是唯一需要重启一次的情形，必须和「装载失败」分开说。
     if (res.status === 401 || res.status === 404) {
       const status = await hostStatus(port)
-      warn('✖ 这个宿主进程里还没有「就地重载」这条接口（文件已经拷进去了，进程里跑的还是旧外壳）。')
+      warn('✖ 这个宿主进程里还没有「就地重载」这条接口（新的一份已经装进去了，进程里跑的还是旧外壳）。')
       if (status?.shellChanged === true) {
         warn('  状态里也报了 shellChanged：盘上这份外壳和跑着的不一样。')
       }
       warn('\n  这次必须重启一次 DSH —— 之后这条路就一直在，改完代码只需要再跑这个脚本，不用重启。')
       process.exit(2)
     }
-    // 409 = 没有外壳（实现被直接挂载），500 = 装载失败已回滚。两种都说清楚，别让人以为拷完就好了。
+    // 409 = 没有外壳（实现被直接挂载），500 = 装载失败已回滚。两种都说清楚，别让人以为装完就好了。
     const code = body?.error?.code || `http-${res.status}`
     const message = body?.error?.message || '（宿主没有给出原因）'
     fail(`重载失败 [${code}]：${message}\n  盘上文件已经换了，但**运行中的还是旧代码**。修好原因再跑一次这个脚本。`)
   }
 
   const data = body.data || {}
-  // 「跑着的 = 盘上的」才算数：装载失败外壳会把上一代装回去（接口照样答 200 的情形也有），
-  // 盘上那份也可能刚被别处的安装换回冻结的 tgz 快照。两种都让这一轮判失败，而不是打一个 ✔。
+  // 「跑着的 = 盘上的」才算数：装载失败外壳会把上一代装回去（接口照样答 200 的情形也有）；
+  // 声明没跟上时，重启会把这一轮成果换回去 —— 那也不算成功。
   const verdict = verifyReload({
     repoVersion,
-    diskVersion,
+    diskVersion: packageVersion(installedDir()),
     runningVersion: data.version,
     lastError: data.lastError,
-    partial: onlyFiles().length > 0,
+    partial: PARTIAL,
+    declaredSpec: declaredSpec(),
+    expectedSpec: PARTIAL ? null : `file:${run.devName}`,
   })
   if (!verdict.ok) {
     for (const item of verdict.failures) warn(`✖ ${item}`)
-    fail('这次同步不算成功：盘上的文件已经换了，跑着的实现没跟上。')
+    fail('这次同步不算成功：盘上的文件和跑着的实现没对齐，或者重启会退回旧的一份。')
   }
 
-  say(`✔ 已就地重新装载：${data.version}（来源 ${data.source ?? '?'}），盘上与仓库都是这一版`)
-  if (implChanged.length) say(`  这次生效的实现改动：${implChanged.length} 个文件`)
+  say(`✔ 已就地重新装载：${data.version}（来源 ${data.source ?? '?'}），盘上与仓库都是这一版${PARTIAL ? '' : '，profile 声明的也正是它'}`)
+  if (run.changed.length) say(`  这次生效的改动：${run.changed.length} 个文件`)
 
-  if (shellTouched.length) {
+  if (PARTIAL) {
+    warn('\n⚠ `--only` 只把这几个文件推过去了，**没有落进 profile 的安装声明**。')
+    warn('  重启 DSH 会退回声明里那一份。要让重启也保留，跑一次不带 --only 的。')
+  }
+  if (run.shellTouched.length) {
     warn('\n⚠ 这次还改了外壳（lib/index.js 或 lib/shell/*）。')
     warn('  外壳在进程启动时就被 Node 缓存了，换不掉 —— 上面那些实现改动已经生效，')
     warn('  但外壳那部分要重启一次 DSH 才会用上。改外壳属于少数情况，日常改代码不会碰到。')
-    warn('  重启之后第一件事是重跑这个脚本：重启会按 profile 的依赖把盘上那份重新装一遍。')
   } else {
     say('\n不用重启 DSH，手机那边刷新一下就能看到。')
   }
