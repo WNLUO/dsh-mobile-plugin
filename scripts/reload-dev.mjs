@@ -43,6 +43,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { describeDrift, verifyReload } from './lib/reload-verdict.mjs'
 
 const PLUGIN_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const PLUGIN_PKG = 'dsh-mobile-plugin'
@@ -89,6 +90,38 @@ function installedDir() {
   const link = path.join(dshHome(), 'profiles', profileName(), 'node_modules', PLUGIN_PKG)
   try {
     return fs.realpathSync(link)
+  } catch {
+    return null
+  }
+}
+
+/** profile 根目录：读它的依赖声明，用来解释「盘上为什么是旧的那一版」。 */
+function profileDir() {
+  return path.join(dshHome(), 'profiles', profileName())
+}
+
+/** 读某个目录里那份 package.json 的版本号，读不到回 null。 */
+function packageVersion(dir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))?.version ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * profile 的依赖声明里那个**冻结的安装包**是什么版本。
+ *
+ * 开发机装的是 `file:` 指向某个 tgz（本机是 `dsh-mobile-plugin-0.1.93.tgz`）。盘上那份一旦
+ * 等于它、又不等于仓库，就说明这份开发版已经被某次重装打回安装包里的内容 —— 判据取
+ * 声明本身，不去猜构建产物。
+ */
+function installSpecVersion() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(profileDir(), 'package.json'), 'utf8'))
+    const spec = String(raw?.dependencies?.[PLUGIN_PKG] ?? '')
+    const match = /(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\.tgz$/i.exec(spec)
+    return match ? match[1] : null
   } catch {
     return null
   }
@@ -236,6 +269,14 @@ async function main() {
   }
   say(`目标（宿主真正加载的那一份）：${target}`)
 
+  // 先把「仓库 / 盘上 / 声明」三个版本摆出来：盘上为什么是旧的，答案通常就在这几行里。
+  const repoVersion = packageVersion(PLUGIN_ROOT)
+  for (const line of describeDrift({
+    repoVersion,
+    diskVersion: packageVersion(target),
+    installVersion: installSpecVersion(),
+  })) say(line)
+
   const changed = planChanges(target)
   const shellTouched = changed.filter(isShellFile)
   const implChanged = changed.filter(rel => !isShellFile(rel))
@@ -261,6 +302,14 @@ async function main() {
     say('\n演练结束，没有触发重载。')
     return
   }
+
+  // 拷完再对一遍盘：写不进去、或者拷的这一刻有别的东西在改这份安装（重装 / 另一个会话
+  // 同步），都会在这里露出来，而不是等到「界面没变」才去查。
+  const stuck = planChanges(target)
+  if (stuck.length) {
+    fail(`拷过一遍之后，盘上仍有 ${stuck.length} 个文件与仓库不一致：${stuck.slice(0, 5).join('、')}${stuck.length > 5 ? ' …' : ''}\n  多半有别的东西同时在动这份安装（重装、或者另一个会话在跑同一件事）。停一下再跑。`)
+  }
+  const diskVersion = packageVersion(target)
 
   const port = await findHostPort()
   if (!port) {
@@ -300,14 +349,28 @@ async function main() {
   }
 
   const data = body.data || {}
-  say(`✔ 已就地重新装载：${data.version ?? '(未知版本)'}（来源 ${data.source ?? '?'}）`)
+  // 「跑着的 = 盘上的」才算数：装载失败外壳会把上一代装回去（接口照样答 200 的情形也有），
+  // 盘上那份也可能刚被别处的安装换回冻结的 tgz 快照。两种都让这一轮判失败，而不是打一个 ✔。
+  const verdict = verifyReload({
+    repoVersion,
+    diskVersion,
+    runningVersion: data.version,
+    lastError: data.lastError,
+    partial: onlyFiles().length > 0,
+  })
+  if (!verdict.ok) {
+    for (const item of verdict.failures) warn(`✖ ${item}`)
+    fail('这次同步不算成功：盘上的文件已经换了，跑着的实现没跟上。')
+  }
+
+  say(`✔ 已就地重新装载：${data.version}（来源 ${data.source ?? '?'}），盘上与仓库都是这一版`)
   if (implChanged.length) say(`  这次生效的实现改动：${implChanged.length} 个文件`)
-  if (data.lastError) warn(`  ⚠ 装载过程记了一条：${data.lastError}`)
 
   if (shellTouched.length) {
     warn('\n⚠ 这次还改了外壳（lib/index.js 或 lib/shell/*）。')
     warn('  外壳在进程启动时就被 Node 缓存了，换不掉 —— 上面那些实现改动已经生效，')
     warn('  但外壳那部分要重启一次 DSH 才会用上。改外壳属于少数情况，日常改代码不会碰到。')
+    warn('  重启之后第一件事是重跑这个脚本：重启会按 profile 的依赖把盘上那份重新装一遍。')
   } else {
     say('\n不用重启 DSH，手机那边刷新一下就能看到。')
   }
