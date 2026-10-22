@@ -611,7 +611,7 @@ export function apply(ctx) {
  * 跑着的外壳指纹、盘上那份的指纹、以及两者是否不同。
  *
  * 「盘上那份和跑着的一致」用真外壳文件的**逐字节副本**构造（指纹算的是 lib/index.js 与
- * lib/shell 下三个文件的内容）。
+ * lib/shell 下**全部**外壳文件的内容 —— 漏一个就会在「新版本只改了那个文件」时谎报没变）。
  */
 test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不报「外壳变了」', async t => {
   await resetProfile();
@@ -621,6 +621,8 @@ test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不�
     ['lib', 'shell', 'runtime.js'],
     ['lib', 'shell', 'manager.js'],
     ['lib', 'shell', 'updater.js'],
+    ['lib', 'shell', 'device-ota.js'],
+    ['lib', 'shell', 'ota-package.js'],
   ];
 
   const dir = makeGeneration('shellhash', '0.9.9', goodGeneration('shell-0.9.9'));
@@ -649,8 +651,62 @@ test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不�
   assert.equal(manager.installedVersion(), '0.9.9');
 });
 
-/** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */
-async function waitFor(probe, timeoutMs = 5000) {
+/**
+ * 指纹必须覆盖**全部**外壳文件。
+ *
+ * 漏掉的那几个同样在进程启动时被 Node 缓存、同样换不掉；只改它们时如果不报「外壳变了」，
+ * 就是用户在界面上看着「更新成功」、跑的却是旧代码 —— 静默失效是最贵的失效。
+ */
+test('换代：指纹把 OTA 那两个外壳文件也算上（只改它们也要报「外壳变了」）', async () => {
+  await resetProfile();
+  const { updater } = await loadShellModules();
+  const SHELL_FILES = ['lib/index.js', 'lib/shell/runtime.js', 'lib/shell/manager.js', 'lib/shell/updater.js', 'lib/shell/device-ota.js', 'lib/shell/ota-package.js'];
+  const copyShell = () => {
+    const dir = fs.mkdtempSync(path.join(HOME_ROOT, 'shell-fingerprint-'));
+    for (const rel of SHELL_FILES) {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.copyFileSync(path.join(PKG_DIR, rel), path.join(dir, rel));
+    }
+    return dir;
+  };
+  const base = updater.shellFingerprint(copyShell());
+  assert.match(base, /^[a-f0-9]{16}$/);
+  for (const rel of ['lib/shell/device-ota.js', 'lib/shell/ota-package.js']) {
+    const dir = copyShell();
+    fs.appendFileSync(path.join(dir, rel), '\n// 这一版只动了它\n');
+    assert.notEqual(updater.shellFingerprint(dir), base, `只改 ${rel} 也得报「外壳变了」`);
+  }
+});
+
+/**
+ * 换代保险：装之前把正在跑的那一代备份进回退目录。
+ *
+ * 真正要证明的是「备份件是一份**装得起来的一代**」—— 落到 OTA 那个位置之后，启动时的候选
+ * 列表里就有它，最高代装载失败时按优先级轮到它（那条回退路径本身由「启动时正式包装载失败，
+ * 保留的 OTA 代可作为回退继续运行」钉着）。
+ */
+test('换代保险：把正在跑的那一代备份进回退目录，它是一份装得起来的一代', async t => {
+  await resetProfile();
+  const { manager } = await loadShellModules();
+  const dir = makeGeneration('fallback-src', '0.7.7', goodGeneration('fallback-0.7.7'));
+  install(dir);
+
+  const running = manager.listGenerations().find(item => item.source === 'installed');
+  const result = manager.snapshotRunningGeneration(running);
+  assert.equal(result.created, true, '装之前应当备份成功');
+
+  const fallback = manager.listGenerations().find(item => item.source === 'ota');
+  assert.ok(fallback, '备份要出现在候选列表里，否则启动时根本不会去试它');
+  assert.equal(fallback.version, '0.7.7');
+  assert.equal(fs.existsSync(path.join(fallback.pkgDir, 'dsh-mobile-credentials', 'lib', 'credentials.js')), true, '一代是自包含的：凭据包得跟着走');
+  assert.equal(fs.existsSync(path.join(OTA_ROOT, '0.7.7', 'node_modules')), false, '依赖树不复制（那不是这一代的私有件）');
+  // 真的装载得起来（缺依赖的一代在这里就会抛）。
+  const loaded = await manager.importGeneration(fallback);
+  assert.equal(typeof loaded.apply, 'function');
+  t.diagnostic(`回退副本：${result.dir}`);
+});
+
+/** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */async function waitFor(probe, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const value = probe();

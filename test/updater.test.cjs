@@ -150,3 +150,77 @@ test('自动更新未设置时默认开启，显式关闭与坏配置仍不自�
   fs.writeFileSync(updater.autoUpdateFilePath(), '{ 坏 json');
   assert.equal(updater.autoUpdateEnabled(), false, '配置损坏时不自动安装');
 });
+
+// ── 一次完整更新：装 → 换代 → 落账（成功失败都要落） ────────────────────────────
+
+test('装上了但换不过来：账要落、也要抛给路由（不许静默少一代）', async t => {
+  install('0.3.0');
+  const market = await startMarket(() => {
+    install('0.4.0');
+    return { state: 'succeeded', beforeVersion: '0.3.0', installedVersion: '0.4.0' };
+  });
+  t.after(() => market.server.close());
+  const updater = await loadUpdater();
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  const runtime = { status: () => ({ version: '0.3.0', source: 'installed' }), reload: async () => { throw new Error('这一代起不来') } };
+  await assert.rejects(updater.performUpdate({ runtime, base: updater.marketBase(market.port), updateState, auto: true }), /换代码没成/);
+  assert.equal(updateState.lastApply.installed, true, '盘上确实装上了，这要如实说');
+  assert.equal(updateState.lastApply.swapped, false);
+  assert.equal(updateState.lastApply.state, 'installed-not-swapped');
+  assert.equal(updateState.lastApply.failure.code, 'swap_failed');
+  assert.ok(updateState.appliedAt, 'appliedAt 不动的话，手机那边只能等到超时才说得出「没成」');
+});
+
+test('换不过来之后：自动不再反复抖同一个版本，手按一次才重试', async t => {
+  // 盘上已经装着 0.8.0（上次装上了没换过来），跑着的还是 0.7.0。
+  install('0.8.0');
+  let reloads = 0;
+  const runtime = { status: () => ({ version: '0.7.0', source: 'installed' }), reload: async () => { reloads += 1; throw new Error('起不来') } };
+  const market = await startMarket(() => ({ state: 'succeeded' }), { installedVersion: '0.8.0', latestVersion: '0.8.0', updateAvailable: false, source: 'npm' });
+  t.after(() => market.server.close());
+  const updater = await loadUpdater();
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  const base = updater.marketBase(market.port);
+
+  // 自动那一轮：第一次会真去换（盘上确实更新），失败。
+  await assert.rejects(updater.performUpdate({ runtime, base, updateState, auto: true }));
+  assert.equal(reloads, 1);
+  // 下一个 tick 还是同一版：不该再抖一次。
+  await updater.performUpdate({ runtime, base, updateState, auto: true });
+  assert.equal(reloads, 1, '一个起不来的版本不该每 10 分钟把手机抖一下');
+  assert.equal(updateState.lastApply.failure.code, 'swap_deferred', '要如实说「自动已经试过了」');
+  // 人按了一次：那是「我知道，再来一次」的出口。
+  await assert.rejects(updater.performUpdate({ runtime, base, updateState, auto: false }));
+  assert.equal(reloads, 2);
+});
+
+test('装那步就炸：账也要落，不能只留一句「最近一次更新」还是上一轮', async () => {
+  install('0.1.0');
+  const updater = await loadUpdater();
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  const runtime = { status: () => ({ version: '0.1.0', source: 'installed' }) };
+  await assert.rejects(updater.performUpdate({ runtime, base: null, updateState }));
+  assert.equal(updateState.lastApply.state, 'failed');
+  assert.equal(updateState.lastApply.failure.code, 'install_failed');
+  assert.ok(updateState.appliedAt);
+  assert.ok(updateState.lastError);
+});
+
+test('自动轮询与手按按钮撞一起：只跑一次安装，第二个等第一次的结果', async t => {
+  install('0.5.0');
+  const market = await startMarket(() => {
+    install('0.6.0');
+    return { state: 'succeeded', beforeVersion: '0.5.0', installedVersion: '0.6.0' };
+  });
+  t.after(() => market.server.close());
+  const updater = await loadUpdater();
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  const runtime = { status: () => ({ version: '0.5.0', source: 'installed' }), reload: async () => ({ version: '0.6.0', source: 'installed' }) };
+  const base = updater.marketBase(market.port);
+  const first = updater.performUpdate({ runtime, base, updateState, auto: true });
+  const second = updater.performUpdate({ runtime, base, updateState, force: true });
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(market.seen.posts.length, 1, '两个包管理器同时往一个 profile 里装 = 装出半个包');
+  assert.equal(a.swapped, true);
+  assert.equal(b.swapped, true);
+});

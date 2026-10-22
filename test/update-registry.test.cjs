@@ -365,9 +365,16 @@ test('行为：没外壳（或外壳没有 apply）回 409，不许路由自己�
 });
 
 test('源码契约：手动更新的结果只能由外壳落账，路由不许绕开它自己去装', () => {
+  const shellFiles = ['index.js', 'shell/updater.js', 'shell/runtime.js', 'shell/manager.js', 'shell/device-ota.js'];
+  for (const file of shellFiles) {
+    const source = fs.readFileSync(path.join(PKG_DIR, 'lib', file), 'utf8');
+    const writes = (source.match(/updateState\.lastApply\s*=/g) || []).length;
+    if (file === 'shell/updater.js') assert.ok(writes >= 1, '落账点必须还在（面板「最近一次更新」与「上次没装成」读的都是它）');
+    else assert.equal(writes, 0, `${file} 不许自己记那本账：落账只在 shell/updater.js 一处`);
+  }
   const shell = fs.readFileSync(path.join(PKG_DIR, 'lib', 'index.js'), 'utf8');
-  assert.match(shell, /updateState\.lastApply = \{\s*\.\.\.outcome,\s*swapped\s*\}/, '面板那本账的唯一写入点');
   assert.match(shell, /apply:\s*applyUpdate/, '外壳必须把 apply 暴露给控制面');
+  assert.match(shell, /updater\.performUpdate\(/, '入口只许转交：装 / 换代 / 落账都在 shell/updater.js 里做');
   const route = fs.readFileSync(path.join(PKG_DIR, 'lib', 'routes', 'control-plane.js'), 'utf8');
   const start = route.indexOf("'/api/relay/update/apply'");
   assert.ok(start > 0, '这条路由必须还在');

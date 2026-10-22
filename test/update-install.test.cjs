@@ -155,6 +155,50 @@ test('装成功：盘上版本真的变了才算装上，命令里带包名与�
   assert.equal(fake.calls().length, 1, '只该跑一次');
 });
 
+test('装之前先给外壳一次机会把正在跑的那一代备份走（包管理器一跑旧目录就没了）', async () => {
+  const profile = makeProfile('before', '0.1.60');
+  const fake = makeFakePnpm('before');
+  const seen = [];
+  const result = await installLatest({
+    profileNodeModules: profile.nodeModules,
+    version: '0.2.0',
+    dirs: [fake.binDir],
+    env: isolatedEnv(fake.binDir),
+    beforeInstall: () => { seen.push({ calls: fake.calls().length, beforeVersion: 'unknown' }); },
+  });
+  assert.equal(result.installed, true);
+  assert.equal(seen.length, 1, '备份只该问一次');
+  assert.equal(seen[0].calls, 0, '必须排在包管理器之前：它一跑，盘上那份旧代码就没了');
+});
+
+test('备份那一步自己炸了也不许挡住更新', async () => {
+  const profile = makeProfile('before-throw', '0.1.60');
+  const fake = makeFakePnpm('before-throw');
+  const result = await installLatest({
+    profileNodeModules: profile.nodeModules,
+    version: '0.2.0',
+    dirs: [fake.binDir],
+    env: isolatedEnv(fake.binDir),
+    beforeInstall: () => { throw new Error('盘满了') },
+  });
+  assert.equal(result.installed, true, '备份是多一层保险，不该变成更新的前置条件');
+});
+
+test('没有新版时不去备份（每个 tick 都抄一遍等于白耗盘）', async () => {
+  const profile = makeProfile('before-latest', '0.1.60');
+  let called = 0;
+  await withRegistry('0.1.60', async () => {
+    const result = await installLatestIfNeeded({
+      profileNodeModules: profile.nodeModules,
+      dirs: [path.join(TMP, 'nope')],
+      env: { PATH: '', HOME: TMP },
+      beforeInstall: () => { called += 1; },
+    });
+    assert.equal(result.skipped, true);
+  });
+  assert.equal(called, 0);
+});
+
 test('退出码 0 但盘上没变：不算装上（只看退出码是最贵的那个 bug）', async () => {
   const profile = makeProfile('noop', '0.1.60');
   const fake = makeFakePnpm('noop');

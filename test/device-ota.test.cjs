@@ -213,3 +213,61 @@ test('一个残目录 / 暂存目录不许把整台机器的 OTA 变成「没有
   const list = availableOta()
   assert.deepEqual(list.map(item => item.version), ['1.2.0'])
 }))
+
+// ── 换代保险：装之前把正在跑的那一代复制成一份「重启时能回退」的包 ──────────────
+
+/** 造一份已经装好的代（自包含：package.json + lib/impl.js + 内联凭据包 + node_modules 噪声）。 */
+function makeInstalledGeneration(root, version) {
+  const pkgDir = path.join(root, `store-${version}`, 'dsh-mobile-plugin')
+  fs.mkdirSync(path.join(pkgDir, 'lib'), { recursive: true })
+  fs.mkdirSync(path.join(pkgDir, 'dsh-mobile-credentials', 'lib'), { recursive: true })
+  // 依赖树不该跟着复制：它属于 profile，复制过去又慢又会被相对布局骗到。
+  fs.mkdirSync(path.join(pkgDir, 'node_modules', 'noise'), { recursive: true })
+  fs.writeFileSync(path.join(pkgDir, 'node_modules', 'noise', 'index.js'), 'module.exports = 1\n')
+  fs.writeFileSync(path.join(pkgDir, 'package.json'), JSON.stringify({ name: 'dsh-mobile-plugin', version }))
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'impl.js'), 'export function apply() {}')
+  fs.writeFileSync(path.join(pkgDir, 'dsh-mobile-credentials', 'lib', 'credentials.js'), 'module.exports = {}\n')
+  return pkgDir
+}
+
+test('换代备份：把正在跑的那一代复制进回退目录，且是一份能装的完整包', async () => withHome(async home => {
+  const { snapshotGeneration, availableOta } = await import('../lib/shell/device-ota.js')
+  const source = makeInstalledGeneration(home, '1.2.0')
+  const result = snapshotGeneration(source, '1.2.0')
+  assert.equal(result.created, true)
+  const target = path.join(home, 'plugin-ota', '1.2.0', 'dsh-mobile-plugin')
+  assert.equal(result.dir, target)
+  assert.equal(fs.existsSync(path.join(target, 'lib', 'impl.js')), true, '缺入口就不是一代，启动时试不起来');
+  assert.equal(fs.existsSync(path.join(target, 'dsh-mobile-credentials', 'lib', 'credentials.js')), true, '一代是自包含的：凭据包要跟着走')
+  assert.equal(fs.existsSync(path.join(home, 'plugin-ota', '1.2.0', 'node_modules')), false, '依赖树不复制')
+  assert.deepEqual(availableOta().map(item => item.version), ['1.2.0'], '备份要出现在回退候选里，否则启动时根本不会去试它')
+  // 已经有了就不要再抄一遍（每个 tick 都抄一次等于白耗盘）。
+  assert.deepEqual(snapshotGeneration(source, '1.2.0'), { created: false, existing: true, dir: target })
+}))
+
+test('换代备份：源目录没了 / 版本号不像样就如实回错，不抛', async () => withHome(async () => {
+  const { snapshotGeneration } = await import('../lib/shell/device-ota.js')
+  assert.equal(snapshotGeneration('/nowhere/at/all', '1.2.0').created, false)
+  assert.equal(snapshotGeneration('/nowhere/at/all', 'latest').created, false, '版本号不可用的目录名不能被造出来')
+}))
+
+// 换代失败后跑着的还是旧版、盘上已是新版 —— 这时回退包是重启后唯一的活路，不许清。
+test('回退包回收：跑着的版本和盘上一致才清，换代失败时留着', async () => withHome(async home => {
+  const { createDeviceOta } = await import('../lib/shell/device-ota.js')
+  const fallback = path.join(home, 'plugin-ota', '1.2.0', 'dsh-mobile-plugin')
+  fs.mkdirSync(path.join(fallback, 'lib'), { recursive: true })
+  fs.writeFileSync(path.join(fallback, 'package.json'), JSON.stringify({ name: 'dsh-mobile-plugin', version: '1.2.0' }))
+  fs.writeFileSync(path.join(fallback, 'lib', 'impl.js'), 'export function apply() {}')
+
+  let running = { source: 'installed', version: '1.2.0' }
+  const ota = createDeviceOta({ installed: () => '1.3.0', runtime: { status: () => running, reload: async () => running } })
+
+  // 换代失败：盘上 1.3.0、跑着 1.2.0。
+  await ota.reconcileOfficial()
+  assert.equal(fs.existsSync(fallback), true, '装上了没换过来时，那份副本是下次重启唯一的活路')
+
+  // 换过来了：跑着的就是盘上那版，这时才回收。
+  running = { source: 'installed', version: '1.3.0' }
+  await ota.reconcileOfficial()
+  assert.equal(fs.existsSync(path.join(home, 'plugin-ota', '1.2.0')), false, '接管成功后回退包该回收，不然盘上会一直堆着旧包')
+}))
