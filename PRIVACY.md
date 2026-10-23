@@ -1,12 +1,14 @@
 # 隐私政策 · AI-HUB 移动端（dsh-mobile-plugin）
 
-生效日期：2026-10-13。适用对象：AI-HUB 手机 App（`com.dsh.mobile`，iOS / Android）以及配套的
+生效日期：2026-10-24。适用对象：AI-HUB 手机 App（`com.dsh.mobile`，iOS / Android）以及配套的
 `dsh-mobile-plugin` 宿主插件。
 
 ## 一句话
 
 AI-HUB 是你自己电脑上 DeepSeek Harness 的手机客户端 —— 它把手机和**你自己的电脑**连起来，
 数据主要在这两端之间流动。我们没有账号体系、没有广告、没有第三方分析 SDK，也不做任何追踪。
+
+公开发布版（面向商店审核与用户阅读）：<https://ai-hub.wnluo.com/privacy>（中英双语同页）。
 
 ## 1. 我们处理哪些数据
 
@@ -39,7 +41,23 @@ AI-HUB 是你自己电脑上 DeepSeek Harness 的手机客户端 —— 它把�
   「连不上 / 很慢」这类问题。**不含会话正文，也不含凭据明文。**
 - 手机上另有一份本地连接诊断记录（最近的通道、耗时、错误），只在 App 内展示，你可以随时清空。
 
-### 1.5 权限与本地数据
+### 1.5 语音输入（涉及第三方）
+
+- 语音输入是**可选**功能，不主动开始就不会用。
+- 音频在设备上录制后，会发给转写用的语音服务 —— 当前是**微信输入法的私有接口**
+  （`wetype.weixin.qq.com`，由腾讯运营）—— 以转成文字。**该音频会离开你的设备**，并按腾讯的隐私政策
+  处理；涉及跨境传输的情形（例如欧盟用户使用该服务）请注意这一点。
+- 不想这样的话不要使用语音输入，其余功能不受影响。转写结果只落进手机上的消息草稿，之后与普通文字
+  一样发往你自己的电脑。
+
+### 1.6 内购（仅商店版）
+
+- **商店版**（App Store / Google Play）：7 天试用后按年订阅或一次性买断。支付完全由苹果或谷歌处理，
+  我们看不到也存不了你的姓名、支付方式或卡号；App 只从商店拿到「有没有有效购买、是哪个商品、订阅到期日」，
+  并缓存在本机以便离线可用。
+- **直装版**（国内分发平台与 GitHub 那个包）：**没有任何内购**，永久免费，界面上不出现收费相关内容。
+
+### 1.7 权限与本地数据
 
 - 权限用途：**相机**扫二维码；**相册**选图发给电脑；**通知**用于任务完成提醒；**本地网络**用于
   访问同一局域网内的电脑。
@@ -49,7 +67,7 @@ AI-HUB 是你自己电脑上 DeepSeek Harness 的手机客户端 —— 它把�
 
 - 不售卖、不出租任何数据；不做广告；不接入第三方分析、广告或崩溃上报 SDK；不做跨 App 追踪。
 - 不收集通讯录、位置、健康、浏览历史等系统数据（App 也不申请这些权限）。
-- App 内没有任何内购、订阅或付费入口。
+- 不做任何反绕过或指纹识别（收费只在商店渠道里发生；安卓用户完全可以去 GitHub 下免费包，我们不拦不检测）。
 
 ## 3. 数据保留与删除
 
@@ -86,5 +104,17 @@ between your phone and your own machine. We do not have user accounts, ads, thir
 tracking. When your phone and computer are not on the same network, traffic is relayed through our
 relay server: conversation content is forwarded and cached **in memory only** (never written to disk).
 Our update platform (`app.wnluo.com`) receives app version, platform, build numbers and a device
-identifier for update delivery and statistics — never conversation content. Uninstalling the app
-removes all locally stored data. Contact: admin@wnluo.com
+identifier for update delivery and statistics — never conversation content.
+
+**Voice input** is optional and off unless you start it. Audio is recorded on the device and sent to
+the transcription service — currently WeChat Input Method (`wetype.weixin.qq.com`, operated by
+Tencent) — so it leaves your device and is handled under Tencent's privacy policy. Do not use voice
+input if you do not want this; everything else works without it.
+
+**Purchases** exist only in the App Store and Google Play builds (7-day trial, then a yearly
+subscription or a one-time purchase). Payment is handled entirely by Apple or Google; the app only
+learns whether a valid purchase exists, which product, and the subscription expiry. The build
+distributed directly (domestic platforms and GitHub) has **no purchases and is free**.
+
+Uninstalling the app removes all locally stored data. Public policy page:
+<https://ai-hub.wnluo.com/privacy>. Contact: admin@wnluo.com

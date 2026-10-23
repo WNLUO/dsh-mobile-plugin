@@ -120,15 +120,18 @@ test('局域网端口变了：只重建局域网代理，隧道保持不动并�
   assert.deepEqual(w.registrations, [{ lanUrls: ['http://192.168.1.2:18787'] }], '新地址要在现有连接上重报')
 })
 
-test('配对码变了：局域网代理要重建（它拿这个码配对），隧道只重报一次', async () => {
+test('配对码变了：局域网代理按取值器现读，既不重建监听也不告诉中转', async () => {
   const w = bootWorker()
   await w.configure(baseConfig())
   const before = { ...w.calls }
   await w.configure({ ...baseConfig(), pairingCode: '654321' })
-  assert.equal(w.calls.stopLan, before.stopLan + 1, '局域网代理按配对码校验，必须重建')
+  // 配对成功就要换一次码（§5.1）。如果这里重建局域网代理，那次配对刚握上的连接会被掐掉。
+  // 所以代理拿的是取值器（`currentPairing`），换值不动监听。
+  assert.equal(w.calls.stopLan, before.stopLan, '换码不该重建局域网监听')
   assert.equal(w.calls.stopTunnel, before.stopTunnel, '配对码不影响隧道连到哪台，不许断')
-  assert.equal(w.registrations.length, 1)
-  assert.equal(w.registrations[0].pairingCode, '654321')
+  // 中转从来没读过配对码（`ws.rs` 原文），这一轮彻底不发（§5.2）。
+  assert.equal(w.registrations.length, 0, '换码不该向中转重报任何东西')
+  assert.equal(w.currentConfig().pairingCode, '654321', '值本身要落到 worker 的配置里')
 })
 
 test('总开关关掉：隧道和局域网代理都要停，监视器重排', async () => {

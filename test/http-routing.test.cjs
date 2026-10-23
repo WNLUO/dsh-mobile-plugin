@@ -67,6 +67,43 @@ test('控制面：x-dsh-instance 头同样不算本机', async () => {
   assert.equal(res.body.error.code, 'local_only');
 });
 
+test('控制面：代理转发来的一律不算本机（即使它长得和本机一模一样）', async () => {
+  // 隧道与局域网代理都从宿主本机连出：socket 对端是回环地址，host 还被补成
+  // `127.0.0.1:<上游端口>`。不带实例头、不带 cookie 的转发请求因此能骗过所有
+  // 「像不像本机」的判据 —— 实测 `POST /api/relay/config` 就是这样被执行的。
+  for (const via of ['relay', 'lan']) {
+    const res = fakeRes();
+    await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(
+      { headers: { 'x-dsh-via': via, host: '127.0.0.1:19387' }, socket: { remoteAddress: '127.0.0.1' }, method: 'GET' },
+      res,
+    );
+    assert.equal(res.status, 403, `经 ${via} 转发的请求必须被挡`);
+    assert.equal(res.body.error.code, 'local_only');
+  }
+});
+
+test('控制面：转发标记为空不算转发，值大小写不敏感', async () => {
+  const blank = fakeRes();
+  let reached = false;
+  await routing.localOnly('GET', async () => { reached = true; })(
+    { headers: { 'x-dsh-via': '   ' }, method: 'GET' },
+    blank,
+  );
+  assert.equal(reached, true, '空值当成没有这个头');
+
+  const armed = fakeRes();
+  await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(
+    { headers: { 'X-Dsh-Via': 'RELAY' }, method: 'GET' },
+    armed,
+  );
+  assert.equal(armed.status, 403, '头名与值都不区分大小写，不能让换大小写绕过');
+});
+
+test('网页管理入口：带转发标记的 loopback 请求不算本机界面', () => {
+  const local = { headers: { host: '127.0.0.1:19387', 'x-dsh-via': 'relay' }, socket: { remoteAddress: '127.0.0.1' } };
+  assert.equal(routing.trustedLocalUi(local), false, '否则经中转就能开启两小时窗口');
+});
+
 test('控制面：sec-fetch-site: cross-site 一律拒', async () => {
   const res = fakeRes();
   await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(fakeReq({ 'sec-fetch-site': 'cross-site' }), res);

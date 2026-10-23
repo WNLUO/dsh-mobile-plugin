@@ -198,20 +198,47 @@ test('手机答了：钩子拿到同一个结论，卡当场收掉，agent 才�
   assert.equal(resolved.outcome, 'allowed-once');
 });
 
-test('桌面（下游）先答：钩子返回下游的结论，手机那张卡被收掉且再也答不动', async () => {
+test('桌面（下游）先答：钩子返回下游的结论（此场景手机本就没在看，竞速路径）', async () => {
+  // 竞速只发生在「没有观众」时：那时手机没有卡，下游（桌面）是唯一答案方。
   const { ctx, cards, watch } = setup();
-  watch('s-1');
   fire(ctx, 'session/event', { id: 's-1' }, askEvent({ id: 'ap-1', toolName: 'bash', callId: 'call-1' }));
   const held = runHook(ctx, escalation(), () => Promise.resolve('rejected'));
   assert.equal(await held, 'rejected', '下游答了就以下游为准');
-  const resolved = cards.find((frame) => frame.type === 'approval/resolved');
-  assert.equal(resolved && resolved.outcome, 'rejected');
+  assert.deepEqual(cards, [], '全程没有观众，一张卡都不该推');
+  assert.equal(approvals.hasPending('s-1'), false);
+  watch();
+});
+
+test('手机在看这个会话时不往下游转发：桌面从源头不弹卡，手机答完 agent 照常往下走', async () => {
+  // 桌面那张卡挂在「被转发的请求」上，本桥没有替它收尾的口子（收尾权在宿主网关手里），
+  // 转发出去、手机先答，桌面那张就永远悬着（2026-10-23，与提问桥同一条坑）。
+  const { ctx, cards, watch } = setup();
+  watch('s-1');
+  fire(ctx, 'session/event', { id: 's-1' }, askEvent({ id: 'ap-1', toolName: 'bash', callId: 'call-1' }));
+  let forwarded = false;
+  const held = runHook(ctx, escalation(), () => { forwarded = true; return HOLD(); });
+  await flush();
+  assert.equal(forwarded, false, '有观众还转发，桌面那张卡就会在手机答完后悬着');
   const card = cards.find((frame) => frame.type === 'approval/requested');
   const res = jsonResponse();
   await approvals.handleApprovalRespond(ctx, jsonRequest({
     rpcId: card.rpcId, sessionId: 's-1', approvalId: 'ap-1', outcome: 'allowed-once',
   }), res);
-  assert.equal(res.status, 409, '已经落定的审批要如实回 not-pending，不许谎报成功');
+  assert.equal(res.status, 200);
+  assert.equal(await held, 'allowed-once', '独家作答也要把结论交回钩子');
+  assert.equal(approvals.hasPending('s-1'), false);
+  watch();
+});
+
+test('手机没在看这个会话时照旧转发：纯桌面的竞速一字不改', async () => {
+  const { ctx, watch } = setup();
+  watch('s-2'); // 观众在别的会话上，s-1 没人看
+  let forwarded = false;
+  const held = runHook(ctx, escalation(), () => { forwarded = true; return Promise.resolve('rejected'); });
+  await flush();
+  assert.equal(forwarded, true, '没有观众还掐掉转发，纯桌面使用就没有人能审批了');
+  assert.equal(await held, 'rejected');
+  watch();
 });
 
 test('别人的结论（approval/decided）同样收卡并结算，钩子不必再等', async () => {
@@ -351,4 +378,32 @@ test('写队列积压到软水位时，草稿可以丢，审批卡不许丢', as
     global.setInterval = realSetInterval;
     global.clearInterval = realClearInterval;
   }
+});
+
+test('0.2.x 兼容桥的 respond 是同步对象：不认识的 rpcId 必须 409，不许抛成 500', async () => {
+  // 真兼容桥（mobile/host-bridge.js 的 respond）回的是同步信封，没有 .catch。
+  // 与提问桥同一条坑：旧写法直接链 Promise，真机上抛 TypeError 被兜成 500。
+  const { ctx } = setup();
+  ctx.apiProxy.respond = () => ({ result: { ok: false, error: { code: 'host-unsupported', message: 'unsupported' } } });
+  const res = jsonResponse();
+  await approvals.handleApprovalRespond(ctx, jsonRequest({
+    rpcId: 'm-unknown', sessionId: 's-1', approvalId: 'ap-9', outcome: 'rejected',
+  }), res);
+  assert.equal(res.status, 409);
+  assert.equal(res.body.error.code, 'not-pending');
+  assert.match(res.body.error.message, /失效/);
+});
+
+test('挂起项没了时：如实 409 + 人话，卡留在原地（失败原因要能看见）', async () => {
+  const { ctx, cards } = setup();
+  approvals.attachSession('s-1', (frame) => cards.push(frame));
+  ctx.apiProxy.respond = () => ({ result: { ok: false, error: { code: 'host-unsupported' } } });
+  const res = jsonResponse();
+  await approvals.handleApprovalRespond(ctx, jsonRequest({
+    rpcId: 'ap-from-before-reload', sessionId: 's-1', approvalId: 'ap-9', outcome: 'allowed-once',
+  }), res);
+  assert.equal(res.status, 409);
+  assert.match(res.body.error.message, /失效/);
+  // 不收卡：ApprovalPanel 要把这句话写在卡上，收掉就没地方落了。
+  assert.equal(cards.filter((frame) => frame.type === 'approval/resolved').length, 0);
 });

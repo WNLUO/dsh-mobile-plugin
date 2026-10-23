@@ -210,22 +210,51 @@ test('回答批次必须每题恰好一条（缺一题就 400，别把半个回�
   assert.equal(questions.pendingKind('s-1'), 'question', '400 之后问题还得挂着');
 });
 
-test('下游先答：用下游的答案，手机后来再提交如实 409', async () => {
+test('下游先答：用下游的答案，挂起项落定（此场景手机本就没在看）', async () => {
+  // 竞速只发生在「没有观众」时：那时手机没有卡、也答不了，下游（桌面）是唯一答案方。
   const { ctx, frames, watch } = setup();
-  watch('s-1');
   const answer = { answers: [{ id: 'q1', selected: ['8787'] }] };
   const held = runHook(ctx, ask(), () => Promise.resolve(answer));
   await flush();
-  const card = frames.find((frame) => frame.type === 'question/requested');
   assert.deepEqual(await held, answer);
   assert.equal(questions.pendingKind('s-1'), undefined);
+  assert.deepEqual(frames, [], '全程没有观众，一张卡都不该推');
+  watch();
+});
+
+test('手机在看这个会话时不往下游转发：桌面从源头不弹卡，手机答完 agent 照常往下走', async () => {
+  // 桌面那张卡挂在「被转发的请求」上，本桥没有替它收尾的口子（收尾权在宿主网关手里），
+  // 转发出去、手机先答，桌面那张就永远悬着（2026-10-23 用户报的现象）。
+  // 有观众时绝不调 next() —— 用一个会记性的下游把它钉死。
+  const { ctx, frames, watch } = setup();
+  watch('s-1');
+  let forwarded = false;
+  const held = runHook(ctx, ask(), () => { forwarded = true; return HOLD(); });
+  await flush();
+  assert.equal(forwarded, false, '有观众还转发，桌面那张卡就会在手机答完后悬着');
+  const card = frames.find((frame) => frame.type === 'question/requested');
   const res = jsonResponse();
   await questions.handleQuestionRespond(ctx, jsonRequest({
     rpcId: card.rpcId,
     sessionId: 's-1',
     answer: { answers: [{ id: 'q1', selected: ['9000'] }] },
   }), res);
-  assert.equal(res.status, 409);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await held, { answers: [{ id: 'q1', selected: ['9000'] }] }, '独家作答也要把回答交回钩子');
+  assert.equal(questions.pendingKind('s-1'), undefined);
+  watch();
+});
+
+test('手机没在看这个会话时照旧转发：纯桌面的竞速一字不改', async () => {
+  const { ctx, watch } = setup();
+  watch('s-2'); // 观众在别的会话上，s-1 没人看
+  let forwarded = false;
+  const answer = { answers: [{ id: 'q1', selected: ['8787'] }] };
+  const held = runHook(ctx, ask(), () => { forwarded = true; return Promise.resolve(answer); });
+  await flush();
+  assert.equal(forwarded, true, '没有观众还掐掉转发，纯桌面使用会直接报「没有人能回答」');
+  assert.deepEqual(await held, answer);
+  watch();
 });
 
 test('请求被取消：卡收掉，钩子按 abort 抛出（别假装成空回答）', async () => {
@@ -266,4 +295,49 @@ test('提问卡在软水位上不许被丢（与审批卡同一豁免）', () =>
   assert.match(stream, /type === 'question\/requested'/, '提问卡没有 seq，按默认口径会在 4MB 软水位上被 shed');
   assert.match(stream, /type === 'question\/resolved'/);
   assert.match(stream, /const detachQuestions = questions\.attachSession/, '会话流必须把手机的 sink 接给提问桥');
+});
+
+// ── 旧通道那一段的真实形态 ────────────────────────────────────────────────────
+
+test('0.2.x 兼容桥的 respond 是同步对象，不是 Promise：不认识 rpcId 必须如实 409 而不是 500', async () => {
+  // 真的兼容桥（mobile/host-bridge.js）返回的是同步的 {result:{ok:false,...}}，
+  // 而上面 fakeCtx 里那个 `async` 假体回的是 Promise —— 正因如此，早先直接
+  // `.catch()` 的写法在测试里永远绿、在真机上抛 TypeError 被兜成 500。
+  // 这里改用真兼容桥的返回形态（同步对象），把那处形态差钉死。
+  const ctx = fakeCtx();
+  ctx.apiProxy = { respond: () => ({ result: { ok: false, error: { code: 'host-unsupported', message: 'unsupported' } } }) };
+  const res = jsonResponse();
+  await questions.handleQuestionRespond(ctx, jsonRequest({
+    rpcId: 'm-unknown',
+    sessionId: 's-1',
+    answer: { answers: [{ id: 'q1', selected: ['x'] }] },
+  }), res);
+  assert.equal(res.status, 409, '通道说不认时只能是 409：500 会让手机看不到「已完成」这句人话');
+  assert.equal(res.body.error.code, 'not-pending');
+});
+
+test('同步对象抛出也要落在 409，不许把异常抛给路由守卫', async () => {
+  const ctx = fakeCtx();
+  ctx.apiProxy = { respond: () => { throw new Error('boom'); } };
+  const res = jsonResponse();
+  await questions.handleQuestionRespond(ctx, jsonRequest({
+    rpcId: 'm-unknown-2', sessionId: 's-1', answer: { answers: [{ id: 'q1', selected: ['x'] }] },
+  }), res);
+  assert.equal(res.status, 409);
+});
+
+test('挂起项没了（插件重载 / 宿主重启）时：如实 409 + 一句人话，卡留在原地好把原因写出来', async () => {
+  const { ctx, frames } = setup();
+  const watch = questions.attachSession('s-1', (frame) => frames.push(frame));
+  // 桥里没有这条 rpcId（模拟重载后进程内状态已清空），旧通道也不认。
+  const res = jsonResponse();
+  await questions.handleQuestionRespond(ctx, jsonRequest({
+    rpcId: 'm-from-before-reload', sessionId: 's-1', answer: { answers: [{ id: 'q1', selected: ['x'] }] },
+  }), res);
+  assert.equal(res.status, 409);
+  assert.match(res.body.error.message, /失效/, '要告诉用户这条提问已经作废，而不能只说「不可回答」');
+  // 卡**不能**被收掉：App 靠这张卡把上面那句话显示出来（UserQuestionDock 的 error 行），
+  // 一收卡就跟着卸载，用户又变成「点了没反应」。
+  assert.equal(frames.filter((frame) => frame.type === 'question/resolved').length, 0, '失败时不许收卡，否则失败原因没地方显示');
+  watch();
 });

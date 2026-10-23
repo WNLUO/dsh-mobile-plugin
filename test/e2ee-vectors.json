@@ -1,0 +1,33 @@
+{
+  "note": "协议 v2 的跨端测试向量。由 scripts/gen-e2ee-vectors.cjs 生成，两端测试读它。改协议才重生成。",
+  "proto": 2,
+  "inputs": {
+    "ticket": "1111111111111111111111111111111111111111111111111111111111111111",
+    "deviceKey": "2222222222222222222222222222222222222222222222222222222222222222",
+    "instanceId": "a1b2c3d4",
+    "pairNonce": "333333333333333333333333",
+    "bodyNonce": "444444444444444444444444",
+    "downNonce": "555555555555555555555555",
+    "paramsNonce": "666666666666666666666666",
+    "pairPlain": "{\"deviceKey\":\"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI\",\"keyId\":\"0011223344556677\",\"device\":{\"name\":\"iPhone\",\"platform\":\"ios\"}}",
+    "bodyPlain": "{\"sessionId\":\"abc\",\"text\":\"你好，世界\"}",
+    "responsePlain": "{\"ok\":true,\"data\":{\"received\":1}}",
+    "paramsPlain": "{\"path\":\"/Users/x/project\",\"query\":\"日志\"}",
+    "requestMethod": "POST",
+    "requestPath": "/api/mobile/v1/session/send",
+    "requestQuery": "?fresh=1",
+    "requestTs": 1761292800123
+  },
+  "expect": {
+    "pairKey": "e1d2ef23fffd21bb8662bfa22b9952e251588a96eb2ff6e85254a4a1edf62e59",
+    "keyUp": "066a168ca46a1d7698d4448b78f9b56900d472e7fd22fd851ce6cdc1410a86dc",
+    "keyDown": "20ac0b940cb5f7ce9b36e58f85a2a1c8418ccbb1c40256e1447187e0ae015ea0",
+    "keySig": "3329b0136c54d7f6bf1844998a96f010c52bf775e2ff670cf084bddee7a93903",
+    "pairSealed": "33333333333333333333333397142efbe927b9f458676a5c1a6b1bb4b0232763e546f2c9a1cea3a6c1f6e66864285c6a9415cb08ca992201d09e3381d2ef8539b9a873a6cb181a1e76c6e6fc359441e8b4146759612ff2da59ec1fcee97a64bd16d7ddfaf19007a7fe86761c7ac9fced2d306a7ab9cf52d5fb04c46e73fac6b0c07a86ecdcf14c6b551220aa48e9abb232cfcf3a55182a1cc5655b6411e3",
+    "upSealed": "444444444444444444444444b2c39fd954d3505465daba0a5397790fc503e896a42ab33e43ddd29c316f30428787d0a2e4f065e6dcdc26d46b50d5670edc414334d087f8e49f195d",
+    "downSealed": "5555555555555555555555552a38afdf14efe9354d5956f08aab952f089a1913d7941a8ebed97c3b6809b9106cb9a16c10f38fa750e873e12be1206d98",
+    "paramsSealed": "666666666666666666666666b0cb16fc5980c4c314c40e6af0ed18419d3470e410497253938ca026e8728e7e6a3bb2fa8eaa3eb4a8a70df8a06cf5bf0607f5455d3ae10c7ac7adec",
+    "canonical": "v2\nPOST\n/api/mobile/v1/session/send\n?fresh=1\n1761292800123\nRERERERERERERERE\n7941994289eddd7d6e1a37dcd739d8fcaded1d3b82117b4cbf00f5ac59dd5697",
+    "signature": "ynCNGzg2-mxySE1IAsyYKwS0fGRYqqHpz0bENNnUJys"
+  }
+}

@@ -157,10 +157,10 @@ function installedGeneration(manager) {
 }
 
 /** 一个够真的假 webServer：重复路径抛错（与宿主 dsh-host-webserver 的行为一致）。 */
-function createFakeWebServer() {
+function createFakeWebServer(port = 4321) {
   const routes = new Map();
   return {
-    port: 4321,
+    port,
     routes,
     register(route) {
       if (routes.has(route.path)) throw new Error(`webserver: duplicate ${route.kind} route "${route.path}"`);
@@ -178,11 +178,11 @@ function createFakeWebServer() {
  *
  * `extra` 用来模拟「运行时自带某个服务」——旧 DSH（≤0.1.x）自带 `apiProxy`，0.2.0 没有。
  */
-async function bootShell(extra = {}) {
+async function bootShell(extra = {}, webServerPort = undefined) {
   const { Context } = await import('@deepseek-ai/cordis');
   const { shell } = await loadShellModules();
   const ctx = new Context();
-  const server = createFakeWebServer();
+  const server = createFakeWebServer(webServerPort);
   ctx.provide('webServer', server);
   ctx.provide('sessions', { list: () => [] });
   for (const [name, value] of Object.entries(extra)) ctx.provide(name, value);
@@ -439,6 +439,45 @@ test('换代：新代装载失败时回滚到旧代，错误被记在状态里',
   assert.equal(status.source, 'installed');
   assert.ok(server.routes.has('/api/relay/gen'), '回滚之后旧代的路由必须还在');
   assert.equal(await routeReply(server, '/api/relay/gen'), 'a-0.9.4', '回滚装回去的必须真是旧代那段代码');
+});
+
+/**
+ * 装上了、但新版没通过自检 → 外壳自己退回去。
+ *
+ * 这一条是「装坏了 App 就连不上，你怎么回滚」的答案：装坏的后果正是手机连不上，那时手机上
+ * 任何按钮都发不出去。所以退回必须由宿主做完，手机只在**下一次连上之后**读到
+ * `lastRollback`（`lastApply.rolledBack` 就是从它来的）。
+ *
+ * 造现场的办法：让宿主自称的端口上真起一个 HTTP 服务，但它回的不是本插件 —— 等价于
+ * 「新版起来了，可手机要打的那批路由没挂上」。
+ */
+test('换代自检：新版装起来了但接口答不对，自动退回上一代并记账', async t => {
+  await resetProfile();
+  install(makeGeneration('selfcheck-a', '0.9.6', goodGeneration('a-0.9.6')));
+
+  const http = require('node:http');
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, service: 'someone-else' }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const port = server.address().port;
+
+  const { fiber, runtime } = await bootShell({}, port);
+  t.after(async () => { await fiber.dispose(); });
+
+  const before = await waitForStatus(runtime);
+  assert.equal(before.version, '0.9.6');
+
+  install(makeGeneration('selfcheck-b', '0.9.7', goodGeneration('b-0.9.7')));
+  await assert.rejects(() => runtime.reload(), /自检/, '自检没过必须当作换代失败抛出去');
+
+  const status = runtime.status();
+  assert.equal(status.version, '0.9.6', '必须退回上一代继续跑');
+  assert.equal(status.lastRollback?.ok, true, '退成功要记下来（手机读的就是它）');
+  assert.equal(status.lastRollback?.toVersion, '0.9.6');
+  assert.match(String(status.lastRollback?.reason), /someone-else|自检/);
 });
 
 /**

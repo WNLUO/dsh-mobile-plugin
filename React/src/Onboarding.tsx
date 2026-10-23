@@ -47,6 +47,7 @@ import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
+import { DownloadAppButton } from './components/DownloadAppButton.tsx'
 import { InfoList, InfoRow, ToneValue } from './components/InfoRow.tsx'
 import {
   apiGet,
@@ -58,12 +59,18 @@ import {
   type StatusView,
 } from './lib/api.ts'
 import { lanText, lanTone, tunnelText, tunnelTone } from './lib/format.ts'
-import { APP_DOWNLOAD_URL, PUBLIC_RELAYS } from './lib/links.ts'
+import { PUBLIC_RELAYS } from './lib/links.ts'
 
 /** 地址组里「公用中转」那一条的哨兵值：它不是地址，选它等于选「走中转」。 */
 const PUBLIC_RELAY = 'public-relay'
 /** 「自建中转」同理：选它之后由用户在下面填自己的域名。 */
 const OWN_RELAY = 'own-relay'
+/**
+ * 「局域网直连」那一行：具体走哪条网卡地址在旁边的弹窗里选，这个值本身不是地址。
+ * 以前它是地址字面量（一行一条网卡地址），机器有四五条地址时那一组全是 IP，
+ * 光看也分不出哪个是「现在要用的那条」。
+ */
+const LAN_DIRECT = 'lan-direct'
 
 /** 自建中转那一栏右边那颗按钮指向的仓库（用户给的地址）。 */
 const RELAY_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-server'
@@ -131,6 +138,21 @@ export function Onboarding({ onDone }: Props) {
   const [firewallOpen, setFirewallOpen] = useState(false)
   /** 自建中转「检测」那颗按钮的结论。 */
   const [ownProbe, setOwnProbe] = useState<'idle' | 'busy' | 'ok' | 'failed'>('idle')
+  /** IPv6 那几条默认收起：它们只是「手机自己会比」，几条长地址摊开会把整块地址区淹掉。 */
+  const [ipv6Open, setIpv6Open] = useState(false)
+  /** 「选择地址」那颗按钮开的弹窗：机器有好几条网卡地址时，只有在这能看清并换掉走哪条。 */
+  const [lanDialogOpen, setLanDialogOpen] = useState(false)
+  /**
+   * 进页自动体检这台机器正在用的那个中转：`null` 还没查完、`true` 通、`false` 不通。
+   * 不通要把底部那颗按钮拦掉 —— 带着一条死路往下走，用户到手机那一步才发现白配一场。
+   */
+  const [inheritedRelayOk, setInheritedRelayOk] = useState<boolean | null>(null)
+  /**
+   * 自建中转地址的**预览**二维码：按这个候选生成，但一个字都不落盘。
+   * 这一栏既不预填插件里已有的地址，也不在打字时写配置 —— 写配置只有「进入插件」那一处
+   * （2026-10-24 用户要求：输入框别读已有配置、也别动它）。
+   */
+  const [previewSvg, setPreviewSvg] = useState('')
 
   /** 轮询要能被卸载打断，否则关掉页面后它还在打接口。 */
   const alive = useRef(true)
@@ -151,7 +173,7 @@ export function Onboarding({ onDone }: Props) {
         setPreferred(pick)
         // 默认选中本地那条地址；这台机器已经配了中转（relayUrl 非空）就默认落在公用中转上，
         // 否则重开一次引导会把人家正在用的中转悄悄换掉。
-        setSelected((current) => current || (status?.relayUrl ? PUBLIC_RELAY : pick))
+        setSelected((current) => current || (status?.relayUrl ? PUBLIC_RELAY : LAN_DIRECT))
       } catch {
         setAddresses(null)
       }
@@ -238,6 +260,54 @@ export function Onboarding({ onDone }: Props) {
     }
   }, [selected])
 
+  /**
+   * 自建中转地址：停手 600ms 自动探一次，探通了就把二维码按它生成出来（只是预览）。
+   * 写配置不在这里 —— 打字不动配置，落盘只发生在按「进入插件」时。
+   */
+  useEffect(() => {
+    if (selected !== OWN_RELAY) return
+    const value = ownRelayUrl.trim().replace(/\/+$/, '')
+    if (!value) {
+      setOwnProbe('idle')
+      return
+    }
+    if (!/^https?:\/\/[^\s]+$/i.test(value)) return
+    const applied = (status?.relayUrl ?? '').trim().replace(/\/+$/, '')
+    if (value === applied && status?.tunnel.state === 'connected') {
+      setOwnProbe('ok')
+      return
+    }
+    const timer = window.setTimeout(() => {
+      void previewOwnRelay(value)
+    }, 600)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只认输入停顿
+  }, [ownRelayUrl, selected])
+
+  /**
+   * 进页自动体检这台机器正在用的中转（用户 2026-10-24 要求：进插件就先查一次，有问题拦下来）。
+   *
+   * 只探「不是公用候选」的那条：公用入口有自己那套测速，重复探没有意义。
+   * **不**把这条地址填进「自建中转」那栏 —— 那一栏归用户自己填，不替他从配置里抄。
+   */
+  useEffect(() => {
+    const saved = (status?.relayUrl ?? '').trim()
+    if (!saved) return
+    if (inheritedRelayOk !== null) return
+    let cancelled = false
+    void (async () => {
+      const ok = await probeRelayAddress(saved.replace(/\/+$/, ''))
+      if (cancelled) return
+      setInheritedRelayOk(ok)
+      if (!ok) setError(`这台机器正在用的中转地址 ${saved} 现在连不上，先确认那台中转在不在跑。`)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // 只在「本机已配中转」时体检一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上
+  }, [status?.relayUrl])
+
   /** 这条公用中转实际会用哪一条：自动优选 = 测速最快的那条。 */
   const bestRelayUrl =
     relayPick || probes.find((row) => row.ms !== null && Number.isFinite(row.ms))?.url || probes[0]?.url || ''
@@ -250,6 +320,28 @@ export function Onboarding({ onDone }: Props) {
    * 那台根本没部署中转，检测照样亮绿，一直到配对那一步才失败。现在让宿主真去打
    * `/healthz`，并按它回的 service 字段确认对面确实是中转（不是随便一台 web 服务器）。
    */
+  /**
+   * 探一个中转地址通不通：交给宿主真去打它的 `/healthz`。
+   *
+   * 自设 8 秒上限：域名打错时 DNS 要磨很久，接口不回就一直「检测中」，
+   * 按钮永远点不动。超时按「不通」算，比无限等更接近用户想知道的答案。
+   */
+  async function probeRelayAddress(value: string): Promise<boolean> {
+    try {
+      const result = await Promise.race([
+        apiPost<{ ok: boolean; results: { url: string; ms: number | null }[] }>('/api/relay/probe-relays', {
+          urls: [value],
+        }),
+        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 8000)),
+      ])
+      if (!result) return false
+      return Boolean(result.results[0] && result.results[0].ms !== null)
+    } catch {
+      return false
+    }
+  }
+
+  /** 「检测」那颗按钮：想点就点，只更新结论，不写配置。 */
   async function probeOwnRelay() {
     const value = ownRelayUrl.trim().replace(/\/+$/, '')
     if (!/^https?:\/\/[^\s]+$/i.test(value)) {
@@ -257,15 +349,42 @@ export function Onboarding({ onDone }: Props) {
       return
     }
     setOwnProbe('busy')
-    try {
-      const result = await apiPost<{ ok: boolean; results: { url: string; ms: number | null }[] }>(
-        '/api/relay/probe-relays',
-        { urls: [value] },
-      )
-      if (!result.results[0] || result.results[0].ms === null) throw new Error('unreachable')
-      setOwnProbe('ok')
-    } catch {
+    setOwnProbe((await probeRelayAddress(value)) ? 'ok' : 'failed')
+  }
+
+  /** 输入框一改，上一次的检测结论立即作废。 */
+  function onOwnRelayChange(next: string) {
+    setOwnRelayUrl(next)
+    setOwnProbe('idle')
+  }
+
+  /**
+   * 自建中转「填完就出二维码」：地址停手 600ms 探一次，探通了按它生成一张**预览**码。
+   *
+   * 为什么必须先探通：这张码指向哪台中转，用户扫下去就是真的连过去。探不通就不出码，
+   * 免得把一张指向死路的码摆在那儿。
+   * 为什么一个字都不写盘：这个页面直接操作正在用的插件，随手敲一个半截域名就落进配置的话，
+   * 等于把用户正在跑的隧道改成一条死路（2026-10-24 用户踩到）。落盘只有按「进入插件」那一处。
+   * 为什么等 600ms：逐字发请求既拖慢输入，也会把敲到一半的域名报成「连不通」。
+   */
+  async function previewOwnRelay(value: string) {
+    setOwnProbe('busy')
+    setError('')
+    const reachable = await probeRelayAddress(value)
+    if (ownRelayUrl.trim().replace(/\/+$/, '') !== value) return // 探测期间又改了，丢弃这次结论
+    if (!reachable) {
+      setPreviewSvg('')
       setOwnProbe('failed')
+      setError(`中转地址 ${value} 上没有中转在应答。确认域名写对、那台 dsh-relay 在运行。`)
+      return
+    }
+    setOwnProbe('ok')
+    // 只取预览：`?relayUrl=` 让宿主按这个候选生成一次二维码，不改任何配置。
+    try {
+      const info = await apiGet<PairingInfo>(`/api/relay/pairing?relayUrl=${encodeURIComponent(value)}`)
+      setPreviewSvg(info.svg ?? '')
+    } catch {
+      setPreviewSvg('')
     }
   }
 
@@ -283,11 +402,13 @@ export function Onboarding({ onDone }: Props) {
 
   /** 选的是不是中转那两种（公用 / 自建）：两者的配置写入与状态判据完全一样。 */
   const isRelayMode = selected === PUBLIC_RELAY || selected === OWN_RELAY
+
   /**
-   * 真正要写进 `relayUrl` 的那条：自建中转用用户填的域名，公用中转用选中的候选
-   * （自动优选就是测速最快的那条）。公用中转这一版还是 mock，见 `PUBLIC_RELAY_CANDIDATES`。
+   * 有没有必须先解决的问题：进页体检发现本机正在用的那条中转连不上。
+   * 只有在走公用中转时才拦 —— 那时用户是要接着用那条死路；选自建中转不受影响，
+   * 因为「进入插件」会按新填的地址重探、重写，旧的那条本来就要被换掉。
    */
-  const relayUrl = (selected === OWN_RELAY ? ownRelayUrl : bestRelayUrl).trim()
+  const blocked = selected === PUBLIC_RELAY && inheritedRelayOk === false
 
   /** 选中的那条到底通没通：局域网看 lan，中转看隧道。 */
   const readyNow =
@@ -298,7 +419,7 @@ export function Onboarding({ onDone }: Props) {
    * 按下去之后盯到直连真的起来为止：20 秒还没起来就如实说「还没起来」，不装成成功。
    * 好了不存标记 —— 渲染那边直接看 `status`（`readyNow`），存两份就会飘开。
    */
-  async function watch() {
+  async function watch(relayMode: boolean = isRelayMode) {
     const startedAt = Date.now()
     while (alive.current && Date.now() - startedAt < 20_000) {
       await new Promise((resolve) => window.setTimeout(resolve, 1500))
@@ -310,31 +431,99 @@ export function Onboarding({ onDone }: Props) {
         continue
       }
       setStatus(current)
-      const state = isRelayMode ? current.tunnel.state : current.lan.state
+      const state = relayMode ? current.tunnel.state : current.lan.state
       if (state === 'listening' || state === 'connected' || state === 'error') return
     }
   }
 
-  async function connect() {
+  /**
+   * 把「局域网直连 / 公网候选 / 公用中转」这几种选择落到宿主上：写配置 → 打开远程控制 → 重取二维码。
+   *
+   * 底部那颗按钮和「切换接入方式」走的是同一份：以前只有按钮会写配置，切单选只换界面，
+   * 于是用户切到中转时二维码还是老样子（2026-10-24 用户报的就是这个）。现在两边都走这里，
+   * 切一下等于按一下。**自建中转不走这里** —— 那一栏的地址要等按「进入插件」时才探、才写。
+   */
+  async function applySelection(mode: string, toggle: boolean) {
     if (busy) return
     setBusy(true)
     setError('')
-    // 选了中转就把中转地址写下去，隧道连出去；选局域网地址时留空，隧道压根不启动。
+    const relayMode = mode === PUBLIC_RELAY
+    // 测速还没回来时 `bestRelayUrl` 是空串：不能就这样写下去，否则配置里的中转地址被清掉、
+    // 隧道永远起不来（表现就是「切了中转，二维码一点没变」）。退回清单第一条。
+    const target = (relayMode ? bestRelayUrl || PUBLIC_RELAYS[0]?.url || '' : '').trim()
     // 设备名与端口都不写 —— 宿主自己会填宿主机名和默认端口，别把没问过的值写回去。
     const patch: ConfigPatch = {
-      relayUrl: isRelayMode ? relayUrl : '',
+      // 局域网直连 = 清掉中转地址，隧道压根不启动；中转 = 把选中的那条写下去。
+      relayUrl: target,
       lanEnabled: true,
       pairingPolicy: 'code',
     }
     if (preferred) patch.preferredLanAddress = preferred
     try {
       setStatus(await apiPost<StatusView>('/api/relay/config', patch))
-      setStatus(await apiPost<StatusView>('/api/relay/toggle', { enabled: true }))
-      // 告诉宿主「这台机器走过引导了」，下次打开直接进主页。失败不算这一步失败：
-      // 老宿主没有这条路由，二维码照样出得来，只是下次还会再引导一遍。
-      await apiPost('/api/relay/onboarded', {}).catch(() => undefined)
+      if (toggle) {
+        setStatus(await apiPost<StatusView>('/api/relay/toggle', { enabled: true }))
+        // 告诉宿主「这台机器走过引导了」，下次打开直接进主页。失败不算这一步失败：
+        // 老宿主没有这条路由，二维码照样出得来，只是下次还会再引导一遍。
+        await apiPost('/api/relay/onboarded', {}).catch(() => undefined)
+      }
+      setSelected(mode)
       await loadPairing()
-      void watch()
+      if (toggle) void watch(relayMode)
+    } catch (err) {
+      setError(errorText(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 底部那颗按钮：按当前选择连一次。 */
+  async function connect() {
+    await applySelection(selected, true)
+  }
+
+  /** 进插件：引导过了就直接去主页，没指定去向就跳根路径。 */
+  function enterNow() {
+    if (onDone) onDone()
+    else window.location.assign('/')
+  }
+
+  /**
+   * 「进入插件」：自建中转这一栏只有这一处会写配置。
+   *
+   * 顺序是「先探、再写、最后进」——
+   *   · 探不通就停在这儿报错，插件里正在用的配置一个字都不动；
+   *   · 探通了才把这条域名写进配置、开隧道、记下「走过引导」，然后进插件。
+   * 已经是配置里那条且隧道连着，就没什么可写的，直接进。
+   */
+  async function enterPlugin() {
+    const value = ownRelayUrl.trim().replace(/\/+$/, '')
+    if (!value) return
+    const applied = (status?.relayUrl ?? '').trim().replace(/\/+$/, '')
+    if (selected === OWN_RELAY && value === applied && status?.tunnel.state === 'connected') {
+      enterNow()
+      return
+    }
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const ok = await probeRelayAddress(value)
+      if (!ok) {
+        setOwnProbe('failed')
+        setPreviewSvg('')
+        setError(`中转地址 ${value} 上没有中转在应答，配置没改。确认域名写对、那台 dsh-relay 在运行。`)
+        return
+      }
+      setOwnProbe('ok')
+      const patch: ConfigPatch = { relayUrl: value, lanEnabled: true, pairingPolicy: 'code' }
+      if (preferred) patch.preferredLanAddress = preferred
+      setStatus(await apiPost<StatusView>('/api/relay/config', patch))
+      setStatus(await apiPost<StatusView>('/api/relay/toggle', { enabled: true }))
+      await apiPost('/api/relay/onboarded', {}).catch(() => undefined)
+      setSelected(OWN_RELAY)
+      await loadPairing()
+      enterNow()
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -343,28 +532,85 @@ export function Onboarding({ onDone }: Props) {
   }
 
   /**
-   * 换一条局域网地址：存下去，然后**重取二维码** —— 二维码里带的是地址，不重取就还是旧的。
-   * 存失败也照样重取一次，密码学上的选择没落地时至少让屏幕上的是宿主真实吐出来的东西。
+   * 切换接入方式即生效：写配置、需要的话把远程控制打开、重取二维码。
+   *
+   * 自建中转例外：切过去只记住选择，**一个字都不写** —— 那一栏填什么由用户定，
+   * 要等到按「进入插件」、地址探通了才落盘。
    */
-  async function pickAddress(address: string) {
-    setSelected(address)
-    setError('')
-    // 两个中转选项都不是网卡地址：它们只改接入方式，不写 `preferredLanAddress`。
-    if (address === PUBLIC_RELAY || address === OWN_RELAY) {
-      await loadPairing()
+  async function pickAddress(value: string) {
+    if (value === OWN_RELAY) {
+      setSelected(value)
+      setError('')
       return
     }
-    const patch = { preferredLanAddress: address }
+    await applySelection(value, true)
+  }
+
+  /**
+   * 换一条具体的局域网地址：存下去，然后**重取二维码** —— 二维码里带的是地址，不重取就还是旧的。
+   * 存失败也照样重取一次：选择没落地时，至少让屏幕上的是宿主真实吐出来的东西。
+   */
+  async function pickLanAddress(address: string) {
+    const patch: ConfigPatch = { preferredLanAddress: address }
+    // 从这里选地址等于「就走局域网直连」：原先在中转模式上就把中转地址清掉，
+    // 否则二维码里还挂着那条中转，界面说直连、码里却不是。
+    if (isRelayMode) patch.relayUrl = ''
     setPreferred(address)
+    setSelected(LAN_DIRECT)
+    setError('')
     try {
       await apiPost('/api/relay/config', patch)
     } catch (err) {
       setError(errorText(err))
     }
+    setLanDialogOpen(false)
     await loadPairing()
   }
 
   const choice = addresses?.lan ?? []
+  /** 现在生效的那条：用户选过的优先，没有就用宿主给的第一条（与 `defaultPreferred` 同口径）。 */
+  const currentLanAddress = (() => {
+    const address = preferred || choice[0]?.address || ''
+    return choice.find((item) => item.address === address)?.url ?? address
+  })()
+  /**
+   * 自建中转还没填地址：这时压根没有能写进二维码的中转地址。
+   * 屏幕上那张码是上一次配置（多半是局域网）留下的，摆着就会让人以为现在能扫 —— 宁可不画。
+   */
+  const needsOwnRelayAddress = selected === OWN_RELAY && ownRelayUrl.trim() === ''
+  /**
+   * 自建中转的地址改过但还没连：这时屏幕上的码是**上一次**那条中转生成的，扫了只会连到旧地址。
+   * 与「还没填」分开，因为要说的下一步不一样（一个去填、一个去按按钮）。
+   */
+  const relayAddressNotApplied =
+    selected === OWN_RELAY &&
+    ownRelayUrl.trim() !== '' &&
+    ownRelayUrl.trim().replace(/\/+$/, '') !== (status?.relayUrl ?? '').trim().replace(/\/+$/, '')
+  /** 二维码现在能不能信：不能的话换成一句说明，别摆一张指向旧配置的码。 */
+  const qrBlocked = needsOwnRelayAddress || (relayAddressNotApplied && !previewSvg)
+  /** 自建中转里「探通了但还没写入配置」：这时显示的是预览码，要标出来。 */
+  const showingPreview = selected === OWN_RELAY && relayAddressNotApplied && previewSvg !== ''
+  const qrSvg = showingPreview ? previewSvg : pairing?.svg ?? ''
+  /**
+   * 选了自建中转时，左栏那一行说的是**你填的这个地址**，不是本机正在跑的那条隧道。
+   *
+   * 早先这里直接报宿主 `status.tunnel`，于是刚打开页面、输入框还空着就写着「已连接」——
+   * 那个「已连接」跟这一栏毫无关系，是上一次配置里那条中转在跑（2026-10-24 用户截图报的）。
+   * 只有「填的这条正好就是配置里那条」时，隧道状态才是这一栏的实话。
+   */
+  const ownRelayRow = (() => {
+    const value = ownRelayUrl.trim().replace(/\/+$/, '')
+    if (value === '') return { tone: 'off' as const, text: '还没填地址' }
+    if (ownProbe === 'busy') return { tone: 'warn' as const, text: '检测中' }
+    const applied = (status?.relayUrl ?? '').trim().replace(/\/+$/, '')
+    if (value === applied) {
+      const state = status?.tunnel.state ?? 'off'
+      return { tone: tunnelTone(state), text: tunnelText(state) }
+    }
+    if (ownProbe === 'ok') return { tone: 'ok' as const, text: '连得通，还没存进配置' }
+    if (ownProbe === 'failed') return { tone: 'error' as const, text: '连不上' }
+    return { tone: 'off' as const, text: '还没检测' }
+  })()
   const publicChoice = addresses?.public ?? []
   // 第三份：IPv6 全球单播。只能看 —— 谁快由手机侧实测决定（见 AddressPicker 的文件头）。
   const ipv6Choice = addresses?.ipv6 ?? []
@@ -392,37 +638,102 @@ export function Onboarding({ onDone }: Props) {
           <CardTitle>用移动设备连上这台 DSH</CardTitle>
         </CardHeader>
 
-        <div className="flex flex-col gap-5 px-4 py-2">
+        {/* 面板宽的时候二维码和地址分两栏：左边是「要扫的东西 + 现在通没通」，右边只剩
+            「手机连哪条」。夹在侧栏里（窄屏）自动叠回一列，从上到下顺序不变。 */}
+        <div className="grid gap-6 px-4 pb-2 md:grid-cols-[212px_1fr]">
           <div className="flex flex-col items-center gap-3">
-            {pairing?.svg ? (
+            {qrBlocked ? (
+              <div className="flex size-[200px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border-muted px-5 text-center">
+                {needsOwnRelayAddress ? (
+                  <>
+                    <span className="text-xs text-foreground-muted">填好下面的中转地址后</span>
+                    <span className="text-xs text-foreground-muted">这里才会生成二维码</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-foreground-muted">这个地址连上之后，这里才会生成二维码</span>
+                )}
+              </div>
+            ) : qrSvg ? (
               <div
                 className="size-[200px] rounded-lg bg-white p-2 [&_svg]:h-full [&_svg]:w-full"
                 // 宿主自己吐的 SVG，不是用户输入。
-                dangerouslySetInnerHTML={{ __html: pairing.svg }}
+                dangerouslySetInnerHTML={{ __html: qrSvg }}
               />
             ) : (
               <div className="flex size-[200px] items-center justify-center rounded-lg border border-border-muted text-xs text-foreground-muted">
                 {busy ? <Spinner /> : '没取到二维码'}
               </div>
             )}
-            <p className="font-mono text-lg tracking-[0.25em] text-foreground-intense">
-              {pairing?.pairingCode ?? status?.pairingCode ?? '—'}
-            </p>
+            {qrBlocked ? null : (
+              <p className="font-mono text-lg tracking-[0.25em] text-foreground-intense">
+                {pairing?.pairingCode ?? status?.pairingCode ?? '—'}
+              </p>
+            )}
+
+            {/* 中转还没连上时二维码里只有局域网地址：中转地址要隧道真连出去才写进码里，
+                不然手机扫到的是一条通不了的路。 */}
+            {showingPreview ? (
+              <p className="text-center text-xs text-foreground-muted">
+                这是按你填的地址生成的预览，点「进入插件」才会把这个地址存进配置。
+              </p>
+            ) : isRelayMode && !readyNow && !qrBlocked ? (
+              <p className="text-center text-xs text-foreground-muted">中转还没连上，连上之后扫码才有用。</p>
+            ) : null}
+
+            {/* 连接结论贴着二维码放：左边这一栏回答的是「现在能不能连」，右边回答「连哪条」。 */}
+            <div className="w-full">
+              <InfoList>
+                {!isRelayMode ? (
+                  <InfoRow label="直连">
+                    <ToneValue tone={lanTone(status?.lan.state ?? 'off', true)} text={lanText(status?.lan.state ?? 'off', true)} />
+                  </InfoRow>
+                ) : selected === OWN_RELAY ? (
+                  <InfoRow label="这个地址">
+                    <ToneValue tone={ownRelayRow.tone} text={ownRelayRow.text} />
+                  </InfoRow>
+                ) : (
+                  <InfoRow label="中转隧道">
+                    <ToneValue tone={tunnelTone(status?.tunnel.state ?? 'off')} text={tunnelText(status?.tunnel.state ?? 'off')} />
+                  </InfoRow>
+                )}
+              </InfoList>
+            </div>
+
+            {/*
+              结论只由能观测到的事实决定：宿主这边起没起来，直接看同一份 `status`。
+              报错就如实说报错，不装成成功。
+            */}
+            {status !== null && (!isRelayMode ? status.lan.state === 'error' : status.tunnel.state === 'error') ? (
+              <Alert variant="error">
+                <AlertIcon />
+                <AlertTitle>{!isRelayMode ? '没能开始直连' : '中转没连上'}</AlertTitle>
+                <AlertDescription>
+                  {!isRelayMode
+                    ? status.lan.error
+                      ? `${status.lan.error}（端口可能被占用，到主页的「局域网直连」里换一个。）`
+                      : '直连没起来，端口可能被别的程序占了。'
+                    : status.tunnel.error
+                      ? `${status.tunnel.error}（检查中转地址填对没有、那台中转是不是在跑。）`
+                      : '隧道没建起来，检查中转地址。'}
+                </AlertDescription>
+              </Alert>
+            ) : null}
           </div>
 
           {/*
             这一段**一条地址也要出现**（2026-10-10 用户要求）：那一条就是默认选中的，
             用户得先在屏幕上看见二维码里带的是哪个地址。
 
-            两份地址摆在同一块里、分两行（版式照 2026-10 用户给的那张截图）：
-              · 局域网那几条**可选** —— 二维码里带的就是选中的那条，其余继续当兜底；
-              · 公网那几条**只列不可选**：二维码这一版只带局域网地址，做成可选的只会让人
-                以为选了有用（手机不在同一个网络时，它是给人往 App 里手填的参考）。
+            地址分两层（2026-10-24 重排）：
+              · 上格「手机连哪条」= 真会写进配置的那几条，可选 —— 局域网、公用中转、自建中转；
+              · 下格「仅供参考」= 公网与 IPv6，只列不可选：前者是手机不在同一网络时手填的参考，
+                后者谁更快由手机侧实测决定。两层之间用一条分隔线断开，不再靠行尾那串小字区分。
+            行尾只留网卡名，不再每行重复「局域网地址」「IPv6 直连」这些前缀。
           */}
-          {/* 这一块一直在：公用中转那一条永远可选，哪怕这台机器一条局域网地址都没检测到。 */}
-          <div className="rounded-md bg-background-muted px-3 py-2">
-              <div className="flex flex-wrap items-baseline gap-1 text-xs text-foreground-muted">
-                <span>请选择可访问地址（若 App 无法访问局域网，请</span>
+          <div className="flex min-w-0 flex-col gap-3">
+            <div className="rounded-lg border border-border-muted">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border-muted px-3 py-2">
+                <p className="text-xs text-foreground-muted">手机连哪条地址</p>
                 <button
                   type="button"
                   className="cursor-pointer text-xs text-foreground-intense underline underline-offset-2 hover:text-foreground-strong"
@@ -431,198 +742,205 @@ export function Onboarding({ onDone }: Props) {
                     setFirewallOpen(true)
                   }}
                 >
-                  检查防火墙
+                  连不上？检查防火墙
                 </button>
-                <span>）：</span>
               </div>
-              <RadioGroup
-                className="mt-1.5 gap-1"
-                value={selected}
-                onValueChange={(value) => void pickAddress(String(value))}
-              >
-                {choice.map((item) => (
-                  <label key={item.address} className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
-                    <span className="flex items-baseline gap-1.5">
-                      <Radio value={item.address} aria-label={item.url} />
-                      <span className="font-mono text-xs text-foreground">{item.url}</span>
-                    </span>
-                    <span className="shrink-0 text-xs text-foreground-muted">
-                      {item.interface ? `局域网地址 · ${item.interface}` : '局域网地址'}
-                    </span>
-                  </label>
-                ))}
-                {/* 公用中转：行里只说「是什么 + 建议临时用」，具体用哪条在下面的列表里。 */}
-                <label className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
-                  <span className="flex items-baseline gap-1.5">
-                    <Radio value={PUBLIC_RELAY} aria-label="公用中转" />
-                    <span className="text-sm text-foreground">公用中转</span>
-                  </span>
-                  <span className="shrink-0 text-xs text-foreground-muted">公用中转服务·建议临时使用</span>
-                </label>
-                {/* 自建中转：右侧那颗按钮开仓库的新标签页，点它不该顺手把这一行选中。 */}
-                <label className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
-                  <span className="flex items-baseline gap-1.5">
-                    <Radio value={OWN_RELAY} aria-label="自建中转" />
-                    <span className="text-sm text-foreground">自建中转</span>
-                  </span>
-                  <a
-                    className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                    href={RELAY_REPO_URL}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    GitHub 仓库
-                  </a>
-                </label>
-              </RadioGroup>
-              {publicChoice.length > 0 ? (
-                <ul className="mt-1.5 flex flex-col gap-1">
-                  {publicChoice.map((item) => (
-                    <li key={item.address} className="flex flex-wrap items-baseline justify-between gap-x-3">
-                      <span className="font-mono text-xs text-foreground-muted">{item.url}</span>
-                      <span className="shrink-0 text-xs text-foreground-muted">
-                        {item.interface ? `公网地址 · ${item.interface}` : '公网地址'}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              {/*
-                IPv6 那份同样只摆出来：手机不在这个网络里时，直连要走它，但「走不走、谁更快」
-                由手机侧拿它和公网中转实测比出来，所以这里不给单选圈。
-              */}
-              {ipv6Choice.length > 0 ? (
-                <ul className="mt-1.5 flex flex-col gap-1">
-                  {ipv6Choice.map((item) => (
-                    <li key={item.address} className="flex flex-wrap items-baseline justify-between gap-x-3">
-                      <span className="font-mono text-xs text-foreground-muted">{item.url}</span>
-                      <span className="shrink-0 text-xs text-foreground-muted">
-                        {item.interface ? `IPv6 直连 · ${item.interface}（手机按实测择优）` : 'IPv6 直连（手机按实测择优）'}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
 
-          {/*
-            公用中转选中之后的地址列表。
-            **这一版是 mock**：候选来自 `PUBLIC_RELAY_CANDIDATES`，测速是本地随机延迟，
-            真实现时换成宿主吐的入口清单与实测耗时，界面不用动。
-            第一项「自动优选」= 取测速最快的那条；后面按耗时从短到长排，测不通的垫底。
-          */}
-          {selected === PUBLIC_RELAY ? (
-            <div className="rounded-md bg-background-muted px-3 py-2">
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="text-xs text-foreground-muted">公用中转地址（按实测耗时排）</p>
-                {probes.some((row) => row.ms === null) ? <span className="text-xs text-foreground-muted">测速中…</span> : null}
-              </div>
-              {/* 高度上限 168px（约四行半）：候选多的时候在框里滚，别把整张卡片顶长。 */}
-              <div className="mt-1.5 max-h-[168px] overflow-y-auto">
-                <RadioGroup className="gap-1" value={relayPick} onValueChange={(value) => setRelayPick(String(value))}>
+              <div className="px-3 py-2.5">
+                <RadioGroup
+                  className="gap-1"
+                  value={selected}
+                  onValueChange={(value) => void pickAddress(String(value))}
+                >
+                  {/* 局域网直连：这一行只说「走局域网」，具体哪张网卡在右边那颗按钮里挑 ——
+                      机器有好几条地址时，组里一排 IP 只会让人分不清哪条是现在生效的。 */}
+                  <div className="flex flex-wrap items-center justify-between gap-x-3">
+                    <label className="flex cursor-pointer items-center gap-1.5">
+                      <Radio value={LAN_DIRECT} aria-label="局域网直连" />
+                      <span className="text-sm text-foreground">局域网直连</span>
+                    </label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={choice.length === 0}
+                      onClick={() => setLanDialogOpen(true)}
+                    >
+                      选择地址
+                    </Button>
+                  </div>
+                  {/* 公用中转：行里只说「是什么 + 建议临时用」，具体用哪条在下面的列表里。 */}
                   <label className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
                     <span className="flex items-baseline gap-1.5">
-                      <Radio value="" aria-label="自动优选" />
-                      <span className="text-xs text-foreground">自动优选</span>
+                      <Radio value={PUBLIC_RELAY} aria-label="公用中转" />
+                      <span className="text-sm text-foreground">公用中转</span>
                     </span>
-                    <span className="shrink-0 text-xs text-foreground-muted">取最快的那条</span>
+                    <span className="shrink-0 text-xs text-foreground-muted">建议临时使用</span>
                   </label>
-                  {probes.map((row) => (
-                    <label key={row.url} className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
-                      <span className="flex items-baseline gap-1.5">
-                        <Radio value={row.url} aria-label={row.url} />
-                        <span className="font-mono text-xs text-foreground">{row.url}</span>
-                      </span>
-                      <span className="shrink-0 text-xs text-foreground-muted">
-                        {row.ms === null ? '测速中…' : Number.isFinite(row.ms) ? `${row.ms} ms` : '测不通'}
-                      </span>
-                    </label>
-                  ))}
+                  {/* 自建中转：右侧那颗按钮开仓库的新标签页，点它不该顺手把这一行选中。 */}
+                  <label className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
+                    <span className="flex items-baseline gap-1.5">
+                      <Radio value={OWN_RELAY} aria-label="自建中转" />
+                      <span className="text-sm text-foreground">自建中转</span>
+                    </span>
+                    <a
+                      className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                      href={RELAY_REPO_URL}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      GitHub 仓库
+                    </a>
+                  </label>
                 </RadioGroup>
+
+                {/*
+                  下面这一块只在「局域网直连」下出现：走中转时局域网哪条根本没参与，
+                  摆一个「当前选择的局域网地址」只会让人以为中转也要挑网卡。
+                */}
+                {selected === LAN_DIRECT ? (
+                <div className="mt-3 border-t border-border-muted pt-2.5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                    <span className="text-xs text-foreground-muted">当前选择的局域网地址</span>
+                    <span className="min-w-0 text-right font-mono text-xs break-all text-foreground">
+                      {currentLanAddress || '—'}
+                    </span>
+                  </div>
+
+                {publicChoice.length > 0 || ipv6Choice.length > 0 ? (
+                  <div className="mt-2">
+                    {publicChoice.length > 0 ? (
+                      <ul className="mt-1 flex flex-col gap-1">
+                        {publicChoice.map((item) => (
+                          <li key={item.address} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
+                            <span className="min-w-0 font-mono text-xs break-all text-foreground-muted">{item.url}</span>
+                            <span className="shrink-0 text-xs text-foreground-muted">{item.interface ?? '公网'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {/*
+                      IPv6 那份默认收起：几条长地址摊开就是把这块淹掉，而这里想说的只有一句
+                      「这台机器有，手机自己会比」。展开仍按原样列出，照旧不给单选圈。
+                    */}
+                    {ipv6Choice.length > 0 ? (
+                      <div className="mt-1">
+                        <button
+                          type="button"
+                          className="flex w-full cursor-pointer items-baseline justify-between gap-3 rounded px-1 py-1 text-left hover:bg-background-muted"
+                          aria-expanded={ipv6Open}
+                          onClick={() => setIpv6Open((value) => !value)}
+                        >
+                          <span className="text-xs text-foreground-muted">
+                            另有 {ipv6Choice.length} 条 IPv6 地址，手机按实测择优
+                          </span>
+                          <span className="shrink-0 text-xs text-foreground-intense">{ipv6Open ? '收起' : '展开'}</span>
+                        </button>
+                        {ipv6Open ? (
+                          <ul className="mt-1 flex flex-col gap-1">
+                            {ipv6Choice.map((item) => (
+                              <li key={item.address} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
+                                <span className="min-w-0 font-mono text-xs break-all text-foreground-muted">{item.url}</span>
+                                <span className="shrink-0 text-xs text-foreground-muted">{item.interface ?? 'IPv6'}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                </div>
+                ) : null}
               </div>
             </div>
-          ) : null}
 
-          {/* 自建中转：填自己的域名，右边一颗「检测」。 */}
-          {selected === OWN_RELAY ? (
-            <Field>
-              <FieldLabel htmlFor="ob-own-relay">中转地址</FieldLabel>
-              <div className="flex items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <Input
-                    inputProps={{ id: 'ob-own-relay', className: 'font-mono' }}
-                    value={ownRelayUrl}
-                    placeholder="https://你的中转域名"
-                    onChange={(event) => {
-                      setOwnRelayUrl(event.target.value)
-                      setOwnProbe('idle')
-                    }}
-                  />
+            {/*
+              公用中转选中之后的地址列表。
+              **这一版是 mock**：候选来自 `PUBLIC_RELAY_CANDIDATES`，测速是本地随机延迟，
+              真实现时换成宿主吐的入口清单与实测耗时，界面不用动。
+              第一项「自动优选」= 取测速最快的那条；后面按耗时从短到长排，测不通的垫底。
+            */}
+            {selected === PUBLIC_RELAY ? (
+              <div className="rounded-md bg-background-muted px-3 py-2">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-xs text-foreground-muted">公用中转地址（按实测耗时排）</p>
+                  {probes.some((row) => row.ms === null) ? <span className="text-xs text-foreground-muted">测速中…</span> : null}
                 </div>
-                <Button className="shrink-0" variant="outline" disabled={ownProbe === 'busy'} onClick={() => void probeOwnRelay()}>
-                  {ownProbe === 'busy' ? '检测中' : '检测'}
-                </Button>
+                {/* 高度上限 168px（约四行半）：候选多的时候在框里滚，别把整张卡片顶长。 */}
+                <div className="mt-1.5 max-h-[168px] overflow-y-auto">
+                  <RadioGroup className="gap-1" value={relayPick} onValueChange={(value) => setRelayPick(String(value))}>
+                    <label className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
+                      <span className="flex items-baseline gap-1.5">
+                        <Radio value="" aria-label="自动优选" />
+                        <span className="text-xs text-foreground">自动优选</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-foreground-muted">取最快的那条</span>
+                    </label>
+                    {probes.map((row) => (
+                      <label key={row.url} className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
+                        <span className="flex items-baseline gap-1.5">
+                          <Radio value={row.url} aria-label={row.url} />
+                          <span className="font-mono text-xs text-foreground">{row.url}</span>
+                        </span>
+                        <span className="shrink-0 text-xs text-foreground-muted">
+                          {row.ms === null ? '测速中…' : Number.isFinite(row.ms) ? `${row.ms} ms` : '测不通'}
+                        </span>
+                      </label>
+                    ))}
+                  </RadioGroup>
+                </div>
               </div>
-              {ownProbe === 'ok' ? <p className="text-xs text-success">这个地址连得通。</p> : null}
-              {ownProbe === 'failed' ? <p className="text-xs text-error">填一个 http:// 或 https:// 开头的地址，并确认那台中转在跑。</p> : null}
-            </Field>
-          ) : null}
+            ) : null}
 
-          <InfoList>
-            {!isRelayMode ? (
-              <InfoRow label="直连">
-                <ToneValue tone={lanTone(status?.lan.state ?? 'off', true)} text={lanText(status?.lan.state ?? 'off', true)} />
-              </InfoRow>
-            ) : (
-              <InfoRow label="中转隧道">
-                <ToneValue tone={tunnelTone(status?.tunnel.state ?? 'off')} text={tunnelText(status?.tunnel.state ?? 'off')} />
-              </InfoRow>
-            )}
-          </InfoList>
-
-          {/*
-            结论只由能观测到的事实决定：宿主这边起没起来，直接看同一份 `status`。
-            报错就如实说报错，不装成成功。
-          */}
-          {status !== null && (!isRelayMode ? status.lan.state === 'error' : status.tunnel.state === 'error') ? (
-            <Alert variant="error">
-              <AlertIcon />
-              <AlertTitle>{!isRelayMode ? '没能开始直连' : '中转没连上'}</AlertTitle>
-              <AlertDescription>
-                {!isRelayMode
-                  ? status.lan.error
-                    ? `${status.lan.error}（端口可能被占用，到主页的「局域网直连」里换一个。）`
-                    : '直连没起来，端口可能被别的程序占了。'
-                  : status.tunnel.error
-                    ? `${status.tunnel.error}（检查中转地址填对没有、那台中转是不是在跑。）`
-                    : '隧道没建起来，检查中转地址。'}
-              </AlertDescription>
-            </Alert>
-          ) : null}
+            {/* 自建中转：填自己的域名，右边一颗「检测」。 */}
+            {selected === OWN_RELAY ? (
+              <Field>
+                <FieldLabel htmlFor="ob-own-relay">中转地址</FieldLabel>
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      inputProps={{ id: 'ob-own-relay', className: 'font-mono' }}
+                      value={ownRelayUrl}
+                      placeholder="https://你的中转域名"
+                      onChange={(event) => onOwnRelayChange(event.target.value)}
+                    />
+                  </div>
+                  <Button className="shrink-0" variant="outline" disabled={ownProbe === 'busy'} onClick={() => void probeOwnRelay()}>
+                    {ownProbe === 'busy' ? '检测中' : '检测'}
+                  </Button>
+                </div>
+                {ownProbe === 'ok' ? <p className="text-xs text-success">这个地址连得通，二维码已按它生成（还没存进配置）。</p> : null}
+                {ownProbe === 'failed' ? (
+                  <p className="text-xs text-error">
+                    这个地址连不上，二维码不会生成。确认它是 http:// 或 https:// 开头、那台中转在运行、域名解析到它。
+                  </p>
+                ) : null}
+              </Field>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-4">
           {/* 第一次装的人手里还没 App，下载入口摆在这儿，不是等他扫不出来的码才想起来。 */}
-          <a
-            className={buttonVariants({ variant: 'outline' })}
-            href={APP_DOWNLOAD_URL}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            下载 APP
-          </a>
-          {readyNow ? (
-            <Button variant="primary" onClick={() => (onDone ? onDone() : window.location.assign('/'))}>
+          <DownloadAppButton />
+          {/* 自建中转这一栏只有这颗按钮会写配置：点下去先探一遍，通了才落盘、才进插件。 */}
+          {selected === OWN_RELAY ? (
+            <Button
+              variant="primary"
+              disabled={busy || fatal !== '' || blocked || ownRelayUrl.trim() === ''}
+              onClick={() => void enterPlugin()}
+            >
+              {busy ? '正在连接…' : blocked ? '先解决上面的问题' : needsOwnRelayAddress ? '先填中转地址' : '进入插件'}
+            </Button>
+          ) : readyNow && !blocked ? (
+            <Button variant="primary" onClick={enterNow}>
               进入插件
             </Button>
           ) : (
-            <Button
-              variant="primary"
-              disabled={busy || fatal !== '' || (selected === OWN_RELAY && relayUrl === '')}
-              onClick={() => void connect()}
-            >
-              {busy ? '正在打开…' : !isRelayMode ? '打开直连' : '连接中转'}
+            // 有必须先解决的问题时不给点：隧道可能还连着上一次的配置，放着不管会让人带着一条死路往下走。
+            <Button variant="primary" disabled={busy || fatal !== '' || blocked} onClick={() => void connect()}>
+              {busy ? '正在打开…' : blocked ? '先解决上面的问题' : !isRelayMode ? '打开直连' : '连接中转'}
             </Button>
           )}
         </div>
@@ -659,6 +977,49 @@ export function Onboarding({ onDone }: Props) {
               知道了
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={lanDialogOpen} onOpenChange={setLanDialogOpen}>
+        <DialogContent className="max-w-md" closeLabel="关闭">
+          <DialogHeader>
+            <DialogTitle>选择局域网地址</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="flex flex-col gap-2">
+            <p className="text-xs text-foreground-muted">手机先试选中的这条，其余继续排在后面兜底。</p>
+            {/* 一行一个按钮而不是 RadioGroup：点当前这一条也要能「确认并关窗」，
+                单选控件在值没变时不会回调，点了看着像没反应。 */}
+            <div role="radiogroup" aria-label="局域网地址" className="flex flex-col gap-1">
+              {choice.map((item) => {
+                const picked = item.address === (preferred || choice[0]?.address)
+                return (
+                  <button
+                    key={item.address}
+                    type="button"
+                    role="radio"
+                    aria-checked={picked}
+                    onClick={() => void pickLanAddress(item.address)}
+                    className={`flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-background-muted ${
+                      picked ? 'bg-background-muted' : ''
+                    }`}
+                  >
+                    <span
+                      className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border ${
+                        picked ? 'border-primary bg-primary text-primary-foreground' : 'border-border-muted'
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {picked ? <CheckMark /> : null}
+                    </span>
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="min-w-0 font-mono text-xs break-all text-foreground">{item.url}</span>
+                      <span className="text-xs text-foreground-muted">{item.interface ?? '局域网'}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </DialogBody>
         </DialogContent>
       </Dialog>
     </main>
@@ -768,3 +1129,13 @@ function FirewallPane({
     </section>
   )
 }
+
+/** 弹窗里那条「就是它」的小勾：16px 方块内的一笔，跟着文字色走。 */
+function CheckMark() {
+  return (
+    <svg viewBox="0 0 12 12" className="size-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m2.5 6.2 2.2 2.3L9.5 3.7" />
+    </svg>
+  )
+}
+

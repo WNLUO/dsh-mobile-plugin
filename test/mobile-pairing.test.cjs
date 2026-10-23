@@ -16,7 +16,7 @@ const path = require('node:path')
 const { test } = require('node:test')
 const { EventEmitter } = require('node:events')
 
-const { createPairHandler, resetPairLocks, PAIR_MAX_FAILS } = require(path.join(__dirname, '..', 'lib', 'mobile', 'pairing.js'))
+const { createPairHandler, resetPairLocks } = require(path.join(__dirname, '..', 'lib', 'mobile', 'pairing.js'))
 const core = require(path.join(__dirname, '..', 'lib', 'relay', 'core.js'))
 const pairingApproval = require(path.join(__dirname, '..', 'lib', 'relay', 'pairing-policy.js'))
 
@@ -150,17 +150,25 @@ test('配对码不是 6 位数字时回 400', async () => {
   }
 })
 
-test('连错达到上限之后暂时锁住，且锁住期间对的码也进不来', async () => {
+test('连错很多次之后限速生效：回 429 且带 retry-after，但从不硬锁', async () => {
+  // 旧实现是「错五次锁所有人六十秒」—— 一个陌生人就能让所有人配不上。现在换成不看来源的
+  // 全局令牌桶（§10.4）：持续尝试只会变慢，任何时候都能等到下一个令牌。
   resetPairLocks()
   const { handler } = makeHandler()
-  for (let i = 0; i < PAIR_MAX_FAILS; i += 1) {
+  let sawRetryAfter = null
+  let blocked = false
+  for (let i = 0; i < 400 && !blocked; i += 1) {
     const res = fakeRes()
     await handler(fakeReq({ code: '000000' }), res)
-    assert.equal(res.status, 401, `第 ${i + 1} 次错码应当 401`)
+    if (res.status === 429) {
+      blocked = true
+      sawRetryAfter = res.headers['retry-after']
+    } else {
+      assert.equal(res.status, 401, '没被限速时错码一律 401')
+    }
   }
-  const locked = fakeRes()
-  await handler(fakeReq({ code: CODE }), locked)
-  assert.equal(locked.status, 429, '锁住之后哪怕码对也得挡回去')
+  assert.equal(blocked, true, '连续打满之后必须开始限速')
+  assert.ok(Number(sawRetryAfter) >= 1, '429 必须带可用的 retry-after，否则客户端只能瞎等')
 })
 
 test('配对策略是 deny 时一律拒绝', async () => {

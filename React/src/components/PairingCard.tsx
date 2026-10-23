@@ -4,15 +4,15 @@
  * 地址那串是宿主给的候选顺序（用户选过的排最前），手机也是按这个顺序挨个试的。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
-import { Button, buttonVariants } from '@appica/ui-react/button'
+import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { CopyButton } from '@appica/ui-react/copy-button'
 import { Spinner } from '@appica/ui-react/spinner'
 import * as React from 'react'
 
 import type { AddressBook, PairingInfo, StatusView } from '../lib/api.ts'
-import { APP_DOWNLOAD_URL } from '../lib/links.ts'
 import { AddressPicker } from './AddressPicker.tsx'
+import { DownloadAppButton } from './DownloadAppButton.tsx'
 import { InfoList, InfoRow } from './InfoRow.tsx'
 import { RevealButton } from './RevealButton.tsx'
 
@@ -236,16 +236,9 @@ export function PairingCard({
           「重启 sidecar」按用户要求搬到「插件更新」卡片里 —— 它和更新讲的是同一件事：
           让磁盘上的新代码立刻生效（sidecar 层不用重启宿主，宿主层才需要）。 */}
       <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-        {/* 外链按钮用 buttonVariants 贴在 `a` 上（Appica 的规矩），尺寸走默认的 md，
+        {/* 下载入口点开是渠道弹窗（安卓两条 / 苹果两条），尺寸走默认的 md，
             与旁边两颗 h-10 对齐。 */}
-        <a
-          className={buttonVariants({ variant: 'outline' })}
-          href={APP_DOWNLOAD_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          下载 APP
-        </a>
+        <DownloadAppButton />
         <Button variant="secondary" size="md" disabled={idle} onClick={onReconnect}>
           重新连接
         </Button>

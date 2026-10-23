@@ -49,7 +49,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -61,6 +61,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox] = 
   server.ssrLoadModule('/src/components/ThemeToggle.tsx'),
   server.ssrLoadModule('/src/components/AddressPicker.tsx'),
   server.ssrLoadModule('/src/components/InboxCard.tsx'),
+  server.ssrLoadModule('/src/components/DownloadAppButton.tsx'),
 ])
 
 const noop = () => {}
@@ -189,6 +190,9 @@ const cases = [
   // 主题），所以这一遍只冒烟「按钮在、无障碍名给的是下一步」；图标换不换、贴没贴住右上角
   // 要看真浏览器（`fixed end-6 top-6 z-40` 在类名里，渲染出来看不见位置）。
   ['ThemeToggle', h(Toggle.ThemeToggle, {}), 'aria-label="切换到夜间模式"'],
+  // 下载入口：按钮本身总是在，四条渠道在弹窗里 —— 弹窗未打开时不进 DOM（Base UI 走 portal），
+  // 所以这一遍只冒烟按钮；四条链接有没有齐要看真浏览器点开（和上面几颗弹窗同一种处境）。
+  ['DownloadAppButton', h(Dl.DownloadAppButton, {}), '下载 APP'],
 ]
 
 let failed = 0
