@@ -128,7 +128,9 @@ test('不是图片的地址一律保持字面 markdown', () => withTempDir(async
     '![rel](./docs/a.png)',                   // 相对路径
     '![w](www.example.com/a.png)',            // 裸域名
     `![t](${path.join(dir, 'notes.txt')})`,   // 扩展名不是图片
-    '![bare](/tmp/a.png)',                    // 不存在的文件
+    // 不存在的文件。用临时目录里的路径而不是 `/tmp/a.png`：后者在别人机器上
+    // 真可能存在，那时这条会莫名其妙地红（2026-10-23 实测踩过）。
+    `![bare](${path.join(dir, 'not-there.png')})`,
     '![empty](https://x.com/a.png)',          // 与第一条同形，保证多图场景不互相干扰
   ];
   for (const text of cases) {

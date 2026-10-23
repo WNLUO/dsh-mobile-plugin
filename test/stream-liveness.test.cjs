@@ -283,15 +283,18 @@ test('心跳在软水位上不被 shed（丢了它 App 会把健康的流判死�
   assert.ok(!/lastDeliveredSeq = .*heartbeat/.test(source), '心跳不带 seq，绝不能推进回放水位');
 });
 
-test('心跳间隔与 App 认的一致（跨仓契约）', () => {
+test('心跳间隔与 App 认的一致（跨仓契约）', (t) => {
   const fs = require('node:fs');
   const path = require('node:path');
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'stream.js'), 'utf8');
   assert.ok(/const HEARTBEAT_MS = 15_000;/.test(source), 'stream.js 的 HEARTBEAT_MS 必须是 15s');
-  const appLiveness = fs.readFileSync(
-    path.join(__dirname, '..', '..', 'app', 'src', 'services', 'viewmodels', 'stream-liveness.ts'),
-    'utf8',
-  );
+  const appLivenessPath = path.join(__dirname, '..', '..', 'app', 'src', 'services', 'viewmodels', 'stream-liveness.ts');
+  // 插件被单独检出（公开发布仓库）时没有主仓的 app/：那半边跳过，宿主这半边照旧钉住。
+  if (!fs.existsSync(appLivenessPath)) {
+    t.diagnostic(`${appLivenessPath} 不存在（插件单独检出），跳过 App 侧比对`);
+    return;
+  }
+  const appLiveness = fs.readFileSync(appLivenessPath, 'utf8');
   assert.ok(/export const STREAM_HEARTBEAT_MS = 15_000;/.test(appLiveness),
     'App 侧的 STREAM_HEARTBEAT_MS 必须同样是 15s');
 });

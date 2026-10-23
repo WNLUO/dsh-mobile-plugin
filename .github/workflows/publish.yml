@@ -1,0 +1,103 @@
+# 发布 dsh-mobile-plugin 到 npm —— 走 OIDC trusted publishing，不存任何 npm 令牌。
+#
+# 为什么是这条流水线：npm 2026 年起对包管理动作强制二次验证，账号上只有安全密钥时
+# 命令行每次都要人去浏览器点一下（验证器 App 那条路已关）。trusted publishing 换掉了
+# 「人点」这一步——npm 认的不是令牌而是「哪个仓库里的哪条流水线」，发布时由 GitHub
+# 现场签一张短效身份凭证。仓库与工作流文件名在 npm 包设置页登记一次即固定，
+# 改了这里必须同步去设置页改（那边只能删掉重建）。
+#
+# 触发方式：推一个与 package.json 版本号同名的 tag（v0.1.99 → 0.1.99）。
+# 版本号不在这里自动抬——抬号是一次有意的动作（见 README 的发版流程），
+# 流水线只负责把它发出去，顺带把「tag 与包内不一致」挡在认证之前。
+#
+# 前置条件（缺任何一条，这一步必然失败）：
+#   1. npm 包设置页登记了 WNLUO/dsh-mobile-plugin + publish.yml，且勾了「允许直接发布」；
+#   2. npm CLI ≥ 11.5.1（下面的 setup-node 用 Node 24，随包带 11.x）；
+#   3. package.json 的 repository.url 指向本仓库（npm 用它校验发布者身份）；
+#   4. 这个 job 有 id-token: write。
+# 另外：环境里绝不能出现 NODE_AUTH_TOKEN / NPM_TOKEN，有的话 npm 会退回令牌认证、
+# 跳过 OIDC，于是又变回要人点的那条路。
+
+name: 发布到 npm
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  # npm 用它换取短效发布凭证。缺了这一步就退化成「未认证发布」。
+  id-token: write
+
+jobs:
+  publish:
+    name: 校验并发布
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 自带 npm 11.x（trusted publishing 要求 ≥11.5.1）。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # npm CLI 太旧时会静默退回令牌认证、再以认证失败告终，报错看不出真因。
+      - name: 确认 npm CLI 支持 trusted publishing
+        run: |
+          version=$(npm --version)
+          echo "npm $version"
+          node -e "const [major, minor] = '$version'.split('.').map(Number);
+          if (major < 11 || (major === 11 && minor < 5)) {
+            console.error('npm $version 太旧：trusted publishing 要求 11.5.1+');
+            process.exit(1);
+          }"
+
+      # tag 与 package.json 不一致时 npm 会拒绝同号覆盖，而那个报错发生在认证之后，
+      # 看起来像是权限问题。所以先在这里挡掉。
+      - name: 核对 tag 与 package.json 版本
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME 与 package.json 的 $version 不一致" >&2
+            exit 1
+          fi
+          echo "准备发布 $version"
+
+      # 与主仓 CI 同一条装法：锁文件入库，冻结安装让「锁与 package.json 不一致」直接红。
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
+      - run: pnpm install --frozen-lockfile
+
+      # 发之前跑测试。跨仓对账那几组在单独检出里会自己跳过（它们要读主仓的 app/ 与
+      # 中转的 Rust 源码），宿主侧能钉的照旧钉住。
+      - run: npm test
+
+      # 面板产物是提交物：忘了重建就会发一个旧页面出去，而形状守卫只比形状不比新旧。
+      # 这里不重跑构建（产物要与源码一起提交），只确认它真的在包里。
+      - name: 确认关键产物在包内
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e "const files = JSON.parse(require('fs').readFileSync('/tmp/pack.json', 'utf8'))[0].files.map((f) => f.path);
+          const must = ['host.js', 'lib/panel/index.html', 'dsh-mobile-credentials/lib/credentials.js'];
+          const missing = must.filter((p) => !files.includes(p));
+          if (missing.length) {
+            console.error('包里缺这些文件：' + missing.join(', '));
+            process.exit(1);
+          }
+          console.log('包内 ' + files.length + ' 个文件，关键产物齐全');"
+
+      # 不带 --provenance / --token：配置正确时 npm 自己走 OIDC 并附来源证明。
+      - name: 发布
+        run: npm publish
+
+      # 注册表可见与各镜像同步之间有窗口；这里只确认官方源上已经是这一版。
+      - name: 核对注册表版本
+        run: |
+          want=$(node -p "require('./package.json').version")
+          got=$(npm view dsh-mobile-plugin version)
+          if [ "$got" != "$want" ]; then
+            echo "注册表上是 $got，期望 $want" >&2
+            exit 1
+          fi
+          echo "注册表已是 $got"

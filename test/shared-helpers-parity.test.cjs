@@ -34,7 +34,7 @@ const EXPECTED = [
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailer', 'transfer-encoding', 'upgrade', 'content-length',
 ]
-const PLUGIN_HOP_BY_HOP = path.join(ROOT, 'dsh-mobile-plugin', 'lib', 'relay', 'lan-proxy.js')
+const PLUGIN_HOP_BY_HOP = path.join(__dirname, '..', 'lib', 'relay', 'lan-proxy.js')
 
 /** 从 Rust 版取出 `const HOP_BY_HOP: &[&str] = &[...]` 里的字符串数组。 */
 function extractHopByHopRust(source, file) {

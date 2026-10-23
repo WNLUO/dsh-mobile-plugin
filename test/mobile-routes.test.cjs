@@ -22,10 +22,18 @@ const { ROOT, readRouteTable } = require('./lib/wiring.cjs');
 
 const APP_PATHS = path.join(ROOT, '..', 'app', 'src', 'services', 'viewmodels', 'apiPaths.ts');
 
+/**
+ * App 侧路径表的缺席只在一种检出下成立：插件被单独 clone 出去（公开发布仓库）。
+ * 那条流水线跑的是「发出去的包」，没有主仓的 app/；整仓检出里它必须存在，
+ * 所以那一条断言单独留一条用例，而不是把这里的对账整组静默掉。
+ */
+const NO_APP = !fs.existsSync(APP_PATHS);
+const SKIP_NO_APP = NO_APP && `${APP_PATHS} 不存在（插件单独检出），跳过跨仓对账`;
+
 /** App 侧声明的公共前缀。插件侧的路由全部挂在它下面。 */
 const API_BASE = '/api/mobile/v1';
 
-test('App 的 apiPaths.ts 在（对齐的前提是这张表能被读到）', () => {
+test('App 的 apiPaths.ts 在（对齐的前提是这张表能被读到）', { skip: SKIP_NO_APP }, () => {
   assert.ok(fs.existsSync(APP_PATHS), `找不到 ${APP_PATHS}；本测试依赖 App 侧路径常量表`);
 });
 
@@ -86,7 +94,7 @@ function pluginPaths() {
   return new Set([...table.matchAll(/path:\s*'([^']+)'|(?:^|\s)route\('([^']+)'/gm)].map((m) => m[1] || m[2]));
 }
 
-test('App 声明的每一条移动端路径，插件侧都真的注册了', () => {
+test('App 声明的每一条移动端路径，插件侧都真的注册了', { skip: SKIP_NO_APP }, () => {
   const registered = pluginPaths();
   const missing = appSubPaths()
     .map(({ key, sub }) => ({ key, full: `${API_BASE}${sub}` }))
@@ -95,7 +103,7 @@ test('App 声明的每一条移动端路径，插件侧都真的注册了', () =
   assert.ok(appSubPaths().length >= 30, '解析出来的 App 路径条数偏少，正则可能失效了');
 });
 
-test('由中转提供的路径清单本身没腐化（App 里那把钥匙还在）', () => {
+test('由中转提供的路径清单本身没腐化（App 里那把钥匙还在）', { skip: SKIP_NO_APP }, () => {
   const all = fs.readFileSync(APP_PATHS, 'utf8');
   for (const [key, why] of RELAY_SERVED) {
     assert.ok(new RegExp(`^\\s{2}${key}:`, 'm').test(all), `RELAY_SERVED 里的 ${key} 在 apiPaths.ts 里已经不存在了，请删掉这条豁免`);
@@ -107,7 +115,7 @@ test('由中转提供的路径清单本身没腐化（App 里那把钥匙还在�
   assert.equal(RELAY_SERVED.size, 0, '中转已经不带业务；若确需新增，请先确认它真的不该由宿主回答');
 });
 
-test('保留的旧客户端路由清单本身没腐化', () => {
+test('保留的旧客户端路由清单本身没腐化', { skip: SKIP_NO_APP }, () => {
   const registered = pluginPaths();
   const known = new Set(appSubPaths().map(({ sub }) => `${API_BASE}${sub}`));
   for (const [sub, why] of LEGACY_ROUTES) {
@@ -119,7 +127,7 @@ test('保留的旧客户端路由清单本身没腐化', () => {
   assert.equal(LEGACY_ROUTES.size, 1, '豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
 });
 
-test('插件侧没有 App 从不打的移动端路由（死路由要么删要么补测试）', () => {
+test('插件侧没有 App 从不打的移动端路由（死路由要么删要么补测试）', { skip: SKIP_NO_APP }, () => {
   const known = new Set(appSubPaths().map(({ sub }) => `${API_BASE}${sub}`));
   const registered = [...pluginPaths()];
   // 只比 /api/mobile/v1 下的；control-plane 的 /api/relay/* 是桌面端用的，不在此表。

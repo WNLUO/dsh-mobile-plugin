@@ -23,8 +23,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const ROOT = path.join(__dirname, '..', '..');
-const PLUGIN = path.join(ROOT, 'dsh-mobile-plugin');
+const PLUGIN = path.join(__dirname, '..');
+const ROOT = path.join(PLUGIN, '..');
+// 两种检出：整仓（插件在 dsh-mobile-plugin/ 子目录里）与单独 clone 出来的公开发布仓库。
+// 后者没有主仓的 README / ci.yml，那几份文档不在场时不比对，而不是把断言整组跳过。
+//
+// 判据是「父目录里有主仓的 app/」，不是「父目录里有个 dsh-mobile-plugin/」——GitHub Actions
+// 检出的路径是 `<工作区>/dsh-mobile-plugin/dsh-mobile-plugin`，仓库名出现两次，按后者判会把
+// 单独检出误认成整仓，然后去读一个不存在的 README 崩掉。
+const MONOREPO = fs.existsSync(path.join(ROOT, 'app', 'package.json'));
 const read = (...p) => fs.readFileSync(path.join(...p), 'utf8');
 const pkg = JSON.parse(read(PLUGIN, 'package.json'));
 
@@ -53,13 +60,18 @@ test('锁文件与 package.json 同步：每个依赖在锁里都有同一个 sp
 });
 
 test('文档与 CI 教 pnpm，不再教 --legacy-peer-deps', () => {
-  const docs = [
-    ['README.md', read(ROOT, 'README.md')],
-    ['dsh-mobile-plugin/README.md', read(PLUGIN, 'README.md')],
-    ['.github/workflows/ci.yml', read(ROOT, '.github', 'workflows', 'ci.yml')],
-    // 根 package.json 的 comment 块也在教人怎么装插件，一样要跟着改。
-    ['package.json', read(ROOT, 'package.json')],
-  ];
+  const docs = [['README.md', read(PLUGIN, 'README.md')]];
+  if (MONOREPO) {
+    docs.push(
+      ['dsh-mobile-plugin/README.md', read(PLUGIN, 'README.md')],
+      ['.github/workflows/ci.yml', read(ROOT, '.github', 'workflows', 'ci.yml')],
+      // 根 package.json 的 comment 块也在教人怎么装插件，一样要跟着改。
+      ['package.json', read(ROOT, 'package.json')],
+    );
+  }
+  // 发布流水线自己也是一处「安装命令」的产地，装法写错就在发版那一刻才炸。
+  const publishWorkflow = path.join(PLUGIN, '.github', 'workflows', 'publish.yml');
+  if (fs.existsSync(publishWorkflow)) docs.push(['.github/workflows/publish.yml', read(publishWorkflow)]);
   for (const [name, text] of docs) {
     // 散文里解释「为什么以前要那个参数」是允许的；命令里再写就不允许。所以先剔掉
     // markdown 引用块与注释行，剩下的每一行只要提到 install 就必须是 pnpm + frozen。

@@ -12,13 +12,13 @@ importers:
         specifier: '>=4.0.1'
         version: 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
       '@deepseek-ai/dsh-client-locale':
-        specifier: '>=0.1.1-rc.2'
+        specifier: '^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2'
         version: 0.1.1-rc.2(cc1a44db5d7bdc8600dbac74c5045c94)
       '@deepseek-ai/dsh-client-runtime':
         specifier: '>=0.1.1-rc.2'
         version: 0.1.1-rc.2(3c4c1195b61dca1583073543748b4ebc)
       '@deepseek-ai/dsh-settings':
-        specifier: '>=0.1.1-rc.2'
+        specifier: '^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2'
         version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.4)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.4))(@deepseek-ai/schemastery@3.18.4)
       '@deepseek-ai/dsh-tool-ask-user':
         specifier: 0.2.1-rc.2
@@ -27,7 +27,7 @@ importers:
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(976dfad78f65d51c8c8d3551c2f0b343)
       '@deepseek-ai/dsh-tools':
-        specifier: '>=0.1.1-rc.2'
+        specifier: '^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2'
         version: 0.2.1-rc.2(484a077a99424b8596be40b14db4948d)
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1

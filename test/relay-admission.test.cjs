@@ -100,7 +100,7 @@ test('命中准入时给出可执行提示：宿主产出线索，网页版把�
   assert.match(status, /admissionHint: hit\.hint/, '线索要跟着状态发出去')
 
   const card = fs.readFileSync(
-    path.join(ROOT, 'dsh-mobile-plugin', 'React', 'src', 'components', 'ConnectionCard.tsx'),
+    path.join(__dirname, '..', 'React', 'src', 'components', 'ConnectionCard.tsx'),
     'utf8',
   )
   assert.ok(card.includes('status.tunnel.admissionHint'), '连接状态卡必须读 admissionHint')

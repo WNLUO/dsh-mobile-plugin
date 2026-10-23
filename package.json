@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.1.98",
+  "version": "0.1.99",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (0.2.0-rc.2 compatible, peers resolved by the host)",
   "license": "MIT",
   "type": "module",
@@ -52,10 +52,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.1",
-    "@deepseek-ai/dsh-client-locale": ">=0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
     "@deepseek-ai/dsh-client-runtime": ">=0.1.1-rc.2",
-    "@deepseek-ai/dsh-settings": ">=0.1.1-rc.2",
-    "@deepseek-ai/dsh-tools": ">=0.1.1-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dsh": {
