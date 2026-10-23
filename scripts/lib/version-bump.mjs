@@ -22,6 +22,7 @@
  * 用 node dsh-mobile-plugin/scripts/bump-version.mjs --help 看命令行用法。
  */
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -122,16 +123,35 @@ export async function readPluginVersion(root = ROOT) {
 }
 
 /**
+ * 演示页上报的版本号。它是**源码里的硬编码**，不在 package.json 里，但守卫
+ * （`test/demo-panel.test.cjs`）要求它与插件包逐字一致 —— 演示里出现一个不存在的
+ * 版本号比不写更糟。抬号时一并改，比让每次发版都在 CI 里撞一次这条守卫好。
+ */
+export const PLUGIN_DEMO_VERSION_FILE = 'dsh-mobile-plugin/React/src/demo/host.ts'
+const DEMO_VERSION_FIELD = /(export const DEMO_VERSION = ')(\d+\.\d+\.\d+)(')/
+
+/**
  * 把插件版本号写回 dsh-mobile-plugin/package.json。
  *
  * 刻意不碰 pnpm-lock.yaml：pnpm 的锁文件只记录依赖树，不记录包自身的 version，
  * 改锁文件反而会让它与 package.json 漂开、--frozen-lockfile 直接失败。
+ *
+ * 同时把演示页的 `DEMO_VERSION` 一起改（见 PLUGIN_DEMO_VERSION_FILE）。
  */
 export async function writePluginVersion(version, root = ROOT) {
   parseVersion(version)
   const { path, version: previous } = await readPackageVersion('dsh-mobile-plugin', root)
   const text = await readFile(path, 'utf8')
   await writeFile(path, replaceOnce(text, PKG_VERSION_FIELD, version, `${path} 的 version 字段`))
+
+  const demoPath = resolve(root, PLUGIN_DEMO_VERSION_FILE)
+  // 文件不在就不动：这个模块也会对着只有 package.json 的最小假跑（测试里就是），
+  // 而演示页只是插件仓库里的一份源码，不是抬号本身的前提。
+  if (existsSync(demoPath)) {
+    const demoText = await readFile(demoPath, 'utf8')
+    await writeFile(demoPath, replaceOnce(demoText, DEMO_VERSION_FIELD, version, `${demoPath} 的 DEMO_VERSION`))
+  }
+
   return { path, previous, version }
 }
 

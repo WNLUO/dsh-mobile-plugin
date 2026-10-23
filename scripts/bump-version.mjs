@@ -22,7 +22,7 @@
  * 已有的构建号可能更高（历史上有过仓库停在 190、平台已经到 220 的情况），所以
  * 真要发布时请用 publish-app-ota.mjs —— 它会先查平台再决定号。
  */
-import { APP_COORD_FILES, buildReleaseNotes, nextVersion, readAppCoordinates, readPluginVersion, writeAppCoordinates, writePluginVersion } from './lib/version-bump.mjs'
+import { APP_COORD_FILES, buildReleaseNotes, nextVersion, PLUGIN_DEMO_VERSION_FILE, readAppCoordinates, readPluginVersion, writeAppCoordinates, writePluginVersion } from './lib/version-bump.mjs'
 
 export function parseArgs(argv) {
   const opts = { product: 'plugin', level: 'patch', dryRun: false, notes: false, notesCount: 30, buildNumber: undefined, json: false }
@@ -56,7 +56,7 @@ export async function planBump(product, level = 'patch', { buildNumber, root } =
   if (product === 'plugin') {
     const previous = await readPluginVersion(root)
     const version = nextVersion(previous, level)
-    return { product, previous, version, buildNumber: undefined, files: ['dsh-mobile-plugin/package.json'] }
+    return { product, previous, version, buildNumber: undefined, files: ['dsh-mobile-plugin/package.json', PLUGIN_DEMO_VERSION_FILE] }
   }
   if (product !== 'app') throw new Error(`未知的发布物 ${product}`)
   const { version: previous, buildNumber: currentBuild } = await readAppCoordinates(root)

@@ -128,6 +128,28 @@ test('插件版本写回只动 version 字段，其余字节原样保留', async
   }
 })
 
+test('抬插件号时演示页的 DEMO_VERSION 跟着走（否则每次发版都撞 demo-panel 守卫）', async () => {
+  const root = await fixtureRoot()
+  try {
+    const demoDir = join(root, 'dsh-mobile-plugin', 'React', 'src', 'demo')
+    await mkdir(demoDir, { recursive: true })
+    const demoPath = join(demoDir, 'host.ts')
+    await writeFile(demoPath, [
+      "import type { StatusView } from '../lib/api.ts'",
+      '',
+      "/** 画面上报的那个版本。 */",
+      "export const DEMO_VERSION = '0.1.18'",
+      '',
+    ].join('\n'))
+    await writePluginVersion('0.1.19', root)
+    const text = await readFile(demoPath, 'utf8')
+    assert.match(text, /export const DEMO_VERSION = '0\.1\.19'/, '演示页版本必须与包版本一致')
+    assert.match(text, /import type \{ StatusView \}/, '除版本号以外的行不许被改写')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('--version 与仓库版本不一致时写回仓库，因为清单里的版本号取自 package.json', async () => {
   // 真出过一次：`--no-bump --version 0.1.23` 发出去的资产里 package.json 还是
   // 0.1.22，清单却写着 0.1.23 —— 中转只按 (id, platform, channel) 判重，不会拦。

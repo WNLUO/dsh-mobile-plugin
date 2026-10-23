@@ -273,6 +273,57 @@ test('/__lan_pair：原生全球 IPv6 来源被拒，IPv4 来源照旧配对', a
   }
 })
 
+/**
+ * `ipv6Only` 真的传到了内核，而不是被当成 backlog 丢掉。
+ *
+ * 为什么这条一定要有：`listen(port, host, backlog)` 的第三位是 backlog（数字），把
+ * `{ ipv6Only: true }` 传在那儿会被**静默忽略**。而 macOS / BSD 的 v6 套接字默认就是
+ * v6only，所以上面那两条「IPv6 侧应通」在本机一直绿；Linux 默认双栈，忽略之后 `::`
+ * 会和 `0.0.0.0` 撞成 EADDRINUSE，整条 IPv6 监听静默不建立 —— 这正是 2026-10-23 发布
+ * 流水线在 GitHub runner 上红的原因，而在本机跑多少遍都复现不出来。
+ *
+ * 判据不依赖平台：直接拿 `::` 单独起一个监听，`ipv6Only: true` 时 IPv4 拨不进去。
+ * 两条写法各跑一次，**必须一个单栈、一个双栈** —— 若两者行为相同，说明该选项根本没被
+ * 采纳（旧写法就是这样）。
+ */
+test('ipv6Only 走 options 位置才生效（旧写法会被当 backlog 丢掉）', async (t) => {
+  if (!(await hasIpv6Loopback())) {
+    t.skip('本机没有 IPv6 环回')
+    return
+  }
+
+  /** 起一个 `::` 监听，回「IPv4 能不能拨进来」。 */
+  const ipv4Reachable = (listenArgs) => new Promise((resolve, reject) => {
+    const server = http.createServer((_req, res) => res.end('ok'))
+    server.once('error', reject)
+    server.listen(...listenArgs, () => {
+      const socket = net.connect(server.address().port, '127.0.0.1')
+      socket.once('connect', () => { socket.destroy(); server.close(); resolve(true) })
+      socket.once('error', () => { server.close(); resolve(false) })
+    })
+  })
+
+  const viaOptions = await ipv4Reachable([{ port: 0, host: '::', ipv6Only: true }])
+  const viaPositional = await ipv4Reachable([0, '::', { ipv6Only: true }])
+
+  assert.equal(viaOptions, false, 'options 写法下 ipv6Only 应生效：IPv4 不该拨得进来')
+  assert.equal(viaPositional, true, '位置参数写法下该选项被忽略：IPv4 会拨进来（lan-proxy 必须用 options 写法）')
+
+  // 把实现也钉住：上面只证明了两种写法的差别，实现改回位置参数写法时本机仍然全绿
+  // （macOS 的 v6 套接字默认就是 v6only），只有这条能挡住退化。
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'relay', 'lan-proxy.js'), 'utf8')
+  assert.match(
+    source,
+    /v6\.listen\(\{ port: actualPort, host: '::', ipv6Only: true \}\)/,
+    'IPv6 监听必须用 options 形式传 ipv6Only；写成 listen(port, host, {…}) 时它会被当成 backlog 忽略',
+  )
+  assert.doesNotMatch(
+    source,
+    /listen\(actualPort, '::'/,
+    '别退回位置参数写法：ipv6Only 会被忽略，Linux 上 :: 与 0.0.0.0 撞成 EADDRINUSE',
+  )
+})
+
 /*
  * 这里没覆盖的一格：「IPv6 那条绑不上 → 只留 IPv4 直连」的软失败路径。这台机器上造不出
  * 那个局面：macOS 只要有一个 `::` 的 socket 占着某端口（哪怕显式 `ipv6Only`），同端口的
