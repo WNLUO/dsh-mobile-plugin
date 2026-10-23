@@ -256,8 +256,10 @@ test('/__lan_pair：原生全球 IPv6 来源被拒，IPv4 来源照旧配对', a
     assert.equal(granted.status, 200, 'IPv4 来源的公网配对是现有受支持用法，不能被一起拦掉')
     const grant = JSON.parse(granted.body)
     assert.equal(grant.ok, true)
-    assert.equal(grant.token, HOST_TOKEN)
-    assert.match(grant.deviceCredential, /^dshc_/)
+    // §3.2：token / cookie / deviceCredential 是同一枚每设备凭据，三段形状。
+    assert.equal(grant.token, grant.deviceCredential)
+    assert.equal(grant.cookie, `dsh_lan=${grant.deviceCredential}`)
+    assert.equal(grant.token.split('.')[0], INSTANCE)
     // 配对响应要带回宿主自己的直连候选：手输公网地址（域名 / 公网 IP）配对时没有二维码，
     // 手机只记住那一个公网地址；回家后它若打不通（路由器不支持回环），这批候选是手机
     // 找到内网地址的唯一来源。

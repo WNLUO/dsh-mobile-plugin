@@ -28,11 +28,15 @@ const {
 /** 允许不挂 localOnly 的控制面路由：key → 为什么。 */
 const NO_LOCAL_ONLY = new Map([
   ['/api/relay/internal/approval', '由中转与局域网代理代转，没有本机 socket 可言；身份靠 sidecarToken（中转 ↔ worker 共享密钥），不是「这条路由不重要」的例外'],
+  ['/api/relay/internal/issue-credential', '旁路子进程（局域网代理）签发凭据的唯一通道：凭据库只有主进程一个写方，身份靠 sidecarToken'],
+  ['/api/relay/internal/rotate-pairing', '旁路子进程配对成功后换码换票据的唯一通道：状态文件只有主进程能写，身份靠 sidecarToken'],
 ]);
 
 /** 不随网页管理窗口关闭的控制面通道：必须逐条说明用途。 */
 const NO_WEB_ACCESS = new Map([
   ['/api/relay/internal/approval', '中转与 sidecar 的内部审批通道，依赖 sidecarToken，不由网页面板调用'],
+  ['/api/relay/internal/issue-credential', 'sidecar 签发凭据的内部通道，依赖 sidecarToken，不由网页面板调用'],
+  ['/api/relay/internal/rotate-pairing', 'sidecar 换码换票据的内部通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/desktop-view', '桌面客户端自身的工作区状态同步，不能随网页管理窗口停止'],
   ['/api/relay/read-receipt', '桌面端轮询上报回执以同步本地已读状态，属于客户端功能，不是网页管理面板。'],
   ['/api/relay/client-half', '桌面客户端每 10 秒上报存活与故障自检状态，不能随网页管理窗口停止。'],
@@ -117,19 +121,28 @@ test('豁免清单没腐化：每一条都还在，且写清了为什么', () =>
     assert.ok(known.has(route), `NO_LOCAL_ONLY 里的 ${route} 已经不存在了，请删掉这条豁免`);
     assert.ok(why.length > 20, `${route} 的豁免理由要写清楚，不能只是「特殊」`);
   }
-  assert.equal(NO_LOCAL_ONLY.size, 1);
+  // 数字是刻意的绊线：加一条例外就必须来这里改一次，逼人想清楚「这条真的不能只给本机吗」。
+  assert.equal(NO_LOCAL_ONLY.size, 3);
 });
 
-test('配对审批路由真的校验 sidecarToken，不是靠别的东西放行', () => {
+test('不挂 localOnly 的内部路由都真的校验 sidecarToken', () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
-  const at = source.indexOf("'/api/relay/internal/approval'");
-  assert.notEqual(at, -1);
-  const end = source.indexOf('registerRoute', at + 1);
-  const route = source.slice(at, end < 0 ? at + 800 : end);
-  assert.match(route, /req\.headers\.authorization !== `Bearer \$\{sidecarToken\}`/, '配对审批必须校验中转↔worker 的共享密钥');
-  assert.match(route, /sendJson\(res, 401, \{ error: 'unauthorized' \}\)/, '校验不过要回 401');
+  for (const route of NO_LOCAL_ONLY.keys()) {
+    const at = source.indexOf(`'${route}'`);
+    assert.notEqual(at, -1, `${route} 找不到`);
+    const end = source.indexOf('registerRoute', at + 1);
+    const body = source.slice(at, end < 0 ? at + 800 : end);
+    assert.match(
+      body,
+      /req\.headers\.authorization !== `Bearer \$\{sidecarToken\}`/,
+      `${route} 必须校验中转↔worker 的共享密钥`,
+    );
+    assert.match(body, /sendJson\(res, 401, \{ error: 'unauthorized' \}\)/, `${route} 校验不过要回 401`);
+  }
   // 决策要走 pairing-policy 的两种模式，不能在路由里另写一套准入判定。
-  assert.match(route, /pairingApproval\.evaluate\(state\.pairingPolicy, body\.device\)/);
+  const at = source.indexOf("'/api/relay/internal/approval'");
+  const end = source.indexOf('registerRoute', at + 1);
+  assert.match(source.slice(at, end < 0 ? at + 800 : end), /pairingApproval\.evaluate\(state\.pairingPolicy, body\.device\)/);
 });
 
 test('改配置的路由逐字段校验，不接受任意键', () => {

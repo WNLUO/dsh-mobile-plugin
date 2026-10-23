@@ -88,8 +88,9 @@ test('配对码正确时签发 token 与设备凭据', async () => {
   // 只有 cookie 不够：App 拿 token 当 `Authorization: Bearer`，空串会让它卡在
   // 「配对响应缺少 token/cookie」这一步（真机上就是这么撞出来的）。
   assert.match(res.body.token, /^\S+$/, 'token 必须是非空串，App 用它做 Bearer')
-  assert.notEqual(res.body.token, res.body.cookie, 'token 与 cookie 是两样东西，各自签')
-  assert.match(res.body.cookie, /^dsh_lan=.+/, 'cookie 要按宿主签名发出来')
+  // §3.2：三样是**同一枚**凭据（`<实例号>.<到期>.<随机>`），不再另签一张全局 HMAC。
+  assert.equal(res.body.token, 'dshc_test', 'token 就是刚签发的那一枚')
+  assert.equal(res.body.cookie, 'dsh_lan=dshc_test', 'cookie 里装同一枚')
   assert.equal(res.body.deviceCredential, 'dshc_test')
   // 键名必须恰好是 `hostPlatform`：App 落盘的就是它（见 app/src/services/pairApi.ts），
   // 局域网那条（lan-proxy.js）给的也是它。写成 `platform` 时 App 收不到，设备行退回

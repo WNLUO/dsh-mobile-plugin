@@ -171,9 +171,14 @@ const isApiUnauthorized = (res) => {
     const grant = JSON.parse(paired.body)
     assert.equal(grant.ok, true)
     assert.equal(grant.instanceId, INSTANCE)
-    assert.equal(grant.token, hostToken, '应下发宿主令牌')
-    assert.match(grant.cookie, /^dsh_lan=/)
-    assert.match(grant.deviceCredential, /^dshc_/)
+    // §3.2 的 T1 口径：token / cookie / deviceCredential 是**同一枚**每设备凭据，
+    // 形状 `<实例号>.<到期秒>.<32 字节随机>`。三段只为兼容老 App「缺实例号时从第一段补」，
+    // 服务端按整串哈希查库，不解析它。
+    assert.equal(grant.token, grant.deviceCredential, 'token 与 deviceCredential 必须是同一枚')
+    assert.equal(grant.cookie, `dsh_lan=${grant.deviceCredential}`, 'cookie 也是同一枚')
+    assert.equal(grant.token.split('.')[0], INSTANCE, '第一段是实例号（老 App 靠它补路由键）')
+    assert.equal(grant.token.split('.').length, 3, '保留三段形状')
+    assert.ok(grant.credentialExpiresAt > Date.now(), '到期时间来自记录')
     assert.ok(grant.deviceId, '应返回 deviceId')
     assert.equal(approvedDevices[0]?.name, '测试手机', '设备元数据应送达宿主授权回调')
     assert.equal(approvedDevices[0]?.platform, 'ios')
@@ -208,10 +213,12 @@ const isApiUnauthorized = (res) => {
       path: '/api/mobile/v1/status', headers: { 'x-dsh-device-credential': grant.deviceCredential },
     })
     assert.ok(isProxied(viaCredential), '设备凭据头单独应可用')
+    // 新 T1 记录不存 hostToken（§3.2）：上游看到的就是请求里出示的那一枚。
+    // 宿主自己认它（同一份凭据库），所以「只带凭据头」这条路照样通。
     assert.equal(
       JSON.parse(viaCredential.body).sawAuthorization,
-      `Bearer ${hostToken}`,
-      '设备凭据必须被替换为宿主令牌再转发',
+      `Bearer ${grant.deviceCredential}`,
+      '出示的凭据原样转发给上游',
     )
 
     // 11. 吊销设备凭据后立即失效，且不回落成任何其它身份。
@@ -228,23 +235,32 @@ const isApiUnauthorized = (res) => {
       },
     })
     assert.ok(!isProxied(afterRevoke), '已吊销的设备凭据不得再被代理')
-    assert.ok(isApiUnauthorized(afterRevoke), '已吊销的设备凭据必须是 JSON 401，而不是配对页')
+    // 回的原因要能认出来（§3.8）：只回一句「未授权」的话，被踢的手机看到的还是
+    // 「请求失败」，用户既不知道是被解绑、也不知道该重新扫码。
+    assert.equal(afterRevoke.status, 401, '已吊销必须是 401，而不是配对页')
+    assert.equal(JSON.parse(afterRevoke.body).error?.code, 'device-revoked', '要回可识别的原因')
 
     // 12. 本机**不认识**的设备凭据必须回退到宿主令牌，而不是一律拒绝：公网配对
     //     时 dshc_ 由中转签发、存在中转的凭据库里，宿主这里查不到。若一律拒绝，
     //     「公网配对后回到局域网直连」会直接 401 —— 那正是本功能的主要用法。
+    // 这里必须用**升级前的旧会话形状**：一枚 lanSecret 签的无状态 HMAC token（老 App
+    // 手上就这个）加一枚本机没见过的凭据头。用新配对的 token 不行 —— 它本身就是刚被
+    // 吊销的那一枚，被拒才是对的。
+    const legacyToken = core.signLanToken(SECRET, INSTANCE, core.MOBILE_BEARER_TTL_SEC)
     const foreignCredential = `dshc_${Buffer.from('relay-issued-credential').toString('base64url')}`
     const viaForeign = await call(LAN_PORT, {
       path: '/api/mobile/v1/status',
-      headers: { authorization: `Bearer ${grant.token}`, 'x-dsh-device-credential': foreignCredential },
+      headers: { authorization: `Bearer ${legacyToken}`, 'x-dsh-device-credential': foreignCredential },
     })
-    assert.ok(isProxied(viaForeign), '中转签发的设备凭据不得阻断局域网直连')
+    assert.ok(isProxied(viaForeign), '本机没见过的凭据不得阻断旧会话的局域网直连')
 
-    // 13. cookie 是 lanSecret 独立签名，吊销设备凭据不影响它（两种凭据语义不同）
+    // 13. cookie 里装的就是同一枚凭据（§3.2），所以吊销之后它同样不能用 ——
+    //     这正是「一枚凭据当三样用」的必然结果：没有第二条绕过吊销的路。
     const cookieAfterRevoke = await call(LAN_PORT, {
       path: '/api/mobile/v1/status', headers: { cookie: grant.cookie },
     })
-    assert.ok(isProxied(cookieAfterRevoke), 'cookie 与设备凭据独立')
+    assert.ok(!isProxied(cookieAfterRevoke), '吊销后 cookie 那条路也必须失效')
+    assert.equal(JSON.parse(cookieAfterRevoke.body).error?.code, 'device-revoked')
 
     // 14. 网页版配对入口的登出路由已随配对页一起删除：它现在只是一条未知路径，
     //     未认证时与其它路径一样回 JSON 401，不再有任何清 cookie 的行为。
