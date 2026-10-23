@@ -245,7 +245,10 @@ test('正文水位经镜像推送广播到设备级 SSE（先推镜像再广播�
 
   const stop = pusher.start();
   try {
-    await flush();
+    // 用 waitFor 而不是固定轮数：推送链上有多层 await，够不够轮完全取决于这轮的事件
+    // 循环，机器快慢不同结果就不同（2026-10-23 在 GitHub 的 Linux runner 上稳定红，
+    // 本机连跑五遍全绿）。这里等的是「启动首推真的发生了」，不是「过了若干拍」。
+    await waitFor(() => pushed.length >= 1);
     assert.ok(pushed.length >= 1, '运行中的会话必须在启动首推里带上正文快照');
 
     const first = activityOf(res);
@@ -262,7 +265,7 @@ test('正文水位经镜像推送广播到设备级 SSE（先推镜像再广播�
     // 宿主又落了一条消息：会话事件驱动立即推送，水位必须跟着前移。
     state.events = [assistantEvent(7), assistantEvent(9)];
     ctl.push({ type: 'session/event', sessionId: SID, payload: { sessionId: SID, event: { type: 'assistant/message', seq: 9 } } });
-    await flush();
+    await waitFor(() => activityOf(res).length >= 2);
     const frames = activityOf(res);
     assert.equal(frames.length, 2, '新消息落盘后没有把新水位说给手机听');
     assert.equal(frames[1].seq, 9);
@@ -274,7 +277,7 @@ test('正文水位经镜像推送广播到设备级 SSE（先推镜像再广播�
     // 完整清单确认会话已归档/删除后，pusher 应从重连回放集合中移除该会话。
     state.items = [];
     h.tick(500);
-    await flush();
+    await waitFor(() => sharedSessionSignal.peek(SID) === 0);
     assert.equal(sharedSessionSignal.peek(SID), 0, '归档会话的旧水位不应在重连时复活');
   } finally {
     stop();
