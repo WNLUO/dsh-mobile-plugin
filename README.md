@@ -133,12 +133,13 @@ npm test
 
 ### 发版流程
 
-1. 跑 `node scripts/bump-version.mjs` 更新版本号。
+1. 跑 `node scripts/bump-version.mjs` 更新版本号（演示页的 `DEMO_VERSION` 会一起改，别手改）。
 2. 改过 `React/` 就跑 `cd React && pnpm run build`。
 3. 跑 `npm test`，再用 `npm pack --dry-run` 看一眼要发出去的文件。
 4. 提交，把改动同步到公开仓库 `WNLUO/dsh-mobile-plugin`。
 5. 推一个与版本号同名的 tag（版本 0.1.99 就推 `v0.1.99`）。那个仓库的 `.github/workflows/publish.yml` 会跑测试并直接发布，不需要人在浏览器里点二次验证 —— 它走 npm 的 trusted publishing（OIDC），npm 认的是这条流水线而不是某个令牌。
 6. 等流水线绿。它末尾自己会核 `npm view dsh-mobile-plugin version`，你也可以手动看一眼。
+7. 要在本机用上新版就跑 `node scripts/reload-dev.mjs`（打包 + 正规安装 + 就地重载），它报 ✔ 才算数。
 
 `npm publish` 仍能在开发机上手动跑，但现在要人过二次验证：账号上只有安全密钥时，npm 会打印一条 `www.npmjs.com/auth/cli/…` 链接，要用密钥在浏览器里点一下，且发起那台机器的出口 IP 要能打开 npm 官网。这条路留着应急，日常发版走 tag。
 
