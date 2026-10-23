@@ -91,13 +91,20 @@ jobs:
       - name: 发布
         run: npm publish
 
-      # 注册表可见与各镜像同步之间有窗口；这里只确认官方源上已经是这一版。
+      # npm 回 201 之后包还在「处理中」，注册表读到旧版本号是正常现象（2026-10-23 实测：
+      # 发布成功、provenance 都写进透明日志了，紧跟着查还是 0.1.98）。所以这里要重试；
+      # 真失败的判据是「一直读不到」，不是「第一拍没读到」。
       - name: 核对注册表版本
         run: |
           want=$(node -p "require('./package.json').version")
-          got=$(npm view dsh-mobile-plugin version)
-          if [ "$got" != "$want" ]; then
-            echo "注册表上是 $got，期望 $want" >&2
-            exit 1
-          fi
-          echo "注册表已是 $got"
+          for i in $(seq 1 20); do
+            got=$(npm view dsh-mobile-plugin version 2>/dev/null || echo '')
+            if [ "$got" = "$want" ]; then
+              echo "注册表已是 $got"
+              exit 0
+            fi
+            echo "第 $i 次：注册表上是 ${got:-（读不到）}，等 15 秒再查"
+            sleep 15
+          done
+          echo "5 分钟内注册表仍是 $got，期望 $want" >&2
+          exit 1
