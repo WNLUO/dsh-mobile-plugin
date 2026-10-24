@@ -28,7 +28,17 @@ const e2ee = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'shared', 'e2ee
 const { wrapper } = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'shared', 'e2ee-request.js'));
 const routing = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'http', 'routing.js'));
 
-const { loadTsFromApp, registerStub } = require(path.join(root, 'app', 'scripts', 'load-ts.js'));
+// 这组用例要拿 App 侧的真实现来对账，所以必须在主仓里跑（路径跨到 `app/`）。
+// 单独检出插件仓库时（tag 流水线、把插件目录拷出去跑）没有那份源码：整组带理由 skip，
+// 而不是让 `require` 当场抛错把整个文件判红 —— 一条读不到对方的对账测试，skip 得看得见。
+let loadTsFromApp = null;
+let registerStub = () => {};
+try {
+  ({ loadTsFromApp, registerStub } = require(path.join(root, 'app', 'scripts', 'load-ts.js')));
+} catch {
+  // 主仓的 app/ 不在场
+}
+const SKIP_NO_APP = loadTsFromApp ? false : '主仓的 app/ 不在场（单独检出插件仓库时）';
 // App 侧的随机数走原生安全随机口；这里给一串固定字节，让断言可复现。
 registerStub('react-native', {
   Platform: { OS: 'ios', select: (options) => options.ios },
@@ -39,11 +49,11 @@ registerStub('react-native', {
     DSHVoice: { randomBytes: async (size) => Buffer.alloc(size, 0x33).toString('base64') },
   },
 });
-const appEnvelope = loadTsFromApp('src/services/e2ee-envelope');
-const appRandom = loadTsFromApp('src/services/e2ee-random');
-const appFile = loadTsFromApp('src/services/e2ee-file');
-const appSse = loadTsFromApp('src/services/viewmodels/e2ee');
-const appApiEnvelope = loadTsFromApp('src/api/envelope');
+const appEnvelope = loadTsFromApp ? loadTsFromApp('src/services/e2ee-envelope') : null;
+const appRandom = loadTsFromApp ? loadTsFromApp('src/services/e2ee-random') : null;
+const appFile = loadTsFromApp ? loadTsFromApp('src/services/e2ee-file') : null;
+const appSse = loadTsFromApp ? loadTsFromApp('src/services/viewmodels/e2ee') : null;
+const appApiEnvelope = loadTsFromApp ? loadTsFromApp('src/api/envelope') : null;
 
 const DEVICE_KEY = Buffer.alloc(32, 0x22);
 const KEY_ID = '0011223344556677';
@@ -109,9 +119,12 @@ function guarded() {
   });
 }
 
-test.before(async () => { await appRandom.warmUpRandom(512); });
+test.before(async () => {
+  if (!appRandom) return;
+  await appRandom.warmUpRandom(512);
+});
 
-test('App 封的请求宿主能验签解开；私密参数搬走后仍对得上，并合并回 req.url', async () => {
+test('App 封的请求宿主能验签解开；私密参数搬走后仍对得上，并合并回 req.url', { skip: SKIP_NO_APP }, async () => {
   // 带 `path=`（工作目录）的那条真实路由：它同时有「留在 URL 上的分页参数」。
   const url = 'http://127.0.0.1:3080/api/mobile/v1/session/search?path=%2FUsers%2Fme%2Fcode%2Fx&rev=abc';
   const sealed = appEnvelope.sealRequest(context, url, { method: 'GET', headers: {} });
@@ -136,7 +149,7 @@ test('App 封的请求宿主能验签解开；私密参数搬走后仍对得上�
   assert.match(seenUrl, /path=%2FUsers%2Fme%2Fcode%2Fx/);
 });
 
-test('宿主封的响应 App 能解开（nonce 必须拼回去）', async () => {
+test('宿主封的响应 App 能解开（nonce 必须拼回去）', { skip: SKIP_NO_APP }, async () => {
   const ts = Date.now();
   const reqNonce = e2ee.b64url(Buffer.alloc(12, 0x44));
   const plain = { ok: true, hello: '世界' };
@@ -147,7 +160,7 @@ test('宿主封的响应 App 能解开（nonce 必须拼回去）', async () => 
   assert.deepEqual(got, plain);
 });
 
-test('宿主封的 SSE 帧 App 能解开', () => {
+test('宿主封的 SSE 帧 App 能解开', { skip: SKIP_NO_APP }, () => {
   const ts = Date.now();
   const reqNonce = e2ee.b64url(Buffer.alloc(12, 0x44));
   const framePath = '/api/mobile/v1/session/stream';
@@ -159,7 +172,7 @@ test('宿主封的 SSE 帧 App 能解开', () => {
   assert.deepEqual(got, payload);
 });
 
-test('宿主写的分块文件 App 能整份解回来（含尾块）', () => {
+test('宿主写的分块文件 App 能整份解回来（含尾块）', { skip: SKIP_NO_APP }, () => {
   const reqNonce = e2ee.b64url(Buffer.alloc(12, 0x44));
   const filePath = '/api/mobile/v1/session/file';
   const blocks = [Buffer.from('a'.repeat(64 * 1024)), Buffer.from('尾巴')];
@@ -178,7 +191,7 @@ test('宿主写的分块文件 App 能整份解回来（含尾块）', () => {
   assert.equal(Buffer.from(out).subarray(64 * 1024).toString('utf8'), '尾巴');
 });
 
-test('签名对不上时宿主拒收：搬参前后算签名会得到两个不同的摘要', () => {
+test('签名对不上时宿主拒收：搬参前后算签名会得到两个不同的摘要', { skip: SKIP_NO_APP }, () => {
   const url = 'http://x/api/mobile/v1/session/search?path=%2Fa&rev=1';
   const sealed = appEnvelope.sealRequest(context, url, { method: 'GET', headers: {} });
   // 按**入参**那条 URL 算（也就是旧实现的顺序）应该对不上，这正是这条守卫要钉的回归。
@@ -193,7 +206,7 @@ test('签名对不上时宿主拒收：搬参前后算签名会得到两个不�
   assert.notEqual(sealed.headers['X-Dsh-Sig'], e2ee.sign(keys.sig, canonical), '签的必须是搬参之后实际发出去的那一串');
 });
 
-test('列表类响应：外层留 ok/revision/generatedAt，正文在 env，App 解完要盖回去', () => {
+test('列表类响应：外层留 ok/revision/generatedAt，正文在 env，App 解完要盖回去', { skip: SKIP_NO_APP }, () => {
   const ts = Date.now();
   const reqNonce = e2ee.b64url(Buffer.alloc(12, 0x44));
   const listPath = '/api/mobile/v1/sessions';
@@ -219,7 +232,7 @@ test('列表类响应：外层留 ok/revision/generatedAt，正文在 env，App 
 });
 
 
-test('大响应（>=1KB）带 Accept-Encoding: gzip 时仍然封成信封，不许退化成明文', async () => {
+test('大响应（>=1KB）带 Accept-Encoding: gzip 时仍然封成信封，不许退化成明文', { skip: SKIP_NO_APP }, async () => {
   // 2026-10-24 现场：`sendJson` 先 gzip，守卫的 `res.end` 钩子拿到的就是二进制，
   // `JSON.parse` 失败 → 原样写出、没封。症状是「最大的那批响应反而不加密」，而且安静。
   const big = { ok: true, items: Array.from({ length: 200 }, (_v, i) => ({ id: `s-${i}`, title: '一条足够长的会话标题用来把响应顶过 1KB' })) };

@@ -26,8 +26,17 @@ const hostPlain = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'shared', 
 const e2ee = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'shared', 'e2ee.js'));
 const { sealResponse } = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'shared', 'e2ee-request.js'));
 
-const { loadTsFromApp } = require(path.join(root, 'app', 'scripts', 'load-ts.js'));
-const appPlain = loadTsFromApp('src/services/viewmodels/e2ee-plain');
+// 两端互通的两条用例要拿 App 侧的真实现来对账，所以得在主仓里跑（路径跨到 `app/`）。
+// 单独检出插件仓库时（tag 流水线、把插件目录拷出去跑）没有那份源码：那两条带理由 skip，
+// 宿主自己那几条照旧跑 —— 不跳过就是 `require` 当场抛错，整个文件判红。
+let loadTsFromApp = null;
+try {
+  ({ loadTsFromApp } = require(path.join(root, 'app', 'scripts', 'load-ts.js')));
+} catch {
+  // 主仓的 app/ 不在场
+}
+const SKIP_NO_APP = loadTsFromApp ? false : '主仓的 app/ 不在场（单独检出插件仓库时）';
+const appPlain = loadTsFromApp ? loadTsFromApp('src/services/viewmodels/e2ee-plain') : null;
 
 const DEVICE_KEY = Buffer.alloc(32, 0x22);
 const KEY_ID = '0011223344556677';
@@ -44,7 +53,7 @@ const samplePayload = () => ({
   })),
 });
 
-test('宿主压的 App 能解，App 压的宿主能解（字节层面）', () => {
+test('宿主压的 App 能解，App 压的宿主能解（字节层面）', { skip: SKIP_NO_APP }, () => {
   const raw = Buffer.from(JSON.stringify(samplePayload()), 'utf8');
   const { payload: gz, z } = hostPlain.compressPlain(raw, ACCEPT);
   assert.equal(z, 'g');
@@ -102,7 +111,7 @@ test('已压过的字节压完不更小就不压（图片那种）', () => {
   assert.equal(z, undefined, '压完不比原来小就不该压');
 });
 
-test('认不出的 z 一律报错，两端都是', () => {
+test('认不出的 z 一律报错，两端都是', { skip: SKIP_NO_APP }, () => {
   const bytes = Buffer.from('{}', 'utf8');
   assert.throws(() => hostPlain.decompressPlain(bytes, 'br'), /unknown plain compression/);
   assert.throws(() => appPlain.decompressPlain(new Uint8Array(bytes), 'br'), /unknown plain compression/);
