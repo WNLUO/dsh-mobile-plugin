@@ -6,6 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { handleMessages } = require('../lib/mobile/session-snapshot.js');
+const { thinEntryMessages } = require('../lib/mobile/history-derive.js');
 
 const ROUTE = '/api/mobile/v1/session/messages';
 const okValue = (value) => ({ result: { ok: true, value } });
@@ -185,4 +186,84 @@ test('抛出的宿主调用失败作为 502，而非客户端 400', async () => 
   } finally {
     await host.close();
   }
+});
+
+// ── 入口那一发按「内容」取（?thin=1）──────────────────────────────────────
+
+test('入口那一发带 thin=1：窗口按轮取整，不是按条数硬切', async () => {
+  // `maxMessages` 量的是消息条数，宿主一步一条 assistant 消息，长回合里最后 40 条可能
+  // 一条用户消息都没有 —— 入口必须让宿主往回跨够几轮、停在 turn/start 上。
+  const host = await serve();
+  try {
+    const response = await fetch(host.url('?sessionId=root-1&limit=25&thin=1'));
+    assert.equal(response.status, 200);
+    assert.deepEqual(host.calls[0].request.payload, {
+      sessionId: 'root-1',
+      maxMessages: 2000,
+      turnWindow: { minMessages: 25, minTurns: 6 },
+    });
+  } finally {
+    await host.close();
+  }
+});
+
+test('带游标的请求不按内容裁：thin=1 也只当普通分页', async () => {
+  // 往上翻历史与增量补拉要的是完整过程，按轮取整会把整轮过程又拉回来、还会丢掉更早的那些。
+  const host = await serve();
+  try {
+    await fetch(host.url('?sessionId=root-1&limit=25&thin=1&beforeSeq=17'));
+    assert.deepEqual(host.calls[0].request.payload, {
+      sessionId: 'root-1',
+      maxMessages: 25,
+      beforeSeq: 17,
+    });
+  } finally {
+    await host.close();
+  }
+});
+
+test('thinEntryMessages：只留用户消息与助手文字，过程块数挂在开轮那条用户消息上', () => {
+  const items = [
+    { id: 'u1', role: 'user', text: '跑个命令', seq: 10, time: 1000 },
+    {
+      id: 'a1',
+      role: 'assistant',
+      text: '',
+      seq: 11,
+      blocks: [{ type: 'tool-call', name: 'bash', callId: 'c1' }, { type: 'reasoning', text: '想想' }],
+    },
+    { id: 'a2', role: 'assistant', text: '好了', seq: 12, blocks: [] },
+  ];
+  const kept = thinEntryMessages(items, { hasMore: false });
+  assert.deepEqual(kept.map((item) => item.id), ['u1', 'a2'], '过程块不下发');
+  assert.deepEqual(kept[0].turnProcess, { startSeq: 10, endSeq: 12, count: 2 });
+});
+
+test('thinEntryMessages：最老那半轮没有用户消息就整组丢掉', () => {
+  // 窗口从一轮中间开始：那一组没有起点，交给「加载更早」，别拿半轮冒充这一轮的开头。
+  const items = [
+    { id: 'a0', role: 'assistant', text: '半轮的尾巴', seq: 1, blocks: [] },
+    { id: 'u1', role: 'user', text: '新问题', seq: 2 },
+    { id: 'a1', role: 'assistant', text: '答', seq: 3, blocks: [] },
+  ];
+  const kept = thinEntryMessages(items, { hasMore: true });
+  assert.deepEqual(kept.map((item) => item.id), ['u1', 'a1']);
+});
+
+test('thinEntryMessages：出轮尾卡的工具块留下，而且照样计入过程数', () => {
+  // 只数被摘掉的块会让 App 扣不掉保留下来的那几块，加载入口提前消失。
+  const items = [
+    { id: 'u1', role: 'user', text: '定个提醒', seq: 5 },
+    {
+      id: 'a1',
+      role: 'assistant',
+      text: '',
+      seq: 6,
+      blocks: [{ type: 'tool-call', name: 'schedule_create', callId: 'c9' }],
+    },
+  ];
+  const kept = thinEntryMessages(items, { hasMore: false });
+  assert.deepEqual(kept.map((item) => item.id), ['u1', 'a1']);
+  assert.deepEqual(kept[1].blocks.map((block) => block.name), ['schedule_create']);
+  assert.equal(kept[0].turnProcess.count, 1, '保留下来的过程块也要计数');
 });

@@ -136,15 +136,16 @@ test('归档集合里的非字符串值被忽略', async () => {
   assert.deepEqual(response.body.items.map(item => item.sessionId), [KEPT_ID]);
 });
 
-test('工作区快照透传归档集合，且归档变化会改变 revision', async () => {
+test('工作区快照不再下发归档集合，但它仍参与 revision', async () => {
+  // 归档集合是一份可能几十 KB 的纯字符串数组，App 从来不读它（归档会话由 /sessions 直接剔除、
+  // 取消归档走单独的写接口），所以不下发；但仅它变化时镜像也必须推新版本，故留在 revision 里。
   const workspaceItems = [{ workspaceId: 'w1', path: '/ws/a', title: 'a', sessionIds: [] }];
   const archived = await buildWorkspacesBody(makeCtx({ archivedSessionIds: [ARCHIVED_ID, 7], workspaceItems }));
   const unarchived = await buildWorkspacesBody(makeCtx({ archivedSessionIds: [], workspaceItems }));
   assert.equal(archived.ok, true);
   assert.equal(archived.items.length, 1);
-  assert.deepEqual(archived.archivedSessionIds, [ARCHIVED_ID]);
+  assert.equal('archivedSessionIds' in archived, false, '归档集合不再随清单下发');
   assert.deepEqual(unarchived.items, archived.items);
-  assert.deepEqual(unarchived.archivedSessionIds, []);
   assert.notEqual(archived.revision, unarchived.revision);
 });
 
@@ -156,7 +157,7 @@ test('工作区快照在宿主报错时照旧返回错误体', async () => {
   assert.equal(body.error.code, 'boom');
 });
 
-test('源码契约：会话列表读归档集合、工作区快照不再丢弃该字段', () => {
+test('源码契约：会话列表读归档集合、工作区快照只把它算进 revision', () => {
   const sessionsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'sessions.js'), 'utf8');
   const workspacesSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'workspaces.js'), 'utf8');
   // 取归档 / 置顶集合的那次 RPC 住在 session-flags.js（会话列表与后台监控共用一份判定），
@@ -165,10 +166,9 @@ test('源码契约：会话列表读归档集合、工作区快照不再丢弃�
   assert.match(flagsSrc, /ctx\.apiProxy\.workspace\.list\(/);
   assert.match(sessionsSrc, /workspaceSessionFlags\(ctx\)/);
   assert.doesNotMatch(sessionsSrc, /const allSummaries = value\.items \|\| \[\];/);
-  // 6054bb2 起快照多带 generatedAt/revision/emptyConfirmed，返回也改成多行，
-  // 但 archivedSessionIds 仍须紧跟 items 一起返回（不能被新鲜度字段挤掉）。
-  // 2026-10-22 起 items 先过 attachGitMarkers 挂 Git 仓库标记（回的是那份 marked），
-  // 断言跟着实现改，条件不变：归档集合必须和清单一起回。
+  // 2026-10-22 起 items 先过 attachGitMarkers 挂 Git 仓库标记（回的是那份 marked）。
+  // 归档集合不再随 body 下发，但必须留在 revision 里 —— 删掉它等于「仅归档变化」判成没变化。
   assert.match(workspacesSrc, /const marked = await attachGitMarkers\(items,/);
-  assert.match(workspacesSrc, /return \{\s*ok: true,\s*items: marked,\s*archivedSessionIds,/);
+  assert.match(workspacesSrc, /revision: stableRevision\(\{ items: marked, archivedSessionIds \}\)/);
+  assert.doesNotMatch(workspacesSrc, /return \{\s*ok: true,\s*items: marked,\s*archivedSessionIds,/);
 });
