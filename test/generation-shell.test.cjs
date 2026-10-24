@@ -60,6 +60,8 @@ fs.writeFileSync(path.join(PROFILE_NODE_MODULES, FIXTURE_PKG, 'package.json'), J
 fs.writeFileSync(path.join(PROFILE_NODE_MODULES, FIXTURE_PKG, 'index.js'), "export const mark = 'fixture-ok';\n");
 process.env.DSH_HOME = HOME_ROOT;
 process.env.DSH_MOBILE_PROFILE_NODE_MODULES = PROFILE_NODE_MODULES;
+// 装载失败后的重试间隔压到 50ms（默认 30s）：只给这条守卫用。
+process.env.DSH_MOBILE_START_RETRY_MS = '50';
 
 const shellUrl = pathToFileURL(path.join(PKG_DIR, 'lib', 'index.js')).href;
 const managerUrl = pathToFileURL(path.join(PKG_DIR, 'lib', 'shell', 'manager.js')).href;

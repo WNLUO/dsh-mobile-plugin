@@ -168,6 +168,15 @@ test('入口是稳定外壳：实现住在代里，换代不重启 DSH', () => {
   assert.match(shell, /export function apply/, '外壳必须导出 apply');
   assert.match(shell, /createRuntime\(/, '外壳必须用 shell/runtime.js 装载代');
   assert.ok(shell.split('\n').length <= 200, `lib/index.js ${shell.split('\n').length} 行了：外壳只该有装载逻辑，业务代码住进代里`);
+  // 装载失败必须**还会再试**：一次失败等于整张控制面路由表都不在，而设置页照样画得出来，
+  // 现场只剩一句「读取宿主状态失败: HTTP 404」。行为测试造不出「所有代都失败」——随包
+  // 那一代永远装得起来——所以这里钉接线与「有限次重试」的形状。
+  assert.match(shell, /\.start\(ctx, \{ log \}\)/, '外壳要把日志交给 runtime.start，重试才有痕迹');
+  const runtimeSource = read(path.join(LIB, 'shell', 'runtime.js'));
+  assert.match(runtimeSource, /const START_RETRY_LIMIT = \d+/, '装载失败要按次数重试，不是一次就放弃');
+  assert.match(runtimeSource, /for \(let attempt = 1; attempt <= START_RETRY_LIMIT; attempt \+= 1\)/, '重试循环必须是有上限的');
+  assert.match(runtimeSource, /await sleep\(START_RETRY_MS\)/, '两轮之间要等间隔，别原地空转');
+  assert.match(runtimeSource, /lastError = lastFailure/, '放弃前要把最后一次的真实失败原因留在状态里');
   // 业务面（移动 API 路由、隧道、镜像……）一律不许出现在外壳里。
   for (const forbidden of ['/api/mobile/v1', '/api/relay/', 'createRelay', 'mirror']) {
     assert.ok(!shell.includes(forbidden), `外壳里出现了 ${forbidden}：那是代的事，塞进外壳等于每次改它都要重启`);
