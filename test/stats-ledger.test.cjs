@@ -364,3 +364,103 @@ test('采集失败不影响出数：账本还在就照常回', async () => {
     assert.equal(res.body.overview.kpi.uncachedInputTokens, 9, '采集挂了也要把账本里的数字给出去');
   });
 });
+
+test('卡片数字跟着范围走：同一张卡在 7d 与 all 下就是两个数', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([
+    { sessionId: 's1', at: now - 20 * 86400000, delta: usage({ uncachedInputTokens: 900, outputTokens: 100, turns: 9 }) },
+    { sessionId: 's1', at: now, delta: usage({ uncachedInputTokens: 60, outputTokens: 40, turns: 1 }) },
+  ]);
+  const week = ledger.summarize(book, '7d', now);
+  const all = ledger.summarize(book, 'all', now);
+  assert.equal(week.sessions[0].billedTokens, 100, '近 7 天只剩今天那一笔');
+  assert.equal(week.sessions[0].turns, 1);
+  assert.equal(all.sessions[0].billedTokens, 1100, '全部仍是累计值');
+  assert.equal(all.sessions[0].turns, 10);
+});
+
+test('卡片加起来能对上 KPI：差额只剩「退场」与「无明细」两笔明说的数', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([
+    { sessionId: 'live', at: now, delta: usage({ uncachedInputTokens: 100, outputTokens: 100 }) },
+    { sessionId: 'old', at: now, delta: usage({ uncachedInputTokens: 50, outputTokens: 50 }) },
+  ]);
+  // 模拟一条被老版本删掉记录的会话：只有按天的账，没有 sessions 记录。
+  const day = book.days[ledger.dayKeyOf(now)];
+  day.uncachedInputTokens += 30;
+  book.sessions.old.retired = true;
+
+  const overview = ledger.summarize(book, '7d', now);
+  const rangeBilled = ledger.billedOf(overview.kpi);
+  const cardSum = overview.sessions.reduce((sum, row) => sum + row.billedTokens, 0);
+  assert.equal(cardSum, 200, '只有在场的那条上卡片');
+  assert.equal(overview.retired.sessions, 1, '退场那条单独报条数');
+  assert.equal(overview.retired.tokens, 100);
+  assert.equal(overview.untrackedBilled, 30, '没明细的那截单独报量');
+  assert.equal(cardSum + overview.retired.tokens + overview.untrackedBilled, rangeBilled, '三笔相加等于总量');
+  assert.equal(overview.kpi.sessions, 1, '会话数只数真正上卡片的');
+});
+
+test('范围内没有量的会话不上卡片（切到 7d 不显示两个月前的老会话）', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([
+    { sessionId: 'stale', at: now - 20 * 86400000, delta: usage({ uncachedInputTokens: 500, turns: 5 }) },
+    { sessionId: 'fresh', at: now, delta: usage({ uncachedInputTokens: 10, turns: 1 }) },
+  ]);
+  const week = ledger.summarize(book, '7d', now);
+  assert.equal(week.sessions.length, 1);
+  assert.equal(week.sessions[0].sessionId, 'fresh');
+  assert.equal(ledger.summarize(book, '30d', now).sessions.length, 2, '放宽范围它就回来了');
+});
+
+test('构成快照跟着会话走，取最近活跃的那条', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([
+    { sessionId: 'a', at: now - 7200000, delta: usage({ uncachedInputTokens: 10 }) },
+    { sessionId: 'b', at: now, delta: usage({ uncachedInputTokens: 20 }) },
+  ]);
+  book.sessions.a.composition = { systemTokens: 1, toolsTokens: 2, messageTokens: 3, at: now - 7200000 };
+  book.sessions.b.composition = { systemTokens: 100, toolsTokens: 200, messageTokens: 300, at: now };
+  const overview = ledger.summarize(book, '7d', now);
+  assert.equal(overview.compositionSessionId, 'b', '取最后有动作的那条，不是谁后回是谁');
+  assert.equal(overview.composition.systemTokens, 100);
+});
+
+test('采集串行：两个请求同时进来不会把同一段增量记两遍', async () => {
+  await withHome(async () => {
+    const items = [{ sessionId: 's1', title: 'x', updatedAt: Date.now() }];
+    const ctx = fakeCtx({ items, projectionsById: { s1: tokenProjection(100, 10) } });
+    const slow = ctx.apiProxy.sessions.projections;
+    ctx.apiProxy.sessions.projections = async (request) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return slow(request);
+    };
+    await Promise.all([collectStats(ctx, { force: true }), collectStats(ctx, { force: true })]);
+    const book = ledger.readLedger();
+    assert.equal(book.days[ledger.dayKeyOf(Date.now())].uncachedInputTokens, 100, '只该记一遍');
+    assert.equal(book.sessions.s1.billed.uncachedInputTokens, 100);
+  });
+});
+
+test('采集：老会话不会被每轮预算饿死（先近后远，轮着往下走）', async () => {
+  await withHome(async () => {
+    const now = Date.now();
+    // 一条很老、两条很新：按最后活动时间倒序扫时，老的永远排在队尾。
+    const items = [
+      { sessionId: 'ancient', title: 'old', updatedAt: now - 200 * 86400000 },
+      { sessionId: 'new1', title: 'n1', updatedAt: now },
+      { sessionId: 'new2', title: 'n2', updatedAt: now - 1000 },
+    ];
+    const ctx = fakeCtx({
+      items,
+      projectionsById: Object.fromEntries(items.map((item) => [item.sessionId, tokenProjection(10, 1)])),
+    });
+    // 第一轮预算只够两条：老的排在最后，采不到。把它记成「很久没采过」才会被下一轮先捡。
+    const first = await collectStats(ctx, { force: true, budgetMs: 1 });
+    const collectedFirst = Object.keys(first.sessions);
+    const second = await collectStats(ctx, { force: true });
+    assert.ok(Object.keys(second.sessions).includes('ancient'), '第二轮一定把它补上');
+    // 第一轮到底采到几条取决于调度，这里只钉「两轮之后全都在」。
+    assert.equal(Object.keys(second.sessions).length, 3, `第一轮 ${collectedFirst.length} 条`);
+  });
+});
