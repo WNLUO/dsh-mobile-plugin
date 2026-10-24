@@ -127,9 +127,49 @@ test('signals an authoritative resync when replay history has a gap', async () =
   const ctx = { apiProxy: { events: { mux }, sessions: { history } } };
   await handleStream(ctx, req, res);
   const frames = dataFrames(res.chunks);
+  // 判定缺口之后**一帧回放都不许发**：那段内容客户端紧接着就会按权威历史重拉一遍，
+  // 再从流里灌一遍是同一份内容走两趟（真机上就是这个把一次重连放大到 36MB）。
   // 末尾多出的一帧 resync 来自「实时循环正常结束」：流到此为止，客户端应带
   // lastSeq 重连重放，而不是把静默断流当正常状态（见 stream-liveness.test.cjs）。
-  assert.deepEqual(frames.map((frame) => frame.seq ?? frame.type), [10, 11, 'session/resync-required', 12, 'session/resync-required']);
-  assert.equal(frames[2].oldestSeq, 10);
-  assert.equal(frames[2].final, undefined, '回放缺口只补权威历史，不关流（否则会重连风暴）');
+  assert.deepEqual(frames.map((frame) => frame.seq ?? frame.type), ['session/resync-required', 12, 'session/resync-required']);
+  assert.equal(frames[0].oldestSeq, 10, '缺口帧要报出可回放的起点，客户端据此判断该去拉历史');
+  assert.equal(frames[0].final, undefined, '回放缺口只补权威历史，不关流（否则会重连风暴）');
+});
+
+test('replay stops before the window when the client is far behind', async () => {
+  const res = response();
+  const req = request('/api/mobile/v1/session/stream?sessionId=s-1&lastSeq=1');
+  // 落后 500 个 seq：没有 hasMore（窗口本身完整），但差距远超 REPLAY_MAX_GAP。
+  const events = [];
+  for (let seq = 400; seq <= 501; seq += 1) {
+    events.push({ event: { type: 'assistant/message', seq, data: {}, time: seq } });
+  }
+  const history = async () => ({ result: { ok: true, value: { hasMore: false, events } } });
+  const mux = async function* (_request, signal) {
+    if (signal.aborted) return;
+  };
+  const ctx = { apiProxy: { events: { mux }, sessions: { history } } };
+  await handleStream(ctx, req, res);
+  const frames = dataFrames(res.chunks);
+  assert.deepEqual(frames.map((frame) => frame.seq ?? frame.type), ['session/resync-required', 'session/resync-required']);
+  assert.equal(frames[0].oldestSeq, 400);
+});
+
+test('replay is byte-capped so a fat session cannot flood the stream', async () => {
+  const res = response();
+  const req = request('/api/mobile/v1/session/stream?sessionId=s-1&lastSeq=1');
+  // 每帧 ~600KB，三帧就超了 512KB 的封顶。
+  const payload = 'x'.repeat(600 * 1024);
+  const history = async () => ({ result: { ok: true, value: { hasMore: false, events: [
+    { event: { type: 'assistant/message', seq: 2, data: { text: payload }, time: 2 } },
+    { event: { type: 'assistant/message', seq: 3, data: { text: payload }, time: 3 } },
+  ] } } });
+  const mux = async function* (_request, signal) {
+    if (signal.aborted) return;
+  };
+  const ctx = { apiProxy: { events: { mux }, sessions: { history } } };
+  await handleStream(ctx, req, res);
+  const frames = dataFrames(res.chunks);
+  const replayed = frames.filter((frame) => typeof frame.seq === 'number');
+  assert.equal(replayed.length, 1, '超过字节封顶之后一条都不该再补');
 });

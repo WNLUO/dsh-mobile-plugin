@@ -95,6 +95,22 @@ test('默认那条路必须走打包 + 改依赖声明 + 运行时 pnpm 安装',
   assert.match(source, /reload-implementation/, '两条路都要触发就地重载');
 });
 
+test('前端源码比面板产物新时必须先重建，再打包安装（别把旧页面装进 profile）', () => {
+  // 判据是修改时间而不是「调用方有没有提醒」：React/src 比 lib/panel/index.html 新就重建。
+  assert.match(source, /function panelIsStale\(\)/, '没有「产物是否比源码旧」的判据');
+  assert.match(source, /newestMtime/, '没有按前端源码的修改时间判');
+  assert.match(source, /'run', 'build'/, '没有自动重建面板');
+  assert.match(source, /面板构建失败/, '构建失败必须停下，不能把旧产物装进去');
+
+  // 顺序也是契约：重建 → 打包 → 安装 → 重载。反了就等于拿上一份产物去装。
+  const main = source.slice(source.indexOf('async function main()'));
+  const staleAt = main.indexOf('panelIsStale()');
+  const installAt = main.indexOf('installPackedPackage()');
+  assert.ok(staleAt > 0, 'main 里没用陈旧判据');
+  assert.ok(installAt > 0, 'main 里没走默认安装路');
+  assert.ok(staleAt < installAt, '必须先判断（必要时重建）面板，再打包安装');
+});
+
 test('--only 只收包白名单里的路径：构建源码 / 测试 / 包外的东西当场拒掉', () => {
   // 真的跑一次脚本（对着一个临时 DSH_HOME 里的假 profile），断言的是一条真实行为：
   // 不在包白名单里的路径（这里是 React 构建源码）必须以非零退出，且把原因说出来。

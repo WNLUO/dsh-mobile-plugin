@@ -19,6 +19,7 @@
  * 那一页清的是**手机本机**的缓存副本；这张卡清的是**电脑上**的盘。两者刻意不合并。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
+import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
@@ -67,9 +68,9 @@ export function formatInboxBytes(bytes: number): string {
 export function inboxAgeText(at: number | null, now = Date.now()): string {
   if (!at) return ''
   const hours = Math.floor((now - at) / (60 * 60 * 1000))
-  if (hours < 1) return '不到 1 小时'
-  if (hours < 24) return `${hours} 小时`
-  return `${Math.floor(hours / 24)} 天`
+  if (hours < 1) return t('panel.inbox.ageLessThanHour')
+  if (hours < 24) return t('panel.inbox.ageHours', { hours })
+  return t('panel.inbox.ageDays', { days: Math.floor(hours / 24) })
 }
 
 export function InboxCard() {
@@ -106,7 +107,7 @@ export function InboxCard() {
       const result = await apiPost<{ ok: boolean; data: { autoClear: boolean } }>('/api/relay/inbox/auto', { enabled: next })
       setStatus((current) => (current ? { ...current, autoClear: result.data.autoClear } : current))
     } catch (error) {
-      notify('error', `自动清理开关没改成功：${errorText(error)}`)
+      notify('error', t('panel.inbox.autoFailed', { message: errorText(error) }))
     } finally {
       setSavingAuto(false)
     }
@@ -117,9 +118,13 @@ export function InboxCard() {
     // 与配对卡里「吊销全部设备授权」同一条口径：不可逆的删除先过一道 `window.confirm`。
     // 这里**不用 notify/Alert 代替**：胶囊会自己走掉，而这一步要的是「停一下、看清再按」。
     const detail = deletable > 0
-      ? `会删掉 ${deletable} 个满 ${status?.keepHours ?? 24} 小时的文件，释放 ${formatInboxBytes(status?.deletableBytes ?? 0)}；不满这个时间的会留着。`
-      : `目前没有满 ${status?.keepHours ?? 24} 小时的文件，点了什么都不会删。`
-    if (!window.confirm(`清理收件文件？\n\n${detail}\n\n这个动作不可恢复。`)) return
+      ? t('panel.inbox.confirmDetail', {
+        count: deletable,
+        hours: status?.keepHours ?? 24,
+        bytes: formatInboxBytes(status?.deletableBytes ?? 0),
+      })
+      : t('panel.inbox.confirmNothing', { hours: status?.keepHours ?? 24 })
+    if (!window.confirm(`${t('panel.inbox.confirmTitle')}\n\n${detail}\n\n${t('panel.inbox.confirmIrreversible')}`)) return
     setBusy(true)
     try {
       const result = await apiPost<InboxClearResult>('/api/relay/inbox/clear')
@@ -127,12 +132,12 @@ export function InboxCard() {
       notify(
         result.failedFiles > 0 ? 'soft' : 'ok',
         result.deletedFiles > 0
-          ? `收件文件已清理：释放了 ${freed}（${result.deletedFiles} 个文件）${result.failedFiles > 0 ? `，${result.failedFiles} 个没删掉` : ''}。`
-          : '没有满保留期的文件可清。',
+          ? `${t('panel.inbox.cleared', { bytes: freed, count: result.deletedFiles })}${result.failedFiles > 0 ? t('panel.inbox.clearedSomeFailed', { count: result.failedFiles }) : ''}`
+          : t('panel.inbox.nothingToClear'),
       )
       await load()
     } catch (error) {
-      notify('error', `清理收件文件失败：${errorText(error)}`)
+      notify('error', t('panel.inbox.clearFailed', { message: errorText(error) }))
     } finally {
       setBusy(false)
     }
@@ -142,22 +147,22 @@ export function InboxCard() {
     <Card frame="solid">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <span>{'收件文件'}</span>
+          <span>{t('panel.inbox.title')}</span>
         </CardTitle>
       </CardHeader>
 
       {!settled ? (
         <div className="flex items-center gap-2 py-2 text-sm text-foreground-muted">
           <Spinner />
-          {'正在读收件目录…'}
+          {t('panel.inbox.reading')}
         </div>
       ) : null}
 
       {settled && status === null ? (
         <Alert variant="info" className="mt-2">
           <AlertIcon />
-          <AlertTitle>{'这一版读不到收件目录'}</AlertTitle>
-          <AlertDescription>{'这台宿主上的插件还没有这两条接口，更新插件后重启 DSH 就能看到占用并清理。'}</AlertDescription>
+          <AlertTitle>{t('panel.inbox.unreadableTitle')}</AlertTitle>
+          <AlertDescription>{t('panel.inbox.unreadableBody')}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -165,34 +170,36 @@ export function InboxCard() {
         <>
           <dl className="mt-1">
             <div className="flex items-baseline justify-between gap-4 border-b border-border-muted py-2">
-              <dt className="shrink-0 text-sm text-foreground-muted">{'占用'}</dt>
+              <dt className="shrink-0 text-sm text-foreground-muted">{t('panel.inbox.used')}</dt>
               <dd className="min-w-0 text-right text-sm break-all">
-                {`${formatInboxBytes(status.bytes)} · ${status.files} 个文件`}
+                {t('panel.inbox.usedValue', { bytes: formatInboxBytes(status.bytes), count: status.files })}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-4 border-b border-border-muted py-2">
-              <dt className="shrink-0 text-sm text-foreground-muted">{'可清理'}</dt>
+              <dt className="shrink-0 text-sm text-foreground-muted">{t('panel.inbox.deletable')}</dt>
               <dd className="min-w-0 text-right text-sm break-all">
                 {deletable > 0
-                  ? `${formatInboxBytes(status.deletableBytes)} · ${deletable} 个`
-                  : '暂无'}
+                  ? t('panel.inbox.deletableValue', { bytes: formatInboxBytes(status.deletableBytes), count: deletable })
+                  : t('panel.common.none')}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-4 py-2">
-              <dt className="shrink-0 text-sm text-foreground-muted">{'保留期'}</dt>
+              <dt className="shrink-0 text-sm text-foreground-muted">{t('panel.inbox.keep')}</dt>
               <dd className="min-w-0 text-right text-sm break-all">
-                {age ? `${status.keepHours} 小时（最老那份已放 ${age}）` : `${status.keepHours} 小时`}
+                {age
+                  ? t('panel.inbox.keepValueOldest', { hours: status.keepHours, age })
+                  : t('panel.inbox.keepValue', { hours: status.keepHours })}
               </dd>
             </div>
           </dl>
 
           <p className="mt-2 text-xs text-foreground-muted">
-            {'手机传上来的文件落在固定的收件目录里，那里不认识对话，所以归档或删掉对话都带不走它们；只能按时间清。今天传的、还在用的不在清理范围内。'}
+            {t('panel.inbox.hint')}
           </p>
 
           {staging > 0 ? (
             <p className="mt-1 text-xs text-foreground-muted">
-              {`其中 ${formatInboxBytes(status.stagingBytes ?? 0)} 是上传中途断掉留下的残片（${status.stagingFiles} 个），一并清掉。`}
+              {t('panel.inbox.staging', { bytes: formatInboxBytes(status.stagingBytes ?? 0), count: status.stagingFiles ?? 0 })}
             </p>
           ) : null}
 
@@ -201,9 +208,9 @@ export function InboxCard() {
               没有人在场时替你删盘，得是你明确打开过的开关。 */}
           <label className="mt-3 flex items-start justify-between gap-4 border-t border-border-muted pt-3">
             <span className="min-w-0">
-              <span className="block text-sm text-foreground">{'自动清理'}</span>
+              <span className="block text-sm text-foreground">{t('panel.inbox.auto')}</span>
               <span className="mt-0.5 block text-xs text-foreground-muted">
-                {`打开后，${status.keepHours} 小时以上的文件会在 DSH 启动时自动删掉；关着就只能手动清。`}
+                {t('panel.inbox.autoHint', { hours: status.keepHours })}
               </span>
             </span>
             <span className="flex shrink-0 items-center gap-2">
@@ -213,14 +220,14 @@ export function InboxCard() {
                 checked={status.autoClear === true}
                 disabled={busy || savingAuto}
                 onCheckedChange={(next) => void flipAuto(next)}
-                aria-label={'自动清理收件文件'}
+                aria-label={t('panel.inbox.autoA11y')}
               />
             </span>
           </label>
 
           <div className="mt-3 flex justify-end">
             <Button variant={deletable > 0 ? 'primary' : 'outline'} size="md" disabled={busy} onClick={() => void clear()}>
-              {busy ? '正在清理…' : '清理收件文件'}
+              {busy ? t('panel.inbox.clearing') : t('panel.inbox.clear')}
             </Button>
           </div>
         </>

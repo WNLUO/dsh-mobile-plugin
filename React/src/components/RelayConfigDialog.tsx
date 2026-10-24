@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { ConfigPatch, PairingPolicy, StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS } from '../lib/links.ts'
+import { t } from '../lib/i18n/index.ts'
 
 type Props = {
   open: boolean
@@ -26,9 +27,9 @@ type Props = {
 
 // Base UI 的 Select.Value 拿不到 items 就只肯显示原始值（会显示成 code），
 // 所以这里必须把「值 → 标签」再写一遍给它。
-const PAIRING_POLICY_ITEMS: { value: PairingPolicy; label: string }[] = [
-  { value: 'code', label: '凭配对码允许' },
-  { value: 'deny', label: '一律拒绝新设备' },
+const PAIRING_POLICY_ITEMS: { value: PairingPolicy; labelKey: string }[] = [
+  { value: 'code', labelKey: 'panel.pairing.policyCode' },
+  { value: 'deny', labelKey: 'panel.pairing.policyDeny' },
 ]
 
 /**
@@ -86,7 +87,7 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
           还得先把它点掉。焦点仍旧进到弹窗里（读屏与 Esc 都靠它），只是不落在输入框。 */}
       <DialogContent className="max-w-xl" initialFocus={dialogRef}>
         <DialogHeader>
-          <DialogTitle>中转配置</DialogTitle>
+          <DialogTitle>{t('panel.connection.relayUrl')}</DialogTitle>
         </DialogHeader>
 
         {/* `tabIndex={-1}` 让容器可以被程序聚焦（且不进 Tab 顺序）。
@@ -94,17 +95,17 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
         <div ref={dialogRef} tabIndex={-1} className="outline-none">
         <DialogBody className="flex flex-col gap-4">
           <Field>
-            <FieldLabel htmlFor="relay-name">设备名</FieldLabel>
+            <FieldLabel htmlFor="relay-name">{t('panel.connection.deviceName')}</FieldLabel>
             <Input
               inputProps={{ id: 'relay-name' }}
               value={name}
-              placeholder="手机里显示的名字"
+              placeholder={t('panel.relay.namePlaceholder')}
               onChange={(event) => setName(event.target.value)}
             />
           </Field>
 
           <Field>
-            <FieldLabel htmlFor="relay-url">中转地址</FieldLabel>
+            <FieldLabel htmlFor="relay-url">{t('panel.connection.relayUrl')}</FieldLabel>
             <Input
               inputProps={{ id: 'relay-url', className: 'font-mono' }}
               value={relayUrl}
@@ -117,7 +118,7 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
                 数量会涨，所以定高滚动，别把弹窗顶长。
                 点一下只填地址，不改其它字段——「保存配置」才真正落盘。 */}
             <div className="mt-1.5 rounded-md bg-background-muted px-3 py-2">
-              <p className="text-xs text-foreground-muted">公用中转</p>
+              <p className="text-xs text-foreground-muted">{t('panel.links.publicRelay')}</p>
               <div className="mt-1 max-h-[112px] overflow-y-auto">
                 <div className="flex flex-col gap-0.5">
                   {PUBLIC_RELAYS.map((item) => {
@@ -133,7 +134,7 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
                       >
                         <span className="font-mono text-xs text-foreground">{item.url}</span>
                         <span className="shrink-0 text-xs text-foreground-muted">
-                          {picked ? '已选' : item.name}
+                          {picked ? t('panel.relay.selected') : t(item.nameKey)}
                         </span>
                       </button>
                     )
@@ -152,19 +153,19 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
           </Field>
 
           <div className="flex items-center justify-between gap-4 rounded-md bg-background-muted px-3 py-2">
-            <div className="text-sm text-foreground">局域网直连</div>
+            <div className="text-sm text-foreground">{t('panel.connection.lan')}</div>
             <Switch
               size="md"
               checked={lanEnabled}
               onCheckedChange={setLanEnabled}
-              aria-label="局域网直连"
+              aria-label={t('panel.connection.lan')}
             />
           </div>
 
           <Field>
-            <FieldLabel>配对策略</FieldLabel>
+            <FieldLabel>{t('panel.pairing.policy')}</FieldLabel>
             <Select
-              items={PAIRING_POLICY_ITEMS}
+              items={PAIRING_POLICY_ITEMS.map((item) => ({ value: item.value, label: t(item.labelKey) }))}
               value={pairingPolicy}
               onValueChange={(value) => setPairingPolicy(value as PairingPolicy)}
             >
@@ -172,19 +173,19 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="code">凭配对码允许</SelectItem>
-                <SelectItem value="deny">一律拒绝新设备</SelectItem>
+                <SelectItem value="code">{t('panel.pairing.policyCode')}</SelectItem>
+                <SelectItem value="deny">{t('panel.pairing.policyDeny')}</SelectItem>
               </SelectContent>
             </Select>
           </Field>
 
           <Field>
-            <FieldLabel htmlFor="relay-register-secret">注册密钥</FieldLabel>
+            <FieldLabel htmlFor="relay-register-secret">{t('panel.connection.registerSecret')}</FieldLabel>
             <Input
               type="password"
               inputProps={{ id: 'relay-register-secret' }}
               value={registerSecret}
-              placeholder="留空表示不改动"
+              placeholder={t('panel.lanDialog.unchanged')}
               onChange={(event) => setRegisterSecret(event.target.value)}
               clearable
               onClear={() => setRegisterSecret('')}

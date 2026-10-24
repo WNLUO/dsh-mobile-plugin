@@ -20,6 +20,20 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+/**
+ * 数据目录必须先改到临时目录，再 `require` 实现。
+ *
+ * `relay-control.js` 在模块求值时就通过 `relay/core.js` 算出状态文件路径；它调用的
+ * `core.saveState(state)` 写的是**那个**路径。不隔离的话，跑一次这组测试就会把开发机
+ * 真实的 `relay.json`（实例号 / `lanSecret` / 中转地址 / 配对码）换成下面的夹具，
+ * 之后所有已配对手机一律 401 —— 2026-10-24 现场就是这么把两台设备连不上的。
+ */
+const DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-relay-control-'));
+process.env.DSH_HOME = DSH_HOME;
 
 const {
   createRelayControlHandlers,

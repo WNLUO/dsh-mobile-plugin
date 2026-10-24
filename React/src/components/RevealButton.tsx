@@ -13,6 +13,7 @@
  */
 
 import { Button } from '@appica/ui-react/button'
+import { t } from '../lib/i18n/index.ts'
 
 type Props = {
   /** 现在看得见吗。可见时按钮变成「隐藏」。 */
@@ -28,7 +29,7 @@ type Props = {
 }
 
 export function RevealButton({ on, what, label, className, disabled, onClick }: Props) {
-  const text = label ?? (on ? '隐藏' : '显示')
+  const text = label ?? t(on ? 'panel.common.hide' : 'panel.common.show')
   return (
     <Button
       variant="ghost"

@@ -60,6 +60,7 @@ import {
 } from './lib/api.ts'
 import { lanText, lanTone, tunnelText, tunnelTone } from './lib/format.ts'
 import { PUBLIC_RELAYS } from './lib/links.ts'
+import { t } from './lib/i18n/index.ts'
 
 /** 地址组里「公用中转」那一条的哨兵值：它不是地址，选它等于选「走中转」。 */
 const PUBLIC_RELAY = 'public-relay'
@@ -85,7 +86,7 @@ const RELAY_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-server'
 const PUBLIC_RELAY_CANDIDATES = PUBLIC_RELAYS
 
 /** 一条候选的测速结果。`null` = 还在测；`Infinity` = 测不通。 */
-type RelayProbe = { name: string; url: string; ms: number | null }
+type RelayProbe = { nameKey: string; url: string; ms: number | null }
 
 type Props = {
   /** 配好之后去哪。默认回插件主页。 */
@@ -299,7 +300,7 @@ export function Onboarding({ onDone }: Props) {
       const ok = await probeRelayAddress(saved.replace(/\/+$/, ''))
       if (cancelled) return
       setInheritedRelayOk(ok)
-      if (!ok) setError(`这台机器正在用的中转地址 ${saved} 现在连不上，先确认那台中转在不在跑。`)
+      if (!ok) setError(t('panel.onboarding.recheckSaved', { url: saved }))
     })()
     return () => {
       cancelled = true
@@ -375,7 +376,7 @@ export function Onboarding({ onDone }: Props) {
     if (!reachable) {
       setPreviewSvg('')
       setOwnProbe('failed')
-      setError(`中转地址 ${value} 上没有中转在应答。确认域名写对、那台 dsh-relay 在运行。`)
+      setError(t('panel.onboarding.relayNoAnswer', { value }))
       return
     }
     setOwnProbe('ok')
@@ -512,7 +513,7 @@ export function Onboarding({ onDone }: Props) {
       if (!ok) {
         setOwnProbe('failed')
         setPreviewSvg('')
-        setError(`中转地址 ${value} 上没有中转在应答，配置没改。确认域名写对、那台 dsh-relay 在运行。`)
+        setError(t('panel.onboarding.relayNoAnswerUnsaved', { value }))
         return
       }
       setOwnProbe('ok')
@@ -600,16 +601,16 @@ export function Onboarding({ onDone }: Props) {
    */
   const ownRelayRow = (() => {
     const value = ownRelayUrl.trim().replace(/\/+$/, '')
-    if (value === '') return { tone: 'off' as const, text: '还没填地址' }
-    if (ownProbe === 'busy') return { tone: 'warn' as const, text: '检测中' }
+    if (value === '') return { tone: 'off' as const, text: t('panel.onboarding.probe.empty') }
+    if (ownProbe === 'busy') return { tone: 'warn' as const, text: t('panel.onboarding.probe.busy') }
     const applied = (status?.relayUrl ?? '').trim().replace(/\/+$/, '')
     if (value === applied) {
       const state = status?.tunnel.state ?? 'off'
       return { tone: tunnelTone(state), text: tunnelText(state) }
     }
-    if (ownProbe === 'ok') return { tone: 'ok' as const, text: '连得通，还没存进配置' }
-    if (ownProbe === 'failed') return { tone: 'error' as const, text: '连不上' }
-    return { tone: 'off' as const, text: '还没检测' }
+    if (ownProbe === 'ok') return { tone: 'ok' as const, text: t('panel.onboarding.probe.ok') }
+    if (ownProbe === 'failed') return { tone: 'error' as const, text: t('panel.onboarding.probe.failed') }
+    return { tone: 'off' as const, text: t('panel.onboarding.probe.idle') }
   })()
   const publicChoice = addresses?.public ?? []
   // 第三份：IPv6 全球单播。只能看 —— 谁快由手机侧实测决定（见 AddressPicker 的文件头）。
@@ -620,7 +621,7 @@ export function Onboarding({ onDone }: Props) {
       {fatal ? (
         <Alert className="w-full max-w-2xl" variant="error">
           <AlertIcon />
-          <AlertTitle>读不到插件状态</AlertTitle>
+          <AlertTitle>{t('panel.onboarding.statusFailed')}</AlertTitle>
           <AlertDescription>{fatal}</AlertDescription>
         </Alert>
       ) : null}
@@ -628,14 +629,14 @@ export function Onboarding({ onDone }: Props) {
       {error ? (
         <Alert className="w-full max-w-2xl" variant="error">
           <AlertIcon />
-          <AlertTitle>这一步没成功</AlertTitle>
+          <AlertTitle>{t('panel.onboarding.stepFailed')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
 
       <Card frame="solid" className="w-full max-w-2xl">
         <CardHeader>
-          <CardTitle>用移动设备连上这台 DSH</CardTitle>
+          <CardTitle>{t('panel.onboarding.title')}</CardTitle>
         </CardHeader>
 
         {/* 面板宽的时候二维码和地址分两栏：左边是「要扫的东西 + 现在通没通」，右边只剩
@@ -646,11 +647,11 @@ export function Onboarding({ onDone }: Props) {
               <div className="flex size-[200px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border-muted px-5 text-center">
                 {needsOwnRelayAddress ? (
                   <>
-                    <span className="text-xs text-foreground-muted">填好下面的中转地址后</span>
-                    <span className="text-xs text-foreground-muted">这里才会生成二维码</span>
+                    <span className="text-xs text-foreground-muted">{t('panel.onboarding.qrAfterRelay')}</span>
+                    <span className="text-xs text-foreground-muted">{t('panel.onboarding.qrAfterRelayLine2')}</span>
                   </>
                 ) : (
-                  <span className="text-xs text-foreground-muted">这个地址连上之后，这里才会生成二维码</span>
+                  <span className="text-xs text-foreground-muted">{t('panel.onboarding.qrAfterAddress')}</span>
                 )}
               </div>
             ) : qrSvg ? (
@@ -661,7 +662,7 @@ export function Onboarding({ onDone }: Props) {
               />
             ) : (
               <div className="flex size-[200px] items-center justify-center rounded-lg border border-border-muted text-xs text-foreground-muted">
-                {busy ? <Spinner /> : '没取到二维码'}
+                {busy ? <Spinner /> : t('panel.onboarding.noQr')}
               </div>
             )}
             {qrBlocked ? null : (
@@ -674,25 +675,25 @@ export function Onboarding({ onDone }: Props) {
                 不然手机扫到的是一条通不了的路。 */}
             {showingPreview ? (
               <p className="text-center text-xs text-foreground-muted">
-                这是按你填的地址生成的预览，点「进入插件」才会把这个地址存进配置。
+                {t('panel.onboarding.preview')}
               </p>
             ) : isRelayMode && !readyNow && !qrBlocked ? (
-              <p className="text-center text-xs text-foreground-muted">中转还没连上，连上之后扫码才有用。</p>
+              <p className="text-center text-xs text-foreground-muted">{t('panel.onboarding.relayNotConnected')}</p>
             ) : null}
 
             {/* 连接结论贴着二维码放：左边这一栏回答的是「现在能不能连」，右边回答「连哪条」。 */}
             <div className="w-full">
               <InfoList>
                 {!isRelayMode ? (
-                  <InfoRow label="直连">
+                  <InfoRow label={t('panel.onboarding.direct')}>
                     <ToneValue tone={lanTone(status?.lan.state ?? 'off', true)} text={lanText(status?.lan.state ?? 'off', true)} />
                   </InfoRow>
                 ) : selected === OWN_RELAY ? (
-                  <InfoRow label="这个地址">
+                  <InfoRow label={t('panel.onboarding.thisAddress')}>
                     <ToneValue tone={ownRelayRow.tone} text={ownRelayRow.text} />
                   </InfoRow>
                 ) : (
-                  <InfoRow label="中转隧道">
+                  <InfoRow label={t('panel.connection.tunnel')}>
                     <ToneValue tone={tunnelTone(status?.tunnel.state ?? 'off')} text={tunnelText(status?.tunnel.state ?? 'off')} />
                   </InfoRow>
                 )}
@@ -706,15 +707,15 @@ export function Onboarding({ onDone }: Props) {
             {status !== null && (!isRelayMode ? status.lan.state === 'error' : status.tunnel.state === 'error') ? (
               <Alert variant="error">
                 <AlertIcon />
-                <AlertTitle>{!isRelayMode ? '没能开始直连' : '中转没连上'}</AlertTitle>
+                <AlertTitle>{!isRelayMode ? t('panel.onboarding.lanFailed') : t('panel.onboarding.relayFailed')}</AlertTitle>
                 <AlertDescription>
                   {!isRelayMode
                     ? status.lan.error
-                      ? `${status.lan.error}（端口可能被占用，到主页的「局域网直连」里换一个。）`
-                      : '直连没起来，端口可能被别的程序占了。'
+                      ? t('panel.onboarding.lanErrorWithPort', { error: status.lan.error })
+                      : t('panel.onboarding.lanNoStart')
                     : status.tunnel.error
-                      ? `${status.tunnel.error}（检查中转地址填对没有、那台中转是不是在跑。）`
-                      : '隧道没建起来，检查中转地址。'}
+                      ? t('panel.onboarding.tunnelErrorHint', { error: status.tunnel.error })
+                      : t('panel.onboarding.tunnelNoStart')}
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -733,7 +734,7 @@ export function Onboarding({ onDone }: Props) {
           <div className="flex min-w-0 flex-col gap-3">
             <div className="rounded-lg border border-border-muted">
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border-muted px-3 py-2">
-                <p className="text-xs text-foreground-muted">手机连哪条地址</p>
+                <p className="text-xs text-foreground-muted">{t('panel.onboarding.pickAddress')}</p>
                 <button
                   type="button"
                   className="cursor-pointer text-xs text-foreground-intense underline underline-offset-2 hover:text-foreground-strong"
@@ -742,7 +743,7 @@ export function Onboarding({ onDone }: Props) {
                     setFirewallOpen(true)
                   }}
                 >
-                  连不上？检查防火墙
+                  {t('panel.onboarding.checkFirewall')}
                 </button>
               </div>
 
@@ -756,8 +757,8 @@ export function Onboarding({ onDone }: Props) {
                       机器有好几条地址时，组里一排 IP 只会让人分不清哪条是现在生效的。 */}
                   <div className="flex flex-wrap items-center justify-between gap-x-3">
                     <label className="flex cursor-pointer items-center gap-1.5">
-                      <Radio value={LAN_DIRECT} aria-label="局域网直连" />
-                      <span className="text-sm text-foreground">局域网直连</span>
+                      <Radio value={LAN_DIRECT} aria-label={t('panel.onboarding.lanDirect')} />
+                      <span className="text-sm text-foreground">{t('panel.onboarding.lanDirect')}</span>
                     </label>
                     <Button
                       variant="outline"
@@ -765,22 +766,22 @@ export function Onboarding({ onDone }: Props) {
                       disabled={choice.length === 0}
                       onClick={() => setLanDialogOpen(true)}
                     >
-                      选择地址
+                      {t('panel.onboarding.chooseAddress')}
                     </Button>
                   </div>
                   {/* 公用中转：行里只说「是什么 + 建议临时用」，具体用哪条在下面的列表里。 */}
                   <label className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
                     <span className="flex items-baseline gap-1.5">
-                      <Radio value={PUBLIC_RELAY} aria-label="公用中转" />
-                      <span className="text-sm text-foreground">公用中转</span>
+                      <Radio value={PUBLIC_RELAY} aria-label={t('panel.onboarding.publicRelay')} />
+                      <span className="text-sm text-foreground">{t('panel.onboarding.publicRelay')}</span>
                     </span>
-                    <span className="shrink-0 text-xs text-foreground-muted">建议临时使用</span>
+                    <span className="shrink-0 text-xs text-foreground-muted">{t('panel.onboarding.publicRelayTemporary')}</span>
                   </label>
                   {/* 自建中转：右侧那颗按钮开仓库的新标签页，点它不该顺手把这一行选中。 */}
                   <label className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
                     <span className="flex items-baseline gap-1.5">
-                      <Radio value={OWN_RELAY} aria-label="自建中转" />
-                      <span className="text-sm text-foreground">自建中转</span>
+                      <Radio value={OWN_RELAY} aria-label={t('panel.onboarding.ownRelay')} />
+                      <span className="text-sm text-foreground">{t('panel.onboarding.ownRelay')}</span>
                     </span>
                     <a
                       className={buttonVariants({ variant: 'outline', size: 'sm' })}
@@ -789,7 +790,7 @@ export function Onboarding({ onDone }: Props) {
                       rel="noreferrer noopener"
                       onClick={(event) => event.stopPropagation()}
                     >
-                      GitHub 仓库
+                      {t('panel.onboarding.githubRepo')}
                     </a>
                   </label>
                 </RadioGroup>
@@ -801,7 +802,7 @@ export function Onboarding({ onDone }: Props) {
                 {selected === LAN_DIRECT ? (
                 <div className="mt-3 border-t border-border-muted pt-2.5">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                    <span className="text-xs text-foreground-muted">当前选择的局域网地址</span>
+                    <span className="text-xs text-foreground-muted">{t('panel.onboarding.currentLan')}</span>
                     <span className="min-w-0 text-right font-mono text-xs break-all text-foreground">
                       {currentLanAddress || '—'}
                     </span>
@@ -814,7 +815,7 @@ export function Onboarding({ onDone }: Props) {
                         {publicChoice.map((item) => (
                           <li key={item.address} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
                             <span className="min-w-0 font-mono text-xs break-all text-foreground-muted">{item.url}</span>
-                            <span className="shrink-0 text-xs text-foreground-muted">{item.interface ?? '公网'}</span>
+                            <span className="shrink-0 text-xs text-foreground-muted">{item.interface ?? t('panel.onboarding.public')}</span>
                           </li>
                         ))}
                       </ul>
@@ -832,9 +833,9 @@ export function Onboarding({ onDone }: Props) {
                           onClick={() => setIpv6Open((value) => !value)}
                         >
                           <span className="text-xs text-foreground-muted">
-                            另有 {ipv6Choice.length} 条 IPv6 地址，手机按实测择优
+                            {t('panel.onboarding.ipv6More', { count: ipv6Choice.length })}
                           </span>
-                          <span className="shrink-0 text-xs text-foreground-intense">{ipv6Open ? '收起' : '展开'}</span>
+                          <span className="shrink-0 text-xs text-foreground-intense">{ipv6Open ? t('panel.onboarding.collapse') : t('panel.onboarding.expand')}</span>
                         </button>
                         {ipv6Open ? (
                           <ul className="mt-1 flex flex-col gap-1">
@@ -864,18 +865,18 @@ export function Onboarding({ onDone }: Props) {
             {selected === PUBLIC_RELAY ? (
               <div className="rounded-md bg-background-muted px-3 py-2">
                 <div className="flex items-baseline justify-between gap-3">
-                  <p className="text-xs text-foreground-muted">公用中转地址（按实测耗时排）</p>
-                  {probes.some((row) => row.ms === null) ? <span className="text-xs text-foreground-muted">测速中…</span> : null}
+                  <p className="text-xs text-foreground-muted">{t('panel.onboarding.relayListTitle')}</p>
+                  {probes.some((row) => row.ms === null) ? <span className="text-xs text-foreground-muted">{t('panel.onboarding.probing')}</span> : null}
                 </div>
                 {/* 高度上限 168px（约四行半）：候选多的时候在框里滚，别把整张卡片顶长。 */}
                 <div className="mt-1.5 max-h-[168px] overflow-y-auto">
                   <RadioGroup className="gap-1" value={relayPick} onValueChange={(value) => setRelayPick(String(value))}>
                     <label className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
                       <span className="flex items-baseline gap-1.5">
-                        <Radio value="" aria-label="自动优选" />
-                        <span className="text-xs text-foreground">自动优选</span>
+                        <Radio value="" aria-label={t('panel.onboarding.autoBest')} />
+                        <span className="text-xs text-foreground">{t('panel.onboarding.autoBest')}</span>
                       </span>
-                      <span className="shrink-0 text-xs text-foreground-muted">取最快的那条</span>
+                      <span className="shrink-0 text-xs text-foreground-muted">{t('panel.onboarding.autoBestHint')}</span>
                     </label>
                     {probes.map((row) => (
                       <label key={row.url} className="flex cursor-pointer flex-wrap items-baseline justify-between gap-x-3">
@@ -884,7 +885,7 @@ export function Onboarding({ onDone }: Props) {
                           <span className="font-mono text-xs text-foreground">{row.url}</span>
                         </span>
                         <span className="shrink-0 text-xs text-foreground-muted">
-                          {row.ms === null ? '测速中…' : Number.isFinite(row.ms) ? `${row.ms} ms` : '测不通'}
+                          {row.ms === null ? t('panel.onboarding.probing') : Number.isFinite(row.ms) ? `${row.ms} ms` : t('panel.onboarding.probeUnreachable')}
                         </span>
                       </label>
                     ))}
@@ -896,21 +897,21 @@ export function Onboarding({ onDone }: Props) {
             {/* 自建中转：填自己的域名，右边一颗「检测」。 */}
             {selected === OWN_RELAY ? (
               <Field>
-                <FieldLabel htmlFor="ob-own-relay">中转地址</FieldLabel>
+                <FieldLabel htmlFor="ob-own-relay">{t('panel.onboarding.relayAddressHint')}</FieldLabel>
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <Input
                       inputProps={{ id: 'ob-own-relay', className: 'font-mono' }}
                       value={ownRelayUrl}
-                      placeholder="https://你的中转域名"
+                      placeholder={t('panel.onboarding.relayPlaceholder')}
                       onChange={(event) => onOwnRelayChange(event.target.value)}
                     />
                   </div>
                   <Button className="shrink-0" variant="outline" disabled={ownProbe === 'busy'} onClick={() => void probeOwnRelay()}>
-                    {ownProbe === 'busy' ? '检测中' : '检测'}
+                    {ownProbe === 'busy' ? t('panel.onboarding.probe.busy') : t('panel.onboarding.check')}
                   </Button>
                 </div>
-                {ownProbe === 'ok' ? <p className="text-xs text-success">这个地址连得通，二维码已按它生成（还没存进配置）。</p> : null}
+                {ownProbe === 'ok' ? <p className="text-xs text-success">{t('panel.onboarding.probe.okWithHint')}</p> : null}
                 {ownProbe === 'failed' ? (
                   <p className="text-xs text-error">
                     这个地址连不上，二维码不会生成。确认它是 http:// 或 https:// 开头、那台中转在运行、域名解析到它。
@@ -931,16 +932,28 @@ export function Onboarding({ onDone }: Props) {
               disabled={busy || fatal !== '' || blocked || ownRelayUrl.trim() === ''}
               onClick={() => void enterPlugin()}
             >
-              {busy ? '正在连接…' : blocked ? '先解决上面的问题' : needsOwnRelayAddress ? '先填中转地址' : '进入插件'}
+              {busy
+                ? t('panel.onboarding.connecting')
+                : blocked
+                  ? t('panel.onboarding.fixFirst')
+                  : needsOwnRelayAddress
+                    ? t('panel.onboarding.fillRelayFirst')
+                    : t('panel.onboarding.enterPlugin')}
             </Button>
           ) : readyNow && !blocked ? (
             <Button variant="primary" onClick={enterNow}>
-              进入插件
+              {t('panel.onboarding.enterPlugin')}
             </Button>
           ) : (
             // 有必须先解决的问题时不给点：隧道可能还连着上一次的配置，放着不管会让人带着一条死路往下走。
             <Button variant="primary" disabled={busy || fatal !== '' || blocked} onClick={() => void connect()}>
-              {busy ? '正在打开…' : blocked ? '先解决上面的问题' : !isRelayMode ? '打开直连' : '连接中转'}
+              {busy
+                ? t('panel.onboarding.opening')
+                : blocked
+                  ? t('panel.onboarding.fixFirst')
+                  : !isRelayMode
+                    ? t('panel.onboarding.openDirect')
+                    : t('panel.onboarding.connectRelay')}
             </Button>
           )}
         </div>
@@ -955,12 +968,12 @@ export function Onboarding({ onDone }: Props) {
       <Dialog open={firewallOpen} onOpenChange={setFirewallOpen}>
         <DialogContent className="w-[min(1200px,92vw)] max-w-none" backdropProps={{ className: 'z-[80]' }} viewportProps={{ className: 'z-[80]' }}>
           <DialogHeader>
-            <DialogTitle>检查防火墙</DialogTitle>
+            <DialogTitle>{t('panel.onboarding.firewallTitle')}</DialogTitle>
           </DialogHeader>
           <DialogBody className="flex flex-col gap-4">
             <p className="text-sm text-foreground-muted">
-              手机连不上这台电脑的直连端口时，多半是电脑这边把端口挡了。直连默认端口{' '}
-              <span className="font-mono">18787</span>（首页「局域网直连」里可以改），下面按系统查。
+              {t('panel.onboarding.firewallIntro')}{' '}
+              <span className="font-mono">18787</span>{t('panel.onboarding.firewallIntroTail')}
             </p>
             <div className="grid gap-4 md:grid-cols-3">
               <FirewallPane title="Linux" steps={FIREWALL_LINUX} port={lanPortText} onCopied={onCopied} />
@@ -970,26 +983,26 @@ export function Onboarding({ onDone }: Props) {
           </DialogBody>
           <DialogFooter className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-foreground-muted">
-              {copied === 'ok' ? '已复制，粘贴给你的 AI 就行。' : null}
-              {copied === 'failed' ? '复制失败，可以手动选中内容复制。' : null}
+              {copied === 'ok' ? t('panel.onboarding.copiedOk') : null}
+              {copied === 'failed' ? t('panel.onboarding.copiedFailed') : null}
             </span>
             <Button variant="primary" onClick={() => setFirewallOpen(false)}>
-              知道了
+              {t('panel.onboarding.gotIt')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={lanDialogOpen} onOpenChange={setLanDialogOpen}>
-        <DialogContent className="max-w-md" closeLabel="关闭">
+        <DialogContent className="max-w-md" closeLabel={t('panel.common.close')}>
           <DialogHeader>
-            <DialogTitle>选择局域网地址</DialogTitle>
+            <DialogTitle>{t('panel.onboarding.lanDialogTitle')}</DialogTitle>
           </DialogHeader>
           <DialogBody className="flex flex-col gap-2">
-            <p className="text-xs text-foreground-muted">手机先试选中的这条，其余继续排在后面兜底。</p>
+            <p className="text-xs text-foreground-muted">{t('panel.onboarding.lanDialogHint')}</p>
             {/* 一行一个按钮而不是 RadioGroup：点当前这一条也要能「确认并关窗」，
                 单选控件在值没变时不会回调，点了看着像没反应。 */}
-            <div role="radiogroup" aria-label="局域网地址" className="flex flex-col gap-1">
+            <div role="radiogroup" aria-label={t('panel.onboarding.lanGroupA11y')} className="flex flex-col gap-1">
               {choice.map((item) => {
                 const picked = item.address === (preferred || choice[0]?.address)
                 return (
@@ -1013,7 +1026,7 @@ export function Onboarding({ onDone }: Props) {
                     </span>
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="min-w-0 font-mono text-xs break-all text-foreground">{item.url}</span>
-                      <span className="text-xs text-foreground-muted">{item.interface ?? '局域网'}</span>
+                      <span className="text-xs text-foreground-muted">{item.interface ?? t('panel.onboarding.lan')}</span>
                     </span>
                   </button>
                 )
@@ -1028,30 +1041,30 @@ export function Onboarding({ onDone }: Props) {
 
 
 /** 三栏排查步骤。命令照抄就能用；`cmd` 为真时按等宽字体摆。 */
-const FIREWALL_LINUX: { text: string; cmd?: boolean }[] = [
-  { text: '1. 看防火墙状态（firewalld 或 ufw，装哪个查哪个）：' },
+const FIREWALL_LINUX: { text?: string; textKey?: string; cmd?: boolean }[] = [
+  { textKey: 'panel.onboarding.linuxStep1' },
   { text: 'systemctl status firewalld', cmd: true },
   { text: 'sudo ufw status', cmd: true },
-  { text: '2. 放行直连端口：' },
+  { textKey: 'panel.onboarding.linuxStep2' },
   { text: 'sudo firewall-cmd --permanent --add-port={port}/tcp\nsudo firewall-cmd --reload', cmd: true },
   { text: 'sudo ufw allow {port}/tcp', cmd: true },
-  { text: '3. 云服务器还要去服务商控制台的安全组里放行同一个端口 —— 这台机器上查不到。' },
+  { textKey: 'panel.onboarding.linuxStep3' },
 ]
 
-const FIREWALL_MAC: { text: string; cmd?: boolean }[] = [
-  { text: '1. 看应用防火墙是不是开着：' },
+const FIREWALL_MAC: { text?: string; textKey?: string; cmd?: boolean }[] = [
+  { textKey: 'panel.onboarding.macStep1' },
   { text: '/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate', cmd: true },
-  { text: '2. 开着的话，在「系统设置 → 网络 → 防火墙 → 选项」里把 DSH / node 设成「允许传入连接」；排查时可以整个关掉：' },
+  { textKey: 'panel.onboarding.macStep2' },
   { text: 'sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off', cmd: true },
-  { text: '3. 同一 Wi-Fi 还连不上：确认手机和电脑真在同一个网段，别连到访客网络。' },
+  { textKey: 'panel.onboarding.macStep3' },
 ]
 
-const FIREWALL_WINDOWS: { text: string; cmd?: boolean }[] = [
-  { text: '1. 在 PowerShell（管理员）里看防火墙配置文件：' },
+const FIREWALL_WINDOWS: { text?: string; textKey?: string; cmd?: boolean }[] = [
+  { textKey: 'panel.onboarding.winStep1' },
   { text: 'Get-NetFirewallProfile | Select-Object Name, Enabled', cmd: true },
-  { text: '2. 放行直连端口：' },
+  { textKey: 'panel.onboarding.winStep2' },
   { text: 'New-NetFirewallRule -DisplayName "DSH Mobile {port}" -Direction Inbound -LocalPort {port} -Protocol TCP -Action Allow', cmd: true },
-  { text: '3. 如果以前给 node 配过拒绝规则，记得把那条 Block 删掉；网络类型选「专用」而不是「公用」。' },
+  { textKey: 'panel.onboarding.winStep3' },
 ]
 
 /**
@@ -1062,20 +1075,21 @@ const FIREWALL_WINDOWS: { text: string; cmd?: boolean }[] = [
  * 自动换，写死在文案里比不写更容易误导；改成让 AI 去引导页看，并强调「是局域网地址」。
  */
 function aiCheckPrompt(): string {
+  // 每一门语言都是一段**能直接粘给 AI 的完整提示词**，不是逐字直译的碎句。
   return [
-    '帮我排查一个问题。',
+    t('panel.onboarding.prompt.intro'),
     '',
-    '我的情况：电脑上装了 DSH（DeepSeek Harness）的移动端插件，手机 App 通过局域网直连连不上这台电脑。',
-    '手机上填的地址是这台电脑的局域网地址加端口（具体的地址和端口你需要到移动端插件的那个网页里看，注意是局域网地址）。',
-    '电脑这边显示插件已经在监听，但手机连不上。我判断是电脑的防火墙（或者云服务器的安全组）把这个端口挡了。',
+    t('panel.onboarding.prompt.situation'),
+    t('panel.onboarding.prompt.address'),
+    t('panel.onboarding.prompt.guess'),
     '',
-    '请你：',
-    '1. 先确认我的系统是 Linux、macOS 还是 Windows（不确定就问我，或者告诉我怎么确认）。',
-    '2. 按属于我这一套的步骤逐条检查，告诉我那个端口现在通不通、卡在哪一步。',
-    '3. 给出具体该执行的命令或点击路径，把端口放行；需要管理员权限的地方明确说明。',
-    '4. 最后告诉我怎么验证已经通了（比如用哪条命令从本机、从手机分别确认）。',
+    t('panel.onboarding.prompt.ask'),
+    t('panel.onboarding.prompt.ask1'),
+    t('panel.onboarding.prompt.ask2'),
+    t('panel.onboarding.prompt.ask3'),
+    t('panel.onboarding.prompt.ask4'),
     '',
-    '补充：如果这台电脑是云服务器，服务商控制台里的安全组/防火墙也要放行同一个端口，这一项在本机查不到。',
+    t('panel.onboarding.prompt.extra'),
   ].join('\n')
 }
 
@@ -1092,7 +1106,7 @@ function FirewallPane({
   onCopied,
 }: {
   title: string
-  steps: { text: string; cmd?: boolean }[]
+  steps: { text?: string; textKey?: string; cmd?: boolean }[]
   port: string
   onCopied: (ok: boolean) => void
 }) {
@@ -1108,23 +1122,25 @@ function FirewallPane({
   return (
     <section className="flex flex-col gap-1.5 rounded-lg border border-border-muted bg-background-muted p-3">
       <h3 className="text-center text-sm font-semibold text-foreground-intense">{title}</h3>
-      {steps.map((step) =>
-        step.cmd ? (
+      {steps.map((step) => {
+        // 命令是原样的（不翻译），说明文字走字典键。
+        const body = (step.text ?? (step.textKey ? t(step.textKey) : '')).replace(/\{port\}/g, port)
+        return step.cmd ? (
           <pre
-            key={step.text}
+            key={body}
             className="overflow-x-auto rounded bg-background-subtle px-2 py-1.5 font-mono text-[11px] leading-5 whitespace-pre text-foreground-strong"
           >
-            {step.text.replace(/\{port\}/g, port)}
+            {body}
           </pre>
         ) : (
-          <p key={step.text} className="text-xs leading-5 text-foreground-muted">
-            {step.text.replace(/\{port\}/g, port)}
+          <p key={body} className="text-xs leading-5 text-foreground-muted">
+            {body}
           </p>
-        ),
-      )}
+        )
+      })}
       {/* 底部对齐：三栏步骤长短不一，按钮仍落在同一水平线上。 */}
       <Button className="mt-auto" variant="outline" size="sm" onClick={() => void copy()}>
-        点我复制内容，让自己的 AI 去检查
+        {t('panel.onboarding.copyPromptHint')}
       </Button>
     </section>
   )

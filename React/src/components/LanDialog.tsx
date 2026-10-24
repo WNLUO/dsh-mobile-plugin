@@ -6,6 +6,7 @@
  * 选择器，两处共用一份口径，免得各写一遍迟早飘开）。
  */
 import { Button } from '@appica/ui-react/button'
+import { t } from '../lib/i18n/index.ts'
 import {
   Dialog,
   DialogBody,
@@ -85,12 +86,12 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>局域网直连</DialogTitle>
+          <DialogTitle>{t('panel.connection.lan')}</DialogTitle>
         </DialogHeader>
 
         <DialogBody className="flex flex-col gap-4">
           <InfoList>
-            <InfoRow label="状态" tone={lanTone(status.lan.state, status.lan.enabled)}>
+            <InfoRow label={t('panel.lanDialog.state')} tone={lanTone(status.lan.state, status.lan.enabled)}>
               <ToneValue
                 tone={lanTone(status.lan.state, status.lan.enabled)}
                 text={lanText(status.lan.state, status.lan.enabled)}
@@ -103,7 +104,7 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
               由 AddressPicker 给（局域网 / 公网，与宿主 advertisedCandidates 同口径）。
               直连关着时不摆：那时的地址是残留，选它没有意义。
             */}
-            <InfoRow label="手机该填的地址">
+            <InfoRow label={t('panel.pairing.phoneAddress')}>
               {status.lan.enabled ? (
                 <AddressPicker
                   book={addressBook}
@@ -114,14 +115,14 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
                   fallbackUrls={lanUrls}
                 />
               ) : (
-                <span className="font-sans text-foreground-muted">局域网直连已关闭</span>
+                <span className="font-sans text-foreground-muted">{t('panel.onboarding.lanOff')}</span>
               )}
             </InfoRow>
-            <InfoRow label="当前端口" mono>
+            <InfoRow label={t('panel.lanDialog.port')} mono>
               <span className="inline-flex flex-wrap items-center justify-end gap-2">
                 <span>{status.lan.enabled ? status.lan.port : '—'}</span>
                 {status.lan.enabled && status.lan.adjusted ? (
-                  <span className="font-sans text-xs text-foreground-muted">（首选端口被占用，已自动改用）</span>
+                  <span className="font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
                 ) : null}
                 {editing ? null : (
                   <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
@@ -134,11 +135,11 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
 
           {editing ? (
             <Field>
-              <FieldLabel htmlFor="relay-lan-port">局域网端口</FieldLabel>
+              <FieldLabel htmlFor="relay-lan-port">{t('panel.connection.lanPort')}</FieldLabel>
               <Input
                 inputProps={{ id: 'relay-lan-port', inputMode: 'numeric' }}
                 value={portText}
-                placeholder="留空表示不改动"
+                placeholder={t('panel.lanDialog.unchanged')}
                 onChange={(event) => setPortText(event.target.value)}
               />
             </Field>

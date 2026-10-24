@@ -102,7 +102,16 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 494 → 499（2026-10-24，同上一条的收尾）：config store 多了一个 `notify()` 与
   // `update(patch, { notify: false })` —— 手机改中转地址时必须「先回包、再让订阅者重配隧道」，
   // 否则响应会死在隧道搬迁里。这仍是 store 自己的接口，不是把实现搬回装配层。
-  assert.ok(lines <= 499, `lib/impl.js 回到 ${lines} 行了；超过 499 说明实现又被搬回装配层`);
+  // 499 → 502（2026-10-24，吊销断流）：装配层只多出**一处声明**——把 `dropDeviceStreams`
+  // 转交给控制面（吊销那台设备时收掉它已经开着的流）。登记表与断开本体住在
+  // `lib/mobile/stream-registry.js`，两条流（会话流、设备级事件流）自己在开流时登记。
+  // 503 → 512（2026-10-24，扩展卡）：装配层只多出**一处装载**——`installExtensions` 的一个
+  // effect（与上面 session cleanup 同款 try/catch，缺 tools 注入时静默）外加一行 require。
+  // 卡状态账本、宿主动作登记表与三条路由的 handler 全在 `lib/mobile/extensions.js`。
+  // 512 → 517（2026-10-24，配对票据下发给旁路）：只多出 buildConfig 里的**一个字段**
+  // （`pairingTicket`），其余是四行注释说清漏了它的现场 —— 旁路解不开加密配对，而主进程
+  // 那条 `/pair` 一切正常。派生密钥与解封的本体住在 `lib/shared/e2ee-pair.js`。
+  assert.ok(lines <= 517, `lib/impl.js 回到 ${lines} 行了；超过 517 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

@@ -7,6 +7,8 @@
  * 同源，路径一个字都不用改。
  */
 
+import { t } from './i18n/index.ts'
+
 export type PairingPolicy = 'code' | 'deny'
 
 export type TunnelSnapshot = {
@@ -122,6 +124,52 @@ export type RevokeResult = {
 }
 
 /**
+ * `/api/relay/devices` 里的一台设备：同一台手机重配几次，宿主按 `deviceId` 聚成一行
+ * （见 `dsh-mobile-credentials/lib/credentials.js` 的 `listDevices`）。
+ *
+ * 这里**没有** `hash` / `hostToken` / `deviceKey`：那些是凭据与密钥材料，宿主刻意不往面板回。
+ */
+export type RelayDevice = {
+  deviceId: string
+  /** 旧记录没存名字时是空串 —— 界面显示「未知设备」。 */
+  name: string
+  /** `ios` / `android` / `linux` / `darwin` / `win32` 这类，宿主报什么就是什么。 */
+  platform: string
+  osVersion: string
+  appVersion: string
+  /** 毫秒时间戳；取这台设备名下最早那条记录。 */
+  boundAt: number
+  /** 毫秒时间戳；0 = 从没连过。 */
+  lastSeenAt: number
+  /** `relay` / `lan` / 空串（最近那条记录没记通道）。 */
+  lastChannel: string
+  /**
+   * 这台设备名下还有**不带设备密钥**的活记录。
+   *
+   * 那种凭据没有设备身份，单台吊销杀不掉它（旧的通行证在到期前仍可用），所以这一位
+   * 决定解除绑定的确认文案能不能写「立即失效」。
+   */
+  legacy: boolean
+  /** 这条会话走加密（带设备密钥的记录才走逐请求签名）。 */
+  encrypted: boolean
+  expiresAt: number
+}
+
+/** `GET /api/relay/devices` 的回答。`serverNow` 是算「几分钟前」的同一台机器基准。 */
+export type DeviceList = {
+  ok: true
+  serverNow: number
+  devices: RelayDevice[]
+}
+
+/** `POST /api/relay/devices/revoke` 的回答：吊销了几条凭据、断开了几条已建立的流。 */
+export type DeviceRevokeResult = {
+  ok: boolean
+  revoked: number
+  closed: number
+}
+
+/**
  * `/api/relay/check-port` 的回答：本机现在能不能监听这个端口。
  *
  * 宿主侧是真去 bind 一次（和局域网代理挑端口用同一把探针），所以 `available: true`
@@ -190,10 +238,10 @@ async function toApiError(response: Response): Promise<ApiError> {
     const detail = raw as { code?: unknown; message?: unknown }
     const code = typeof detail.code === 'string' && detail.code ? detail.code : `http_${response.status}`
     const message =
-      typeof detail.message === 'string' && detail.message ? detail.message : `请求失败（HTTP ${response.status}）`
+      typeof detail.message === 'string' && detail.message ? detail.message : t('panel.net.requestFailed', { status: response.status })
     return new ApiError(message, code, response.status)
   }
-  return new ApiError(`请求失败（HTTP ${response.status}）`, `http_${response.status}`, response.status)
+  return new ApiError(t('panel.net.requestFailed', { status: response.status }), `http_${response.status}`, response.status)
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
@@ -215,6 +263,6 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 /** 界面上的错误一律走这里：网络层自己抛的 TypeError 也得变成一句人话。 */
 export function errorText(error: unknown): string {
   if (error instanceof ApiError) return error.message
-  if (error instanceof Error) return error.message || '请求失败'
+  if (error instanceof Error) return error.message || t('panel.net.requestFailedNoStatus')
   return String(error)
 }

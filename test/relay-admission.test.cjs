@@ -104,8 +104,9 @@ test('命中准入时给出可执行提示：宿主产出线索，网页版把�
     'utf8',
   )
   assert.ok(card.includes('status.tunnel.admissionHint'), '连接状态卡必须读 admissionHint')
-  for (const title of ['中转要求注册密钥', '这台设备不被中转接受']) {
-    assert.ok(card.includes(title), `网页版缺这条提示：${title}`)
+  // 文案进字典之后断键（五门语言各一份，原话在 React/src/lib/i18n/messages/panel.ts）。
+  for (const key of ['panel.connection.relayNeedsSecret', 'panel.connection.relayRejected']) {
+    assert.ok(card.includes(key), `网页版缺这条提示：${key}`)
   }
 })
 

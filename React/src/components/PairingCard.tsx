@@ -4,6 +4,7 @@
  * 地址那串是宿主给的候选顺序（用户选过的排最前），手机也是按这个顺序挨个试的。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
+import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { CopyButton } from '@appica/ui-react/copy-button'
@@ -70,7 +71,7 @@ export function PairingCard({
   onSavePreferred,
 }: Props) {
   const idle = busy !== ''
-  const policyText = status.pairingPolicy === 'deny' ? '一律拒绝新设备' : '凭配对码允许'
+  const policyText = status.pairingPolicy === 'deny' ? t('panel.pairing.policyDeny') : t('panel.pairing.policyCode')
   /** 「中转地址」那行的明文：默认遮上。 */
   const relayUrl = pairing?.relayUrl || status.relayUrl || '—'
   /**
@@ -86,12 +87,12 @@ export function PairingCard({
   return (
     <Card frame="solid">
       <CardHeader>
-        <CardTitle>配对与二维码</CardTitle>
+        <CardTitle>{t('panel.pairing.cardTitle')}</CardTitle>
       </CardHeader>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-background-muted px-3 py-2">
         <div className="flex items-baseline gap-2">
-          <span className="text-sm text-foreground-muted">配对码</span>
+          <span className="text-sm text-foreground-muted">{t('panel.pairing.code')}</span>
           <span className="font-mono text-xl tracking-[0.2em] text-foreground-intense">
             {pairing?.pairingCode || status.pairingCode || '—'}
           </span>
@@ -100,15 +101,15 @@ export function PairingCard({
           value={pairing?.pairingCode || status.pairingCode || ''}
           variant="secondary"
           size="sm"
-          label="复制配对码"
-          copiedLabel="已复制"
+          label={t('panel.pairing.copyCode')}
+          copiedLabel={t('panel.pairing.copied')}
         />
       </div>
 
       {error ? (
         <Alert variant="warning" className="mt-3">
           <AlertIcon />
-          <AlertTitle>拿不到二维码</AlertTitle>
+          <AlertTitle>{t('panel.pairing.qrFailed')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
@@ -125,8 +126,8 @@ export function PairingCard({
             */}
             {!shown.qr && pairing?.svg ? (
               <div className="flex size-[224px] flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
-                <span className="text-xs">二维码已隐藏</span>
-                <RevealButton what="二维码" label="显示" onClick={() => toggle('qr')} />
+                <span className="text-xs">{t('panel.pairing.qrHidden')}</span>
+                <RevealButton what={t('panel.pairing.qr')} label={t('panel.common.show')} onClick={() => toggle('qr')} />
               </div>
             ) : (
               <div className="flex items-start justify-center overflow-hidden rounded-md border border-border-muted bg-white p-3">
@@ -139,7 +140,7 @@ export function PairingCard({
                   />
                 ) : (
                   <div className="flex size-[200px] items-center justify-center text-foreground-subtle">
-                    {busy === 'pairing' ? <Spinner /> : '还没取到二维码'}
+                    {busy === 'pairing' ? <Spinner /> : t('panel.pairing.noQr')}
                   </div>
                 )}
               </div>
@@ -148,8 +149,8 @@ export function PairingCard({
             {!shown.qr && pairing?.svg ? null : (
               <RevealButton
                 on
-                what="二维码"
-                label="隐藏二维码"
+                what={t('panel.pairing.qr')}
+                label={t('panel.pairing.hidden')}
                 className="absolute end-2 top-2"
                 disabled={!pairing?.svg}
                 onClick={() => toggle('qr')}
@@ -164,26 +165,26 @@ export function PairingCard({
 
         <div className="flex min-w-0 flex-1 flex-col">
           <InfoList>
-            <InfoRow label="配对策略">{policyText}</InfoRow>
-            <InfoRow label="中转地址">
+            <InfoRow label={t('panel.pairing.policy')}>{policyText}</InfoRow>
+            <InfoRow label={t('panel.connection.relayUrl')}>
               <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 {shown.relay ? (
                   <span className="min-w-0 font-mono text-xs text-foreground-strong">{relayUrl}</span>
                 ) : (
-                  <span className="text-xs text-foreground-subtle">已隐藏</span>
+                  <span className="text-xs text-foreground-subtle">{t('panel.pairing.hidden')}</span>
                 )}
                 <RevealButton
                   on={shown.relay}
-                  what="中转地址"
-                  label={shown.relay ? '隐藏' : '显示'}
+                  what={t('panel.connection.relayUrl')}
+                  label={shown.relay ? t('panel.common.hide') : t('panel.common.show')}
                   onClick={() => toggle('relay')}
                 />
               </span>
             </InfoRow>
-            <InfoRow label="局域网端口" mono>
+            <InfoRow label={t('panel.pairing.port')} mono>
               {pairing?.lanPort ?? status.lan.port}
               {pairing?.lanPortAdjusted ? (
-                <span className="ml-2 font-sans text-xs text-foreground-muted">（首选端口被占用，已自动改用）</span>
+                <span className="ml-2 font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
               ) : null}
             </InfoRow>
             {/*
@@ -191,7 +192,7 @@ export function PairingCard({
               哪条」：手机是按候选顺序挨个试的，所以这个选择在宿主那边就表现为「把选中的排最前」。
               从前这里一律写「局域网地址」——服务器上只有公网地址，那句话正是用户 2026-10-11 报的错。
             */}
-            <InfoRow label="手机该填的地址">
+            <InfoRow label={t('panel.pairing.phoneAddress')}>
               {shown.phone ? (
                 // 整块揭开的是一行**和别的行同一形状**的值，不是只有几颗字符：
                 // 「手机该填的地址」这句话本身就该读到，遮的是后面那个 IP。
@@ -204,12 +205,12 @@ export function PairingCard({
                     onChange={onSavePreferred}
                     fallbackUrls={pairing?.lanUrls ?? []}
                   />
-                  <RevealButton on what="手机该填的地址" label="隐藏" onClick={() => toggle('phone')} />
+                  <RevealButton on what={t('panel.pairing.phoneAddress')} label={t('panel.common.hide')} onClick={() => toggle('phone')} />
                 </span>
               ) : (
                 <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-                  <span className="text-xs text-foreground-subtle">{phoneAddress ? '已隐藏' : '还没取到地址'}</span>
-                  <RevealButton on={false} what="手机该填的地址" label="显示" onClick={() => toggle('phone')} />
+                  <span className="text-xs text-foreground-subtle">{phoneAddress ? t('panel.pairing.hidden') : t('panel.pairing.noAddress')}</span>
+                  <RevealButton on={false} what={t('panel.pairing.phoneAddress')} label={t('panel.common.show')} onClick={() => toggle('phone')} />
                 </span>
               )}
             </InfoRow>
@@ -227,7 +228,7 @@ export function PairingCard({
       {restartError ? (
         <Alert variant="error" className="mt-3">
           <AlertIcon />
-          <AlertTitle>上次重启 sidecar 失败</AlertTitle>
+          <AlertTitle>{t('panel.pairing.sidecarRestartFailed')}</AlertTitle>
           <AlertDescription>{restartError}</AlertDescription>
         </Alert>
       ) : null}

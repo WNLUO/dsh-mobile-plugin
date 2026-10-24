@@ -169,6 +169,14 @@ function prune(now = Date.now()) {
  */
 function issue(instanceId, device, hostToken, ttlMs = DEFAULT_TTL_MS, extra = {}) {
   load();
+  // 只读副本不许签发：它写在内存里的那条既不会落盘、也会被下一次重载抹掉，于是
+  // 「配上了但立刻查不到」这种半截状态只会在真机联调时以随机 401 的形式出现。
+  // 旁路子进程要签发走 IPC 交给主进程（`lib/impl.js` 的 `/internal/issue-credential`）。
+  if (readOnly) {
+    const error = new Error('凭据库的只读副本不能签发；旁路子进程请经 IPC 交给主进程');
+    error.code = 'READ_ONLY';
+    throw error;
+  }
   const deviceId = String(device?.deviceId || device?.id || crypto.randomUUID()).slice(0, 128);
   const random = crypto.randomBytes(32).toString('base64url');
   const now = Date.now();
@@ -192,6 +200,8 @@ function issue(instanceId, device, hostToken, ttlMs = DEFAULT_TTL_MS, extra = {}
   records.push(record);
   rebuildIndex();
   save();
+  // 刚写过盘，所以接下来一分钟内的 `touch` 不必再写一次（节流基准跟着这次写走）。
+  lastTouchFlushAt = now;
   return { credential, deviceId, expiresAt, ...(keyId ? { keyId } : {}) };
 }
 
@@ -203,7 +213,11 @@ function issue(instanceId, device, hostToken, ttlMs = DEFAULT_TTL_MS, extra = {}
  * **确实签发过**的凭据必须以记录为准，否则吊销永远不生效。
  */
 function lookup(credential, instanceId) {
-  load();
+  // **必须 refresh，不能只 load**：旁路子进程持的是只读副本，`load()` 一生只读一次盘，
+  // 于是「子进程起来之后才配对的设备」在这条路上永远查不到 —— 表现是局域网口一律 401
+  // （普通请求与 Metro 的预览通道都过不去），App 只能退回公网中转。文件指纹变了才重读，
+  // 稳态下只多一次 stat。
+  refresh();
   if (typeof credential !== 'string' || !credential) return null;
   const record = byHash.get(digest(credential));
   if (!record) return null;
@@ -229,7 +243,7 @@ function isLive(record, now = Date.now()) {
  * 「两台手机能用同一把密钥验签」。keyId 是配对时宿主生成的 8 字节随机，不会撞。
  */
 function findByKeyId(instanceId, keyId) {
-  load();
+  refresh();
   if (typeof keyId !== 'string' || !keyId) return null;
   const now = Date.now();
   for (let i = records.length - 1; i >= 0; i -= 1) {
@@ -283,10 +297,16 @@ function renew(record, ttlMs = DEFAULT_TTL_MS) {
 
 function revoke(credential, instanceId) {
   load();
+  // 只读副本吊销了也不落盘，下一次重载就「复活」—— 这种「看起来成功、其实没生效」
+  // 正是吊销最不能有的失败形态。旁路的吊销同样走 IPC 交给主进程。
+  if (readOnly) {
+    const error = new Error('凭据库的只读副本不能吊销；旁路子进程请经 IPC 交给主进程');
+    error.code = 'READ_ONLY';
+    throw error;
+  }
   const record = lookup(credential, instanceId);
   if (!record || record.revokedAt) return false;
   record.revokedAt = Date.now();
-  if (readOnly) return true;
   prune();
   save();
   return true;

@@ -26,6 +26,7 @@ import { useRef, useState } from 'react'
 
 import appLogo from '../assets/ai-hub-logo.png'
 import { DOWNLOAD_CHANNELS, type DownloadChannel } from '../lib/links.ts'
+import { t } from '../lib/i18n/index.ts'
 
 type Props = {
   /** 对齐旁边那排按钮的尺寸；引导页底部那一排是默认的 md。 */
@@ -33,15 +34,15 @@ type Props = {
 }
 
 /** 图标按着渠道的 `name` 取：渠道表里只放链接与文案，图形留在这里。 */
-function channelGlyph(name: string) {
-  if (name === 'GitHub') return <GithubMark />
-  if (name === 'App Store') return <AppleMark />
-  if (name === 'TestFlight') return <TestFlightMark />
+function channelGlyph(channel: DownloadChannel) {
+  if (channel.name === 'GitHub') return <GithubMark />
+  if (channel.name === 'App Store') return <AppleMark />
+  if (channel.name === 'TestFlight') return <TestFlightMark />
   return <DownloadMark />
 }
 
 function platformGlyph(platform: string) {
-  return platform === '安卓' ? <AndroidMark /> : <AppleMark />
+  return platform === 'android' ? <AndroidMark /> : <AppleMark />
 }
 
 /** 渠道卡：图标在左，名字与那句说明在右；整张卡是一个外链，点哪都能开。 */
@@ -54,11 +55,11 @@ function ChannelCard({ channel }: { channel: DownloadChannel }) {
       rel="noreferrer noopener"
     >
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background-muted text-foreground">
-        {channelGlyph(channel.name)}
+        {channelGlyph(channel)}
       </span>
       <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-sm text-foreground-intense">{channel.name}</span>
-        <span className="text-xs text-foreground-muted">{channel.hint}</span>
+        <span className="text-sm text-foreground-intense">{channel.name ?? (channel.nameKey ? t(channel.nameKey) : '')}</span>
+        <span className="text-xs text-foreground-muted">{t(channel.hintKey)}</span>
       </span>
     </a>
   )
@@ -76,7 +77,7 @@ export function DownloadAppButton({ size = 'md' }: Props) {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl" closeLabel="关闭" initialFocus={dialogRef}>
+        <DialogContent className="max-w-xl" closeLabel={t('panel.common.close')} initialFocus={dialogRef}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2.5">
               <img src={appLogo} alt="" className="size-8 rounded-lg bg-white p-0.5" />
@@ -91,7 +92,7 @@ export function DownloadAppButton({ size = 'md' }: Props) {
               <div key={group.platform} className="flex flex-col gap-2">
                 <div className="flex items-center justify-center gap-1.5 pb-0.5 text-xs text-foreground-muted">
                   {platformGlyph(group.platform)}
-                  <span>{group.platform}</span>
+                  <span>{t(group.platform === 'android' ? 'panel.links.android' : 'panel.links.apple')}</span>
                 </div>
                 {group.channels.map((channel) => (
                   <ChannelCard key={channel.url} channel={channel} />

@@ -450,6 +450,59 @@ function syncPartial(files) {
   return { changed, shellTouched, dryRun: false }
 }
 
+/**
+ * 面板产物是**提交物**：`React/` 源码比 `lib/panel/index.html` 新，就说明产物不是这份源码的。
+ *
+ * 以前这一步靠调用方记得「改 React 后先跑 build」——忘了的症状是界面一个像素都没变，
+ * 而脚本照样报成功。现在把它放进这条路里：陈旧就重建，重建失败就什么都不装。
+ */
+const PANEL_ARTIFACT = path.join(PLUGIN_ROOT, 'lib', 'panel', 'index.html')
+const PANEL_SOURCES = [
+  'React/src',
+  'React/index.html',
+  'React/package.json',
+  'React/vite.config.ts',
+  'React/vite.demo.config.ts',
+  'React/tsconfig.json',
+  'React/tsconfig.app.json',
+  'React/scripts/inline.mjs',
+]
+
+/** 一个路径（文件或目录）下所有文件的最新修改时间。 */
+function newestMtime(rel) {
+  let stat
+  try { stat = fs.statSync(path.join(PLUGIN_ROOT, rel)) } catch { return 0 }
+  if (!stat.isDirectory()) return stat.mtimeMs
+  let newest = 0
+  for (const entry of fs.readdirSync(path.join(PLUGIN_ROOT, rel), { withFileTypes: true })) {
+    newest = Math.max(newest, newestMtime(path.join(rel, entry.name)))
+  }
+  return newest
+}
+
+/** 面板产物是否比前端源码旧（产物不存在也算旧）。 */
+function panelIsStale() {
+  let artifact
+  try { artifact = fs.statSync(PANEL_ARTIFACT).mtimeMs } catch { return true }
+  return PANEL_SOURCES.reduce((newest, rel) => Math.max(newest, newestMtime(rel)), 0) > artifact
+}
+
+/** 用运行时那个 pnpm 重建面板。构建不过就停下，别把旧产物当成新页面装进去。 */
+function buildPanel() {
+  const pnpm = runtimePnpm()
+  if (!fs.existsSync(pnpm)) fail(`找不到运行时自带的 pnpm：${pnpm}，没法重建面板。`)
+  if (!fs.existsSync(path.join(PLUGIN_ROOT, 'React', 'node_modules'))) {
+    fail('React/ 还没装依赖，重建不了面板：先在 dsh-mobile-plugin/React 里跑 pnpm install --frozen-lockfile。')
+  }
+  say('面板产物比 React 源码旧，先重建面板…')
+  try {
+    execFileSync(process.execPath, [pnpm, 'run', 'build'], { cwd: path.join(PLUGIN_ROOT, 'React'), stdio: 'inherit' })
+  } catch (error) {
+    fail(`面板构建失败，什么都没装、也没有重载：${String(error?.message || error).trim()}`)
+  }
+  if (!fs.existsSync(PANEL_ARTIFACT)) fail('构建跑完却没有面板产物：这份构建没成，别往下走。')
+}
+
 async function main() {
   if (!installedDir()) {
     fail(`profile 里没装 ${PLUGIN_PKG}：${installedLink()} 不存在。先装一次（npm/市场），这条路之后才有意义。`)
@@ -463,6 +516,13 @@ async function main() {
     diskVersion: packageVersion(installedDir()),
     installVersion: installSpecVersion(),
   })) say(line)
+
+  // 前端改了而产物没重建，是「热重载成功、界面没变」最常见的来源。默认路自己管这一步，
+  // 不再靠调用方记得。`--only` 不动面板，所以也不重建。
+  if (!PARTIAL && panelIsStale()) {
+    if (DRY_RUN) say('（演练）面板产物比 React 源码旧：真跑会先重建面板再打包。')
+    else buildPanel()
+  }
 
   const run = PARTIAL ? syncPartial(onlyFiles()) : installPackedPackage()
 

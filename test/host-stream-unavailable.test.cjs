@@ -84,3 +84,34 @@ test('宿主提供了可用的 stream 网关：不降级，照常订阅宿主流
   ]);
   assert.ok(seen.length > 0, '网关可用时不该走空闲降级，一条流都没订上');
 });
+
+test('宿主的流正常结束之后，设备流仍然挂着（插件自己的信号与心跳还要走它）', async () => {
+  // 2026-10-24 现场：workspace/follow 与 session/control 都结束后，设备级 SSE 也跟着收尾，
+  // 手机端五秒一轮重连，信号永远不「活着」，列表只能每 15 秒轮询一次。
+  const warns = [];
+  const ctx = {
+    get: () => ({
+      stream: () => (async function* () {
+        yield { type: 'baseline', value: { revision: 'r1', items: [] } };
+      })(),
+    }),
+    logger: { warn: (message) => warns.push(String(message)), error() {} },
+  };
+  const controller = new AbortController();
+  const iterator = muxFrames(ctx, {}, controller.signal)[Symbol.asyncIterator]();
+  // 宿主给的第一帧要能出来。
+  const first = await Promise.race([
+    iterator.next(),
+    new Promise((resolve) => setTimeout(() => resolve({ timeout: true }), 300)),
+  ]);
+  assert.notEqual(first.timeout, true, '宿主首帧必须透传');
+  // 之后宿主两条流都结束，迭代器必须继续挂住而不是 done。
+  const idle = await Promise.race([
+    iterator.next().then((step) => ({ step })),
+    new Promise((resolve) => setTimeout(() => resolve({ idle: true }), 250)),
+  ]);
+  assert.equal(idle.idle, true, '宿主流结束后设备流必须保持打开');
+  controller.abort();
+  const done = await iterator.next();
+  assert.equal(done.done, true, '客户端断开才收尾');
+});

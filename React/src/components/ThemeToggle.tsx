@@ -16,6 +16,7 @@
  */
 
 import { Button } from '@appica/ui-react/button'
+import { t } from '../lib/i18n/index.ts'
 import { useTheme } from '@appica/ui-react/hooks/use-theme'
 
 function SunIcon() {
@@ -54,7 +55,7 @@ function MoonIcon() {
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
   const dark = resolvedTheme === 'dark'
-  const label = dark ? '切换到日间模式' : '切换到夜间模式'
+  const label = dark ? t('panel.theme.toDay') : t('panel.theme.toNight')
 
   return (
     <div className="pointer-events-none fixed end-6 top-6 z-40">

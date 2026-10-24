@@ -7,14 +7,17 @@
  * （见 `dsh-mobile-plugin/lib/client-half.cjs` 的文件头）。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
+import { t } from './lib/i18n/index.ts'
 import { Badge } from '@appica/ui-react/badge'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
+import { DevicesCard } from './components/DevicesCard.tsx'
 import { JoinGroupButton } from './components/JoinGroupButton.tsx'
 import { LanDialog } from './components/LanDialog.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
+import { PairingPolicyCard } from './components/PairingPolicyCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
@@ -25,6 +28,7 @@ import {
   type AddressBook,
   type ConfigPatch,
   type PairingInfo,
+  type PairingPolicy,
   type RevokeResult,
   type StatusView,
 } from './lib/api.ts'
@@ -142,37 +146,37 @@ export function App() {
         setPairing(null)
         setPairingError('')
       }
-      notify('soft', enabled ? '已启用远程控制。' : '已停用远程控制，手机将断开。')
+      notify('soft', enabled ? t('panel.shell.remoteEnabled') : t('panel.shell.remoteDisabled'))
     })
 
   const regenerate = () =>
     act('pairing', async () => {
       setStatus(await apiPost<StatusView>('/api/relay/regenerate'))
       await loadPairing()
-      notify('soft', '配对码已重新生成，之前截图的二维码作废。')
+      notify('soft', t('panel.shell.pairingRegenerated'))
     })
 
   const reconnect = () =>
     act('reconnect', async () => {
       setStatus(await apiPost<StatusView>('/api/relay/reconnect'))
-      notify('soft', '已发起重连。')
+      notify('soft', t('panel.shell.reconnecting'))
     })
 
   const restartSidecar = () =>
     act('restart', async () => {
       const payload = await apiPost<{ status: StatusView }>('/api/relay/restart-sidecar')
       setStatus(payload.status)
-      notify('soft', '旁挂进程已重启。')
+      notify('soft', t('panel.shell.sidecarRestarted'))
     })
 
   const revokeAll = () => {
-    if (!window.confirm('吊销全部设备授权？所有手机都要重新配对，这一步不能撤销。')) return
+    if (!window.confirm(t('panel.shell.revokeConfirm'))) return
     void act('revoke', async () => {
       const payload = await apiPost<RevokeResult>('/api/relay/revoke-all')
       await loadStatus()
       await loadPairing()
       notify('soft', 
-        `已吊销 ${payload.revoked} 个授权${payload.revokedRelay ? `（中转侧 ${payload.revokedRelay} 个）` : ''}。`,
+        `${t('panel.shell.revoked', { count: payload.revoked })}${payload.revokedRelay ? t('panel.shell.revokedRelay', { count: payload.revokedRelay }) : ''}`,
       )
     })
   }
@@ -182,7 +186,20 @@ export function App() {
       setStatus(await apiPost<StatusView>('/api/relay/config', patch))
       setConfigOpen(false)
       await loadPairing()
-      notify('soft', '配置已保存。')
+      notify('soft', t('panel.shell.configSaved'))
+    })
+
+  /**
+   * 面板上那个「允许新设备绑定」开关。
+   *
+   * 它写的是**同一份配置**（`pairingPolicy`），所以回来的 `status` 直接顶掉旧的 ——
+   * 弹窗里那对单选项、配对卡上「配对策略」那行读的都是这一个字段，三处不会各说各的。
+   * 不写乐观值：宿主真要拒绝时（老宿主不认这个字段），开关就该原地弹回去，而不是装作关上了。
+   */
+  const savePolicy = (pairingPolicy: PairingPolicy) =>
+    act('policy', async () => {
+      setStatus(await apiPost<StatusView>('/api/relay/config', { pairingPolicy }))
+      notify('soft', t(pairingPolicy === 'code' ? 'panel.shell.deviceAllowed' : 'panel.shell.deviceDenied'))
     })
 
   // 局域网端口走同一个 /api/relay/config，只是从它自己的弹窗提交：改完端口地址可能就变了，
@@ -192,7 +209,7 @@ export function App() {
       setStatus(await apiPost<StatusView>('/api/relay/config', patch))
       setLanOpen(false)
       await loadPairing()
-      notify('soft', '局域网配置已保存。')
+      notify('soft', t('panel.shell.lanSaved'))
     })
 
   // 「手机优先用这条」是即时生效的：点了就存，**不关窗**（那是看地址的窗，关掉反而碍事）。
@@ -202,7 +219,7 @@ export function App() {
     act('lan', async () => {
       setStatus(await apiPost<StatusView>('/api/relay/config', { preferredLanAddress: address }))
       await Promise.all([loadPairing(), loadAddresses()])
-      notify('soft', address ? `手机优先使用 ${address}。` : '已改回按网卡顺序自动选。')
+      notify('soft', address ? t('panel.shell.preferredAddress', { address }) : t('panel.shell.preferredAuto'))
     })
 
   if (!status) {
@@ -211,13 +228,13 @@ export function App() {
         {fatal ? (
           <Alert variant="error">
             <AlertIcon />
-            <AlertTitle>读不到插件状态</AlertTitle>
+            <AlertTitle>{t('panel.shell.statusFailed')}</AlertTitle>
             <AlertDescription>{fatal}</AlertDescription>
           </Alert>
         ) : (
           <div className="flex items-center gap-2 text-sm text-foreground-muted">
             <Spinner />
-            正在读取状态…
+            {t('panel.shell.readingStatus')}
           </div>
         )}
       </main>
@@ -227,14 +244,14 @@ export function App() {
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
       <header className="flex flex-wrap items-center gap-2">
-        <h1 className="text-lg font-semibold text-foreground-intense">移动端</h1>
+        <h1 className="text-lg font-semibold text-foreground-intense">{t('panel.shell.title')}</h1>
         <Badge variant="soft" size="sm">
-          {status.appVersion || '未知版本'}
+          {status.appVersion || t('panel.shell.unknownVersion')}
         </Badge>
         {busy ? (
           <span className="inline-flex items-center gap-1.5 text-xs text-foreground-muted">
             <Spinner />
-            处理中…
+            {t('panel.shell.busy')}
           </span>
         ) : null}
       </header>
@@ -242,7 +259,7 @@ export function App() {
       {fatal ? (
         <Alert variant="error">
           <AlertIcon />
-          <AlertTitle>读不到插件状态</AlertTitle>
+          <AlertTitle>{t('panel.shell.statusFailed')}</AlertTitle>
           <AlertDescription>{fatal}</AlertDescription>
         </Alert>
       ) : null}
@@ -251,6 +268,10 @@ export function App() {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-4">
+          {/* 准入总闸摆在最上面：它决定「这台电脑还收不收新手机」，比配对码本身更该一眼看到
+              （原来埋在「中转配置」弹窗里，见 components/PairingPolicyCard.tsx 的文件头）。 */}
+          <PairingPolicyCard status={status} busy={busy} onChange={(policy) => void savePolicy(policy)} />
+
           <PairingCard
             status={status}
             pairing={pairing}
@@ -264,6 +285,10 @@ export function App() {
             onRevokeAll={revokeAll}
             onSavePreferred={(address) => void savePreferredLanAddress(address)}
           />
+
+          {/* 「谁被这台机器放进来过」：设备清单自己轮询（`/api/relay/devices`），
+              一台设备都没有时整卡不出现。 */}
+          <DevicesCard />
 
           <UpdateCard
             version={status.appVersion || ''}

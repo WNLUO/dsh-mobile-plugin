@@ -66,10 +66,12 @@ test('IPv6 那份只摆出来、不进「手机优先用这条」那个选择', 
 test('调试 OTA 只在本机接口可用时显示，并提供检查与安装入口', () => {
   const card = read('UpdateCard.tsx');
   const client = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'lib', 'relayUpdate.ts'), 'utf8');
-  assert.match(card, /本机调试 OTA/);
-  assert.match(card, /检查紧急 OTA/);
-  assert.match(card, /立即安装/);
-  assert.match(card, /无待吸收的 OTA/, 'OTA 目录清理后不能显示成「未被正式版覆盖」');
+  // 文案进了字典（多语言）之后断键：原话在 `lib/i18n/messages/update.ts` 里，
+  // 改文案不该动守卫；这四条钉的是「这四个入口还在」这件事本身。
+  assert.match(card, /panel\.update\.otaSection/);
+  assert.match(card, /panel\.update\.otaCheck/);
+  assert.match(card, /panel\.update\.otaInstall/);
+  assert.match(card, /panel\.update\.otaNothing/, 'OTA 目录清理后不能显示成「未被正式版覆盖」');
   assert.match(card, /setOtaSupported\(false\)/, '仅宿主接口 404 时隐藏调试入口');
   assert.match(client, /\/api\/relay\/update\/ota\/status/);
   assert.match(client, /\/api\/relay\/update\/ota\/check/);
@@ -95,10 +97,12 @@ test('宿主说没法就地换代时，更新卡不许把用户往插件市场�
   const at = card.indexOf('{noShell ?');
   assert.notEqual(at, -1, '找不到 noShell 那一支');
   const branch = card.slice(at, card.indexOf('市场那条路', at) === -1 ? at + 900 : card.indexOf('市场那条路', at));
-  assert.match(branch, /无头/, '那句话里必须点名无头 / 源码同步这条路（那台机器上没有市场）');
+  // 文案进字典后断键：「点名无头 / 源码同步」那句话现在是 `panel.update.nothingToInstall`
+  // （五门语言里都写着 headless / source-synced），这里钉的是「用的就是那条键」。
+  assert.match(branch, /panel\.update\.nothingToInstall/, '那句话里必须点名无头 / 源码同步这条路（那台机器上没有市场）');
   // 这一支要像正常卡片那样**报版本**（查更新不需要外壳，那台答得出「线上最新是几」），
   // 而不是铺一个警告框：把「没有故障」说成故障，用户看到的就是一个没必要的大黄框。
-  assert.match(branch, /线上最新/, '要报「线上最新」，别只剩一句警告');
+  assert.match(branch, /panel\.update\.latestOnline/, '要报「线上最新」，别只剩一句警告');
   assert.ok(!/Alert/.test(branch), '别把这一支铺成警告框');
   assert.ok(!/没有可换代的外壳/.test(branch), '那句「这一版没有可换代的外壳」的标题别再回来');
 });

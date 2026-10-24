@@ -243,3 +243,38 @@ test('低速请求体的连接不会把守卫挂死（读体失败回 413 而不
   await handler(req, res);
   assert.equal(res.statusCode, 413, '读体失败必须是 413，不能挂住');
 });
+
+test('凭据是 v2 配的但请求没带 X-Dsh-Proto：400 e2ee-required，而不是含糊的 JSON 错', async () => {
+  // 模拟中转把 `X-Dsh-Proto` 删掉：这条请求在宿主眼里就是「一个老形状的明文请求」，
+  // 而它的凭据记录里明明有 deviceKey —— 那是被动降级的形状，必须说出来。
+  const built = buildRequest({ plain: { a: 1 }, nonce: Buffer.alloc(12, 0x09) });
+  const headers = { ...built.headers };
+  delete headers['x-dsh-proto'];
+  delete headers['x-dsh-sig'];
+  let called = false;
+  const handlers = routing.createGuarded({}, () => ({ ok: true, record: { deviceId: 'dev-1', deviceKey: 'x' } }), null, {
+    envelope: { keyFor: () => null, readBody: async () => Buffer.alloc(0) },
+  });
+  const res = fakeRes();
+  await handlers(async () => { called = true; })(fakeReq({ headers, body: built.wire }), res);
+  assert.equal(called, false, 'handler 不该被调用');
+  assert.equal(res.statusCode, 400);
+  assert.equal(JSON.parse(res.written).error.code, 'e2ee-required');
+});
+
+test('原生后台服务的 /monitor 不再免信封：v2 凭据不带信封一律 400', async () => {
+  // 原生侧已经自己封 v2（app/android/.../DeviceEnvelope.kt）：宿主这侧的临时口子收掉，
+  // 否则那条「只读状态位」会变成一条长期存在的明文旁路。
+  const handlers = routing.createGuarded({}, () => ({ ok: true, record: { deviceId: 'dev-1', deviceKey: 'x' } }), null, {
+    envelope: { keyFor: () => null, readBody: async () => Buffer.alloc(0) },
+  });
+  const plainHeaders = { cookie: 'c', authorization: 'Bearer t', 'x-dsh-instance': INSTANCE, 'x-dsh-device': 'dev-1' };
+  for (const url of ['/api/mobile/v1/monitor', '/api/mobile/v1/sessions?fresh=1']) {
+    let called = false;
+    const res = fakeRes();
+    await handlers(async () => { called = true; })(fakeReq({ method: 'GET', url, headers: plainHeaders }), res);
+    assert.equal(called, false, `${url} 不该被放行`);
+    assert.equal(res.statusCode, 400);
+    assert.equal(JSON.parse(res.written).error.code, 'e2ee-required');
+  }
+});

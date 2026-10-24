@@ -25,10 +25,13 @@ process.env.DEVICE_CREDENTIALS_FILE = path.join(tmp, 'relay-device-credentials.j
 
 const { createLanProxy } = require('../lib/relay/lan-proxy.js')
 const core = require('../lib/relay/core.js')
+const e2ee = require('../lib/shared/e2ee.js')
 const credentials = require('../dsh-mobile-credentials/lib/credentials.js')
 
 const INSTANCE = 'lane2e01'
 const CODE = '135790'
+/** 协议 v2 的一次性票据（32 字节 base64url）；局域网配对要用它派生配对密钥。 */
+const TICKET = 'Qk3Yb7mZ0pXc1vTn5rLd8sHf2gWj4uAy6ePi9oKt3Nx'
 const SECRET = 'lan-e2e-secret-0123456789'
 const LAN_PORT = Number(process.env.LAN_E2E_PORT || 18731)
 
@@ -89,6 +92,9 @@ const isApiUnauthorized = (res) => {
   const proxy = createLanProxy({
     lanPort: LAN_PORT,
     pairingCode: CODE,
+    // 协议 v2 的配对票：局域网配对要拿它派生出配对密钥才能解开 App 发来的加密请求。
+    // 漏了这一项时的现场见 `configure-diff.test.cjs` 的「契约面」那条。
+    pairingTicket: TICKET,
     instanceId: INSTANCE,
     lanSecret: SECRET,
     upstreamPort: upstream.port,
@@ -160,8 +166,53 @@ const isApiUnauthorized = (res) => {
       '被拒绝时不得下发 cookie',
     )
 
-    // 6. 授权通过 → 签发 token / cookie / 设备凭据，设备元数据完整送达宿主
+    // 5b. 认得协议（带 `proto`）却还带六位码 → 过期旧图，400 `legacy-pairing-retired`
+    //     （与 `/pair` 同一条收口，§10.4(d)）。这一条要在「码对且授权通过」的条件下试，
+    //     否则分不清拒的是形状还是码。
     policy.approve = true
+    const stale = await call(LAN_PORT, {
+      method: 'POST', path: '/__lan_pair',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: CODE, proto: 1, device: { name: '测试手机', platform: 'ios' } }),
+    })
+    assert.equal(stale.status, 400, '过期旧图应当 400')
+    assert.equal(JSON.parse(stale.body).code, 'legacy-pairing-retired')
+    assert.equal(
+      Object.keys(stale.headers).filter((k) => k === 'set-cookie').length, 0,
+      '过期旧图不得下发 cookie',
+    )
+
+    // 5c. 协议 v2：App 扫到带票据的二维码后发的是密文（`{instanceId, sealed}`）。宿主必须
+    //     用**票据派生出来的密钥**解开它，回包也得封成密文 —— 里面是 token / cookie /
+    //     设备凭据，明文回等于把通行证白送。这一条同时钉住「旁路的配对配置里必须有票据」：
+    //     票据为空时这里必然 401，而主进程那条 `/pair` 照样是好的。
+    const pairKey = e2ee.derivePairKey(Buffer.from(TICKET, 'base64url'), INSTANCE)
+    const sealedPlain = Buffer.from(JSON.stringify({
+      deviceKey: Buffer.alloc(32, 7).toString('base64url'),
+      keyId: '0011223344556677',
+      device: { name: '加密手机', platform: 'ios' },
+    }), 'utf8')
+    const sealedBody = e2ee.seal(pairKey, sealedPlain, e2ee.pairAad(INSTANCE))
+    const sealedPair = await call(LAN_PORT, {
+      method: 'POST', path: '/__lan_pair',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ instanceId: INSTANCE, sealed: sealedBody.toString('base64') }),
+    })
+    assert.equal(sealedPair.status, 200, '带票据的密文配对必须能配上')
+    const sealedReply = JSON.parse(sealedPair.body)
+    assert.ok(sealedReply.sealed, '回包必须是密文')
+    const opened = JSON.parse(
+      e2ee.open(pairKey, Buffer.from(sealedReply.sealed, 'base64'), e2ee.pairAad(INSTANCE)).toString('utf8'),
+    )
+    assert.equal(opened.ok, true)
+    assert.equal(opened.proto, 2)
+    assert.ok(opened.token && opened.cookie, '解开的回包里要有 token 与 cookie')
+    assert.ok(
+      String(sealedPair.headers['set-cookie'] && sealedPair.headers['set-cookie'][0] || '').startsWith('dsh_lan='),
+      'cookie 头照旧要下发',
+    )
+
+    // 6. 授权通过 → 签发 token / cookie / 设备凭据，设备元数据完整送达宿主
     const paired = await call(LAN_PORT, {
       method: 'POST', path: '/__lan_pair',
       headers: { 'content-type': 'application/json' },

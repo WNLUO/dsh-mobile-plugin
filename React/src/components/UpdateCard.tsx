@@ -76,6 +76,7 @@ import {
   type UpdateStatusView,
 } from '../lib/relayUpdate.ts'
 import { InfoList, InfoRow } from './InfoRow.tsx'
+import { t } from '../lib/i18n/index.ts'
 
 type Props = {
   /** 正在跑的插件版本（`/api/relay/status` 的 appVersion，进程启动时读进内存的）。 */
@@ -106,15 +107,27 @@ function timeText(value: string | null | undefined, fallback: string): string {
 /** 把「装完了」这件事说成一句人话。 */
 function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
   const installed = outcome.installedVersion ?? outcome.beforeVersion
-  if (outcome.failure) return { text: `这次更新没成：${outcome.failure.message}`, ok: false }
+  if (outcome.failure) return { text: t('panel.update.applyFailed', { message: outcome.failure.message }), ok: false }
   if (outcome.installed === false) {
     if (outcome.skipped) {
-      return { text: installed ? `已经是最新版（${installed}），没有改动任何文件。` : '已经是最新版，没有改动任何文件。', ok: true }
+      return {
+        text: installed
+          ? t('panel.update.applyUpToDate', { version: installed })
+          : t('panel.update.applyUpToDatePlain'),
+        ok: true,
+      }
     }
-    return { text: installed ? `装了但盘上的版本没变（还是 ${installed}），这次不算数，可以再点一次。` : '这次更新没成，可以再点一次。', ok: false }
+    return {
+      text: installed
+        ? t('panel.update.applyDiskUnchanged', { version: installed })
+        : t('panel.update.applyFailedRetry'),
+      ok: false,
+    }
   }
   return {
-    text: installed ? `已就地切到 ${installed}，无需重启。` : '已就地切到新版本，无需重启。',
+    text: installed
+      ? t('panel.update.applySwitched', { version: installed })
+      : t('panel.update.applySwitchedPlain'),
     ok: true,
   }
 }
@@ -167,12 +180,16 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
         const result = await otaCheck()
         setOta(result.status)
         setOtaUpdateAvailable(result.update.available)
-        notify('soft', result.update.available ? `发现紧急 OTA ${result.update.version ?? ''}。` : '没有可安装的紧急 OTA。')
+        notify('soft', result.update.available
+          ? t('panel.update.otaFound', { version: result.update.version ?? '' })
+          : t('panel.update.otaNotFound'))
       } else {
         const result = await otaApply()
         setOta(result.status)
         setOtaUpdateAvailable(false)
-        notify('soft', result.installed ? `已安装调试 OTA ${result.version ?? ''}。` : '没有安装新的调试 OTA。')
+        notify('soft', result.installed
+          ? t('panel.update.debugInstalled', { version: result.version ?? '' })
+          : t('panel.update.debugNone'))
       }
     } catch (err) {
       notify('error', errorText(err))
@@ -352,9 +369,11 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
       const result = await updateAuto(next)
       if (result.status) mergeHost(result.status)
       const minutes = Math.round((result.status?.autoIntervalMs ?? host?.autoIntervalMs ?? DEFAULT_AUTO_INTERVAL_MS) / 60000)
-      notify('soft', result.enabled ? `自动更新已开启：每 ${minutes} 分钟查一次，有新版会直接装好并就地生效。` : '自动更新已关闭，之后只在点「检查更新」时才问市场。')
+      notify('soft', result.enabled
+          ? t('panel.update.autoOn', { minutes })
+          : t('panel.update.autoOff'))
     } catch (err) {
-      notify('error', `自动更新开关没保存成功：${errorText(err)}`)
+      notify('error', t('panel.update.autoToggleFailed', { message: errorText(err) }))
       await loadHost() // 拨回宿主那边的真实值
     } finally {
       setSavingAuto(false)
@@ -388,15 +407,15 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
     <Card frame="solid">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <span>{'插件更新'}</span>
-          <Badge variant="soft" size="sm">{version || '未知版本'}</Badge>
+          <span>{t('panel.update.title')}</span>
+          <Badge variant="soft" size="sm">{version || t('panel.update.unknownVersion')}</Badge>
         </CardTitle>
       </CardHeader>
 
       {!settled ? (
         <div className="flex items-center gap-2 py-2 text-sm text-foreground-muted">
           <Spinner />
-          {'正在读更新状态…'}
+          {t('panel.update.reading')}
         </div>
       ) : null}
 
@@ -410,16 +429,16 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
       {noShell ? (
         <>
           <InfoList>
-            <InfoRow label={'运行中版本'} mono>
+            <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
             </InfoRow>
-            <InfoRow label={'线上最新'} mono>
-              {latestOnline ?? '还没查过'}
+            <InfoRow label={t('panel.update.latestOnline')} mono>
+              {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
           </InfoList>
           <p className="mt-3 text-xs text-foreground-muted">
-            {hasUpdate ? '线上有新版本。' : ''}
-            {'这台宿主的面板里不装新代码（当前这份实现是直接被挂载的）：无头 / 源码同步部署到服务器上同步源码 + 重启宿主服务；桌面端旧版到「设置 → 插件 → 本插件」里更新一版。'}
+            {hasUpdate ? t('panel.update.hasNew') : ''}
+            {t('panel.update.nothingToInstall')}
           </p>
         </>
       ) : null}
@@ -428,8 +447,8 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
       {settled && !hostMode && !noShell && caps !== null && !caps.available ? (
         <Alert variant="info" className="mt-3">
           <AlertIcon />
-          <AlertTitle>{'这台机器上没有可用的插件市场'}</AlertTitle>
-          <AlertDescription>{'插件从 npm 分发，更新由 DSH 的插件市场负责：到「设置 → 插件」里更新本插件（或装上插件市场）。'}</AlertDescription>
+          <AlertTitle>{t('panel.update.noMarketTitle')}</AlertTitle>
+          <AlertDescription>{t('panel.update.noMarketBody')}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -441,7 +460,7 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
           {localSource ? null : (
             <label className="mt-1 flex items-start justify-between gap-4 border-b border-border-muted py-3">
               <span className="min-w-0">
-                <span className="block text-sm text-foreground">{'自动更新'}</span>
+                <span className="block text-sm text-foreground">{t('panel.update.autoUpdate')}</span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
                 {savingAuto ? <Spinner /> : null}
@@ -450,42 +469,42 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
                   checked={host.autoUpdate}
                   disabled={idle || savingAuto}
                   onCheckedChange={(next) => void flipAuto(next)}
-                  aria-label={'自动更新'}
+                  aria-label={t('panel.update.autoUpdate')}
                 />
               </span>
             </label>
           )}
 
           <InfoList>
-            <InfoRow label={'运行中版本'} mono>
+            <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
             </InfoRow>
-            <InfoRow label={'盘上的版本'} mono>
+            <InfoRow label={t('panel.update.diskVersion')} mono>
               {installedOnDisk ?? '—'}
             </InfoRow>
-            <InfoRow label={'线上最新'} mono>
-              {latestOnline ?? '还没查过'}
+            <InfoRow label={t('panel.update.latestOnline')} mono>
+              {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
-            <InfoRow label={'安装来源'}>{marketSource ?? '—'}</InfoRow>
-            <InfoRow label={'更新操作'}>
+            <InfoRow label={t('panel.update.source')}>{marketSource ?? '—'}</InfoRow>
+            <InfoRow label={t('panel.update.action')}>
               {hostBusy === 'swapping'
-                ? '正在切换…'
+                ? t('panel.update.switching')
                 : hostBusy === 'in-flight'
-                  ? `正在收尾在飞请求（${host.inFlight} 个）…`
-                  : '空闲'}
+                  ? t('panel.update.finishingInFlight', { count: host.inFlight })
+                  : t('panel.update.idle')}
             </InfoRow>
-            <InfoRow label={'最近一次检查'}>
-              {timeText(update?.checkedAt ?? host.marketLastCheckedAt, '还没查过')}
+            <InfoRow label={t('panel.update.lastCheck')}>
+              {timeText(update?.checkedAt ?? host.marketLastCheckedAt, t('panel.update.notChecked'))}
             </InfoRow>
-            <InfoRow label={'最近一次更新'}>
-              {host.lastApply ? timeText(host.appliedAt, '还没更新过') : '还没更新过'}
+            <InfoRow label={t('panel.update.lastApply')}>
+              {host.lastApply ? timeText(host.appliedAt, t('panel.update.neverUpdated')) : t('panel.update.neverUpdated')}
             </InfoRow>
           </InfoList>
 
           {/* 两处「运行中版本」对不上：面板那份是进程启动时读进内存的，外壳那份是实际装载的。 */}
           {versionsDisagree ? (
             <p className="mt-2 text-xs text-foreground-muted">
-              {`这两个版本对不上：面板报的 ${version} 是进程启动时读进内存的，外壳实际装载的是 ${shellVersion ?? ''}。一般是外壳刚换过代、页面还没重新读取；刷新一下这一页就一致了。`}
+              {t('panel.update.versionDrift', { version: version ?? '', shell: shellVersion ?? '' })}
             </p>
           ) : null}
 
@@ -498,8 +517,8 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
           {host.shellChanged ? (
             <Alert variant="info" className="mt-3">
               <AlertIcon />
-              <AlertTitle>{'这次更新里外壳也换了'}</AlertTitle>
-              <AlertDescription>{'它有极少数改动要等下次启动 DSH 才生效（更新本身已经生效，不用管）。'}</AlertDescription>
+              <AlertTitle>{t('panel.update.shellChangedTitle')}</AlertTitle>
+              <AlertDescription>{t('panel.update.shellChangedBody')}</AlertDescription>
             </Alert>
           ) : null}
 
@@ -515,16 +534,16 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             {/* 「重启 sidecar」和更新讲的是同一件事的另一半：让磁盘上的新代码在**子进程**层
                 立刻生效。它不重启宿主，所以留在这里。 */}
             <Button variant="outline" size="md" disabled={idle} onClick={onRestartSidecar}>
-              {'重启 sidecar'}
+              {t('panel.update.restartSidecar')}
             </Button>
             <Button variant="outline" size="md" disabled={idle} onClick={() => void check()}>
-              {working === 'check' ? '正在检查…' : '检查更新'}
+              {working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
             </Button>
             {/* 非 npm 来源不给这两颗：宿主那边同样会拒（`LOCAL_SOURCE`），按钮留着只会在点了
                 之后弹一句「这台不该这么装」。 */}
             {localSource ? null : (
               <Button variant="primary" size="md" disabled={idle} onClick={() => void apply(false)}>
-                {working === 'apply' ? '正在更新…' : '立即更新'}
+                {working === 'apply' ? t('panel.update.updating') : t('panel.update.updateNow')}
               </Button>
             )}
           </div>
@@ -535,7 +554,7 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
           {!localSource && (hasUpdate || (summary !== null && !summary.ok)) ? (
             <div className="mt-2 flex justify-end">
               <Button variant="ghost" size="sm" disabled={idle} onClick={() => void apply(true)}>
-                {'强制更新（有对话在跑、或刚发布的，也照装）'}
+                {t('panel.update.forceHint')}
               </Button>
             </div>
           ) : null}
@@ -552,30 +571,30 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
       {settled && !hostMode && !noShell && caps?.available ? (
         <>
           <InfoList>
-            <InfoRow label={'运行中版本'} mono>
+            <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
             </InfoRow>
-            <InfoRow label={'线上最新'} mono>
-              {latestOnline ?? '还没查过'}
+            <InfoRow label={t('panel.update.latestOnline')} mono>
+              {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
-            <InfoRow label={'安装来源'}>{marketSource ?? '—'}</InfoRow>
-            <InfoRow label={'检查结果'}>
-              {hasUpdate ? '有新版可以装' : '已经是最新版'}
+            <InfoRow label={t('panel.update.source')}>{marketSource ?? '—'}</InfoRow>
+            <InfoRow label={t('panel.update.checkResult')}>
+              {hasUpdate ? t('panel.update.resultHasNew') : t('panel.update.resultUpToDate')}
             </InfoRow>
           </InfoList>
 
 
           <div className="mt-3 flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="md" disabled={idle} onClick={onRestartSidecar}>
-              {'重启 sidecar'}
+              {t('panel.update.restartSidecar')}
             </Button>
             <Button variant="outline" size="md" disabled={idle} onClick={() => void marketOnlyCheck()}>
-              {working === 'check' ? '正在检查…' : '检查更新'}
+              {working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
             </Button>
             {/* 与宿主模式那一支同一条判据：非 npm 来源不给「立即更新」。 */}
             {host !== null && !localSource ? (
               <Button variant="primary" size="md" disabled={idle} onClick={() => void apply(false)}>
-                {working === 'apply' ? '正在更新…' : '立即更新'}
+                {working === 'apply' ? t('panel.update.updating') : t('panel.update.updateNow')}
               </Button>
             ) : null}
           </div>
@@ -583,21 +602,27 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
       ) : null}
 
       {otaSupported ? (
-        <section className="mt-4 border-t border-border-muted pt-3" aria-label="本机调试 OTA">
+        <section className="mt-4 border-t border-border-muted pt-3" aria-label={t('panel.update.otaSection')}>
           <div className="mb-2 flex items-center gap-2">
-            <strong className="text-sm">本机调试 OTA</strong>
-            <Badge variant="soft" size="sm">仅本机</Badge>
+            <strong className="text-sm">{t('panel.update.otaSection')}</strong>
+            <Badge variant="soft" size="sm">{t('panel.update.otaLocalOnly')}</Badge>
           </div>
           <InfoList>
-            <InfoRow label="当前 OTA 版本" mono>{ota?.otaVersion ?? '无'}</InfoRow>
-            <InfoRow label="正式版覆盖状态">{ota?.otaVersion ? (ota.absorbed ? `已被正式版 ${ota.officialVersion ?? ''} 覆盖` : '尚未被正式版覆盖') : '无待吸收的 OTA'}</InfoRow>
+            <InfoRow label={t('panel.update.otaVersion')} mono>{ota?.otaVersion ?? t('panel.update.otaNone')}</InfoRow>
+            <InfoRow label={t('panel.update.otaAbsorbState')}>
+            {ota?.otaVersion
+              ? (ota.absorbed
+                ? t('panel.update.otaAbsorbed', { version: ota.officialVersion ?? '' })
+                : t('panel.update.otaNotAbsorbed'))
+              : t('panel.update.otaNothing')}
+          </InfoRow>
           </InfoList>
           <div className="mt-3 flex justify-end gap-2">
             <Button variant="outline" size="md" disabled={otaWorking} onClick={() => void runOta('check')}>
-              {otaWorking ? '处理中…' : '检查紧急 OTA'}
+              {otaWorking ? t('panel.update.otaBusy') : t('panel.update.otaCheck')}
             </Button>
             <Button variant="primary" size="md" disabled={otaWorking || (!otaUpdateAvailable && !ota?.otaVersion) || ota?.absorbed === true} onClick={() => void runOta('apply')}>
-              {'立即安装'}
+              {t('panel.update.otaInstall')}
             </Button>
           </div>
         </section>

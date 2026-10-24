@@ -1,5 +1,7 @@
 /** 一点点展示用的纯函数，和接口无关。 */
 
+import { t } from './i18n/index.ts'
+
 export function cn(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(' ')
 }
@@ -38,13 +40,14 @@ export function tunnelTone(state: string): Tone {
 }
 
 export function tunnelText(state: string): string {
-  const map: Record<string, string> = {
-    connected: '已连接',
-    connecting: '连接中',
-    error: '被关闭',
-    off: '未启用',
+  // 状态词进字典：`state` 本身是宿主给的机读值，认不出的原样透出（别把它翻成不存在的东西）。
+  const keys: Record<string, string> = {
+    connected: 'panel.status.connected',
+    connecting: 'panel.status.connecting',
+    error: 'panel.status.error',
+    off: 'panel.status.off',
   }
-  return map[state] ?? state
+  return keys[state] ? t(keys[state]) : state
 }
 
 export function lanTone(state: string, enabled: boolean): Tone {
@@ -55,19 +58,19 @@ export function lanTone(state: string, enabled: boolean): Tone {
 }
 
 export function lanText(state: string, enabled: boolean): string {
-  if (!enabled) return '未启用'
-  if (state === 'listening') return '正在监听'
-  if (state === 'error') return '启动失败'
+  if (!enabled) return t('panel.lan.off')
+  if (state === 'listening') return t('panel.lan.listening')
+  if (state === 'error') return t('panel.lan.error')
   return state
 }
 
 export function sidecarText(state: string): string {
-  const map: Record<string, string> = {
-    healthy: '运行中',
-    starting: '启动中',
-    restarting: '正在重启',
-    error: '异常',
-    stopped: '已停止',
+  const keys: Record<string, string> = {
+    healthy: 'panel.sidecar.healthy',
+    starting: 'panel.sidecar.starting',
+    restarting: 'panel.sidecar.restarting',
+    error: 'panel.sidecar.error',
+    stopped: 'panel.sidecar.stopped',
   }
-  return map[state] ?? state
+  return keys[state] ? t(keys[state]) : state
 }

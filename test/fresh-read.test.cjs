@@ -273,3 +273,16 @@ test('lan-proxy 与宿主 handler 都接了 fresh 标记', () => {
   assert.match(sessions, /if \(!bypassCache && cache\.value && now - cache\.updatedAt < SESSION_LIST_CACHE_MS\)/, 'fresh 读必须跳过 10s 缓存');
   assert.match(sessions, /if \(!bypassCache && cache\.promise\)/, 'fresh 读必须跳过在途构建');
 });
+
+test('协议 v2 的读不许走镜像快照捷径（那条路不封信封、也不验信封）', () => {
+  // 2026-10-24 现场：加密会话的列表 / 工作区 / 消息 / 统计全部由工人从快照直接回，
+  // 绕开了主进程的守卫 —— 响应明文过中转，而且 App 收到明文只是安静降级。
+  const worker = readSource('lib/sidecar-facade-worker.cjs');
+  assert.match(worker, /info\.headers/, '工人侧必须能看到请求头');
+  assert.match(worker, /x-dsh-proto/i, '按协议版本判');
+  assert.match(worker, /=== '2'\) return null/, 'v2 必须回源主进程');
+  const lan = readSource('lib/relay/lan-proxy.js');
+  assert.match(lan, /readSnapshot\(\{ method: req\.method, path: req\.url, headers: req\.headers \}\)/, '局域网侧要把请求头带进判断');
+  const tunnel = readSource('lib/relay/tunnel.js');
+  assert.match(tunnel, /readSnapshot\(\{ method: msg\.method, path: msg\.path, headers: msg\.headers \}\)/, '中转侧同样');
+});

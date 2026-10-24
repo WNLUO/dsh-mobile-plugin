@@ -35,6 +35,9 @@ const NO_LOCAL_ONLY = new Map([
 /** 不随网页管理窗口关闭的控制面通道：必须逐条说明用途。 */
 const NO_WEB_ACCESS = new Map([
   ['/api/relay/internal/approval', '中转与 sidecar 的内部审批通道，依赖 sidecarToken，不由网页面板调用'],
+  // 二维码里装的是能派生整条链路密钥的一次性票据，所以它**不进**两小时窗口：那条路由
+  // 自己用 trustedLocalUi 判（比 localOnly 更强），窗口开不开都不给网页看。
+  ['/api/relay/pairing', '二维码里是整条链路的密钥材料；这条路由自己用 trustedLocalUi 判「可信本机界面」，不靠两小时窗口'],
   ['/api/relay/internal/issue-credential', 'sidecar 签发凭据的内部通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/internal/rotate-pairing', 'sidecar 换码换票据的内部通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/desktop-view', '桌面客户端自身的工作区状态同步，不能随网页管理窗口停止'],
@@ -79,7 +82,6 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/read-receipt',
     '/api/relay/desktop-read',
     '/api/relay/faults',
-    '/api/relay/pairing',
     '/api/relay/toggle',
     '/api/relay/regenerate',
     '/api/relay/revoke-all',
@@ -250,4 +252,18 @@ test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；�
   await sync({ url: '/api/relay/read-receipt', trusted: false }, {});
   assert.equal(reached, 3, '桌面同步通道不受面板窗口影响');
   assert.deepEqual(sent, [423]);
+});
+
+test('二维码路由只认可信本机界面：转发来的请求一律 423，且不进两小时窗口', async () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const at = source.indexOf("'/api/relay/pairing'");
+  assert.notEqual(at, -1);
+  const end = source.indexOf('registerRoute', at + 1);
+  const route = source.slice(at, end < 0 ? at + 1200 : end);
+  // 二维码里是能派生整条链路密钥的票据，所以判据必须是 `trustedLocalUi`（socket 回环 +
+  // Host 回环 + 没有代理来源头），不能只靠 localOnly —— 经代理转发来的请求在 localOnly
+  // 眼里长得像本机，这条已经被实测证实过。
+  assert.match(route, /trustedLocalUi\(req\)/, '必须用可信本机界面判，不能只靠 localOnly');
+  assert.match(route, /code: 'pairing_local_only'/, '要让面板认得出该显示哪句提示');
+  assert.ok(!WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '二维码不能随两小时窗口对网页开放');
 });

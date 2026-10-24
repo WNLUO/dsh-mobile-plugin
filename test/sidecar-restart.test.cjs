@@ -85,14 +85,15 @@ test('重启按钮在网页版设置页里，失败时在界面上显式标红',
   const app = read(path.join(PKG_DIR, 'React', 'src', 'App.tsx'))
   assert.match(app, /apiPost<\{ status: StatusView \}>\('\/api\/relay\/restart-sidecar'\)/, '网页版要能触发重启')
   assert.match(app, /<Alert variant="error">/, '重启失败要在界面上显式标红')
-  // 2026-10-11 按用户要求删掉了面板的中英字典（`React/src/lib/i18n.ts`），文案回到组件里
-  // 直接写中文 —— 所以这条断言跟着搬回组件上：按钮文案仍在，只是不再经过一层字典。
+  // 2026-10-24 海外发布这轮把面板**整页**国际化了（正是 2026-10-11 说的「要国际化就整页
+  // 一起做」）：文案搬进 `React/src/lib/i18n/messages/`，组件里只留键。所以这条断言改成
+  // 钉「那颗按钮用的是字典键」，原话在 `panel.update.restartSidecar` 里（五门语言各一份）。
   const card = read(path.join(PKG_DIR, 'React', 'src', 'components', 'UpdateCard.tsx'))
-  assert.ok(card.includes("'重启 sidecar'"), '网页版那颗按钮的中文文案要写在更新卡片里')
+  assert.ok(card.includes('panel.update.restartSidecar'), '网页版那颗按钮的文案要来自字典（重启 sidecar 那条键）')
   assert.equal(
     fs.existsSync(path.join(PKG_DIR, 'React', 'src', 'lib', 'i18n.ts')),
     false,
-    '字典已按用户要求删除，别把它加回来（要国际化就整页一起做）',
+    '旧的单文件字典已经删掉了；现在的字典在 lib/i18n/ 目录里，别把那个单文件加回来',
   )
   // 「可重启范围 / 已重启次数」那段说明按用户要求删掉了。宿主面的事实没变
   // （/api/relay/status 仍把 worker/facade 标成 restartable、host 标成 needs-host-restart），

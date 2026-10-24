@@ -104,6 +104,64 @@ function lanUrls(): string[] {
   return state.lanEnabled ? [`http://${DEMO_LAN_ADDRESS}:${state.lanPort}`] : []
 }
 
+/**
+ * 演示用的设备清单：三台，正好把那张卡的三种口径各演一遍。
+ *
+ * 一台在线的加密安卓（局域网，5 分钟内来过）、一台两天前经中转来过的 iPhone、
+ * 一台 `legacy` 为真的旧记录（名字为空 —— 界面该写「未知设备」，而且吊销文案该
+ * 换成「旧的通行证仍可能在到期前可用」那一句）。`serverNow` 跟着 `DEMO_TIME` 走，
+ * 相对时间才不会每次刷新都往前跳。
+ */
+function deviceList() {
+  const now = DEMO_TIME.getTime()
+  return {
+    ok: true,
+    serverNow: now,
+    devices: [
+      {
+        deviceId: 'demo-android-1',
+        name: 'Pixel 8',
+        platform: 'android',
+        osVersion: '15',
+        appVersion: DEMO_VERSION,
+        boundAt: now - 2 * 24 * 60 * 60 * 1000,
+        lastSeenAt: now - 40 * 1000,
+        lastChannel: 'lan',
+        legacy: false,
+        encrypted: true,
+        expiresAt: now + 30 * 24 * 60 * 60 * 1000,
+      },
+      {
+        deviceId: 'demo-ios-2',
+        name: 'iPhone 16',
+        platform: 'ios',
+        osVersion: '19.2',
+        appVersion: DEMO_VERSION,
+        boundAt: now - 9 * 24 * 60 * 60 * 1000,
+        lastSeenAt: now - 2 * 24 * 60 * 60 * 1000,
+        lastChannel: 'relay',
+        legacy: false,
+        encrypted: true,
+        expiresAt: now + 21 * 24 * 60 * 60 * 1000,
+      },
+      {
+        // 旧式：没有名字、没有设备密钥、也从没连过（`lastSeenAt: 0`）。
+        deviceId: 'demo-legacy-3',
+        name: '',
+        platform: 'android',
+        osVersion: '',
+        appVersion: '',
+        boundAt: now - 60 * 24 * 60 * 60 * 1000,
+        lastSeenAt: 0,
+        lastChannel: '',
+        legacy: true,
+        encrypted: false,
+        expiresAt: 0,
+      },
+    ],
+  }
+}
+
 /** 与宿主 `createStatusView` 同形；页面读到的就是这个。 */
 function statusView(): StatusView {
   const tunnelUp = state.enabled && state.relayUrl !== ''
@@ -229,6 +287,13 @@ function route(pathname: string, init?: RequestInit): Response | null {
 
   if (pathname === '/api/relay/status' && method === 'GET') return json(statusView())
   if (pathname === '/api/relay/addresses' && method === 'GET') return json(addressBook())
+  // 设备清单与解除绑定：面板那张卡自己轮询这一条，演示里也得答，否则整卡不出现。
+  if (pathname === '/api/relay/devices' && method === 'GET') return json(deviceList())
+  if (pathname === '/api/relay/devices/revoke' && method === 'POST') {
+    const target = String(body(init).deviceId || '')
+    const revoked = target ? 1 : 0
+    return json({ ok: true, revoked, closed: 0 })
+  }
   if (pathname === '/api/relay/pairing' && method === 'GET') {
     // 与宿主同口径：没启用远程控制时这一条回 409，二维码那块自己会说出来。
     if (!state.enabled) return json({ ok: false, error: '请先启用远程控制并保存配置' }, 409)

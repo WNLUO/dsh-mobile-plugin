@@ -140,6 +140,46 @@ test('配对码错误被拒，且不签发凭据', async () => {
   assert.equal(issued.length, 0, '错的码绝不能签发凭据')
 })
 
+/**
+ * 升级前发出去的那版 App 必须**照旧能配、且拿到明文回包**。
+ *
+ * 老 App 没有协议概念，请求里不带 `proto`，回包也不认识 `sealed`。所以这条是产品契约
+ * 而不是历史包袱：老用户更新插件之后不该被迫重新绑定，也不该看到「配对码错误」。
+ * 与下一条（带 `proto` 的新 App 被当成过期旧图拒掉）是一对：判据就是「带没带 proto」，
+ * 改任何一边之前先想清楚另一边是谁。
+ */
+test('老 App（不带 proto）继续能配对，且回包是明文', async () => {
+  for (const body of [
+    { code: CODE, device: { deviceId: 'legacy-1', name: '旧手机', platform: 'android' } },
+    { instanceId: INSTANCE, code: CODE, device: { deviceId: 'legacy-2', name: '旧手机', platform: 'ios' } },
+  ]) {
+    resetPairLocks()
+    const { handler, issued } = makeHandler()
+    const res = fakeRes()
+    await handler(fakeReq(body), res)
+    assert.equal(res.status, 200, `老形状必须 200，实际 ${res.status}`)
+    assert.equal(res.body.ok, true)
+    assert.equal(res.body.sealed, undefined, '老 App 解不开密文，回包必须是明文')
+    assert.equal(res.body.proto, 1, '回给老 App 的协议版本是 1')
+    assert.ok(res.body.token && res.body.cookie, '老 App 靠这两个落盘')
+    assert.equal(issued.length, 1)
+  }
+})
+
+test('新 App 带着六位码来（还认得协议）→ 当成过期旧图直接拒，不让人逐位试码', async () => {
+  resetPairLocks()
+  const { handler, issued } = makeHandler()
+  const res = fakeRes()
+  // 新 App 只会从二维码配对；走到这一支说明它扫的是一张过期的旧图（里面没有票据）。
+  // 这条形状可被逐位试码，所以不再给它开门 —— 让它重扫当前那张。
+  await handler(fakeReq({ code: CODE, proto: 1, device: { deviceId: 'dev-9', name: 'iPhone', platform: 'ios' } }), res)
+
+  assert.equal(res.status, 400, `应当 400，实际 ${res.status}`)
+  assert.equal(res.body.code, 'legacy-pairing-retired')
+  assert.match(String(res.body.error), /重新扫/, '要告诉用户重扫当前二维码')
+  assert.equal(issued.length, 0, '拒绝的形状一个凭据都不许签发')
+})
+
 test('配对码不是 6 位数字时回 400', async () => {
   resetPairLocks()
   const { handler } = makeHandler()

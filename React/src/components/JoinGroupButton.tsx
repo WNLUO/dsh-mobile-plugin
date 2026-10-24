@@ -26,9 +26,10 @@ import { Button } from '@appica/ui-react/button'
 import { useState } from 'react'
 
 import wechatGroup from '../assets/wechat-group.png'
+import { t } from '../lib/i18n/index.ts'
 
 /** 二维码是张方图，窗宽按它给：再宽就只剩白边了。 */
-const QR_ALT = '微信群二维码：用微信或企业微信扫码加入'
+const QR_ALT = () => t('panel.links.wechatQrAlt')
 
 function WechatIcon() {
   return (
@@ -57,15 +58,15 @@ export function JoinGroupButton() {
           onClick={() => setOpen(true)}
         >
           <WechatIcon />
-          加入交流群
+          {t('panel.links.joinGroup')}
         </Button>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-sm">
-          <DialogTitle className="sr-only">加入交流群</DialogTitle>
+          <DialogTitle className="sr-only">{t('panel.links.joinGroup')}</DialogTitle>
           <DialogBody className="flex justify-center">
-            <img src={wechatGroup} alt={QR_ALT} className="w-full rounded-md" />
+            <img src={wechatGroup} alt={QR_ALT()} className="w-full rounded-md" />
           </DialogBody>
         </DialogContent>
       </Dialog>

@@ -151,3 +151,33 @@ test('契约面：configure 里不许再出现无条件 stopServices()', () => {
     'configure 里无条件拆掉整组服务就是「每隔几分钟断一次 + 内存一直涨」的根因，别改回去',
   )
 })
+
+/**
+ * 配置字段三处同步：worker 的 `allowed` 白名单、worker 现读的那些字段、以及宿主
+ * 装配层的 `buildConfig`。
+ *
+ * 现场（2026-10-24）：协议 v2 的配对票加了 `pairingTicket`，worker 侧（白名单与
+ * `currentPairing` 的读取）都补上了，唯独 `buildConfig` 没带 —— 旁路拿到的票据是空串，
+ * 局域网配对解不开任何一份加密请求，一律回「配对码错误或桌面端已拒绝」；主进程那条
+ * `/pair` 一切正常，所以症状是「同一个二维码，走中转能配、同一个 Wi-Fi 直连不能」。
+ * 这类漏项不会抛 `unknown configuration field`（少发字段是合法的），只能靠对账发现。
+ */
+test('契约面：buildConfig 必须带上 worker 认识的每一个字段', () => {
+  const implSource = readFileSync(join(__dirname, '..', 'lib', 'impl.js'), 'utf8')
+  const at = implSource.indexOf('buildConfig: (lanPort) => ({')
+  assert.ok(at > 0, '应能在 impl.js 的装配层里定位 buildConfig')
+  // 对象字面量只占一行；多取一些余量，缩进与换行变了也不至于误判。
+  const body = implSource.slice(at, at + 800)
+  const allowed = /const allowed = \[([^\]]*)\]/.exec(workerSource)
+  assert.ok(allowed, '应能在 worker 源码里找到 allowed 白名单')
+  const fields = allowed[1]
+    .split(',')
+    .map((s) => s.trim().replace(/^'|'$/g, ''))
+    .filter(Boolean)
+  assert.ok(fields.includes('pairingTicket'), '协议 v2 的票据必须在 worker 白名单里')
+  for (const field of fields) {
+    // 简写（`lanPort`）与显式键值（`pairingCode: …`）两种写法都算发下去了。
+    const present = new RegExp(`(^|[\\s,{])${field}\\s*[:,]`).test(body)
+    assert.ok(present, `buildConfig 漏了 ${field}：worker 认得它，宿主却不发`)
+  }
+})

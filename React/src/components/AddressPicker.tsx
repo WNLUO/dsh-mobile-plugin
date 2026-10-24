@@ -17,6 +17,7 @@
  * 分不出哪条对着手机。
  */
 import { Radio } from '@appica/ui-react/radio'
+import { t } from '../lib/i18n/index.ts'
 import { RadioGroup } from '@appica/ui-react/radio-group'
 
 import type { AddressBook, AddressEntry } from '../lib/api.ts'
@@ -41,7 +42,7 @@ export function ipv6Addresses(book: AddressBook | null): AddressEntry[] {
 
 /** 「局域网地址 · en0」。网卡名拿不到就只说类型。 */
 export function addressKindLabel(kind: 'lan' | 'public' | 'ipv6', nic?: string): string {
-  const base = kind === 'lan' ? '局域网地址' : kind === 'ipv6' ? 'IPv6 直连' : '公网地址'
+  const base = kind === 'lan' ? t('panel.address.lan') : kind === 'ipv6' ? t('panel.address.ipv6') : t('panel.address.public')
   return nic ? `${base} · ${nic}` : base
 }
 
@@ -89,14 +90,14 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
         </span>
       )
     }
-    if (ipv6.length === 0) return <span className="font-sans text-foreground-muted">{'还没取到地址'}</span>
+    if (ipv6.length === 0) return <span className="font-sans text-foreground-muted">{t('panel.address.empty')}</span>
     return (
       <span className="flex w-full flex-col items-end gap-1">
         {ipv6.map((item) => (
           <span key={item.address} className="inline-flex flex-wrap items-baseline justify-end gap-x-2">
             <span className="font-mono text-xs text-foreground-muted">{urlOf(item.address, text)}</span>
             <span className="shrink-0 font-sans text-xs text-foreground-subtle">
-              {`${addressKindLabel('ipv6', item.interface)}（手机按实测择优）`}
+              {`${addressKindLabel('ipv6', item.interface)}${t('panel.address.ipv6Hint')}`}
             </span>
           </span>
         ))}
@@ -141,7 +142,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
         <span key={item.address} className="inline-flex flex-wrap items-baseline justify-end gap-x-2">
           <span className="font-mono text-xs text-foreground-muted">{urlOf(item.address, text)}</span>
           <span className="shrink-0 font-sans text-xs text-foreground-subtle">
-            {`${addressKindLabel('public', item.interface)}（手填）`}
+            {`${addressKindLabel('public', item.interface)}${t('panel.address.publicHint')}`}
           </span>
         </span>
       ))}
@@ -158,7 +159,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
 
       {pickable.length > 1 ? (
         <span className="text-end font-sans text-xs text-foreground-muted">
-          {'手机先试选中的那条，试不通会自动换下一条。'}
+          {t('panel.address.hint')}
         </span>
       ) : null}
     </span>
