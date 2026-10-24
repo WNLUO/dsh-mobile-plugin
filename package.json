@@ -42,7 +42,8 @@
   },
   "scripts": {
     "start": "node host.js",
-    "test": "node --test test/*.test.cjs && node test/lan-direct-e2e.cjs && node test/sidecar-facade.cjs"
+    "test": "node --test test/*.test.cjs && node test/lan-direct-e2e.cjs && node test/sidecar-facade.cjs",
+    "release:check": "node scripts/preflight-release.mjs"
   },
   "dependencies": {
     "@deepseek-ai/dsh-tool-ask-user": "0.2.1-rc.2",
