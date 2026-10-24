@@ -21,10 +21,12 @@ const vm = require('node:vm');
 const CLIENT = path.join(__dirname, '..', 'lib', 'client.js');
 const SOURCE = fs.readFileSync(CLIENT, 'utf8');
 const NS = 'settings.mobileRelay';
-const VIEW_ENDPOINT = '/api/relay/desktop-view';
-const READ_RECEIPT_ENDPOINT = '/api/relay/read-receipt';
-const DESKTOP_READ_ENDPOINT = '/api/relay/desktop-read';
-const CLIENT_HALF_ENDPOINT = '/api/relay/client-half';
+// 浏览器侧控制面地址一律是**文档相对**的（无前导斜杠）：DSH 给 index 注入
+// `<base href="./">`，页面挂在子路径下时只有相对地址才会跟着前缀走。
+const VIEW_ENDPOINT = 'api/relay/desktop-view';
+const READ_RECEIPT_ENDPOINT = 'api/relay/read-receipt';
+const DESKTOP_READ_ENDPOINT = 'api/relay/desktop-read';
+const CLIENT_HALF_ENDPOINT = 'api/relay/client-half';
 
 /** 等若干轮微任务 + 宏任务，让 fetch 链上的 await 落地。 */
 async function settle(rounds = 6) {
@@ -500,7 +502,7 @@ test('控制面地址不许把 /api/relay 拼两遍（真机故障：两条绿�
 
   const urls = env.fetchCalls.map((entry) => String(entry.url));
   assert.deepEqual(
-    urls.filter((url) => url.includes('/api/relay/api/relay')),
+    urls.filter((url) => url.includes('api/relay/api/relay')),
     [],
     `控制面地址被拼了两遍：${urls.join(' | ')}`,
   );
@@ -511,17 +513,43 @@ test('控制面地址不许把 /api/relay 拼两遍（真机故障：两条绿�
 
 /* ── 3. 控制面调用与错误正文拍平 ──────────────────────────────────────── */
 
-test('页签的取状态请求走 /api/relay/status 且同源', async () => {
+test('页签的取状态请求走文档相对的 api/relay/status 且同源', async () => {
   const { impl, calls } = routedFetch({ '/status': { body: readyStatus() } });
   const env = materialize({ fetch: impl });
   env.render();
   await env.hooks.flush();
   const call = calls.find((c) => String(c.url).endsWith('/status'));
   assert.ok(call);
-  assert.equal(calls[0].url, '/api/relay/status');
+  assert.equal(calls[0].url, 'api/relay/status');
   assert.equal(call.init.credentials, 'same-origin');
   // 取状态是 GET：不带 method 也就是 GET，不许顺手改成 POST。
   assert.equal(call.init.method, undefined);
+});
+
+test('控制面请求不许写成站点根绝对地址（DSH 挂在子路径下会 404）', async () => {
+  // 宿主给 index 注入 `<base href="./">`，DSH 自己的前端一律用 `PATH.slice(1)`。
+  // 写成 `/api/...` 时，DSH 被反代挂到 `/dsh/` 下就会打到站点根，设置页现场是
+  // 「读取宿主状态失败: HTTP 404」。
+  const env = materialize();
+  await settle();
+  await env.timers.tick(2000);
+  await env.timers.tick(10000);
+  const absolute = env.fetchCalls
+    .map((entry) => String(entry.url))
+    .filter((url) => url.startsWith('/'));
+  assert.deepEqual(absolute, [], `这些请求仍是站点根绝对地址：${absolute.join(' | ')}`);
+});
+
+test('宿主半边没加载（404）时说清怎么处理，不甩一句 HTTP 404', async () => {
+  const env = materialize({
+    fetch: async () => ({ ok: false, status: 404, json: async () => ({}) }),
+  });
+  env.render();
+  await env.hooks.flush();
+  const text = texts(env.render()).join('');
+  assert.match(text, /插件宿主侧没有加载/);
+  assert.match(text, /完整退出再打开|插件市场重装/);
+  assert.equal(text.includes('HTTP 404'), false);
 });
 
 test('errorText 把三种错误形状拍平成一句话', async () => {
@@ -589,7 +617,7 @@ test('字典注册在启动时一次性完成，且中英键一一对应', () =>
   assert.deepEqual(Object.keys(dict.zh).sort(), Object.keys(dict.en).sort());
   // 键集**逐个钉死**：客户端 UI 只保留网页入口与本机临时访问开关，不长成第二个管理面板。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
-    'cardPanel', 'heading', 'loadFailed', 'nav', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
+    'cardPanel', 'heading', 'loadFailed', 'loadMissing', 'nav', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
     'webAccessClose', 'webAccessError', 'webAccessHint', 'webAccessOff', 'webAccessOn', 'webAccessOpen', 'webAccessUnavailable',
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
