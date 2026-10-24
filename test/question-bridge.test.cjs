@@ -222,16 +222,15 @@ test('下游先答：用下游的答案，挂起项落定（此场景手机本�
   watch();
 });
 
-test('手机在看这个会话时不往下游转发：桌面从源头不弹卡，手机答完 agent 照常往下走', async () => {
-  // 桌面那张卡挂在「被转发的请求」上，本桥没有替它收尾的口子（收尾权在宿主网关手里），
-  // 转发出去、手机先答，桌面那张就永远悬着（2026-10-23 用户报的现象）。
-  // 有观众时绝不调 next() —— 用一个会记性的下游把它钉死。
+test('手机在看这个会话也照转：桌面照常出卡，手机先答就用手机的', async () => {
+  // 桌面那张卡只由「被转发的请求」长出来 —— 少转这一下，手机看着会话时桌面从源头就没有卡，
+  // 之后切回去也补不回来（2026-10-24 用户报「APP 有卡、桌面什么都没有」）。
   const { ctx, frames, watch } = setup();
   watch('s-1');
   let forwarded = false;
   const held = runHook(ctx, ask(), () => { forwarded = true; return HOLD(); });
   await flush();
-  assert.equal(forwarded, false, '有观众还转发，桌面那张卡就会在手机答完后悬着');
+  assert.equal(forwarded, true, '有观众也要照转，否则桌面那张卡根本没有');
   const card = frames.find((frame) => frame.type === 'question/requested');
   const res = jsonResponse();
   await questions.handleQuestionRespond(ctx, jsonRequest({
@@ -240,8 +239,29 @@ test('手机在看这个会话时不往下游转发：桌面从源头不弹卡�
     answer: { answers: [{ id: 'q1', selected: ['9000'] }] },
   }), res);
   assert.equal(res.status, 200);
-  assert.deepEqual(await held, { answers: [{ id: 'q1', selected: ['9000'] }] }, '独家作答也要把回答交回钩子');
+  assert.deepEqual(await held, { answers: [{ id: 'q1', selected: ['9000'] }] }, '手机先答就用手机的');
   assert.equal(questions.pendingKind('s-1'), undefined);
+  watch();
+});
+
+test('桌面没开着（NO_PROVIDER）且手机在看：不把「没人答」当结论，继续等手机', async () => {
+  // 桌面没开时宿主那趟转发直接以 NO_PROVIDER 失败，而手机那张卡还在等人点 ——
+  // 这一下要是当成结论交回去，刚推出去的那张卡就成了死卡。
+  const { ctx, frames, watch } = setup();
+  watch('s-1');
+  const noProvider = Object.assign(new Error('no answerer'), { code: 'NO_PROVIDER' });
+  const held = runHook(ctx, ask(), () => Promise.reject(noProvider));
+  await flush();
+  assert.equal(questions.pendingKind('s-1'), 'question', '手机还看着，问题必须继续挂着');
+  const card = frames.find((frame) => frame.type === 'question/requested');
+  const res = jsonResponse();
+  await questions.handleQuestionRespond(ctx, jsonRequest({
+    rpcId: card.rpcId,
+    sessionId: 's-1',
+    answer: { answers: [{ id: 'q1', selected: ['8787'] }] },
+  }), res);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await held, { answers: [{ id: 'q1', selected: ['8787'] }] });
   watch();
 });
 
