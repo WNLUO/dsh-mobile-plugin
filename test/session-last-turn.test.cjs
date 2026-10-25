@@ -17,6 +17,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildSessionsResponse } = require('../lib/mobile/sessions.js');
 const { lastTurnOf, settleOutcome, recordLastTurn, recordSessionRead } = require('../lib/mobile/session-last-turn.js');
+const readReceipt = require('../lib/read-receipt.cjs');
 const { handleSessionRead } = require('../lib/mobile/sessions.js');
 const { Readable } = require('node:stream');
 const fs = require('node:fs');
@@ -186,6 +187,41 @@ test('只有一个已读水位、没有轮次事实时不下发（重启后还�
   const ctx = {};
   recordSessionRead(ctx, SID, 500);
   assert.equal(lastTurnOf(ctx, SID), undefined);
+});
+
+// 真机报的那一步（2026-10-26）：桌面上那条已经是「已完成」，App 侧栏还挂着绿点，重启
+// App 之后又回来。根因是这张事地表只活在进程里：宿主一重启，「桌面读过」就没了，列表
+// 折出来的事实只剩结束时刻，App 按「没人读过」重算 → 又亮。盘上那本已读台账是唯一还记着
+// 这件事的地方，所以得从这里补回来。
+test('重启后从圆盘台账补回已读水位：上一轮读过的不再算未读', () => {
+  const RESTORED = 'session-restored-from-receipts';
+  const readAt = Date.now() - 3_600_000;
+  readReceipt.recordRead(RESTORED, readAt);
+  const ctx = {};
+  recordLastTurn(ctx, RESTORED, { turn: 5, endedAt: readAt - 1000, status: 'completed' });
+  assert.equal(lastTurnOf(ctx, RESTORED).readAt, readAt, '上一轮在读过之前结束，水位要从台账补回来');
+  recordLastTurn(ctx, RESTORED, { turn: 5, endedAt: readAt - 1000, status: 'completed' });
+  assert.equal(lastTurnOf(ctx, RESTORED).readAt, readAt, '重新折叠也要带着这份水位，不许退回没有');
+});
+
+// 读完之后才跑完的这一轮仍然该亮：补水位不能把新的一轮一起吞掉。
+test('台账里的水位不会吞掉之后结束的那一轮', () => {
+  const LATER = 'session-restored-then-new-turn';
+  const readAt = Date.now() - 3_600_000;
+  readReceipt.recordRead(LATER, readAt);
+  const ctx = {};
+  recordLastTurn(ctx, LATER, { turn: 6, endedAt: readAt + 5000, status: 'completed' });
+  assert.equal(lastTurnOf(ctx, LATER).readAt, readAt);
+  assert.ok(lastTurnOf(ctx, LATER).endedAt > readAt, '结束时刻晚于水位 ⇒ App 那边仍然算未读');
+});
+
+// 另一头：本进程内的读必须同时落进圆盘台账（桌面端绿点靠它清）。这条以前只在手机那条
+// 路上单独写过，现在收在 recordSessionRead 里，两端一起有。
+test('记一笔已读会同时写进圆盘台账（桌面端绿点靠它）', () => {
+  const PERSISTED = 'session-read-persisted';
+  assert.equal(readReceipt.readAtOf(PERSISTED), 0, '还没读过时台账里没有这一条');
+  recordSessionRead({}, PERSISTED, Date.now());
+  assert.ok(readReceipt.readAtOf(PERSISTED) > 0, '读过之后台账里必须留下水位');
 });
 
 test('settleOutcome：assistant 必须是本轮已落定的那条', () => {

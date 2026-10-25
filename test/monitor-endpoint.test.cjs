@@ -21,6 +21,8 @@ const assert = require('node:assert/strict');
 const { handleMonitor } = require('../lib/mobile/monitor.js');
 const { recordLastTurn } = require('../lib/mobile/session-last-turn.js');
 const { completionStateOf } = require('../lib/mobile/session-cache.js');
+const { listSignal } = require('../lib/shared/list-signal.js');
+const { sessionSignal } = require('../lib/shared/session-signal.js');
 
 function makeReq(url) {
   const req = Readable.from([Buffer.from('{}')]);
@@ -161,6 +163,14 @@ test('完成看上一轮事实：预览缓存命中（events 为空）也能报�
   assert.equal(done.items[0].completed, true);
 });
 
+test('把上一轮事实透给原生（按轮次判完成用）', async () => {
+  const ctx = makeCtx([session('s1', { running: false, updatedAt: 2_000 })]);
+  recordLastTurn(ctx, 's1', { turn: 3, endedAt: 5_000, status: 'completed' });
+  const body = await get(ctx, URL_);
+  assert.equal(body.items[0].lastTurn.turn, 3);
+  assert.equal(body.items[0].lastTurn.status, 'completed');
+});
+
 test('读过之后结束的那一轮不再算提醒（已读水位仍然生效）', async () => {
   const ctx = makeCtx([session('s1', { running: false, updatedAt: 2_000 })]);
   await get(ctx, URL_);
@@ -169,6 +179,16 @@ test('读过之后结束的那一轮不再算提醒（已读水位仍然生效�
   recordLastTurn(ctx, 's1', { turn: 1, endedAt: 5_000, status: 'completed' });
   const body = await get(ctx, URL_);
   assert.equal(body.items[0].completed, false);
+});
+
+test('子代理会话不进监控视图（后台不该为内部执行单元弹提醒）', async () => {
+  const ctx = makeCtx([
+    session('s1'),
+    session('sub', { origin: 'subagent', running: true, updatedAt: 2_000 }),
+  ]);
+  const body = await get(ctx, URL_);
+  assert.equal(body.items.length, 1);
+  assert.equal(body.items[0].sessionId, 's1');
 });
 
 test('归档会话不进监控视图', async () => {
@@ -193,4 +213,72 @@ test('宿主列表形状不对 → 5xx（别拿空清单清掉原生基线）', 
   await handleMonitor(ctx, makeReq(URL_), res);
   assert.equal(res.status, 500);
   assert.equal(res.body.ok, false);
+});
+
+/*
+ * 挂起等待（`?wait=`）：安卓后台服务靠它实时拿到「这一轮跑完了」。
+ *
+ * 钉住三件事：状态位没变时这一发**不回**（否则就成了换地方的轮询）；有变化时**立刻**回，
+ * 不用等满；没有 rev 时一律立刻回（那是「给我完整状态」，不是「等变化」）。
+ */
+
+test('带 wait 且状态位没变 → 挂到有变化才回，且立刻回', async () => {
+  const ctx = makeCtx([session('s1')]);
+  const first = await get(ctx, URL_);
+  const url = `${URL_}?rev=${encodeURIComponent(first.revision)}&wait=10`;
+
+  let resolved = false;
+  const pending = get(ctx, url).then((body) => { resolved = true; return body; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(resolved, false, '状态位没变，这一发不能被立刻回掉');
+
+  ctx.state.items = [session('s1', { running: true })];
+  listSignal.bump(`test-${Date.now()}`);
+  const body = await pending;
+  assert.equal(body.unchanged, undefined);
+  assert.equal(body.items[0].running, true);
+});
+
+test('会话水位涨了也能唤醒（正文变化不一定改清单）', async () => {
+  const ctx = makeCtx([session('s1')]);
+  const first = await get(ctx, URL_);
+  const url = `${URL_}?rev=${encodeURIComponent(first.revision)}&wait=10`;
+
+  let resolved = false;
+  const pending = get(ctx, url).then((body) => { resolved = true; return body; });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(resolved, false);
+
+  ctx.state.historyCalls = 0;
+  sessionSignal.bump('s1', 7);
+  const body = await pending;
+  assert.equal(body.unchanged, true, '醒来先如实回一次，手机自己再挂');
+});
+
+test('挂满就回，不留一个转不停的请求', async () => {
+  const ctx = makeCtx([session('s1')]);
+  const first = await get(ctx, URL_);
+  const started = Date.now();
+  const body = await get(ctx, `${URL_}?rev=${encodeURIComponent(first.revision)}&wait=0.05`);
+  assert.equal(body.unchanged, true);
+  assert.ok(Date.now() - started >= 40, '没到时间就回了说明根本没挂');
+});
+
+test('没有 rev 时不挂：那是「给我完整状态」', async () => {
+  const ctx = makeCtx([session('s1')]);
+  const started = Date.now();
+  const body = await get(ctx, `${URL_}?wait=5`);
+  assert.equal(body.items.length, 1);
+  assert.ok(Date.now() - started < 1_000);
+});
+
+test('变化已经发生过的这一发不挂（rev 对不上就直接回新状态）', async () => {
+  const ctx = makeCtx([session('s1')]);
+  const first = await get(ctx, URL_);
+  ctx.state.items = [session('s1', { running: true })];
+  const started = Date.now();
+  const body = await get(ctx, `${URL_}?rev=${encodeURIComponent(first.revision)}&wait=5`);
+  assert.equal(body.unchanged, undefined);
+  assert.equal(body.items[0].running, true);
+  assert.ok(Date.now() - started < 1_000);
 });
