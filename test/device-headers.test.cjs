@@ -88,7 +88,16 @@ test('凭据库：touch 带身份时写回去，缺的格子保持原值', () =>
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('两侧头名逐字一致：App 写的名字必须就是宿主读的那几个', () => {
+/**
+ * App 侧那两份源码只在主仓检出里存在：插件被单独 clone 出去（公开发布仓库）时没有 app/，
+ * 那条流水线跑的是「发出去的包」。所以这条跨仓对账按仓里既有写法在缺席时 skip，
+ * 并把理由写进 skipped 计数（不静默变绿）。
+ */
+const APP_DEVICE_IDENTITY = path.join(__dirname, '..', '..', 'app', 'src', 'services', 'device-identity.ts');
+const NO_APP = !fs.existsSync(APP_DEVICE_IDENTITY);
+const SKIP_NO_APP = NO_APP && `${APP_DEVICE_IDENTITY} 不存在（插件单独检出），跳过跨仓对账`;
+
+test('两侧头名逐字一致：App 写的名字必须就是宿主读的那几个', { skip: SKIP_NO_APP }, () => {
   const app = fs.readFileSync(
     path.join(__dirname, '..', '..', 'app', 'src', 'services', 'device-identity.ts'),
     'utf8',
