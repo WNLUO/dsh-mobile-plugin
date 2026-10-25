@@ -20,6 +20,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 const { PassThrough } = require('node:stream');
 
@@ -103,6 +105,36 @@ function fakeRes() {
   return res;
 }
 
+/**
+ * 假 res：只为「流式写块」那条路准备 —— 收齐 `write` 的字节，并记下是正常收尾还是被掐断。
+ *
+ * 与 `fakeRes` 分开：那个是给 `sendJson` 用的（`writeHead` + `end` 一次成），
+ * 它没有 `write`，而这边的关键恰恰是「一次 `write` 都不能丢」。
+ */
+function collectRes() {
+  const chunks = [];
+  const res = {
+    destroyed: false,
+    ended: false,
+    body: Buffer.alloc(0),
+    writeHead() { return res; },
+    write(chunk) {
+      if (chunk != null) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+      return true;
+    },
+    end(chunk) {
+      res.ended = true;
+      if (chunk != null) res.write(chunk);
+      res.body = Buffer.concat(chunks);
+      return res;
+    },
+    on() { return res; },
+    destroy() { res.destroyed = true; return res; },
+    setHeader() {},
+  };
+  return res;
+}
+
 /** 起一个真的 guarded 守卫，keyFor 只认这一把设备密钥。 */
 function guarded() {
   return routing.createGuarded({}, () => true, null, {
@@ -172,24 +204,54 @@ test('宿主封的 SSE 帧 App 能解开', { skip: SKIP_NO_APP }, () => {
   assert.deepEqual(got, payload);
 });
 
-test('宿主写的分块文件 App 能整份解回来（含尾块）', { skip: SKIP_NO_APP }, () => {
-  const reqNonce = e2ee.b64url(Buffer.alloc(12, 0x44));
+test('宿主写的分块文件 App 能整份解回来（含尾块）', { skip: SKIP_NO_APP }, async () => {
+  const { writeEncryptedFile } = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'mobile', 'session-file.js'));
   const filePath = '/api/mobile/v1/session/file';
+  const reqNonce = e2ee.b64url(Buffer.alloc(12, 0x44));
   const blocks = [Buffer.from('a'.repeat(64 * 1024)), Buffer.from('尾巴')];
-  const payload = Buffer.concat(blocks.map((bytes, index) => {
-    const sealed = Buffer.from(e2ee.sealWithNonce(keys.down, Buffer.alloc(12, index + 1), bytes, e2ee.fileAad(filePath, reqNonce, index + 1)));
-    const head = Buffer.alloc(4);
-    head.writeUInt32BE(sealed.length - e2ee.NONCE_BYTES, 0);
-    return Buffer.concat([head, sealed]);
-  }));
-  const out = appFile.openFileChunk(
-    { proto: 2, deviceKey: DEVICE_KEY.toString('base64url'), keyId: KEY_ID, clockSkewMs: 0 },
-    { path: filePath, ts: 1, nonce: reqNonce },
-    new Uint8Array(payload),
+
+  // 走**宿主真实的写块函数**，不要在这里手抄一份分块形状：抄一份的话宿主那边改名 / 调错
+  // 内部函数都测不出来（`signedPath` 取错对象那次就是这样漏过去的）。
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-file-'));
+  const target = path.join(dir, '报告.md');
+  await fs.writeFile(target, Buffer.concat(blocks));
+
+  const res = collectRes();
+  await writeEncryptedFile(
+    { method: 'POST', url: filePath, headers: {} },
+    res,
+    target,
+    { keys, req: { ts: 1, nonce: reqNonce } },
   );
+  await fs.rm(dir, { recursive: true, force: true });
+
+  assert.equal(res.destroyed, false, '写完不该把连接掐掉');
+  assert.equal(res.ended, true, '最后必须收尾：不收尾对端就永远等下去');
+  const out = appFile.openFileChunk(context, { path: filePath, ts: 1, nonce: reqNonce }, new Uint8Array(res.body));
   assert.equal(out.length, blocks[0].length + blocks[1].length);
   assert.equal(Buffer.from(out).subarray(64 * 1024).toString('utf8'), '尾巴');
 });
+
+test('分块写到一半炸了要断连接，不能把响应挂在半路', async () => {
+  const { writeEncryptedFile } = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'mobile', 'session-file.js'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-file-'));
+  const target = path.join(dir, 'x.md');
+  await fs.writeFile(target, 'anything');
+
+  const res = collectRes();
+  // 空键 → 封块那一步必抛。状态码已经发出去了，改不了，只剩「主动断开」这一条路。
+  await writeEncryptedFile(
+    { method: 'POST', url: '/api/mobile/v1/session/file', headers: {} },
+    res,
+    target,
+    { keys: {}, req: { ts: 1, nonce: 'n' } },
+  );
+  await fs.rm(dir, { recursive: true, force: true });
+
+  assert.equal(res.destroyed, true, '出错必须断开，否则手机上表现为「一直下载中」');
+  assert.equal(res.ended, false, '不该假装写完');
+});
+
 
 test('签名对不上时宿主拒收：搬参前后算签名会得到两个不同的摘要', { skip: SKIP_NO_APP }, () => {
   const url = 'http://x/api/mobile/v1/session/search?path=%2Fa&rev=1';

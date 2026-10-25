@@ -93,7 +93,7 @@ test('子代理走同一条 session.history，只是 payload 带上父会话与�
   }
 });
 
-test('工具落定补丁取自整个窗口：游标越过结果 seq 也要回传', async () => {
+test('工具落定补丁取自整个窗口，但增量只回状态不回正文', async () => {
   const events = [
     {
       event: {
@@ -129,9 +129,11 @@ test('工具落定补丁取自整个窗口：游标越过结果 seq 也要回传
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.deepEqual(body.items, [], '窗口内没有消息行');
+    // 增量拉取（带 afterSeq）只回状态：调用方手上已经有一份会话，整窗的工具输出再灌一遍
+    // 就是「每 15 秒把最近两百条里的工具输出重发一次」。正文由入口整份拉取与展开时补。
     assert.deepEqual(body.toolResults, [
-      { callId: 'call-old', state: 'ok', output: 'older result' },
-      { callId: 'call-stopped', state: 'stopped', output: 'interrupted result' },
+      { callId: 'call-old', state: 'ok' },
+      { callId: 'call-stopped', state: 'stopped' },
     ]);
   } finally {
     await host.close();
