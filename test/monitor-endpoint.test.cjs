@@ -19,6 +19,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { handleMonitor } = require('../lib/mobile/monitor.js');
+const { recordLastTurn } = require('../lib/mobile/session-last-turn.js');
+const { completionStateOf } = require('../lib/mobile/session-cache.js');
 
 function makeReq(url) {
   const req = Readable.from([Buffer.from('{}')]);
@@ -142,6 +144,31 @@ test('刚跑完的那一条读一次 history 折出完成态，之后不再读',
   const settled = await get(ctx, `${URL_}?rev=${encodeURIComponent(done.revision)}`);
   assert.equal(ctx.state.historyCalls, 1);
   assert.equal(settled.unchanged, true);
+});
+
+test('完成看上一轮事实：预览缓存命中（events 为空）也能报完成', async () => {
+  // 真机根因（2026-10-25）：`state.completed` 只在「这次真读回 history」时才折得出来，
+  // 而宿主的镜像推送每 500ms 就把同一份预览按新指纹写进缓存 —— 监控这一侧永远命中缓存、
+  // 永远折不出来，后台一条完成提醒都不响。现在完成/失败改由上一轮事实（turn/end 当场
+  // 记下）来算，这条路不经过预览缓存。
+  const ctx = makeCtx([session('s1', { running: true, updatedAt: 2_000 })]);
+  const running = await get(ctx, URL_);
+  assert.equal(running.items[0].completed, false);
+
+  ctx.state.items = [session('s1', { running: false, updatedAt: 3_000 })];
+  recordLastTurn(ctx, 's1', { turn: 1, endedAt: 5_000, status: 'completed' });
+  const done = await get(ctx, `${URL_}?rev=${encodeURIComponent(running.revision)}`);
+  assert.equal(done.items[0].completed, true);
+});
+
+test('读过之后结束的那一轮不再算提醒（已读水位仍然生效）', async () => {
+  const ctx = makeCtx([session('s1', { running: false, updatedAt: 2_000 })]);
+  await get(ctx, URL_);
+  // 这台设备在 6000 读过，而这一轮 5000 就结束了 —— 不该再亮。
+  completionStateOf(ctx, 'legacy').get('s1').clearedAt = 6_000;
+  recordLastTurn(ctx, 's1', { turn: 1, endedAt: 5_000, status: 'completed' });
+  const body = await get(ctx, URL_);
+  assert.equal(body.items[0].completed, false);
 });
 
 test('归档会话不进监控视图', async () => {
