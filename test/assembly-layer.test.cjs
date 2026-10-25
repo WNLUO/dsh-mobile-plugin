@@ -111,7 +111,11 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 512 → 517（2026-10-24，配对票据下发给旁路）：只多出 buildConfig 里的**一个字段**
   // （`pairingTicket`），其余是四行注释说清漏了它的现场 —— 旁路解不开加密配对，而主进程
   // 那条 `/pair` 一切正常。派生密钥与解封的本体住在 `lib/shared/e2ee-pair.js`。
-  assert.ok(lines <= 517, `lib/impl.js 回到 ${lines} 行了；超过 517 说明实现又被搬回装配层`);
+  // 517 → 522（2026-10-25，手机手填的直连地址）：与 `preferredLanAddress` 同一形状 ——
+  // 装配层只多出 schema 一项、configOf 一行取值、二维码候选与移动端候选各**一行调用**，
+  // 外加三行短注释。值怎么校验、怎么排进候选全在 `lib/relay/lan-network.cjs` 的
+  // `manualCandidate` / `phoneCandidates`，一行实现都没有搬回来。
+  assert.ok(lines <= 522, `lib/impl.js 回到 ${lines} 行了；超过 522 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

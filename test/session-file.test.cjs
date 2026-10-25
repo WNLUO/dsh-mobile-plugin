@@ -5,13 +5,14 @@
  *
  * 这条路由的边界比它的实现重要，所以逐条钉住：
  *
- *  1. **只认本会话 present 声明过的路径**（字符串全等）：不在清单里的路径一次盘都不碰，
+ *  1. **放行面是两条**：本会话工作区里的文件（按解析后的落点判，`../` 爬出去不算），
+ *     以及本会话 present 声明过的路径（字符串全等）。两条都不认的路径一次盘都不碰，
  *     回 403 —— 这是「移动 API 不暴露任意读」的唯一执行点。
  *  2. **相对路径按会话 cwd 解析**，绝对路径原样。
- *  3. 声明过、盘上没有 → 404；声明的是个目录 → 400。两种都不是「声明有问题」。
+ *  3. 认了、盘上没有 → 404；认的是个目录 → 400。两种都不是「路径有问题」。
  *  4. 回的是原始字节 + 与扩展名对得上的 `content-type` / 准确的 `content-length`，
  *     不是 JSON 信封 —— App 那边直接读 arrayBuffer。
- *  5. 读历史失败 → 502，不能假装成「没有声明」。
+ *  5. 走进声明那条路时读历史失败 → 502，不能假装成「没有声明」。
  *
  * 起真 http 服务、真读临时目录，只有宿主那一侧是假对象。
  */
@@ -136,16 +137,35 @@ test('声明过的文件：按 cwd 解析相对路径，回原始字节与媒体
   });
 });
 
-test('不在声明里的路径：403，且一次盘都不碰', async (t) => {
+test('工作区里的文件：不用交付声明也能取（正文里点的链接走这条）', async (t) => {
   const dir = await workspace(t);
-  await fs.writeFile(path.join(dir, 'secret.txt'), 'nope');
+  const content = '# 星尘笔记\n正文\n';
+  await fs.mkdir(path.join(dir, 'test-docs'));
+  await fs.writeFile(path.join(dir, 'test-docs', '说明.md'), content, 'utf8');
+  // 一条声明都没有：放行只因为落点在工作区里；声明那一侧的历史一次都不该读。
+  await withHost({ cwd: dir, events: [] }, async (host) => {
+    const res = await host.post({ sessionId: 's1', path: 'test-docs/说明.md' });
+    assert.equal(res.status, 200);
+    assert.equal(res.bytes.toString('utf8'), content);
+    assert.equal(host.calls.history, 0);
+  });
+});
+
+test('工作区外的一条都不给：403 outside-workspace，且一次盘都不碰', async (t) => {
+  const dir = await workspace(t);
+  // 工作区的**隔壁**：`../x/outside.txt` 与它的绝对路径写法都指向这里。
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-session-file-out-'));
+  t.after(async () => { await fs.rm(outside, { recursive: true, force: true }); });
+  const outsideFile = path.join(outside, 'outside.txt');
+  await fs.writeFile(outsideFile, 'nope', 'utf8');
+
   await withHost({ cwd: dir, events: [presented(1, ['out/a.txt'])] }, async (host) => {
-    const res = await host.post({ sessionId: 's1', path: 'secret.txt' });
-    assert.equal(res.status, 403);
-    assert.equal(res.body.error.code, 'not-presented');
-    // 换个写法也不行：必须与声明的字符串全等。
-    const viaDot = await host.post({ sessionId: 's1', path: './out/a.txt' });
-    assert.equal(viaDot.status, 403);
+    const escape = await host.post({ sessionId: 's1', path: `../${path.basename(outside)}/outside.txt` });
+    assert.equal(escape.status, 403);
+    assert.equal(escape.body.error.code, 'outside-workspace');
+    const absolute = await host.post({ sessionId: 's1', path: outsideFile });
+    assert.equal(absolute.status, 403);
+    assert.equal(absolute.body.error.code, 'outside-workspace');
   });
 });
 

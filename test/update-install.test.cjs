@@ -14,6 +14,8 @@
  *     （开发机就这么跑），装一次 npm 版会把那个指向换掉、本地改动从此不生效。这道门排在
  *     挑包管理器之前 —— 「这台不该装」与「这台装不了」是两件事，不能混成同一条失败。
  *   · **只有 force 才跳过「新发布先晾一会儿」**：平时不该绕供应链那点等待。
+ *   · **自动那一轮只跳过「有对话在跑」那道闸**（2026-10-25 用户拍板）：照样要有新版才装，
+ *     也不借 force 的发布时长开关 —— 借了就成了每 10 分钟把同一个版本重装一遍。
  *
  * 假包管理器是**真的可执行文件**（临时目录里的 sh 脚本 + 真 spawn），所以 cwd、参数、
  * 环境变量、退出码全是被测对象，不是打桩过的函数调用。
@@ -379,7 +381,7 @@ test('外壳那条路：盘上那一代带自装模块时，自动更新走它�
       "'use strict';",
       `const fs = require('node:fs');`,
       `module.exports = { installLatestIfNeeded: async (options) => {`,
-      `  fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ force: options.force === true, packageManager: options.packageManager ?? null, hasAgents: options.agents !== undefined && options.agents !== null }));`,
+      `  fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ force: options.force === true, auto: options.auto === true, packageManager: options.packageManager ?? null, hasAgents: options.agents !== undefined && options.agents !== null }));`,
       `  return { installed: true, skipped: false, beforeVersion: '0.1.60', installedVersion: '0.2.0', failure: null };`,
       `} };`,
       '',
@@ -401,8 +403,29 @@ test('外壳那条路：盘上那一代带自装模块时，自动更新走它�
   assert.equal(outcome.restartRequired, false, '外壳就地换代，不许照做市场的「要重启」');
   const seen = JSON.parse(fs.readFileSync(marker, 'utf8'));
   assert.equal(seen.force, true, 'force 要透给实现');
+  assert.equal(seen.auto, false, '手动那颗按钮不是自动那一档');
   assert.equal(seen.packageManager?.command, '/host/pnpm', '宿主发布的包管理器要透给实现（装的时候必须优先用它）');
   assert.equal(seen.hasAgents, true, 'agents 服务要透给实现（「有对话在跑就别换文件」那道闸要用）');
+
+  // 自动那一轮：force 不带，auto 要透到实现 —— 只有实现认得出这一档，它才会不等对话。
+  await installIfNeeded('http://127.0.0.1:1', { auto: true, agents: () => ({ list: () => [] }) });
+  const autoSeen = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  assert.equal(autoSeen.force, false, '自动那一轮不许借 force');
+  assert.equal(autoSeen.auto, true, 'auto 要透给实现');
+
+  // 外壳自己的定时器从 `performUpdate` 进来，中间还有一层编排：`auto` 得一路穿到底。
+  const { performUpdate } = await import('../lib/shell/updater.js');
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  await performUpdate({
+    runtime: { status: () => ({ version: '0.1.60', source: 'installed' }), reload: async () => ({ version: '0.2.0' }) },
+    base: 'http://127.0.0.1:1',
+    hostService: () => null,
+    updateState,
+    auto: true,
+  });
+  const autoApply = JSON.parse(fs.readFileSync(marker, 'utf8'));
+  assert.equal(autoApply.auto, true, '自动轮询那一轮的 auto 要穿到实现（否则定时器白开）');
+  assert.equal(autoApply.force, false);
 });
 
 test('宿主发布的包管理器优先：PATH 上那个不许被碰', async () => {
@@ -468,6 +491,39 @@ test('有 agent 在跑：不动盘、如实报 AGENTS_RUNNING、可说「再试�
     });
     assert.equal(forced.installed, true, 'force 要跳过那道闸');
     assert.equal(forced.installedVersion, '0.2.0');
+
+    // auto = 宿主那一轮自动更新：同样跳过这道闸（2026-10-25 用户拍板），但它**不**借
+    // force 的其余两件事 —— 发布时长开关一开始仍然不带。
+    const autoProfile = makeProfile('agents-auto', '0.1.60');
+    const autoFake = makeFakePnpm('agents-auto');
+    const automatic = await installLatestIfNeeded({
+      profileNodeModules: autoProfile.nodeModules,
+      auto: true,
+      dirs: [autoFake.binDir],
+      env: isolatedEnv(autoFake.binDir),
+      agents: { list: () => [{ id: 'session-a', status: 'running' }] },
+    });
+    assert.equal(automatic.installed, true, '自动更新要跳过「有对话在跑」那道闸');
+    assert.equal(automatic.installedVersion, '0.2.0');
+    assert.equal(/minimum-release-age=0/.test(autoFake.calls()[0]), false, 'auto 不借 force 的发布时长开关');
+  });
+});
+
+test('auto 只跳过对话那道闸：已经是最新时照样不动盘', async () => {
+  await withRegistry('0.1.60', async () => {
+    const profile = makeProfile('auto-current', '0.1.60');
+    const fake = makeFakePnpm('auto-current');
+    const outcome = await installLatestIfNeeded({
+      profileNodeModules: profile.nodeModules,
+      auto: true,
+      dirs: [fake.binDir],
+      env: isolatedEnv(fake.binDir),
+      agents: { list: () => [{ id: 'session-a', status: 'running' }] },
+    });
+    assert.equal(outcome.installed, false);
+    assert.equal(outcome.skipped, true);
+    assert.equal(outcome.check.updateAvailable, false);
+    assert.deepEqual(fake.calls(), [], '已经是最新时不许每 10 分钟把同一个版本重装一遍');
   });
 });
 

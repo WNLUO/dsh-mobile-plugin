@@ -153,7 +153,7 @@ test('改配置的路由逐字段校验，不接受任意键', () => {
   assert.notEqual(at, -1);
   const end = source.indexOf('registerRoute', at + 1);
   const route = source.slice(at, end < 0 ? at + 1600 : end);
-  for (const field of ['relayUrl', 'lanEnabled', 'lanPort', 'name', 'pairingPolicy', 'registerSecret', 'preferredLanAddress']) {
+  for (const field of ['relayUrl', 'lanEnabled', 'lanPort', 'name', 'pairingPolicy', 'registerSecret', 'preferredLanAddress', 'manualLanUrl']) {
     assert.ok(route.includes(`patch.${field}`), `config 路由必须逐字段校验并只写白名单字段，缺 ${field}`);
   }
   // 端口范围与注册密钥长度是防呆，别被"顺手清理"掉。

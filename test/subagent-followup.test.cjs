@@ -393,6 +393,64 @@ test('续话：宿主空响应 → 400 internal 空响应', async () => {
   }
 });
 
+// 续话与主会话发送是同一条「乐观行 + 超时后重发」链路：App 的重试带着同一个
+// clientMessageId 回来，插件必须回放第一次的结果，而不是在子会话里把同一句话说两遍。
+test('续话：同一个 clientMessageId 重发只打一次宿主', async () => {
+  const host = await serve();
+  try {
+    const body = { ...PAIR, text: '继续说', clientMessageId: 'cm-sub-1' };
+    assert.equal((await host.prompt(body)).status, 200);
+    const second = await host.prompt(body);
+    assert.equal(second.status, 200);
+    assert.deepEqual(await second.json(), { ok: true, accepted: true });
+    assert.equal(host.prompts.length, 1, '重投必须命中回执，不能再打一次子代理');
+    assert.ok(!('clientMessageId' in host.prompts[0].payload), '去重 id 只在插件这层用，不塞给宿主');
+  } finally {
+    await host.close();
+  }
+});
+
+test('续话：换了 clientMessageId 就真的再发；同一个 id 换了子会话也照常发', async () => {
+  const host = await serve();
+  try {
+    await host.prompt({ ...PAIR, text: 'a', clientMessageId: 'cm-1' });
+    await host.prompt({ ...PAIR, text: 'a', clientMessageId: 'cm-2' });
+    await host.prompt({ ...PAIR, childSessionId: 'child-2', text: 'a', clientMessageId: 'cm-1' });
+    assert.equal(host.prompts.length, 3);
+  } finally {
+    await host.close();
+  }
+});
+
+test('续话：并发同一 id 共享一次宿主调用', async () => {
+  const host = await serve();
+  try {
+    const body = { ...PAIR, text: '并发', clientMessageId: 'cm-burst' };
+    const [a, b] = await Promise.all([host.prompt(body), host.prompt(body)]);
+    assert.equal(a.status, 200);
+    assert.equal(b.status, 200);
+    assert.equal(host.prompts.length, 1);
+  } finally {
+    await host.close();
+  }
+});
+
+test('续话：宿主拒绝的那一发不占位（同一 id 重试会真的重发）', async () => {
+  let calls = 0;
+  const host = await serve(() => {
+    calls += 1;
+    return errValue({ code: 'subagent-parent-unavailable', message: 'parent session is not live' });
+  });
+  try {
+    const body = { ...PAIR, text: '再来', clientMessageId: 'cm-fail' };
+    assert.equal((await host.prompt(body)).status, 400);
+    assert.equal((await host.prompt(body)).status, 400);
+    assert.equal(calls, 2, '业务错误不能被固化成回执，重试必须真的再试一次');
+  } finally {
+    await host.close();
+  }
+});
+
 test('续话：非法 JSON 请求体 → 400 需要 { parentSessionId, childSessionId, content | text }', async () => {
   const host = await serve();
   try {
@@ -510,6 +568,7 @@ test('子代理续话：插件挂上两条路由并导出，且 interrupt 不传
   assert.ok(mod.includes('ctx.apiProxy.subagents.interrupt('), 'interrupt 必须走 apiProxy.subagents（复数）');
   assert.ok(mod.includes("mode: 'continuable'"), 'mode 固定 continuable');
   assert.ok(mod.includes('SUBAGENT_IMAGE_UNSUPPORTED'), '图片续话要报 SUBAGENT_IMAGE_UNSUPPORTED');
+  assert.ok(mod.includes('promptOnceFor('), '续话要按 clientMessageId 去重（超时重试不许说两遍）');
   assert.ok(mod.includes('需要 { parentSessionId, childSessionId, content | text }'), 'prompt 缺 id 时应 400');
   assert.ok(mod.includes('需要 { parentSessionId, childSessionId }'), 'interrupt 缺 id 时应 400');
 

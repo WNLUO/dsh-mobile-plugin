@@ -144,6 +144,11 @@ test('改配置：逐项校验，形状不对整次拒绝', () => {
   const preferred = configPatch({ preferredLanAddress: '' });
   assert.equal(preferred.ok, true);
   assert.equal(preferred.patch.preferredLanAddress, '');
+  // 手填的直连地址：与优先地址同一条口径 —— 空串合法（清掉），只挡类型与长度。
+  assert.equal(configPatch({ manualLanUrl: 'a'.repeat(201) }).ok, false);
+  assert.equal(configPatch({ manualLanUrl: 1 }).ok, false);
+  assert.equal(configPatch({ manualLanUrl: '' }).patch.manualLanUrl, '');
+  assert.equal(configPatch({ manualLanUrl: ' https://home.example.com:8443/ ' }).patch.manualLanUrl, 'https://home.example.com:8443');
 });
 
 test('读配置：一次给全配置与地址候选', async () => {

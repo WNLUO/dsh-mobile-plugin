@@ -61,7 +61,7 @@ function baselineFor(sessionId, values) {
   return { type: 'baseline', value: { projections: { [sessionId]: { asOfSeq: 7, values } } } };
 }
 
-test('键控 inbox 摊平成 queued 行，next-step 不进队列帧', async () => {
+test('键控 inbox 摊平成 queued / steering 行', async () => {
   const seen = [];
   const { ctx } = makeCtx([
     baselineFor('s-1', {
@@ -77,7 +77,12 @@ test('键控 inbox 摊平成 queued 行，next-step 不进队列帧', async () =
   assert.deepEqual(queue[0].payload, {
     type: 'session/queue',
     sessionId: 's-1',
-    items: [{ id: 'msg-q1', placement: 'queued', message: { id: 'msg-q1', content: [{ type: 'text', text: '排队的消息' }] } }],
+    items: [
+      { id: 'msg-q1', placement: 'queued', message: { id: 'msg-q1', content: [{ type: 'text', text: '排队的消息' }] } },
+      // next-step 是「宿主已经收下、等本步末尾插进去」的插话：它不进排队条，但手机要靠它
+      // 把气泡从「发送中」翻面（App 侧 QueueDock / 正文列表都只认 queued）。
+      { id: 'msg-s1', placement: 'steering', message: { id: 'msg-s1', content: [{ type: 'text', text: '插话的消息' }] } },
+    ],
   });
 
   // 投影整帧仍按宿主形状原样转发（别的字段由 App 侧另一条路读），只有队列帧摊平。
@@ -111,6 +116,9 @@ test('畸形 inbox 一律退化成空 items，不报错也不伪造行', async (
     { 'next-turn': [{ content: [{ type: 'text', text: '没有 id' }] }], 'next-step': [] },
     { 'next-turn': [null, 3, 'x'], 'next-step': [] },
     { 'next-turn': 'nope', 'next-step': [] },
+    // 插话那一组同样只认数组 + 带 id 的对象：形状坏了就整组不出行，不猜。
+    { 'next-turn': [], 'next-step': 'nope' },
+    { 'next-turn': [], 'next-step': [null, { content: [{ type: 'text', text: '没有 id' }] }] },
     {},
     [],
     null,
@@ -139,14 +147,15 @@ test('丢掉的待发行必须留下带计数的日志', async () => {
     baselineFor('s-1', {
       inbox: {
         'next-turn': [inboxMessage('m1', '有 id'), { content: [{ type: 'text', text: '没有 id' }] }, null],
-        'next-step': [],
+        // 插话那一组也计入同一个计数：两处共用一个摊平实现，别只在一处数。
+        'next-step': [{ content: [{ type: 'text', text: '插话没有 id' }] }],
       },
     }),
   ]);
   const frames = await collect(muxFrames(ctx, { payload: { sessionId: 's-1' } }));
   assert.deepEqual(queueFrames(frames)[0].payload.items.map((item) => item.id), ['m1']);
   assert.equal(warns.length, 1, '丢行必须告警一次');
-  assert.match(warns[0], /session\/queue 丢了 1 条没有 id 的待发行/);
+  assert.match(warns[0], /session\/queue 丢了 2 条没有 id 的待发行/);
 });
 
 test('没有丢行时不许告警', async () => {

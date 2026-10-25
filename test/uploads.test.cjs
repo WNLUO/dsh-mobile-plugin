@@ -194,10 +194,37 @@ test('chunk 顺序与幂等：跳号 409、重传同一片回当前进度、内�
     assert.equal(fs.readFileSync(finish.body.path, 'utf8'), 'AAABBB');
 
     assert.equal((await api.post('/upload/chunk', { uploadId, index: 2, data: first })).status, 404);
-    assert.equal((await api.post('/upload/finish', { uploadId })).status, 404);
+    // 再收一次同一个 uploadId：回放第一次的结果，不 404、也不在收件目录里多落一份。
+    const replay = await api.post('/upload/finish', { uploadId });
+    assert.equal(replay.status, 200);
+    assert.equal(replay.body.path, finish.body.path);
+    assert.equal(replay.body.bytes, finish.body.bytes);
+    assert.equal(fs.readdirSync(path.dirname(finish.body.path)).length, 1);
   } finally {
     await api.close();
     fs.rmSync(inbox, { recursive: true, force: true });
+  }
+});
+
+test('收口回放只对已落盘的 uploadId 生效：从没见过的 id 与放弃过的上传仍然 404', async () => {
+  const inbox = tempInbox();
+  const api = await serve(inbox);
+  try {
+    assert.equal((await api.post('/upload/finish', { uploadId: 'never-seen' })).status, 404);
+    assert.equal((await api.post('/upload/finish', {})).status, 404);
+
+    const begin = await api.post('/upload/begin', { name: 'half.bin' });
+    await api.post('/upload/chunk', {
+      uploadId: begin.body.uploadId,
+      index: 0,
+      data: Buffer.from('x').toString('base64'),
+    });
+    await api.post('/upload/abort', { uploadId: begin.body.uploadId });
+    assert.equal((await api.post('/upload/finish', { uploadId: begin.body.uploadId })).status, 404);
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
   }
 });
 

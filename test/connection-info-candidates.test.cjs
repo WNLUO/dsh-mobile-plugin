@@ -96,3 +96,16 @@ test('关掉局域网直连时两份都为空（IPv6 那条监听挂在同一个
   assert.deepEqual(body.ipv6Candidates, []);
   assert.equal(body.relayUrl, 'https://relay.example.com', '中转地址与这个开关无关');
 });
+
+test('手机手填的直连地址排在最前，网卡候选一条不少地跟在后面', async () => {
+  // 现场：用户在这台电脑上填了内网穿透域名。它必须每次都被报回来 —— 手机重启、换网之后
+  // 只剩这条路能把地址取回去；被网卡候选挤到后面就等于「设置自己消失了」。
+  const body = await connectionInfo({ ...HOST, manualLanUrl: 'https://home.example.com:8443/' });
+  assert.deepEqual(body.lanCandidates.map((item) => item.url), ['https://home.example.com:8443', LAN.url]);
+  assert.equal(body.lanCandidates[0].interface, 'manual');
+});
+
+test('手填的地址跟着局域网开关走：关掉直连就不报它', async () => {
+  const body = await connectionInfo({ ...HOST, lanEnabled: false, manualLanUrl: 'https://home.example.com' });
+  assert.deepEqual(body.lanCandidates, [], '直连监听没开，报一条拨不通的地址只会让手机白试');
+});

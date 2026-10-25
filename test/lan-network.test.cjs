@@ -41,6 +41,8 @@ const {
   ipv6Urls,
   ipv6Candidates,
   orderCandidates,
+  manualCandidate,
+  phoneCandidates,
 } = require('../lib/relay/lan-network.cjs')
 
 /** 把 {name: address} 简写展开成 os.networkInterfaces() 的形状。 */
@@ -323,6 +325,39 @@ test('只有一条或空清单时不折腾', () => {
     { address: '10.0.0.9' },
     null,
   ])
+})
+
+/**
+ * 手机手填的直连地址（设置项 `manualLanUrl`，通常是内网穿透域名）。
+ *
+ * 这一条与「手机优先用这条」是两件事：那条只调整网卡候选的顺序，这条**新增**一条候选 ——
+ * 域名是网卡扫描永远扫不出来的东西，只能由人在手机上手打。它必须排在候选最前面且每次都
+ * 跟着 `/connection-info` 回来，否则手机重启、换网之后这份设置就消失了。
+ */
+test('手填的地址排在最前，网卡候选一条不少地跟在后面', () => {
+  const nic = [
+    { url: 'http://10.0.0.9:18787', address: '10.0.0.9', interface: 'en0' },
+    { url: 'http://172.16.5.5:18787', address: '172.16.5.5', interface: 'eth0' },
+  ]
+  const manual = manualCandidate('https://home.example.com:8443/')
+  assert.deepEqual(manual, { url: 'https://home.example.com:8443', address: 'home.example.com', interface: 'manual', family: 'IPv4' })
+  const ordered = phoneCandidates(nic, { preferred: '172.16.5.5', manual: 'https://home.example.com:8443' })
+  // 手填的压过「优先用这条」：那是人在手机上手打的地址，面板上的选择只管网卡地址。
+  assert.deepEqual(ordered.map((item) => item.url), ['https://home.example.com:8443', 'http://172.16.5.5:18787', 'http://10.0.0.9:18787'])
+  assert.deepEqual(nic.map((item) => item.address), ['10.0.0.9', '172.16.5.5'], '原数组不许被就地改掉')
+})
+
+test('手填的值不合法时原样退回网卡候选，绝不把整份候选清空', () => {
+  const nic = [{ url: 'http://10.0.0.9:18787', address: '10.0.0.9' }]
+  for (const bad of ['', '   ', 'home.example.com', 'ftp://home.example.com', 'http://', null, undefined, 42]) {
+    assert.equal(manualCandidate(bad), null)
+    assert.deepEqual(phoneCandidates(nic, { manual: bad }), nic)
+  }
+  // 与网卡候选重复时按 url 去重，不出现两条一样的。
+  assert.deepEqual(
+    phoneCandidates(nic, { manual: 'http://10.0.0.9:18787' }).map((item) => item.url),
+    ['http://10.0.0.9:18787'],
+  )
 })
 
 /**
