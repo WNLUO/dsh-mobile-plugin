@@ -14,7 +14,7 @@
  *   1. 在哪个检出里跑：必须有主仓的 `app/`，否则跨仓对账这一层查不了
  *   2. 版本号与 tag：三段都在 `0..999`、这个 tag 没打过、不比上一版低
  *   3. 工作区干净：发出去的必须是提交里的那一份，不能是测完又改过的工作区
- *   4. 面板产物跟得上源码：改了 `React/src` 却没重建提交，就停在这一步
+ *   4. 面板产物跟得上源码：拿当前源码真重建一次，与盘上那份对不上就停在这一步
  *   5. 整套测试（在主仓里跑才包含跨仓对账）
  *   6. 真打一次包：关键产物在不在、有没有把源码和测试带出去、版本号对不对
  *
@@ -22,6 +22,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -85,11 +86,13 @@ function compareVersions(a, b) {
   return 0;
 }
 
-/** 某个路径最后一次被提交时的时间戳；从未提交过回 null。 */
-function lastCommitAt(relPath) {
-  const result = sh('git', ['log', '-1', '--format=%ct', '--', relPath], { cwd: PLUGIN });
-  const value = Number(result.stdout.trim());
-  return Number.isInteger(value) && value > 0 ? value : null;
+/** 文件内容的 sha256；读不到回 null（调用方按「缺产物」处理）。 */
+function fileDigest(absPath) {
+  try {
+    return createHash('sha256').update(fs.readFileSync(absPath)).digest('hex');
+  } catch {
+    return null;
+  }
 }
 
 function checkCheckout() {
@@ -161,16 +164,30 @@ function checkPanelArtifact() {
       '在 React 目录跑 pnpm run build 生成它，产物是提交物、要一起提交。',
     );
   }
-  const sourceAt = lastCommitAt(PANEL_SOURCE);
-  const artifactAt = lastCommitAt(PANEL_ARTIFACT);
-  if (sourceAt !== null && (artifactAt === null || sourceAt > artifactAt)) {
+  // 判据是「盘上这份产物是不是当前源码构建出来的」，拿真重建的结果逐字节比。
+  // 不按提交时间比：抬版本号会改 `React/src/demo/host.ts`（演示页的宿主假体，只给
+  // `pnpm demo` 用，不进面板产物），按时间比会把它误判成「改了面板没重建」，
+  // 于是每次抬号都卡在这一步，而产物其实一直是对的。
+  const before = fileDigest(path.join(PLUGIN, PANEL_ARTIFACT));
+  const build = sh('pnpm', ['run', 'build'], { cwd: path.join(PLUGIN, PANEL_SOURCE) });
+  if (build.status !== 0) {
+    const tail = `${build.stdout ?? ''}${build.stderr ?? ''}`.trim().split('\n').slice(-8).join('\n');
     throw new Stop(
-      '面板源码比产物新：改了面板却没重建并提交',
-      '在 React 目录跑 pnpm run build，把重新生成的 lib/panel/index.html 一起提交。'
-      + '打 tag 那条流水线只查它「在不在包里」，查不出新旧。',
+      '面板重建失败，产物没法核对',
+      `在 React 目录跑 pnpm run build 看具体报错：\n${tail}`,
     );
   }
-  ok('面板产物不旧于源码');
+  const after = fileDigest(path.join(PLUGIN, PANEL_ARTIFACT));
+  if (after === null) {
+    throw new Stop(`构建跑完却没有 ${PANEL_ARTIFACT}`, '这次构建没成，别往下走。');
+  }
+  if (before !== after) {
+    throw new Stop(
+      '面板产物跟当前源码对不上：改了面板却没重建并提交',
+      '刚才那次重建已经就地覆盖了产物，把它一起提交（逐个点名），再跑这条命令。',
+    );
+  }
+  ok('面板产物与源码重建结果一致');
 }
 
 function runTests() {
