@@ -73,7 +73,7 @@ export function DownloadAppButton({ size = 'md' }: Props) {
   return (
     <>
       <Button variant="outline" size={size} onClick={() => setOpen(true)}>
-        下载 APP
+        {t('panel.download.open')}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -81,7 +81,7 @@ export function DownloadAppButton({ size = 'md' }: Props) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2.5">
               <img src={appLogo} alt="" className="size-8 rounded-lg bg-white p-0.5" />
-              下载 AI-HUB
+              {t('panel.download.title')}
             </DialogTitle>
           </DialogHeader>
 

@@ -13,6 +13,10 @@
  *
  * 渲染的是「点下去会变成什么」：现在是夜间就给太阳，反之给月亮，所以按钮的图标本身就是
  * 下一步的预告，配上同样意思的 `aria-label` / `title`。
+ *
+ * **坐标不归这里管**：这一颗与语言按钮并排、共用同一个落脚点，那层外壳是
+ * `components/TopRightActions.tsx`（`Shell.tsx` 渲染一次，引导页与主页都看得见）。
+ * 别在这里再套一个 `fixed`，否则两颗按钮会各算各的边距。
  */
 
 import { Button } from '@appica/ui-react/button'
@@ -58,17 +62,15 @@ export function ThemeToggle() {
   const label = dark ? t('panel.theme.toDay') : t('panel.theme.toNight')
 
   return (
-    <div className="pointer-events-none fixed end-6 top-6 z-40">
-      <Button
-        variant="soft"
-        size="icon-md"
-        className="pointer-events-auto rounded-full shadow-sm"
-        aria-label={label}
-        title={label}
-        onClick={() => setTheme(dark ? 'light' : 'dark')}
-      >
-        {dark ? <SunIcon /> : <MoonIcon />}
-      </Button>
-    </div>
+    <Button
+      variant="soft"
+      size="icon-md"
+      className="pointer-events-auto rounded-full shadow-sm"
+      aria-label={label}
+      title={label}
+      onClick={() => setTheme(dark ? 'light' : 'dark')}
+    >
+      {dark ? <SunIcon /> : <MoonIcon />}
+    </Button>
   )
 }

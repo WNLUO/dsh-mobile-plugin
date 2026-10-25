@@ -147,7 +147,7 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
                 disabled={relayUrl.trim() === ''}
                 className="mt-1.5 text-xs text-foreground-muted underline-offset-2 hover:underline disabled:opacity-40"
               >
-                清空（只走局域网直连）
+                {t('panel.relay.clear')}
               </button>
             </div>
           </Field>
@@ -196,10 +196,10 @@ export function RelayConfigDialog({ open, onOpenChange, status, busy, onSave }: 
 
         <DialogFooter className="flex justify-end gap-2">
           <Button variant="outline" disabled={busy === 'config'} onClick={() => onOpenChange(false)}>
-            取消
+            {t('panel.common.cancel')}
           </Button>
           <Button variant="primary" disabled={!canSave} onClick={submit}>
-            保存配置
+            {t('panel.relay.saveConfig')}
           </Button>
         </DialogFooter>
       </DialogContent>

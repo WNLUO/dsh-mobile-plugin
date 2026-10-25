@@ -63,16 +63,24 @@ test('IPv6 那份只摆出来、不进「手机优先用这条」那个选择', 
   assert.match(onboarding, /IPv6 直连/, '引导页的地址清单也要把 IPv6 那份摆出来');
 });
 
-test('调试 OTA 只在本机接口可用时显示，并提供检查与安装入口', () => {
+test('调试 OTA 的前端入口已经不显示，但后端接口与客户端函数都留着', () => {
   const card = read('UpdateCard.tsx');
   const client = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'lib', 'relayUpdate.ts'), 'utf8');
-  // 文案进了字典（多语言）之后断键：原话在 `lib/i18n/messages/update.ts` 里，
-  // 改文案不该动守卫；这四条钉的是「这四个入口还在」这件事本身。
-  assert.match(card, /panel\.update\.otaSection/);
-  assert.match(card, /panel\.update\.otaCheck/);
-  assert.match(card, /panel\.update\.otaInstall/);
-  assert.match(card, /panel\.update\.otaNothing/, 'OTA 目录清理后不能显示成「未被正式版覆盖」');
-  assert.match(card, /setOtaSupported\(false\)/, '仅宿主接口 404 时隐藏调试入口');
+  // 2026-10-26 用户要求：前端那块「本机调试 OTA」删掉（现在不需要 OTA 了），后端保留。
+  // 所以这条断言反过来钉：卡片里一处都不许再有 OTA 的东西。
+  for (const gone of [
+    'panel.update.otaSection',
+    'panel.update.otaCheck',
+    'panel.update.otaInstall',
+    'panel.update.otaVersion',
+    'otaStatus',
+    'otaCheck',
+    'otaApply',
+  ]) {
+    assert.ok(!card.includes(gone), `更新卡里又出现了 ${gone}：前端那块已经按用户要求删掉了`);
+  }
+  // 客户端函数与三条路径必须还在：用户明说「后端不用删」。
+  assert.match(client, /export const otaStatus/, '客户端函数留着（后端还在，要恢复只加回 JSX）');
   assert.match(client, /\/api\/relay\/update\/ota\/status/);
   assert.match(client, /\/api\/relay\/update\/ota\/check/);
   assert.match(client, /\/api\/relay\/update\/ota\/apply/);

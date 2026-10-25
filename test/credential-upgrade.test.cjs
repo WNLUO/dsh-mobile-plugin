@@ -41,13 +41,25 @@ function fakeStore(initial = []) {
   return {
     records,
     renewed: [],
+    touched: [],
     lookup(credential) {
       return records.find((record) => record.credential === credential) || null;
     },
+    /** 宿主真实实现里的按 keyId 找活记录（2026-10-26 起升级那条路靠它判重）。 */
+    findByKeyId(_instanceId, keyId) {
+      return records.find((record) => record.keyId === keyId) || null;
+    },
+    touch(record, info) { this.touched.push({ record, info }); return true; },
     renew(record) { this.renewed.push(record); },
     issue(instanceId, device, _hostToken, _ttl, extra = {}) {
       const credential = `${instanceId}.deadbeef.${Math.random().toString(36).slice(2)}`;
-      const record = { credential, instanceId, deviceId: device.deviceId || '', expiresAt: Date.now() + 3600_000, ...extra };
+      // 身份那几格照宿主 deviceMeta 的口径带进来（空的不写）。
+      const meta = {};
+      for (const key of ['name', 'platform', 'osVersion', 'appVersion']) {
+        const value = device?.[key];
+        if (typeof value === 'string' && value) meta[key] = value;
+      }
+      const record = { credential, instanceId, deviceId: device.deviceId || '', expiresAt: Date.now() + 3600_000, ...meta, ...extra };
       records.push(record);
       return { credential, deviceId: record.deviceId, expiresAt: record.expiresAt, keyId: extra.keyId };
     },
@@ -188,4 +200,63 @@ test('密钥形状不对：400，且不落库', async () => {
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, 'bad-device-secret');
   assert.equal(store.records.length, 0);
+});
+
+/**
+ * 同一个 keyId 重复升级不再堆记录（2026-10-26）。
+ *
+ * 手机那边重试时可能碰上「宿主已经签过了、响应丢在路上」：没有判重的话，每次重试都往凭据账
+ * 上多写一条，面板于是出现一串同名的行（实测同一台设备 54 分钟里堆了 39 条）。
+ * 判据不是「记了几条」，而是**第二次之后手机那把钥匙照样能验过** —— 判重不能把链路弄坏。
+ */
+test('同一个 keyId 再升级一次：不新签记录，回包让手机继续用手上那枚凭据', async () => {
+  const store = fakeStore([{ credential: 'old-hmac-token', instanceId: INSTANCE, deviceId: 'dev-1' }]);
+  const phoneKey = Buffer.alloc(32, 9).toString('base64url');
+  const phoneKeyId = 'ffeeddccbbaa9988';
+
+  const first = await upgrade(reqWith('old-hmac-token', {
+    device: { deviceId: 'dev-1', name: 'Pixel 9', platform: 'android', osVersion: '34', appVersion: '0.3.24' },
+    deviceKey: phoneKey,
+    keyId: phoneKeyId,
+  }), store);
+  assert.equal(first.body.upgraded, true);
+  const afterFirst = store.records.length;
+
+  // 重试：手机带着同一把密钥、同一个 old-hmac-token 又来了一次（上次回包丢了）。
+  const second = await upgrade(reqWith('old-hmac-token', {
+    device: { deviceId: 'dev-1', name: 'Pixel 9', platform: 'android', osVersion: '34', appVersion: '0.3.24' },
+    deviceKey: phoneKey,
+    keyId: phoneKeyId,
+  }), store);
+
+  assert.equal(second.status, 200);
+  assert.equal(second.body.upgraded, true, '对手机来说这次依然是「已经换成 T1」');
+  assert.equal(second.body.keyId, phoneKeyId);
+  assert.equal(second.body.deviceCredential, 'old-hmac-token', '回包里给的应当就是它手上那枚凭据');
+  assert.equal(store.records.length, afterFirst, '重试不许再往凭据账上写一条');
+
+  // 真正的判据：判重之后这条链路照样通。
+  const opened = sealedGetPasses(phoneKey, phoneKeyId, store);
+  assert.equal(opened.ok, true, `判重之后手机那把钥匙必须仍然验得过（实际：${opened.code || '健忘'}）`);
+});
+
+test('升级写进来的记录带上手机自报的身份（不再是「未知设备 + 加密」）', async () => {
+  const store = fakeStore([{ credential: 'old-hmac-token', instanceId: INSTANCE, deviceId: 'dev-1' }]);
+  const res = await upgrade(reqWith('old-hmac-token', {
+    device: {
+      deviceId: 'dev-1',
+      name: 'Pixel 9',
+      platform: 'android',
+      osVersion: '34',
+      appVersion: '0.3.24',
+    },
+    deviceKey: Buffer.alloc(32, 3).toString('base64url'),
+    keyId: '0102030405060708',
+  }), store);
+
+  const stored = store.lookup(res.body.deviceCredential);
+  assert.equal(stored.name, 'Pixel 9', '升级出来的记录必须带名字，否则面板只能画「未知设备」');
+  assert.equal(stored.appVersion, '0.3.24');
+  assert.equal(stored.platform, 'android');
+  assert.equal(stored.osVersion, '34');
 });

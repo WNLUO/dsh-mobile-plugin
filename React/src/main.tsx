@@ -1,10 +1,15 @@
+/**
+ * 面板的正式入口：起主题、挂全局的胶囊提示，再把整页交给 `Shell`。
+ *
+ * 页面本体（引导页 / 主页二选一）与右上角那组按钮都在 `Shell` 里，所以这一屏与录屏用的
+ * 那一份假宿主页面共用同一套外壳（见 A3-45）。
+ */
 import { ToastProvider, Toaster } from '@appica/ui-react/toast'
 import { ThemeProvider, getThemeScript } from '@appica/ui-react/providers/theme-provider'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import { Root } from './Root.tsx'
-import { ThemeToggle } from './components/ThemeToggle.tsx'
+import { Shell } from './Shell.tsx'
 
 /**
  * 面板的主题存在这个键里。
@@ -29,12 +34,12 @@ document.head.appendChild(bootTheme)
 
 // 结果提示一律走右上角的胶囊（见 `lib/notify.ts`）。`Toaster` 挂在 ThemeProvider 里面，
 // 这样它拿得到主题 token；`ToastProvider` 要在最外层，页面里任何地方才 useToastManager 得到。
+// 页面本身（含右上角那组按钮）整个在 `Shell` 里：引导页与主页共用同一份外壳。
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ToastProvider>
       <ThemeProvider storageKey={THEME_KEY}>
-        <Root />
-        <ThemeToggle />
+        <Shell />
         <Toaster position="top-right" />
       </ThemeProvider>
     </ToastProvider>

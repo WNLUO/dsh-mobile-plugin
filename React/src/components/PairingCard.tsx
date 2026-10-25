@@ -8,6 +8,14 @@ import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { CopyButton } from '@appica/ui-react/copy-button'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@appica/ui-react/dialog'
 import { Spinner } from '@appica/ui-react/spinner'
 import * as React from 'react'
 
@@ -43,9 +51,9 @@ type Props = {
  * 「下载 APP」按用户要求加在卡片最下面那一排的最左端：刚配对的人下一步就是装 App，而下载入口
  * 原先只在引导页第一页（第二次打开引导想再下一份就找不着了）。
  *
- * 二维码按用户要求**默认隐藏**，右上角一颗眼睛按钮现场揭开 / 再遮上：配对码还明文摆在旁边，
- * 防的不是这台电脑上的人，而是屏幕在共享 / 投屏 / 身后有人时替对方省下那一眼。只当页面里的
- * 一次开关，不落盘 —— 默认值才是那个谨慎的选项，记住了反而把「默认隐藏」抵消掉。
+ * 二维码按用户要求**默认隐藏**，揭开之后就不再给「隐藏」那颗按钮（2026-10-26 用户要求）：
+ * 要看回来刷新一次页面即可 —— 这一层状态本来就不落盘，刷新必然回到遮着。
+ * 地址那一行同一套口径：一个「显示」按钮，点开是弹窗（内容多，摊在卡片里会把下面的东西顶下去）。
  *
  * 维护那两个动作（重新连接 / 吊销全部设备授权）按用户要求并到这张卡的
  * 右下角：它们都属于「连不上时怎么办」，跟配对是同一件事。其中「吊销全部设备授权」
@@ -79,9 +87,11 @@ export function PairingCard({
    * （设备名与内网网段都写在里面），比中转地址更值得别摆着。
    */
   const phoneAddress = phoneHintAddress(addressBook, pairing)
-  // 三个「明文摆着、可当场遮上」的值：二维码、中转地址、手机该填的地址。
-  // 都只当页面里的一次开关，不落盘 —— 默认值才是那个谨慎的选项，记住了反而把「默认隐藏」抵消掉。
-  const [shown, setShown] = React.useState({ qr: false, relay: false, phone: false })
+  // 两个「明文摆着、可当场遮上」的值：二维码与中转地址。都只当页面里的一次开关，不落盘 ——
+  // 默认值才是那个谨慎的选项，记住了反而把「默认隐藏」抵消掉。
+  // 地址那一行不在这里：它点开的是弹窗（`addressOpen`），关掉弹窗就等于又遮上了。
+  const [shown, setShown] = React.useState({ qr: false, relay: false })
+  const [addressOpen, setAddressOpen] = React.useState(false)
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   return (
@@ -129,8 +139,7 @@ export function PairingCard({
                 <span className="text-xs">{t('panel.pairing.qrHidden')}</span>
                 <RevealButton what={t('panel.pairing.qr')} label={t('panel.common.show')} onClick={() => toggle('qr')} />
               </div>
-            ) : (
-              <div className="flex items-start justify-center overflow-hidden rounded-md border border-border-muted bg-white p-3">
+            ) : (<div className="flex items-start justify-center overflow-hidden rounded-md border border-border-muted bg-white p-3">
                 {pairing?.svg ? (
                   // 宿主生成的 SVG（带 280px 固定宽高），内嵌后必须被这里压到方框大小；
                   // 不是用户输入，没有注入面。
@@ -146,20 +155,10 @@ export function PairingCard({
               </div>
             )}
 
-            {!shown.qr && pairing?.svg ? null : (
-              <RevealButton
-                on
-                what={t('panel.pairing.qr')}
-                label={t('panel.pairing.hidden')}
-                className="absolute end-2 top-2"
-                disabled={!pairing?.svg}
-                onClick={() => toggle('qr')}
-              />
-            )}
           </div>
 
           <Button variant="outline" size="md" disabled={idle} onClick={onRegenerate}>
-            重新生成配对码
+            {t('panel.pairing.regenerate')}
           </Button>
         </div>
 
@@ -192,34 +191,31 @@ export function PairingCard({
               哪条」：手机是按候选顺序挨个试的，所以这个选择在宿主那边就表现为「把选中的排最前」。
               从前这里一律写「局域网地址」——服务器上只有公网地址，那句话正是用户 2026-10-11 报的错。
             */}
+            {/*
+              本地识别地址：只留一颗「显示」，点开是弹窗（2026-10-26 用户要求）。
+              从前是就地摊开——地址一多（局域网几条 + 公网 + IPv6）会把整张卡拉高、把下面
+              那些卡顶下去，所以内容挪进弹窗，这一行本身永远只有一行高。
+              **不给「隐藏」**：关掉弹窗就是遮上了，再要看点「显示」；刷新页面也回到遮着。
+            */}
             <InfoRow label={t('panel.pairing.phoneAddress')}>
-              {shown.phone ? (
-                // 整块揭开的是一行**和别的行同一形状**的值，不是只有几颗字符：
-                // 「手机该填的地址」这句话本身就该读到，遮的是后面那个 IP。
-                <span className="inline-flex min-w-0 flex-col items-end gap-1">
-                  <AddressPicker
-                    book={addressBook}
-                    port={pairing?.lanPort ?? status.lan.port}
-                    value={addressBook?.preferred ?? ''}
-                    busy={idle}
-                    onChange={onSavePreferred}
-                    fallbackUrls={pairing?.lanUrls ?? []}
-                  />
-                  <RevealButton on what={t('panel.pairing.phoneAddress')} label={t('panel.common.hide')} onClick={() => toggle('phone')} />
-                </span>
-              ) : (
-                <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-                  <span className="text-xs text-foreground-subtle">{phoneAddress ? t('panel.pairing.hidden') : t('panel.pairing.noAddress')}</span>
-                  <RevealButton on={false} what={t('panel.pairing.phoneAddress')} label={t('panel.common.show')} onClick={() => toggle('phone')} />
-                </span>
-              )}
+              <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+                {phoneAddress ? null : (
+                  <span className="text-xs text-foreground-subtle">{t('panel.pairing.noAddress')}</span>
+                )}
+                <RevealButton
+                  on={false}
+                  what={t('panel.pairing.phoneAddress')}
+                  label={t('panel.common.show')}
+                  onClick={() => setAddressOpen(true)}
+                />
+              </span>
             </InfoRow>
           </InfoList>
 
           {/* 用户要求：中转配置紧贴在「局域网地址」那行值下面，跟二维码下面那颗同样的样式。 */}
           <div className="mt-3 flex justify-end">
             <Button variant="outline" size="md" disabled={idle} onClick={onOpenConfig}>
-              中转配置
+              {t('panel.pairing.openConfig')}
             </Button>
           </div>
         </div>
@@ -241,12 +237,40 @@ export function PairingCard({
             与旁边两颗 h-10 对齐。 */}
         <DownloadAppButton />
         <Button variant="secondary" size="md" disabled={idle} onClick={onReconnect}>
-          重新连接
+          {t('panel.pairing.reconnect')}
         </Button>
         <Button variant="outline" size="md" disabled={idle} onClick={onRevokeAll}>
-          吊销全部设备授权
+          {t('panel.pairing.revokeAll')}
         </Button>
       </div>
+
+      {/*
+        「本地识别地址」弹窗：地址清单与「手机优先用这条」都摆在这里。
+        内容可能五六行（局域网几条 + 公网 + IPv6），摊在卡片里会把下面的东西全顶下去，
+        所以点「显示」开这一层。关掉就是遮上，不再有「隐藏」那颗按钮。
+      */}
+      <Dialog open={addressOpen} onOpenChange={setAddressOpen}>
+        <DialogContent className="max-w-xl" closeLabel={t('panel.common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('panel.pairing.phoneAddress')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <AddressPicker
+              book={addressBook}
+              port={pairing?.lanPort ?? status.lan.port}
+              value={addressBook?.preferred ?? ''}
+              busy={idle}
+              onChange={onSavePreferred}
+              fallbackUrls={pairing?.lanUrls ?? []}
+            />
+          </DialogBody>
+          <DialogFooter className="flex justify-end">
+            <Button variant="outline" onClick={() => setAddressOpen(false)}>
+              {t('panel.common.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

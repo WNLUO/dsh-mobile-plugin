@@ -269,8 +269,21 @@ function touch(record, info = {}) {
   record.lastSeenAt = now;
   const channel = typeof info.channel === 'string' ? info.channel : '';
   if (channel) record.lastChannel = channel.slice(0, FIELD_MAX);
+  // 身份那几格（2026-10-26）：名字 / 平台 / 系统版本 / App 版本由**每一次请求**带上来，
+  // 顺手刷新。它们以前只在配对那一刻写一次，于是「手机升到新版了、面板还报配对时的旧版本」，
+  // 而旧会话升级写进来的记录干脆什么身份都没有（面板只能画「未知设备」）。
+  // **只写这次真带了值的格子**：老版本 App 不带头，绝不能把已经有的名字冲成空。
+  const meta = deviceMeta(info.meta);
+  let metaChanged = false;
+  for (const key of Object.keys(meta)) {
+    if (record[key] !== meta[key]) {
+      record[key] = meta[key];
+      metaChanged = true;
+    }
+  }
   if (readOnly) return true;
-  if (now - lastTouchFlushAt < TOUCH_FLUSH_MS) return true;
+  // 身份变了必须落盘（那是面板唯一能看到的来源）；只刷新「刚连上过」才走老的一分钟节流。
+  if (!metaChanged && now - lastTouchFlushAt < TOUCH_FLUSH_MS) return true;
   lastTouchFlushAt = now;
   save();
   return true;

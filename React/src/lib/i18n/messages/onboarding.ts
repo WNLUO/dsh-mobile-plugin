@@ -98,6 +98,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask4': '4. 最后告诉我怎么验证已经通了（比如用哪条命令从本机、从手机分别确认）。',
     'panel.onboarding.prompt.extra': '补充：如果这台电脑是云服务器，服务商控制台里的安全组/防火墙也要放行同一个端口，这一项在本机查不到。',
     'panel.onboarding.relayPlaceholder': 'https://你的中转域名',
+    'panel.onboarding.probe.failedBody': '这个地址连不上，二维码不会生成。确认它是 http:// 或 https:// 开头、那台中转在运行、域名解析到它。',
   },
 
   'zh-Hant': {
@@ -186,6 +187,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask4': '4. 最後告訴我怎麼驗證已經通了（比如用哪條命令從本機、從手機分別確認）。',
     'panel.onboarding.prompt.extra': '補充：如果這台電腦是雲端伺服器，服務商主控台裡的安全群組/防火牆也要放行同一個連接埠，這一項在本機查不到。',
     'panel.onboarding.relayPlaceholder': 'https://你的中轉網域',
+    'panel.onboarding.probe.failedBody': '這個位址連不上，QR 碼不會產生。確認它是 http:// 或 https:// 開頭、那台中轉正在執行、網域解析到它。',
   },
 
   en: {
@@ -274,6 +276,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask4': '4. Finally tell me how to verify it works (for example which command to run on the computer and on the phone).',
     'panel.onboarding.prompt.extra': 'Note: if this computer is a cloud server, the security group or firewall in the provider’s console must allow the same port too, and that cannot be checked locally.',
     'panel.onboarding.relayPlaceholder': 'https://your-relay.example',
+    'panel.onboarding.probe.failedBody': 'This address cannot be reached, so no QR code will be generated. Check that it starts with http:// or https://, that the relay is running there, and that the domain resolves to it.',
   },
 
   ja: {
@@ -362,6 +365,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask4': '4. 最後に、通ったことを確認する方法（パソコン側とスマートフォン側それぞれで実行するコマンドなど）を教えてください。',
     'panel.onboarding.prompt.extra': '補足: このパソコンがクラウドサーバーの場合、事業者コンソールのセキュリティグループ／ファイアウォールでも同じポートを許可する必要があり、それはローカルでは確認できません。',
     'panel.onboarding.relayPlaceholder': 'https://リレーのドメイン',
+    'panel.onboarding.probe.failedBody': 'このアドレスに接続できないため、QR コードは生成されません。http:// または https:// で始まっているか、そのリレーが動作しているか、ドメインがそこを指しているかを確認してください。',
   },
 
   ko: {
@@ -450,5 +454,6 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask4': '4. 마지막으로 잘 되는지 확인하는 방법(컴퓨터와 휴대폰에서 각각 실행할 명령 등)을 알려주세요.',
     'panel.onboarding.prompt.extra': '참고: 이 컴퓨터가 클라우드 서버라면 사업자 콘솔의 보안 그룹/방화벽에서도 같은 포트를 허용해야 하며, 이는 로컬에서 확인할 수 없습니다.',
     'panel.onboarding.relayPlaceholder': 'https://릴레이-도메인',
+    'panel.onboarding.probe.failedBody': '이 주소에 연결할 수 없어 QR 코드가 생성되지 않습니다. http:// 또는 https://로 시작하는지, 해당 릴레이가 실행 중인지, 도메인이 이 주소를 가리키는지 확인하세요.',
   },
 }

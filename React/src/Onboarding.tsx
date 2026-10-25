@@ -617,7 +617,7 @@ export function Onboarding({ onDone }: Props) {
   const ipv6Choice = addresses?.ipv6 ?? []
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 pt-6 pb-24">
       {fatal ? (
         <Alert className="w-full max-w-2xl" variant="error">
           <AlertIcon />
@@ -914,7 +914,7 @@ export function Onboarding({ onDone }: Props) {
                 {ownProbe === 'ok' ? <p className="text-xs text-success">{t('panel.onboarding.probe.okWithHint')}</p> : null}
                 {ownProbe === 'failed' ? (
                   <p className="text-xs text-error">
-                    这个地址连不上，二维码不会生成。确认它是 http:// 或 https:// 开头、那台中转在运行、域名解析到它。
+                    {t('panel.onboarding.probe.failedBody')}
                   </p>
                 ) : null}
               </Field>

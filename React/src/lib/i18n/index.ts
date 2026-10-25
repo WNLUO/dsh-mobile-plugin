@@ -1,8 +1,8 @@
 /**
  * 面板取词的唯一出口：`t('panel.pairing.copyCode')`。
  *
- * 只做「合并各领域表 + 查当前语言」两件事。面板没有手动切换语言：这一页跟着浏览器 /
- * 系统走（见 `core.ts` 的 `resolvePanelLanguage`），换系统语言重开一次页面即可。
+ * 只做「合并各领域表 + 查当前语言」两件事。当前语言由 `core.ts` 那一份状态回答：
+ * 缺省跟着浏览器 / 系统走，右上角那颗按钮选了某一门就按那一门（见 `core.ts` 的文件头）。
  *
  * 非组件代码（`lib/format.ts`、`lib/links.ts` 的渠道表）也走这里 —— 那些是**渲染时才拼**
  * 的字符串，不是模块级常量，所以读到的永远是当下那门语言。
@@ -32,4 +32,14 @@ export function t(key: string, params?: Record<string, string | number>): string
 }
 
 export type { PanelLanguage }
-export { normalizeLocale, resolvePanelLanguage, setPanelLanguageForTest } from './core.ts'
+export { normalizeLocale, resolvePanelLanguage } from './core.ts'
+export {
+  LANGUAGE_LABELS,
+  LANGUAGE_STORAGE_KEY,
+  PANEL_LANGUAGES,
+  panelLanguage,
+  panelLanguagePreference,
+  setPanelLanguagePreference,
+  subscribePanelLanguage,
+} from './core.ts'
+export type { LanguagePreference } from './core.ts'

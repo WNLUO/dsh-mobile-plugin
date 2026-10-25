@@ -14,10 +14,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
-import { JoinGroupButton } from './components/JoinGroupButton.tsx'
 import { LanDialog } from './components/LanDialog.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
-import { PairingPolicyCard } from './components/PairingPolicyCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
@@ -268,9 +266,8 @@ export function App() {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          {/* 准入总闸摆在最上面：它决定「这台电脑还收不收新手机」，比配对码本身更该一眼看到
-              （原来埋在「中转配置」弹窗里，见 components/PairingPolicyCard.tsx 的文件头）。 */}
-          <PairingPolicyCard status={status} busy={busy} onChange={(policy) => void savePolicy(policy)} />
+          {/* 准入总闸搬到右边「连接状态」里了（2026-10-26 用户要求）：它和远程控制是同一种
+              东西 —— 两颗决定「收不收」的开关，摆在同一张卡里才不用来回找。 */}
 
           <PairingCard
             status={status}
@@ -287,8 +284,8 @@ export function App() {
           />
 
           {/* 「谁被这台机器放进来过」：设备清单自己轮询（`/api/relay/devices`），
-              一台设备都没有时整卡不出现。 */}
-          <DevicesCard />
+              一台设备都没有时整卡不出现。
+              2026-10-26 用户要求与「插件更新」对调：更新放在前面，设备清单落到最后。 */}
 
           <UpdateCard
             version={status.appVersion || ''}
@@ -296,20 +293,32 @@ export function App() {
             onRestartSidecar={() => void restartSidecar()}
           />
 
-          {/* 手机传上来的文件落在宿主的收件目录里，只在「删掉对话」时带不走它们 ——
-              这张卡是那个目录唯一的出口（见 components/InboxCard.tsx）。 */}
-          <InboxCard />
+          <DevicesCard />
         </div>
 
-        {/* 连接状态是只读的观察窗：挂在右侧，滚动时跟着走，不跟下面这些操作抢位置。
-            窄屏放不下两列时它排到最前 —— 先看状态，再做事。 */}
-        <aside className="max-lg:order-first lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:w-[340px] lg:shrink-0 lg:overflow-y-auto">
+        {/*
+          右栏是「这台电脑现在怎么样」的一列：连接状态在上，收件目录紧挨着它下面
+          （2026-10-26 用户要求搬过来）。两块都是**普通排版的一块地方，不跟随滚动** ——
+          从前这里挂了 `lg:sticky`，翻页面时它一直钉在视口里（用户原话：这样「页面还得
+          滑到底部才可以」），现在跟着页面一起走，滑过去就到头了。
+
+          **也不再套内滚动**：更早那版还有 `max-h` + `overflow-y-auto`，会让这一列自己
+          长出第二条滚动条，看着像两个独立的小窗（用户说的「悬浮窗」）。
+
+          窄屏放不下两列时它排到最前 —— 先看状态，再做事。
+        */}
+        <aside className="flex flex-col gap-4 max-lg:order-first lg:w-[340px] lg:shrink-0">
           <ConnectionCard
             status={status}
             busy={busy}
             onToggle={toggle}
+            onChangePolicy={(policy) => void savePolicy(policy)}
             onOpenLan={() => setLanOpen(true)}
           />
+
+          {/* 手机传上来的文件落在宿主的收件目录里，只在「删掉对话」时带不走它们 ——
+              这张卡是那个目录唯一的出口（见 components/InboxCard.tsx）。 */}
+          <InboxCard />
         </aside>
       </div>
 
@@ -332,9 +341,6 @@ export function App() {
         onSavePreferred={(address) => void savePreferredLanAddress(address)}
       />
 
-      {/* 悬浮在页面右下角，不占两列的位置（见组件文件头）。点开之后是什么还没定，
-          现在只把按钮摆上。 */}
-      <JoinGroupButton />
     </main>
   )
 }

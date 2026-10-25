@@ -10,6 +10,8 @@
  * 形状都是外部契约，按**防御式**读：拿不到就当「没有这个能力」，绝不让面板崩。
  */
 
+import { t } from './i18n/index.ts'
+
 /** 市场 v1 的路径前缀。文档承诺 v1 会通过 capabilities 暴露 endpoints，这里只用固定路径 + 能力探测。 */
 const MARKET = '/dsh-market/api/v1'
 
@@ -73,14 +75,14 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
       ...init,
     })
   } catch (err) {
-    throw new MarketError(0, 'market_unreachable', `连不上插件市场：${String((err as Error)?.message || err)}`)
+    throw new MarketError(0, 'market_unreachable', t('panel.net.marketUnreachable', { message: String((err as Error)?.message || err) }))
   }
   const body = await response.json().catch(() => null)
   if (!response.ok) {
     const record = asRecord(body)
     const failure = asRecord(record.failure)
     const code = asString(failure.code) ?? (typeof record.error === 'string' ? record.error : `HTTP ${response.status}`)
-    const message = asString(failure.message) ?? asString(record.error) ?? `插件市场返回 HTTP ${response.status}`
+    const message = asString(failure.message) ?? asString(record.error) ?? t('panel.net.marketHttp', { status: response.status })
     throw new MarketError(response.status, code, message)
   }
   return body

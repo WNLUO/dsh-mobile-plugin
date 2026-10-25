@@ -125,8 +125,13 @@ export function DevicesCard() {
 
   const devices = list?.devices ?? []
   const now = list?.serverNow ?? 0
-  /** 设备名：空串是旧记录没存名字，不是「这台不存在」。 */
-  const nameOf = (device: RelayDevice | null) => device?.name || t('panel.devices.unknown')
+  /**
+   * 设备名：空串是旧记录没存名字，不是「这台不存在」。
+   *
+   * 2026-10-26 起名字后面挂设备号尾六位：一堆「未知设备」并排时，光看这四个字分不出
+   * 哪台是哪台（手机重新配过会多出一条新行，两条都叫「未知设备」）。
+   */
+  const nameOf = (device: RelayDevice | null) => device?.name || `${t('panel.devices.unknown')} · ${String(device?.deviceId || '').slice(-6)}`
 
   async function revoke(device: RelayDevice) {
     setRevoking(true)

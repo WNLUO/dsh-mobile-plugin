@@ -193,10 +193,6 @@ export function InboxCard() {
             </div>
           </dl>
 
-          <p className="mt-2 text-xs text-foreground-muted">
-            {t('panel.inbox.hint')}
-          </p>
-
           {staging > 0 ? (
             <p className="mt-1 text-xs text-foreground-muted">
               {t('panel.inbox.staging', { bytes: formatInboxBytes(status.stagingBytes ?? 0), count: status.stagingFiles ?? 0 })}
@@ -205,14 +201,10 @@ export function InboxCard() {
 
           {/* 自动清理：默认关。它管的是「宿主每次启动顺手清一次」，与下面那颗按钮是两件事 ——
               那颗是用户当场按的，不受开关管。默认关的理由写在 lib/mobile/inbox-clean.js 的文件头：
-              没有人在场时替你删盘，得是你明确打开过的开关。 */}
-          <label className="mt-3 flex items-start justify-between gap-4 border-t border-border-muted pt-3">
-            <span className="min-w-0">
-              <span className="block text-sm text-foreground">{t('panel.inbox.auto')}</span>
-              <span className="mt-0.5 block text-xs text-foreground-muted">
-                {t('panel.inbox.autoHint', { hours: status.keepHours })}
-              </span>
-            </span>
+              没有人在场时替你删盘，得是你明确打开过的开关。
+              2026-10-26 用户要求把这块的两句说明都删掉：一行标签 + 一颗开关就够。 */}
+          <label className="mt-3 flex items-center justify-between gap-4 border-t border-border-muted pt-3">
+            <span className="block text-sm text-foreground">{t('panel.inbox.auto')}</span>
             <span className="flex shrink-0 items-center gap-2">
               {savingAuto ? <Spinner /> : null}
               <Switch

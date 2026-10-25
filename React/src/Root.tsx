@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { App } from './App.tsx'
 import { Onboarding } from './Onboarding.tsx'
 import { apiGet, type StatusView } from './lib/api.ts'
+import { t } from './lib/i18n/index.ts'
 
 /**
  * 分流：走引导还是进插件主页。
@@ -50,7 +51,7 @@ export function Root() {
     return (
       <main className="flex min-h-screen items-center justify-center gap-2 p-6 text-sm text-foreground-muted">
         <Spinner />
-        正在读取插件状态…
+        {t('panel.shell.loading')}
       </main>
     )
   }

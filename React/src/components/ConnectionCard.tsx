@@ -4,39 +4,45 @@ import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
-import * as React from 'react'
 
-import type { StatusView } from '../lib/api.ts'
+import type { PairingPolicy, StatusView } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
-import { RevealButton } from './RevealButton.tsx'
 
 type Props = {
   status: StatusView
   busy: string
   onToggle: (enabled: boolean) => void
+  /** 准入总闸（`status.pairingPolicy`）：`'code'` 收新设备、`'deny'` 一律拒。 */
+  onChangePolicy: (policy: PairingPolicy) => void
   onOpenLan: () => void
 }
 
 /**
- * 连接状态：把「远程控制」「概览」「连接状态」合成一张卡。
+ * 连接状态：把「准入开关」「远程控制」「概览」「连接状态」合成一张卡。
  *
- * 第一行就是总开关，后面全是此刻的只读事实（宿主给的字段，界面不改写）。
- * 隧道被中转拒绝时，把「为什么被拒、下一步做什么」摆在同一张卡里——
- * 那句英文原文（`1008 bad registration secret`）不指向任何可执行动作。
+ * 最上面两行是两颗开关：**允许新设备绑定**（这台电脑还收不收新手机）与**远程控制**
+ * （这段隧道开不开）。准入那颗 2026-10-26 从「配对与二维码」上面搬进来（用户要求），
+ * 形态与远程控制那颗一致 —— 一行标签 + 一颗开关，不带状态徽标、不带说明句：它读的就是
+ * `status.pairingPolicy`，旁边再挂一句解释只会把面板撑长。
+ *
+ * 后面全是此刻的只读事实（宿主给的字段，界面不改写）。隧道被中转拒绝时，把「为什么被拒、
+ * 下一步做什么」摆在同一张卡里 —— 那句英文原文（`1008 bad registration secret`）不指向
+ * 任何可执行动作。
  *
  * 局域网那一行按用户要求退成一个「查看」按钮：地址可能有好几个（多网段），端口又是直连
  * 自己的配置，都塞进这一行的右半边只会把卡片挤变形，所以详情与配置一起放进
  * 「局域网直连」弹窗。这一行也不带状态点（用户要求）：点绿了点红了都只是告诉一半的话，
  * 通没通、为什么没通，都在弹窗里说。
  *
- * 「中转地址」这一行带眼睛、默认遮上：和配对卡里那一行是同一个值（都是中转服务器地址），
- * 配对卡上遮了、这里露着，遮了等于没遮。
+ * **中转地址不在这张卡里**（2026-10-26 用户要求删）：域名长的时候那一行会把「隐藏」那颗
+ * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
+ * 会看错的地方。
  */
-export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
+export function ConnectionCard({ status, busy, onToggle, onChangePolicy, onOpenLan }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
-  const [showRelay, setShowRelay] = React.useState(false)
+  const pairingAllowed = status.pairingPolicy === 'code'
 
   return (
     <Card frame="solid">
@@ -48,6 +54,18 @@ export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
           </Badge>
         </CardTitle>
       </CardHeader>
+
+      {/* 准入总闸：与下面那颗远程控制同形（一行标签 + 一颗开关），只是文案与取值不同。 */}
+      <label className="flex items-center justify-between gap-4 border-b border-border-muted py-3">
+        <span className="text-sm text-foreground-muted">{t('panel.devices.allowTitle')}</span>
+        <Switch
+          size="md"
+          checked={pairingAllowed}
+          disabled={busy !== ''}
+          onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
+          aria-label={t('panel.devices.allowTitle')}
+        />
+      </label>
 
       <label className="flex items-center justify-between gap-4 border-b border-border-muted py-3">
         <span className="text-sm text-foreground-muted">{t('panel.connection.remoteControl')}</span>
@@ -71,21 +89,6 @@ export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
         <InfoRow label={t('panel.connection.platform')}>
           {status.platform} {status.osVersion} · {status.arch}
         </InfoRow>
-        <InfoRow label={t('panel.connection.relayUrl')}>
-          <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
-            {showRelay ? (
-              <span className="min-w-0 font-mono text-xs text-foreground-strong">{status.relayUrl || '—'}</span>
-            ) : (
-              <span className="text-xs text-foreground-subtle">{t('panel.common.hide')}</span>
-            )}
-            <RevealButton
-              on={showRelay}
-              what={t('panel.connection.relayUrl')}
-              label={showRelay ? t('panel.common.hide') : t('panel.common.show')}
-              onClick={() => setShowRelay((on) => !on)}
-            />
-          </span>
-        </InfoRow>
         <InfoRow
           label={t('panel.connection.tunnel')}
           tone={tunnelTone(tunnel.state)}
@@ -106,7 +109,7 @@ export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
             onClick={onOpenLan}
             aria-label={t('panel.connection.viewLan')}
           >
-            查看
+            {t('panel.common.view')}
           </Button>
         </InfoRow>
         <InfoRow label={t('panel.connection.sidecar')}>
@@ -145,7 +148,7 @@ function AdmissionNotice({ status }: { status: StatusView }) {
         <AlertIcon />
         <AlertTitle>{t('panel.connection.relayNeedsSecret')}</AlertTitle>
         <AlertDescription>
-          中转服务器开了准入，当前连接被拒绝。向中转的部署者索取注册密钥，填进上面的「中转配置 → 注册密钥」并保存。
+          {t('panel.connection.relayNeedsSecretBody')}
         </AlertDescription>
       </Alert>
     )
@@ -156,7 +159,7 @@ function AdmissionNotice({ status }: { status: StatusView }) {
       <AlertIcon />
       <AlertTitle>{t('panel.connection.relayRejected')}</AlertTitle>
       <AlertDescription>
-        中转开了实例白名单，而上面的实例 ID 不在名单里。把这个实例 ID 交给中转的部署者，让他加进 instances.json。
+        {t('panel.connection.relayRejectedBody')}
       </AlertDescription>
     </Alert>
   )

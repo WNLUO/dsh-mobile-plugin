@@ -1,5 +1,5 @@
 /**
- * 「插件更新」卡片：正式 npm 更新状态、自动更新开关、手动更新，以及仅本机可见的紧急 OTA 调试入口。
+ * 「插件更新」卡片：正式 npm 更新状态、自动更新开关、手动更新。
  *
  * ## 正式更新
  *
@@ -7,10 +7,12 @@
  * 装走 `/update/apply`，换代码由外壳就地换代（见 `lib/shell/runtime.js`）。对应四条接口是
  * `/api/relay/update/{status,check,apply,auto}`。
  *
- * ## 紧急 OTA
+ * ## 紧急 OTA 的入口已经从前端撤掉（2026-10-26）
  *
- * 只通过本机控制面 `GET /api/relay/update/ota/status` 与 `POST /api/relay/update/ota/{check,apply}` 查看、检查和激活；这不是 App OTA，
- * 正式 npm 包成功接管后再清理被覆盖的 OTA 目录。
+ * 用户明确「现在不需要 OTA 了」，所以这张卡上不再有那一块（它原本只在本机接口
+ * `/api/relay/update/ota/*` 答得出来时才出现）。**后端与客户端都不动**：`lib/relayUpdate.ts`
+ * 里那三个 `ota*` 函数与宿主那三条路由都留着，要恢复只需把这一块 JSX 加回来 ——
+ * 别顺手把接口或路由删掉。
  *
  * ## 为什么这张卡里没有「重启 DSH」
  *
@@ -62,10 +64,6 @@ import {
 import {
   DEFAULT_AUTO_INTERVAL_MS,
   busyTextOf,
-  otaApply,
-  otaCheck,
-  otaStatus,
-  type OtaStatusView,
   updateApply,
   updateAuto,
   updateCheck,
@@ -149,54 +147,8 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
    * 弹一次就消失等于让人再也看不到。
    */
   const notify = useNotify()
-  /** 本机调试 OTA 状态；404 表示当前宿主尚不支持该入口。 */
-  const [ota, setOta] = useState<OtaStatusView | null>(null)
-  const [otaSupported, setOtaSupported] = useState(true)
-  const [otaUpdateAvailable, setOtaUpdateAvailable] = useState(false)
-  const [otaWorking, setOtaWorking] = useState(false)
   /** 开关正在提交：提交期间把它按住，免得连点出两个相反的请求。 */
   const [savingAuto, setSavingAuto] = useState(false)
-
-  const loadOta = useCallback(async () => {
-    try {
-      const status = await otaStatus()
-      setOta(status)
-      setOtaUpdateAvailable(status.available)
-      setOtaSupported(true)
-    } catch (err) {
-      if (err instanceof Error && 'status' in err && (err as { status?: number }).status === 404) {
-        setOtaSupported(false)
-        setOta(null)
-      }
-    }
-  }, [])
-
-  useEffect(() => { void loadOta() }, [loadOta])
-
-  const runOta = useCallback(async (action: 'check' | 'apply') => {
-    setOtaWorking(true)
-    try {
-      if (action === 'check') {
-        const result = await otaCheck()
-        setOta(result.status)
-        setOtaUpdateAvailable(result.update.available)
-        notify('soft', result.update.available
-          ? t('panel.update.otaFound', { version: result.update.version ?? '' })
-          : t('panel.update.otaNotFound'))
-      } else {
-        const result = await otaApply()
-        setOta(result.status)
-        setOtaUpdateAvailable(false)
-        notify('soft', result.installed
-          ? t('panel.update.debugInstalled', { version: result.version ?? '' })
-          : t('panel.update.debugNone'))
-      }
-    } catch (err) {
-      notify('error', errorText(err))
-    } finally {
-      setOtaWorking(false)
-    }
-  }, [notify])
 
   /**
    * 把宿主给的 status 并进当前状态。
@@ -526,7 +478,7 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
           {/* 宿主自己记下来的最近一次失败（自动更新失败也落在这里）。 */}
           {host.lastError ? (
             <p className="mt-2 text-xs text-foreground-muted">
-              {`最近一次出过错：${host.lastError}`}
+              {t('panel.update.lastErrorLine', { message: host.lastError })}
             </p>
           ) : null}
 
@@ -601,32 +553,6 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
         </>
       ) : null}
 
-      {otaSupported ? (
-        <section className="mt-4 border-t border-border-muted pt-3" aria-label={t('panel.update.otaSection')}>
-          <div className="mb-2 flex items-center gap-2">
-            <strong className="text-sm">{t('panel.update.otaSection')}</strong>
-            <Badge variant="soft" size="sm">{t('panel.update.otaLocalOnly')}</Badge>
-          </div>
-          <InfoList>
-            <InfoRow label={t('panel.update.otaVersion')} mono>{ota?.otaVersion ?? t('panel.update.otaNone')}</InfoRow>
-            <InfoRow label={t('panel.update.otaAbsorbState')}>
-            {ota?.otaVersion
-              ? (ota.absorbed
-                ? t('panel.update.otaAbsorbed', { version: ota.officialVersion ?? '' })
-                : t('panel.update.otaNotAbsorbed'))
-              : t('panel.update.otaNothing')}
-          </InfoRow>
-          </InfoList>
-          <div className="mt-3 flex justify-end gap-2">
-            <Button variant="outline" size="md" disabled={otaWorking} onClick={() => void runOta('check')}>
-              {otaWorking ? t('panel.update.otaBusy') : t('panel.update.otaCheck')}
-            </Button>
-            <Button variant="primary" size="md" disabled={otaWorking || (!otaUpdateAvailable && !ota?.otaVersion) || ota?.absorbed === true} onClick={() => void runOta('apply')}>
-              {t('panel.update.otaInstall')}
-            </Button>
-          </div>
-        </section>
-      ) : null}
     </Card>
   )
 }

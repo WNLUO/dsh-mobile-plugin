@@ -126,7 +126,7 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
                 ) : null}
                 {editing ? null : (
                   <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-                    修改
+                    {t('panel.common.edit')}
                   </Button>
                 )}
               </span>
@@ -150,10 +150,10 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
         {editing ? (
           <DialogFooter className="flex justify-end gap-2">
             <Button variant="outline" disabled={busy === 'lan'} onClick={cancelEdit}>
-              取消
+              {t('panel.common.cancel')}
             </Button>
             <Button variant="primary" disabled={!canSave} onClick={submit}>
-              保存
+              {t('panel.common.save')}
             </Button>
           </DialogFooter>
         ) : null}

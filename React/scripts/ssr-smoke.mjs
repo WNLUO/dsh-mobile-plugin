@@ -13,6 +13,14 @@ const server = await createServer({
   logLevel: 'warn',
 })
 
+// 断言里写的是**源语言**的原文，所以先把界面语言钉到简中。
+//
+// 这个脚本跑在 node 里，`navigator.languages` 是 `['en-US']` —— 不钉的话整片渲染成英文，
+// 下面每一条带中文的 `must` 都会红（2026-10-24 字典接上之后这个脚本就一直红在这个口径上，
+// 跟组件本身没关系）。钉的是**偏好**那一档，走的还是组件真正读的那份状态。
+const { setPanelLanguagePreference } = await server.ssrLoadModule('/src/lib/i18n/index.ts')
+setPanelLanguagePreference('zh-Hans')
+
 const status = {
   enabled: true,
   instanceId: 'e889ea75',
@@ -49,7 +57,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl, Lang, Actions] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -62,6 +70,8 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl
   server.ssrLoadModule('/src/components/AddressPicker.tsx'),
   server.ssrLoadModule('/src/components/InboxCard.tsx'),
   server.ssrLoadModule('/src/components/DownloadAppButton.tsx'),
+  server.ssrLoadModule('/src/components/LanguageMenu.tsx'),
+  server.ssrLoadModule('/src/components/TopRightActions.tsx'),
 ])
 
 const noop = () => {}
@@ -131,7 +141,7 @@ const pairingProps = {
   onSavePreferred: noop,
 }
 const cases = [
-  ['ConnectionCard', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onOpenLan: noop })],
+  ['ConnectionCard', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop })],
   [
     'ConnectionCard（隧道被拒+局域网调整+旁挂异常）',
     h(Conn.ConnectionCard, {
@@ -145,22 +155,25 @@ const cases = [
       },
       busy: 'toggle',
       onToggle: noop,
+      onChangePolicy: noop,
       onOpenLan: noop,
     }),
   ],
-  ['ConnectionCard（白名单拒绝）', h(Conn.ConnectionCard, { status: { ...status, tunnel: { state: 'error', error: 'unknown instance: xyz', instanceNotAllowed: true, admissionHint: 'instance-allowlist' } }, busy: '', onToggle: noop, onOpenLan: noop })],
+  ['ConnectionCard（白名单拒绝）', h(Conn.ConnectionCard, { status: { ...status, tunnel: { state: 'error', error: 'unknown instance: xyz', instanceNotAllowed: true, admissionHint: 'instance-allowlist' } }, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop })],
   // 这三处默认遮着（二维码、中转地址、手机该填的地址），所以断言的是「遮着的时候页面里有什么」：
   // 二维码那张图**根本不在 DOM 里**（整块换成占位），地址只留「已隐藏」+ 一颗贴上无障碍名的
   // 「显示」按钮。点开之后长什么样是纯前端状态，`renderToString` 一遍就结束、也不留状态，
   // 这里看不到了 —— 要靠真浏览器点。
-  ['PairingCard', h(Pair.PairingCard, pairingProps), 'aria-label="显示手机该填的地址"'],
+  ['PairingCard', h(Pair.PairingCard, pairingProps), 'aria-label="显示本地识别地址"'],
   ['PairingCard（二维码默认遮着）', h(Pair.PairingCard, pairingProps), '二维码已隐藏'],
-  ['PairingCard（只有公网地址的机器）', h(Pair.PairingCard, { ...pairingProps, addressBook: serverBook }), 'aria-label="显示手机该填的地址"'],
+  ['PairingCard（只有公网地址的机器）', h(Pair.PairingCard, { ...pairingProps, addressBook: serverBook }), 'aria-label="显示本地识别地址"'],
   ['PairingCard（拿不到二维码）', h(Pair.PairingCard, { ...pairingProps, pairing: null, error: '请先启用远程控制并保存配置' })],
   ['PairingCard（重启失败）', h(Pair.PairingCard, { ...pairingProps, busy: 'restart', restartError: 'spawn ENOENT' })],
   // 老宿主没有 `/api/relay/addresses`：退回配对接口给的那串 URL，只显示、不能选。
-  ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), 'aria-label="显示手机该填的地址"'],
-  ['ConnectionCard（中转地址默认遮着）', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onOpenLan: noop }), 'aria-label="显示中转地址"'],
+  ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), 'aria-label="显示本地识别地址"'],
+  // 2026-10-26：中转地址那一行从这张卡里删掉了（左边配对卡里本来就有同一个值），
+  // 所以这里改钉「准入开关在卡里」—— 它现在摆在远程控制上面。
+  ['ConnectionCard（准入开关在卡里）', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop }), '允许新设备绑定'],
   // 更新卡片现在先问宿主那四条 `/api/relay/update/*`，拿不到才退化成市场那条老路。
   // SSR 里 effect 不跑（`renderToString` 不会执行 useEffect），所以两条分支都不进：
   // 这一遍只冒烟「标题 + 正在读状态」那一屏。宿主 / 市场两条完整分支要用真浏览器看
@@ -186,10 +199,14 @@ const cases = [
   // 悬浮那颗「加入交流群」独立于两张卡，单独过一遍：它要贴住右下角（`fixed`）、
   // 文字和微信图标都得在。点开之后是什么还没定，所以只看按钮在不在。
   ['JoinGroupButton', h(Join.JoinGroupButton, {}), '加入交流群'],
-  // 右上角那颗日间 / 夜间切换：SSR 里没有 ThemeProvider（`useTheme` 回空值 ⇒ 当作还没定
-  // 主题），所以这一遍只冒烟「按钮在、无障碍名给的是下一步」；图标换不换、贴没贴住右上角
-  // 要看真浏览器（`fixed end-6 top-6 z-40` 在类名里，渲染出来看不见位置）。
+  // 右上角那组按钮（日夜 + 界面语言）：SSR 里没有 ThemeProvider（`useTheme` 回空值 ⇒
+  // 当作还没定主题），所以这一遍只冒烟「两颗按钮都在、无障碍名给的是下一步」；图标换不换、
+  // 贴没贴住右上角要看真浏览器（位置写在 `TopRightActions` 的类名里，渲染出来看不见）。
   ['ThemeToggle', h(Toggle.ThemeToggle, {}), 'aria-label="切换到夜间模式"'],
+  ['LanguageMenu', h(Lang.LanguageMenu, {}), 'aria-label="界面语言"'],
+  ['TopRightActions', h(Actions.TopRightActions, {}), 'aria-label="切换到夜间模式"'],
+  // 语言菜单的弹层走 portal，SSR 出来是空字符串：五门清单与打勾那一项要真浏览器点开看。
+  ['TopRightActions（两颗都在）', h(Actions.TopRightActions, {}), 'aria-label="界面语言"'],
   // 下载入口：按钮本身总是在，四条渠道在弹窗里 —— 弹窗未打开时不进 DOM（Base UI 走 portal），
   // 所以这一遍只冒烟按钮；四条链接有没有齐要看真浏览器点开（和上面几颗弹窗同一种处境）。
   ['DownloadAppButton', h(Dl.DownloadAppButton, {}), '下载 APP'],

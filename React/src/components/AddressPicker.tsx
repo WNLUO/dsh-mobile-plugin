@@ -152,7 +152,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
         <span key={item.address} className="inline-flex flex-wrap items-baseline justify-end gap-x-2">
           <span className="font-mono text-xs text-foreground-muted">{urlOf(item.address, text)}</span>
           <span className="shrink-0 font-sans text-xs text-foreground-subtle">
-            {`${addressKindLabel('ipv6', item.interface)}（手机按实测择优）`}
+            {t('panel.address.ipv6Pick', { kind: addressKindLabel('ipv6', item.interface) })}
           </span>
         </span>
       ))}

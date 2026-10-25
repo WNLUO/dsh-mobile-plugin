@@ -26,6 +26,7 @@
  * 「这一版装的是没外壳的实现」。两种都算「宿主这边装不了新版本」，但给用户的话不一样。
  */
 import { ApiError } from './api.ts'
+import { t } from './i18n/index.ts'
 
 export const UPDATE_PATHS = {
   status: '/api/relay/update/status',
@@ -150,7 +151,7 @@ async function request(path: string, init?: RequestInit): Promise<Record<string,
   const error = asRecord(record.error)
   if (!response.ok) {
     const code = asString(error.code) ?? `http_${response.status}`
-    const message = asString(error.message) ?? `宿主返回 HTTP ${response.status}`
+    const message = asString(error.message) ?? t('panel.net.hostHttp', { status: response.status })
     throw new ApiError(message, code, response.status)
   }
   return record

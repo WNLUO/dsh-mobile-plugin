@@ -31,7 +31,9 @@ const SRC = path.join(__dirname, '..', 'React', 'src');
 const read = (...parts) => fs.readFileSync(path.join(SRC, ...parts), 'utf8');
 
 const devices = read('components', 'DevicesCard.tsx');
-const policy = read('components', 'PairingPolicyCard.tsx');
+// 准入开关 2026-10-26 起住在「连接状态」卡里（用户要求：摆在远程控制上方），
+// 不再是单独一张卡 —— 所以这条守卫读的是 ConnectionCard。
+const policy = read('components', 'ConnectionCard.tsx');
 const app = read('App.tsx');
 const api = read('lib', 'api.ts');
 const dict = read('lib', 'i18n', 'messages', 'devices.ts');
@@ -81,8 +83,10 @@ test('设备卡：行的字段与「相对时间」口径', () => {
   assert.equal(zh('panel.devices.channelRelay'), '经中转');
   assert.equal(zh('panel.devices.channelLan'), '局域网');
   assert.match(devices, /encrypted \? t\('panel\.devices\.encrypted'\) : t\('panel\.devices\.plain'\)/, '加密 / 明文按 encrypted 分叉');
-  assert.equal(zh('panel.devices.encrypted'), '加密');
-  assert.equal(zh('panel.devices.plain'), '明文');
+  // 2026-10-26 改口：「加密」标的是**这条链路**有没有设备密钥，跟 App 新不新无关 ——
+  // 原来写两个字，摆在版本号旁边会被读成「已是最新」。
+  assert.equal(zh('panel.devices.encrypted'), '链路已加密');
+  assert.equal(zh('panel.devices.plain'), '链路未加密');
   assert.match(devices, /panel\.devices\.boundAt/, '要显示绑定时间');
   // 相对时间只有这四档，别退化成「0 秒前」这种读数。
   assert.equal(zh('panel.devices.justNow'), '刚刚', '一分钟以内写「刚刚」');
@@ -117,10 +121,9 @@ test('解除绑定：legacy 与非 legacy 的确认文案是两句，legacy 不�
 
 test('「允许新设备绑定」开关：读 status.pairingPolicy，写 /api/relay/config，没有第二份状态', () => {
   assert.match(policy, /status\.pairingPolicy === 'code'/, '开关取值直接来自 status.pairingPolicy');
-  assert.ok(!/useState/.test(policy), '开关组件里不许有 useState 副本：取值只有宿主那一份');
-  // 注释里也提到了那个 React 钩子，所以上面那条改成按 import 判：只要不真的引进来就成立。
-  assert.ok(!/from 'react'/.test(policy), '开关组件不许从 react 引状态钩子');
-  assert.match(policy, /onChange\(next \? 'code' : 'deny'\)/, '勾选映射到 code / deny');
+  // 取值只有宿主那一份：这颗开关不许自己存一份「允许不允许」。
+  assert.ok(!/useState<boolean>\(/.test(policy), '开关里不许有 useState 副本：取值只有宿主那一份');
+  assert.match(policy, /onChangePolicy\(next \? 'code' : 'deny'\)/, '勾选映射到 code / deny');
 
   // 面板一侧：写的是同一份配置，回来的 status 顶掉旧的。
   assert.match(app, /const savePolicy = \(pairingPolicy: PairingPolicy\)/, '面板要有写 pairingPolicy 的入口');
@@ -130,27 +133,48 @@ test('「允许新设备绑定」开关：读 status.pairingPolicy，写 /api/re
   assert.ok(!/useState<boolean>\(.*[Aa]llow/.test(app), '面板上不许再存一份「允许新设备绑定」');
 });
 
-test('开关摆在面板上：在左栏配对卡上面，关掉时旁边那句提示在', () => {
-  assert.match(app, /<PairingPolicyCard status=\{status\}/, '面板必须直接渲染这个开关（不是只在弹窗里）');
+test('开关摆在「连接状态」卡里、远程控制上面，且只有一行标签 + 一颗开关', () => {
+  // 2026-10-26 用户要求：从「配对卡上面那张独立的卡」搬进右栏「连接状态」，摆在远程控制上方，
+  // 样式与远程控制那颗一致 —— 去掉「已允许」徽标，也去掉那两句说明。
+  const aside = app.slice(app.indexOf('<aside'), app.indexOf('</aside>'));
+  assert.ok(aside.includes('<ConnectionCard'), '连接状态卡必须在右栏里');
+  assert.ok(aside.includes('<InboxCard />'), '收件文件卡要挂在连接状态下面（同一栏）');
   assert.ok(
-    app.indexOf('<PairingPolicyCard') < app.indexOf('<PairingCard'),
-    '开关要摆在配对卡上面 —— 它决定的是「还收不收新手机」',
+    aside.indexOf('<ConnectionCard') < aside.indexOf('<InboxCard />'),
+    '收件文件要排在连接状态下面',
   );
-  assert.ok(
-    app.indexOf('<DevicesCard />') > app.indexOf('<PairingCard'),
-    '设备卡要挂在配对卡下面',
+  // 2026-10-26：右栏两块不跟随滚动（`lg:sticky` 会让翻页时它们一直钉在视口里）。
+  assert.ok(!/sticky/.test(aside), '右栏两块不跟随滚动：aside 上不许挂 sticky');
+  assert.ok(!/PairingPolicyCard/.test(app), '那张独立的准入卡已经删了，别再加回来');
+
+  // 左栏顺序：配对 → 插件更新 → 已绑定的设备（2026-10-26 用户要求把后两块对调）。
+  const order = ['<PairingCard', '<UpdateCard', '<DevicesCard />'].map((tag) => app.indexOf(tag));
+  assert.ok(order.every((at) => at > 0), '左栏三块都得渲染出来');
+  assert.deepEqual(order, [...order].sort((a, b) => a - b), '左栏顺序必须是 配对 → 更新 → 设备');
+
+  // 卡里：准入那颗在远程控制那颗**前面**。
+  const allowAt = policy.indexOf('panel.devices.allowTitle');
+  const remoteAt = policy.indexOf('panel.connection.remoteControl');
+  assert.ok(allowAt > 0 && remoteAt > 0, '两颗开关都要在连接状态卡里');
+  assert.ok(allowAt < remoteAt, '准入开关要摆在远程控制上面');
+
+  // 形态只有「一行标签 + 一颗开关」：不许状态徽标、不许说明句。
+  for (const gone of [
+    'panel.devices.allowOn',
+    'panel.devices.allowOff',
+    'panel.devices.allowOnHint',
+    'panel.devices.allowOffHint',
+    'panel.devices.allowOffNote',
+  ]) {
+    assert.ok(!policy.includes(gone), `${gone} 已经删了：那颗开关就是一行标签 + 一颗开关`);
+    assert.equal(zh(gone), null, `字典里也不该再有 ${gone}`);
+  }
+  const allowRow = policy.slice(
+    policy.indexOf('panel.devices.allowTitle') - 300,
+    policy.indexOf('panel.connection.remoteControl'),
   );
-  // 关掉时旁边那一句（用户点名的原话，住在字典里）。
-  assert.equal(
-    zh('panel.devices.allowOffNote'),
-    '关掉后这台电脑不收新设备，已绑定的手机照常用',
-    '关掉时要有那句提示',
-  );
-  assert.match(policy, /panel\.devices\.allowOffNote/, '那句话要从字典取');
-  assert.ok(
-    /!allowed \? \(/.test(policy),
-    '那句话只在关掉时出现：开着的时候它不成立',
-  );
+  assert.ok(!/<Badge/.test(allowRow), '准入那一行不许挂 Badge');
+
   // 「中转配置」弹窗里那对单选项留着（写同一份配置），别顺手删掉。
   const dialog = read('components', 'RelayConfigDialog.tsx');
   assert.match(dialog, /pairingPolicy/, '中转配置弹窗里的配对策略还在，写的是同一份配置');
