@@ -187,7 +187,7 @@ test('换不过来之后：自动不再反复抖同一个版本，手按一次�
   assert.equal(reloads, 1);
   // 下一个 tick 还是同一版：不该再抖一次。
   await updater.performUpdate({ runtime, base, updateState, auto: true });
-  assert.equal(reloads, 1, '一个起不来的版本不该每 10 分钟把手机抖一下');
+  assert.equal(reloads, 1, '一个起不来的版本不该每一轮把手机抖一下');
   assert.equal(updateState.lastApply.failure.code, 'swap_deferred', '要如实说「自动已经试过了」');
   // 人按了一次：那是「我知道，再来一次」的出口。
   await assert.rejects(updater.performUpdate({ runtime, base, updateState, auto: false }));

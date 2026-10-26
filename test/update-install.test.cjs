@@ -13,9 +13,11 @@
  *   · **只有注册表来源才装**：`link:` / `file:` / `workspace:` 都是有人明确安排的装法
  *     （开发机就这么跑），装一次 npm 版会把那个指向换掉、本地改动从此不生效。这道门排在
  *     挑包管理器之前 —— 「这台不该装」与「这台装不了」是两件事，不能混成同一条失败。
- *   · **只有 force 才跳过「新发布先晾一会儿」**：平时不该绕供应链那点等待。
- *   · **自动那一轮只跳过「有对话在跑」那道闸**（2026-10-25 用户拍板）：照样要有新版才装，
- *     也不借 force 的发布时长开关 —— 借了就成了每 10 分钟把同一个版本重装一遍。
+ *   · **只有 force / auto 才跳过「新发布先晾一会儿」**：手动点的那一下是用户明说「装吧」，
+ *     auto 是「一检测到新版就立刻装」（2026-10-26 用户要求），两者一开始就带开关；其余调用
+ *     （平时装机、没标 auto 的那条）仍然要按供应链那点等待走，撞上策略才重试一次。
+ *   · **自动那一轮照样要有新版才装**（2026-10-25 用户拍板跳过「有对话在跑」那道闸）：不因为
+ *     带上了发布时长开关就变成每 2 分钟把同一个版本重装一遍。
  *
  * 假包管理器是**真的可执行文件**（临时目录里的 sh 脚本 + 真 spawn），所以 cwd、参数、
  * 环境变量、退出码全是被测对象，不是打桩过的函数调用。
@@ -288,17 +290,22 @@ test('来源那道门排在挑包管理器之前：没有包管理器的本机�
   assert.equal(result.failure.code, 'LOCAL_SOURCE', '「不该装」必须排在「装不了」前面');
 });
 
-test('只有 force 才跳过「新发布先晾一会儿」那道门槛', async () => {
+test('force 与 auto 都跳过「新发布先晾一会儿」那道门槛', async () => {
   const quiet = makeProfile('quiet', '0.1.60');
   const quietFake = makeFakePnpm('quiet');
   await installLatest({ profileNodeModules: quiet.nodeModules, version: '0.2.0', dirs: [quietFake.binDir], env: isolatedEnv(quietFake.binDir) });
   assert.match(quietFake.calls()[0], /auto-install-peers=false/, 'peer 里有一串 npm 上根本没有的 @deepseek-ai/*，必须显式关掉');
-  assert.equal(/minimum-release-age/.test(quietFake.calls()[0]), false, '平时不该绕供应链那点等待');
+  assert.equal(/minimum-release-age/.test(quietFake.calls()[0]), false, '没标 force / auto 的调用不该绕供应链那点等待');
 
   const forced = makeProfile('forced', '0.1.60');
   const forcedFake = makeFakePnpm('forced');
   await installLatest({ profileNodeModules: forced.nodeModules, version: '0.2.0', force: true, dirs: [forcedFake.binDir], env: isolatedEnv(forcedFake.binDir) });
   assert.match(forcedFake.calls()[0], /--config\.minimum-release-age=0/);
+
+  const auto = makeProfile('auto-flag', '0.1.60');
+  const autoFake = makeFakePnpm('auto-flag');
+  await installLatest({ profileNodeModules: auto.nodeModules, version: '0.2.0', auto: true, dirs: [autoFake.binDir], env: isolatedEnv(autoFake.binDir) });
+  assert.match(autoFake.calls()[0], /--config\.minimum-release-age=0/, '自动那一轮要一检测到就装，不许先被晾置期挡回来');
 });
 
 test('来源判定：npm / file / link / workspace，读不到就说不知道', () => {
@@ -492,8 +499,8 @@ test('有 agent 在跑：不动盘、如实报 AGENTS_RUNNING、可说「再试�
     assert.equal(forced.installed, true, 'force 要跳过那道闸');
     assert.equal(forced.installedVersion, '0.2.0');
 
-    // auto = 宿主那一轮自动更新：同样跳过这道闸（2026-10-25 用户拍板），但它**不**借
-    // force 的其余两件事 —— 发布时长开关一开始仍然不带。
+    // auto = 宿主那一轮自动更新：同样跳过这道闸（2026-10-25 用户拍板），2026-10-26 起也
+    // 一开始就带发布时长开关（一检测到新版就装）。
     const autoProfile = makeProfile('agents-auto', '0.1.60');
     const autoFake = makeFakePnpm('agents-auto');
     const automatic = await installLatestIfNeeded({
@@ -505,7 +512,7 @@ test('有 agent 在跑：不动盘、如实报 AGENTS_RUNNING、可说「再试�
     });
     assert.equal(automatic.installed, true, '自动更新要跳过「有对话在跑」那道闸');
     assert.equal(automatic.installedVersion, '0.2.0');
-    assert.equal(/minimum-release-age=0/.test(autoFake.calls()[0]), false, 'auto 不借 force 的发布时长开关');
+    assert.match(autoFake.calls()[0], /minimum-release-age=0/, '自动那一轮也跳过发布晾置期');
   });
 });
 
@@ -523,7 +530,7 @@ test('auto 只跳过对话那道闸：已经是最新时照样不动盘', async 
     assert.equal(outcome.installed, false);
     assert.equal(outcome.skipped, true);
     assert.equal(outcome.check.updateAvailable, false);
-    assert.deepEqual(fake.calls(), [], '已经是最新时不许每 10 分钟把同一个版本重装一遍');
+    assert.deepEqual(fake.calls(), [], '已经是最新时不许每一轮把同一个版本重装一遍');
   });
 });
 

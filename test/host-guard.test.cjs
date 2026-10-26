@@ -179,10 +179,10 @@ test('safeAsync：被包的函数 reject 时不外泄，并记进账本', async 
 
 test('safeAsync：同步抛出同样被吞（fire-and-forget 调用点不该反噬）', async () => {
   const { guard } = harness();
-  const guarded = safeAsync(() => { throw new Error('同步炸了'); }, 'auto-archive', guard);
+  const guarded = safeAsync(() => { throw new Error('同步炸了'); }, 'session-cleanup', guard);
   await guarded();
   assert.equal(guard.faults().length, 1);
-  assert.match(guard.faults()[0].message, /auto-archive/);
+  assert.match(guard.faults()[0].message, /session-cleanup/);
 });
 
 test('safeAsync：正常路径保持 undefined 结果，参数原样透传', async () => {
