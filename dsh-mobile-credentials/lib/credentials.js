@@ -3,7 +3,7 @@
 /**
  * 每设备凭据库：签发、校验、吊销手机端的持久化凭据。
  *
- * **凭据本身就是 Bearer**（讨论记录 §3.2 的 T1 口径）。配对签发一枚
+ * **凭据本身就是 Bearer**。配对签发一枚
  * `<instanceId>.<exp>.<random>`，同一枚同时充当 `Authorization: Bearer`、`dsh_lan` cookie
  * 与 `X-Dsh-Device-Credential`。三段形状只为兼容老 App「实例号缺失时从第一段补」那条逻辑；
  * 服务端**只按整串的 sha256 查库**，不看前缀、不解析三段、也不信里面的 `exp`
@@ -13,7 +13,7 @@
  * 验签必须持有密钥本身，所以它按 base64url 原文落盘 —— 「整库只有哈希」这句话在它身上不成立。
  * `hostToken` 只为旧的 HMAC 记录保留：新记录一律留空，代理直接转发请求里出示的那一枚。
  *
- * 写入只有一个方向（§3.7）：宿主主进程是唯一写方；旁路子进程拿的是只读副本，靠文件
+ * 写入只有一个方向：宿主主进程是唯一写方；旁路子进程拿的是只读副本，靠文件
  * mtime/size 变了就重载来跟住变化，签发与吊销走 IPC 交给主进程（`lib/impl.js`）。
  */
 const crypto = require('node:crypto');
@@ -24,7 +24,7 @@ const os = require('node:os');
 const FILE = process.env.DEVICE_CREDENTIALS_FILE || path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'relay-device-credentials.json');
 /** 默认有效期一年。`issue(..., ttlMs)` 可覆盖；`ttlMs <= 0` 表示不过期。 */
 const DEFAULT_TTL_MS = 365 * 24 * 3600 * 1000;
-/** 已吊销或过期超过这么久的记录，下次写入时整条删掉（§3.9）：别让每条请求扫一整年的账。 */
+/** 已吊销或过期超过这么久的记录，下次写入时整条删掉：别让每条请求扫一整年的账。 */
 const PRUNE_GRACE_MS = 30 * 24 * 3600 * 1000;
 /** 剩余有效期超过这个比例就不续期：滑动续期只在过掉一半之后发生。 */
 const RENEW_BELOW_RATIO = 0.5;
@@ -142,7 +142,7 @@ function deviceMeta(device) {
 }
 
 /**
- * 已吊销、或过期超过宽限期的整条删掉（§3.9）。
+ * 已吊销、或过期超过宽限期的整条删掉。
  *
  * 旧库只追加、吊销只打标记，今天不疼是因为「查不到就回退验 HMAC」把问题掩盖成了可用；
  * 查库优先之后，每条请求都要扫整张表，一年下来几千条就是每条请求扫几千次。
@@ -257,7 +257,7 @@ function findByKeyId(instanceId, keyId) {
 }
 
 /**
- * 记一次「这台设备刚连上过」（§3.4）。
+ * 记一次「这台设备刚连上过」。
  *
  * 内存里每次都更新（面板 3 秒轮询要的是当下的值），落盘按全局 1 分钟节流：每条请求都写一次
  * 盘，是拿磁盘换一个只用来显示「几分钟前」的字段。`issue` / `revoke` 立刻写，不受它影响。
@@ -269,7 +269,7 @@ function touch(record, info = {}) {
   record.lastSeenAt = now;
   const channel = typeof info.channel === 'string' ? info.channel : '';
   if (channel) record.lastChannel = channel.slice(0, FIELD_MAX);
-  // 身份那几格（2026-10-26）：名字 / 平台 / 系统版本 / App 版本由**每一次请求**带上来，
+  // 身份那几格：名字 / 平台 / 系统版本 / App 版本由**每一次请求**带上来，
   // 顺手刷新。它们以前只在配对那一刻写一次，于是「手机升到新版了、面板还报配对时的旧版本」，
   // 而旧会话升级写进来的记录干脆什么身份都没有（面板只能画「未知设备」）。
   // **只写这次真带了值的格子**：老版本 App 不带头，绝不能把已经有的名字冲成空。
@@ -290,7 +290,7 @@ function touch(record, info = {}) {
 }
 
 /**
- * 滑动续期（§3.9）：剩余不到一半就把 `expiresAt` 后推一个新 TTL。
+ * 滑动续期：剩余不到一半就把 `expiresAt` 后推一个新 TTL。
  *
  * 不需要新协议 —— 服务端本来就以记录为准、不验 token 里的 `exp`，所以续期就是改这条记录。
  * **不能改 token 本身**：库按整串哈希查，改一个字节手机上那枚就对不上了。
@@ -362,7 +362,7 @@ function listActive() {
 }
 
 /**
- * 面板要的那份设备清单（§3.4）。
+ * 面板要的那份设备清单。
  *
  * 按 `deviceId` 聚成一行：同一台手机重配几次不该在列表里重复出现。名字与平台取最新一条
  * **有值的**记录（老记录这些字段是空的，空的不能覆盖有值的），绑定时间取最早，最近连接取

@@ -1,15 +1,15 @@
 'use strict';
 
 /**
- * `lib/client.js` 的行为测试（这个文件此前零覆盖）。
+ * `lib/client.js` 的行为测试。
  *
- * 它是整个仓库唯一「拆不开」的源文件，先把这件事钉死：
- * 它注册进 `window.__ModuleLoader__`，工厂收到的 `require` 是 **DSH 的模块表
- * require**，不是 node 的。所以工厂内部只能 require `react`，没法
- * `require('./某某.js')` 把实现挪到别的文件；文件本身又不经任何构建
- * （package.json 的 files 直接收录 lib 下的 .js）。拆分的唯一出路是引入打包器，
- * 那会让「OTA 直接发源码」这条部署路径整个失效。所以这里测的是它的行为，
- * 以及「它赖以工作的形状」——形状一变设置页会静默变空白，而没有任何测试会红。
+ * 它是整个仓库唯一「拆不开」的源文件：注册进 `window.__ModuleLoader__`，工厂收到的
+ * `require` 是 **DSH 的模块表 require**，不是 node 的。所以工厂内部只能 require `react`，
+ * 没法 `require('./某某.js')` 把实现挪到别的文件；文件本身也不经任何构建。拆分的唯一出路
+ * 是引入打包器，那会让「OTA 直接发源码」这条部署路径整个失效。
+ *
+ * 这里测的是它的行为，以及「它赖以工作的形状」——形状一变设置页会静默变空白，而没有
+ * 任何测试会红。
  */
 
 const test = require('node:test');
@@ -800,9 +800,8 @@ test('绿点同步门禁在 ctx.inject 上：拿不到桌面服务时连 effect 
   // 门禁必须写成「拿不到服务就整条不挂」（`ctx.inject` 的依赖永不满足 ⇒ 回调不跑），
   // 而不是「挂上去再早退」——后者会留下一个每 2s 空转一次的定时器，也会让
   // client-factory 的定时器计数守卫失去意义。
-  // 2026-10-10 真机故障前这里写的是 `ctx.get(name)`：宿主侧活体台账显示那半边
-  // **一次请求都没发过**，说明 `ctx.get` 在客户端运行时里取不到这两个服务。改用
-  // DSH 自家客户端插件与第三方插件（dsh-opencode-go）都在用的 `ctx.inject`。
+  // 取服务只能用 `ctx.inject`：`ctx.get(name)` 在客户端运行时里取不到这两个服务（改了会一次
+  // 请求都不发）。DSH 自家客户端插件与第三方插件（dsh-opencode-go）都走 `ctx.inject`。
   assert.equal(
     (SOURCE.match(/withClientServices\(/g) || []).length,
     4,
@@ -903,9 +902,8 @@ test('方向一：正在跑的会话不算读完，跑起来要摘掉标记、�
 });
 
 test('方向一：桌面正开着的会话也算读过（它永远不进未读集合）', async () => {
-  // 2026-10-10 真机截图：会话开在桌面主视图里，mainView 会话根本不进未读集合
-  // （`observeRunning` 跳过、`reconcileStatus` 主动删），「未读掉出去」的边沿对它一次
-  // 都不会发生。判据里单独留「正开着」这一条就是为了它。
+  // 桌面正开着的会话根本不进未读集合（`observeRunning` 跳过、`reconcileStatus` 主动删），
+  // 「未读掉出去」的边沿对它一次都不会发生。判据里单独留「正开着」这一条就是为了它。
   const store = statusStore([['open1', { completionUnread: false, running: false }]]);
   const sessions = sessionsService({ rows: { open1: { updatedAt: 100, retainedBy: { mainView: 1 } } } });
   const env = materialize({

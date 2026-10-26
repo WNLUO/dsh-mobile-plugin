@@ -3,22 +3,18 @@
 /**
  * 移动端路由的**派发**契约：宿主怎么调 handler，handler 必须写出什么。
  *
- * 为什么有了 `mobile-routes.test.cjs` 还需要这一条：那套测试读的是
- * `lib/routes/mobile-api.js` 的**源码文本**，只比对「路径清单有没有和 App 对齐」，
- * 对「handler 长什么样」一无所知。于是 2026-10 的 `/api/mobile/v1/health` 把一个本该
- * 收 `(req, res)` 的裸 handler 写成了 `(_ctx, _req, res)`：`res` 成了 `undefined`，
- * 而 `shared/http-util.js` 的 `sendJson` 把 TypeError 当成「连接已关闭」静默吞掉——
- * 既没报错也没回包，请求**永久挂住**。手机 5s 超时后退回 `/healthz` 拿到 ok，报
- * 「地址能连上，但对面不是 DSH 移动端服务」，而整套纯文本断言全绿。
+ * `mobile-routes.test.cjs` 读的是 `lib/routes/mobile-api.js` 的**源码文本**，只比对「路径
+ * 清单有没有和 App 对齐」，对「handler 长什么样」一无所知。于是 `/api/mobile/v1/health` 曾
+ * 把一个本该收 `(req, res)` 的裸 handler 写成 `(_ctx, _req, res)`：`res` 成了 `undefined`，
+ * 而 `shared/http-util.js` 的 `sendJson` 把 TypeError 当成「连接已关闭」静默吞掉 —— 既没
+ * 报错也没回包，请求**永久挂住**，手机超时后退回 `/healthz`，整套纯文本断言全绿。
  *
- * 所以这里**真装配一次路由表**、按宿主的调用约定真派发每一条路由
- * （`@deepseek-ai/dsh-host-webserver` 就是 `await route.handler(req, res)`，两个参数），
- * 钉住两件事：
- *   1. 无凭据时**任何**一条路由都得写出响应，一个字节都不回就是上面那种挂死；
- *   2. 公开豁免的那一条回 200 + 服务名，其余一律 401。
+ * 所以这里**真装配一次路由表**、按宿主的调用约定（`await route.handler(req, res)`，两个
+ * 参数）真派发每一条路由，钉住两件事：无凭据时**任何**一条路由都得写出响应（一个字节都不回
+ * 就是上面那种挂死）；公开豁免的那一条回 200 + 服务名，其余一律 401。
  *
- * 公开路由的清单与理由不在本文件重复维护（在 `mobile-routes.test.cjs` 的
- * `PUBLIC_ROUTES`），这里只断言「它是那个例外、且真的答得出来」。
+ * 公开路由的清单与理由不在本文件重复维护（在 `mobile-routes.test.cjs` 的 `PUBLIC_ROUTES`），
+ * 这里只断言「它是那个例外、且真的答得出来」。
  */
 
 const test = require('node:test');

@@ -1,22 +1,17 @@
 'use strict'
 // 「状态不许由过期的隧道实例改写」。
 //
-// 背景：/status 报的 tunnel.state 和 /tunnel/send 的真值对不上，于是镜像推送
-// 每一轮都撞 503。现场是 SHIYAN 上跑着的无头宿主 host.log 里
-// 「bg queue: sidecar facade request failed: 503」持续刷屏，而同一条隧道其实在
-// 正常转发会话（deliveredSeq 一路在涨）——推的通道和收的通道是同一条。
+// 成因：worker 的 startTunnel() 里，onClose / onPairRequest / start().catch 都带实例身份
+// 守卫（tunnel === current），只有 onRegistered 漏了。注册帧是在 ws 上异步回来的，只要在这
+// 期间 configure() 或网络监视器重建了隧道，旧实例迟到的 registered 帧就会把 tunnelState 写
+// 成 'connected' —— 可此刻 tunnel 指向的是新实例，它的 ws 还停在 CONNECTING，connected 是
+// false。
 //
-// 成因：worker 的 startTunnel() 里，onClose / onPairRequest / start().catch 都带
-// 实例身份守卫（tunnel === current），只有 onRegistered 漏了。注册帧是在 ws 上异步
-// 回来的，只要在这期间 configure() 或网络监视器重建了隧道，旧实例迟到的 registered
-// 帧就会把 tunnelState 写成 'connected'——可此刻 tunnel 指向的是新实例，它的 ws 还
-// 停在 CONNECTING，connected 是 false。
+// 于是形成这个错位：/status 说「已连接」→ 宿主据此放行镜像推送 → worker 按真值回 503 tunnel
+// not connected。状态越乐观，推送越是必然失败，而且没有任何补偿手段。
 //
-// 于是形成这个错位：/status 说「已连接」→ 宿主据此放行镜像推送 → worker 按真值回
-// 503 tunnel not connected。状态越乐观，推送越是必然失败，而且没有任何补偿手段。
-//
-// 本用例把 startTunnel() 的**真源码**抠出来 eval，配上假的 RelayTunnel 驱动那条
-// 时序——测的是真代码，不是照着真代码另写一遍（后者会在真代码坏掉时照样绿灯）。
+// 本用例把 startTunnel() 的**真源码**抠出来 eval，配上假的 RelayTunnel 驱动那条时序 ——
+// 测的是真代码，不是照着真代码另写一遍（后者会在真代码坏掉时照样绿灯）。
 const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')

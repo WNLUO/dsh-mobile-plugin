@@ -3,23 +3,21 @@
 /**
  * 守卫：面板上的「已绑定的设备」卡、「允许新设备绑定」开关。
  *
- * 这三条约定各自都有一次「看着没问题、实际在骗人」的失败模式，而且都**不在渲染结果里
- * 一眼看得出来**，所以按源码写法钉住：
+ * 三条约定各有一次「看着没问题、实际在骗人」的失败模式，而且都**不在渲染结果里一眼看得
+ * 出来**，所以按源码写法钉住：
  *
- *  1. **没有设备时整卡消失**：摆一张空卡等于告诉用户「这里本来该有东西」，与「这台机器
- *     还没放任何手机进来」不是一句话。判据必须是 `devices.length === 0` 直接返回 null，
- *     不能只把列表渲染成空的。
+ *  1. **没有设备时整卡消失**：摆一张空卡等于告诉用户「这里本来该有东西」。判据必须是
+ *     `devices.length === 0` 直接返回 null，不能只把列表渲染成空的。
  *  2. **解除绑定的确认文案必须分两种**：`legacy` 为真的设备名下还有不带设备密钥的旧记录，
- *     单台吊销杀不掉那本旧通行证 —— 对它写「立即失效」就是给了一个做不到的承诺。这一条
- *     是硬要求，所以这里逐字比对两句文案，并防止两句话被合并成一句。
- *  3. **开关只有一份状态**：`允许新设备绑定` 的取值就是 `/api/relay/status` 的
- *     `pairingPolicy`，写回走 `/api/relay/config`。组件里一旦多一个 `useState` 副本，
- *     轮询回来就会和宿主的真值各说各的（点了没反应、或者关上了看着还开着）。
+ *     单台吊销杀不掉那本旧通行证 —— 对它写「立即失效」就是给了一个做不到的承诺。所以这里
+ *     逐字比对两句文案，并防止两句话被合并成一句。
+ *  3. **开关只有一份状态**：取值就是 `/api/relay/status` 的 `pairingPolicy`，写回走
+ *     `/api/relay/config`。组件里一旦多一个 `useState` 副本，轮询回来就会和宿主的真值各说
+ *     各的（点了没反应、或者关上了看着还开着）。
  *
- * 读源码而不是产物：产物是提交物、要重建才更新（见 `panel-artifact.test.cjs` 的文件头），
- * 而这三条都是**写法**上的约定，源码一变就该红。文案本身住在字典里（`lib/i18n/messages/
- * devices.ts`），所以「这句话必须这么说」那一半查字典的中文值，另一半（用在哪、按哪个
- * 字段分叉）查源码。
+ * 读源码而不是产物（产物是提交物、要重建才更新）：这三条都是**写法**上的约定。文案本身住在
+ * 字典里（`lib/i18n/messages/devices.ts`），所以「这句话必须这么说」那一半查字典的中文值，
+ * 另一半（用在哪、按哪个字段分叉）查源码。
  */
 
 const test = require('node:test');
@@ -31,8 +29,8 @@ const SRC = path.join(__dirname, '..', 'React', 'src');
 const read = (...parts) => fs.readFileSync(path.join(SRC, ...parts), 'utf8');
 
 const devices = read('components', 'DevicesCard.tsx');
-// 准入开关 2026-10-26 起住在「连接状态」卡里（用户要求：摆在远程控制上方），
-// 不再是单独一张卡 —— 所以这条守卫读的是 ConnectionCard。
+// 准入开关住在「连接状态」卡里（摆在远程控制上方），不再是单独一张卡 —— 所以这条守卫读的是
+// ConnectionCard。
 const policy = read('components', 'ConnectionCard.tsx');
 const app = read('App.tsx');
 const api = read('lib', 'api.ts');
@@ -134,8 +132,8 @@ test('「允许新设备绑定」开关：读 status.pairingPolicy，写 /api/re
 });
 
 test('开关摆在「连接状态」卡里、远程控制上面，且只有一行标签 + 一颗开关', () => {
-  // 2026-10-26 用户要求：从「配对卡上面那张独立的卡」搬进右栏「连接状态」，摆在远程控制上方，
-  // 样式与远程控制那颗一致 —— 去掉「已允许」徽标，也去掉那两句说明。
+  // 从「配对卡上面那张独立的卡」搬进右栏「连接状态」，摆在远程控制上方，样式与远程控制那颗
+  // 一致 —— 去掉「已允许」徽标，也去掉那两句说明。
   const aside = app.slice(app.indexOf('<aside'), app.indexOf('</aside>'));
   assert.ok(aside.includes('<ConnectionCard'), '连接状态卡必须在右栏里');
   assert.ok(aside.includes('<InboxCard />'), '收件文件卡要挂在连接状态下面（同一栏）');
@@ -143,11 +141,11 @@ test('开关摆在「连接状态」卡里、远程控制上面，且只有一�
     aside.indexOf('<ConnectionCard') < aside.indexOf('<InboxCard />'),
     '收件文件要排在连接状态下面',
   );
-  // 2026-10-26：右栏两块不跟随滚动（`lg:sticky` 会让翻页时它们一直钉在视口里）。
+  // 右栏两块不跟随滚动（`lg:sticky` 会让翻页时它们一直钉在视口里）。
   assert.ok(!/sticky/.test(aside), '右栏两块不跟随滚动：aside 上不许挂 sticky');
   assert.ok(!/PairingPolicyCard/.test(app), '那张独立的准入卡已经删了，别再加回来');
 
-  // 左栏顺序：配对 → 插件更新 → 已绑定的设备（2026-10-26 用户要求把后两块对调）。
+  // 左栏顺序：配对 → 插件更新 → 已绑定的设备。
   const order = ['<PairingCard', '<UpdateCard', '<DevicesCard />'].map((tag) => app.indexOf(tag));
   assert.ok(order.every((at) => at > 0), '左栏三块都得渲染出来');
   assert.deepEqual(order, [...order].sort((a, b) => a - b), '左栏顺序必须是 配对 → 更新 → 设备');

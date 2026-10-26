@@ -3,13 +3,12 @@
 /**
  * 读「路由接线」的源码文本。
  *
- * 移动端路由表住在 lib/routes/mobile-api.js，装配层只留一句 registerMobileRoutes(...)
- * 调用。断言「某条路由挂没挂、某个 handler 模块有没有被引入」时，两端都要看，所以这里
- * 把两个文件拼起来返回；断言里写 `require\(['"](?:\.\.?\/mobile)\/X` 就能同时容忍
- * `./mobile/X.js`（装配层侧）与 `../mobile/X.js`（路由表侧）两种相对写法。
+ * 移动端路由表住在 lib/routes/mobile-api.js，装配层只留一句 registerMobileRoutes(...) 调用。
+ * 断言「某条路由挂没挂、某个 handler 模块有没有被引入」时，两端都要看，所以这里把两个文件
+ * 拼起来返回；断言里写 `require\(['"](?:\.\.?\/mobile)\/X` 就能同时容忍 `./mobile/X.js`
+ * （装配层侧）与 `../mobile/X.js`（路由表侧）两种相对写法。
  *
- * 读的是 `lib/impl.js` 而不是 `lib/index.js`：后者自「热替换」起只剩稳定外壳
- * （发现代际、装载、换代），路由与 handler 依赖全在 impl.js 里。
+ * 读的是 `lib/impl.js` 而不是 `lib/index.js`：路由与 handler 依赖全在 impl.js 里。
  */
 
 const { readFileSync } = require('node:fs');

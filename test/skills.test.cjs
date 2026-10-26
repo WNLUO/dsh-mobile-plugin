@@ -3,16 +3,14 @@
 /**
  * 技能目录代理（GET /api/mobile/v1/skills）的透传契约。
  *
- * 桌面端敲「/」时，候选菜单里混着宿主命令与技能（@deepseek-ai/dsh-client-ui-skill 注册的
- * inputTriggers source：trigger "/"、按前缀 startsWith(query) 过滤、选中插入 `/<name> `）。
- * 手机端此前只有 commands.list 的命令目录，技能一个都看不到。这个 handler 的职责很窄，
- * 但每一条都容易写错：
+ * 桌面端敲「/」时，候选菜单里混着宿主命令与技能（`@deepseek-ai/dsh-client-ui-skill` 注册的
+ * inputTriggers source）。手机端此前只有 commands.list 的命令目录，技能一个都看不到。职责
+ * 很窄，但每条都容易写错：
  *
- *  1. sessionId 是必填：宿主 skill.list 的 payload 是 `{ sessionId }`，缺了会被宿主
- *     报 invalid payload；代理应该在本地就 400，别把请求发出去；
- *  2. skills.list 的签名是 `list(request)`（**没有** signal 形参），所以代理必须只传一个
- *     信封参数 —— 宿主 `isAborted(signal)` 直接 `return signal.aborted`，多传 / 少传都会
- *     在真机上变成 500；
+ *  1. sessionId 是必填：宿主 skill.list 的 payload 是 `{ sessionId }`，缺了会被报 invalid
+ *     payload；代理应该在本地就 400，别把请求发出去；
+ *  2. skills.list 的签名是 `list(request)`（**没有** signal 形参），代理必须只传一个信封
+ *     参数 —— 多传 / 少传都会在真机上变成 500；
  *  3. modelInvocable 是严格布尔：宿主漏字段时按 false 处理（界面据此加「仅用户」前缀），
  *     猜真值会误导用户；
  *  4. 技能名是菜单的插入文本，必须非空且已 trim；说明超长会撑爆菜单行，要截断；

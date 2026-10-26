@@ -2,53 +2,25 @@
 /**
  * 发布前的服务器体检：把插件同步到测试宿主上，真跑一遍再决定发不发。
  *
- * ## 为什么要有这一步
+ * 本地单测只能证明「模块是对的」，证明不了「装进宿主进程后插件树能起来」。插件是 profile
+ * 层 bundle，装错了的失败方式特别安静：进程还在、端口还开着，只是移动 API 少了几条路由，
+ * 日志里一行 `pending`。
  *
- * 本地单测只能证明「模块是对的」，证明不了「装进宿主进程后插件树能起来」。而插件是
- * profile 层 bundle，装错了的失败方式特别安静：进程还在、端口还开着，只是移动 API
- * 少了几条路由，日志里一行 `pending`。历史上真踩过：`sidecar-facade.cjs` 的 require
- * 路径写错 → worker exited 1 → 服务整个停摆，而单测全绿。
+ * 服务器 `/opt/dsh-mobile/` 上有一台**专用的** DSH 宿主（systemd `dsh-mobile-host`），
+ * 启动器与插件本体分开：**启动器**（`host.js`、两层 patch、`config/`、内嵌凭据包）靠 rsync
+ * 同步，就是那份源码树；**插件本体**在 profile 里走 npm/pnpm 安装，宿主按绝对路径挂它的
+ * `lib/index.js`（稳定外壳），所以面板里也有「检查 / 立即更新」，更新不用重启宿主。
  *
- * 服务器 `/opt/dsh-mobile/` 上有一台**专用的** DSH 宿主（systemd `dsh-mobile-host`）。
- * 这台上**启动器与插件本体是分开来的**（2026-10-11 改，见 README 的「安装与更新」）：
+ * 脚本干的是：同步启动器 → 重启 → 探针 → 扫日志，并核对**真正被挂载的是哪一份**（挂错了会
+ * 出现「本地全绿、服务器上跑的还是老代码」这种最难查的现场）。
  *
- *   · **启动器**（`host.js`、两层 patch、`config/`、内嵌凭据包）靠 rsync 同步，
- *     它就是 `/opt/dsh-mobile/dsh-mobile-plugin/` 这份源码树；
- *   · **插件本体**在 profile 里，走 npm/pnpm 安装：
- *     `<DSH_HOME>/profiles/<profile>/node_modules/dsh-mobile-plugin`。宿主按绝对路径挂
- *     那份的 `lib/index.js`（**稳定外壳**），所以那台的面板里也有「检查 / 立即更新」，
- *     更新不用重启宿主。升这一份是 `pnpm add dsh-mobile-plugin@<版本>`（在 profile 里），
- *     或者直接在面板上点。
+ * 检查项：宿主机 / 远端目录 / node 版本三个前提；同步启动器（`--delete`，排除 node_modules
+ * 与 `lib/.live`，插件本体不在这一步）；声明的依赖（含 peer）逐个解析，缺了才装（先确认远端
+ * 有 pnpm）；静态 import 一次，证明找得到、语法过得去；重启后等 `/api/relay/status` 真的能答
+ * （不是只听 `systemctl is-active`）；断言 `panelUrl` 在、`/api/relay/panel` 吐得出 HTML；
+ * 扫日志命中致命模式就失败。
  *
- * 这个脚本干的是：同步启动器 → 重启 → 探针 → 扫日志，并核对**真正被挂载的是哪一份**
- * （挂错了会出现「本地全绿、服务器上跑的还是老代码」这种最难查的现场）。
- *
- * ## 它检查什么
- *
- *   1. 三个前提：宿主机在、远端目录在、node 版本够。
- *   2. 同步启动器（dsh-mobile-plugin 源码树，内含 dsh-mobile-credentials）到远端
- *      （`--delete`，但排除 node_modules 与 lib/.live —— 后者是插件自更新的运行期状态，
- *      不该被同步覆盖）。插件本体不在这一步里，它在 profile 里、由 npm/pnpm 管。
- *   3. 声明的依赖（含 peer）在远端逐个解析；缺了才装，且装之前先确认远端有 pnpm，
- *      否则直接报错而不是一边缺依赖一边继续跑。
- *   4. 静态装载：把实现 import 一次（在弹服务之前先证「找得到、语法过得去」）。
- *   5. 重启服务，等 `/api/relay/status` 真的能答（不是只听 `systemctl is-active`）。
- *   6. 断言插件起来了：状态里要有 `panelUrl`，且 `/api/relay/panel` 真的吐得出一页 HTML
- *      （设置菜单里那个「打开配置页面」就指着它）。
- *      的外壳提供的，404 就说明跑的还是老的单文件入口）。
- *   7. 扫重启之后的日志，命中致命模式就失败。
- *
- * 从前这里还有两步（`--reload` 造一代探针验「不重启进程就能换代」、以及拿服务器当客户端
- * 真从中转下一版发行版）：它们验的是插件自更新那套外壳 / 代机制 / 中转 OTA。2026-10 那套
- * 已经整套拆掉（插件改从 npm 分发、更新交给 DSH 的插件市场），所以这两步连同它们的 flag 一起删了。
- *
- * ## 用法
- *
- *   node dsh-mobile-plugin/scripts/test-plugin-on-server.mjs                 # 同步 + 重启 + 探针
- *   node dsh-mobile-plugin/scripts/test-plugin-on-server.mjs --skip-sync     # 只跑探针（代码已经在服务器上）
- *   node dsh-mobile-plugin/scripts/test-plugin-on-server.mjs --no-restart    # 不重启，只登录看看
- *   node dsh-mobile-plugin/scripts/test-plugin-on-server.mjs --ssh HOST --port 3080
- *
+ * 用法：`--skip-sync` 只跑探针、`--no-restart` 只登录看看、`--ssh HOST --port 3080`。
  * 退出码 0 = 全部通过；非 0 = 至少一项没过（消息里说明是哪一项）。
  */
 
@@ -229,8 +201,7 @@ function main() {
 
   // ── 4. 静态装载（在弹服务之前先把「模块找得到、语法过得去」验掉） ──────
   say('远端静态装载：实现 import 一次')
-  // 入口就是实现（`main` / `exports['.']` 都指向 lib/impl.js）。从前这里还要单独 import 一次
-  // 外壳（lib/index.js），那层已经随自更新一起删掉。
+  // 入口就是实现（`main` / `exports['.']` 都指向 lib/impl.js），不用再单独 import 外壳。
   sshScript([
     `cd ${REMOTE_ROOT}/dsh-mobile-plugin`,
     `node --input-type=module -e "const m = await import('${REMOTE_ROOT}/dsh-mobile-plugin/lib/impl.js'); if (typeof m.apply !== 'function') { console.error('实现没有导出 apply'); process.exit(1) } console.log('impl ok ' + m.name)"`,

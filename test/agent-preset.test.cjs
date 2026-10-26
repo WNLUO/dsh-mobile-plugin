@@ -3,21 +3,18 @@
 /**
  * Agent 预设代理（GET /api/mobile/v1/agent-presets）的透传契约。
  *
- * 桌面端的 Agent 预设有三处入口（会话头标签 / 设置行 / hero 芯片），移动端曾做
- * 「列表 + 选择 + 显示当前档」，如今只剩**列表与管理分区**（见 lib/mobile/agent-presets.js）：
- * 手机 composer 上的预设芯片下线后，App 不再给会话换档，一律吃宿主默认档，
- * `POST /session/select-agent-preset` 随之删除。剩下这个列表代理职责很窄，但容易写错：
+ * 移动端如今只剩**列表与管理分区**（见 lib/mobile/agent-presets.js）：手机 composer 上的
+ * 预设芯片下线后，App 不再给会话换档，一律吃宿主默认档。职责很窄但容易写错：
  *
- *  1. 宿主的 `agentPreset.list` 在没有 roster 时回的是**空列表**（不是错误），
- *     这与 `session.search` 的「未开启就报错」正相反 —— 空数组是合法的「没得选」，
- *     不能当失败处理，否则 App 会在正常部署上弹错误提示；
- *  2. 预设条目要洗干净：只认非空字符串 id，name/description 只在真的有值时透出，
- *     不让 undefined / null 漏进 UI；
- *  3. authorable / hasDocument 也一样：宿主只该给布尔，非布尔一律当 false，
- *     不让 'yes' / 1 这种值被 App 当成「可以自己写预设」。
+ *  1. 宿主的 `agentPreset.list` 在没有 roster 时回的是**空列表**（不是错误），与
+ *     `session.search` 的「未开启就报错」正相反 —— 空数组是合法的「没得选」，当失败处理
+ *     会在正常部署上弹错误提示；
+ *  2. 预设条目要洗干净：只认非空字符串 id，name/description 只在真的有值时透出，不让
+ *     undefined / null 漏进 UI；
+ *  3. authorable / hasDocument 非布尔一律当 false，别让 'yes' / 1 被当成「可以自己写预设」。
  *
- * 本测试驱动真实的 handleAgentPresets（不是转写实现）：起一个只挂它的真 http 服务，
- * 用真 req/res。
+ * 本测试驱动真实的 handleAgentPresets（不是转写实现）：起一个只挂它的真 http 服务，用真
+ * req/res。
  */
 
 const test = require('node:test');

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 面板上两处「用户报过一次就别再回来」的约定（2026-10-11 一张截图报的两个问题）。
+ * 面板上两处「报过一次就别再回来」的约定。
  *
  *   ① 地址那一行必须按**检测出来的那一份**给标签（局域网 / 公网），而且能就地选「手机优先
  *      用哪条」—— 服务器上只有公网地址，从前一律写「局域网地址」且没有可选项；
@@ -9,8 +9,7 @@
  *      那台机器上根本没有市场，它的更新是「同步源码 + 重启宿主服务」。
  *
  * 这里读的是面板源码（不是产物）：产物是提交物、要重建才更新，而这两条约定是**写法**上的，
- * 源码一变就该红。真正渲染出来长什么样由 `React/scripts/ssr-smoke.mjs` 与开发服务器的
- * 演示数据（`React/dev/mock-api.ts`）负责看。
+ * 源码一变就该红。真正渲染出来长什么样由 `React/scripts/ssr-smoke.mjs` 与开发服务器负责看。
  */
 
 const test = require('node:test');
@@ -66,8 +65,8 @@ test('IPv6 那份只摆出来、不进「手机优先用这条」那个选择', 
 test('调试 OTA 的前端入口已经不显示，但后端接口与客户端函数都留着', () => {
   const card = read('UpdateCard.tsx');
   const client = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'lib', 'relayUpdate.ts'), 'utf8');
-  // 2026-10-26 用户要求：前端那块「本机调试 OTA」删掉（现在不需要 OTA 了），后端保留。
-  // 所以这条断言反过来钉：卡片里一处都不许再有 OTA 的东西。
+  // 前端那块「本机调试 OTA」不显示了（现在不需要 OTA 了），后端保留。所以这条断言反过来钉：
+  // 卡片里一处都不许再有 OTA 的东西。
   for (const gone of [
     'panel.update.otaSection',
     'panel.update.otaCheck',

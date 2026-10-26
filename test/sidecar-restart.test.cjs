@@ -2,14 +2,14 @@
 
 // 钉住 sidecar 自重启。
 //
-// 为什么需要它：sidecar worker 是本插件 fork 出去的子进程，代码完全由磁盘决定，
-// re-fork 一次就是新的——这一层从来不需要重启 DSH 宿主。facade 自己跑在宿主进程里，
-// re-fork 换不掉，所以重启时额外把本包 lib/ 从 require 缓存里摘掉再 require。
+// sidecar worker 是本插件 fork 出去的子进程，代码完全由磁盘决定，re-fork 一次就是新的 ——
+// 这一层从来不需要重启 DSH 宿主。facade 自己跑在宿主进程里，re-fork 换不掉，所以重启时
+// 额外把本包 lib/ 从 require 缓存里摘掉再 require。
 //
 // 这组测试同时钉住那条**边界**：`/api/relay/status` 必须如实上报
 // `scope.host === 'needs-host-restart'`。宿主侧模块（lib/index.js、lib/client.js、
-// lib/mobile/*）已经挂在 fiber 上，摘不掉。假装「重启了等于全生效」会让人在
-// 改完宿主侧代码后以为不用重启，然后对着旧行为找半天原因。
+// lib/mobile/*）已经挂在 fiber 上，摘不掉。假装「重启了等于全生效」会让人在改完宿主侧代码后
+// 以为不用重启，然后对着旧行为找半天原因。
 
 const { test } = require('node:test')
 const Module = require('node:module')
@@ -21,8 +21,7 @@ const { randomBytes } = require('node:crypto')
 
 const PKG_DIR = path.join(__dirname, '..')
 // sidecar 的起停、配置下发、自重启、健康轮询都已抽到 lib/sidecar-lifecycle.cjs；
-// lib/impl.js 只剩装配（建 lifecycle、挂两个 ctx.effect、注册路由）。lib/index.js 自
-// 「热替换」起是稳定外壳，连装配都不在了。
+// lib/impl.js 只剩装配（建 lifecycle、挂两个 ctx.effect、注册路由）。
 const LIFECYCLE = path.join(PKG_DIR, 'lib', 'sidecar-lifecycle.cjs')
 const CLIENT = path.join(PKG_DIR, 'lib', 'client.js')
 

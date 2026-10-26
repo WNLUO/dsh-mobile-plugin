@@ -3,23 +3,19 @@
 /**
  * 回归：**没打开**那个会话时，它的正文水位变化也必须到达手机。
  *
- * 现场：手机上只打开着会话 A，会话 B 的助手回复已经写完了；用户从列表点进 B，要先看到
- * 一个旧窗口再等增量补上（或者更糟：列表行已经显示「刚刚」，点进去却还是上一轮的正文）。
+ * 根因：正文流是按会话订阅的（`app/src/hooks/useChatStream.ts` 里唯一的 openSessionStream
+ * 调用点），只有当前打开的会话才有实时正文；没打开的会话在中转镜像里其实已有 200 条正文
+ * （lib/mirror/pusher.cjs 每轮为高优先会话构建），缺的只是「这份正文又长了，你可以来取」
+ * 这一句通知。
  *
- * 根因：正文流（`app/src/hooks/useChatStream.ts` 里唯一的 openSessionStream 调用点）是
- * **按会话**订阅的，只有当前打开的会话才有实时正文；没打开的会话在中转镜像里其实已经有
- * 200 条正文（lib/mirror/pusher.cjs 每轮为高优先会话构建），缺的只是「这份正文又长了，
- * 你可以来取」这一句通知。
+ * 本用例跑真链路：镜像推送调度器推成功 → lib/shared/session-signal.js 广播水位 →
+ * handleDeviceStream 写出 device/session-activity 帧。水位取快照里**真正装上的消息的最大
+ * seq**（不是快照 lastSeq 那种事件水位），与 App 会话缓存的水位口径一致，手机据此带 afterSeq
+ * 增量拉。
  *
- * 本用例把生产端与消费端接起来跑真链路：镜像推送调度器推成功 → lib/shared/session-signal.js
- * 广播水位 → lib/mobile/events.js 的 handleDeviceStream 写出 device/session-activity 帧。
- * 水位取的是快照里**真正装上的消息的最大 seq**（不是快照 lastSeq 那种事件水位），
- * 与 App 会话缓存的水位口径一致，手机据此带 afterSeq 增量拉。
- *
- * 为什么必须新开一个文件：test/device-list-signal.test.cjs 钉的是「清单变了」（全局
- * revision）；这条是按会话的消息水位，判重、广播时机与消费口径都不一样，混在一个用例里
- * 会看不出是哪条通道坏了。test/device-events.test.cjs 走的是假 ctx 直喂 session/event，
- * 完全绕开推送调度器，也覆盖不到这里的广播时机（必须**先推镜像再广播**）。
+ * 单独成文件：device-list-signal 钉的是「清单变了」（全局 revision）；这条是按会话的消息
+ * 水位，判重、广播时机与消费口径都不一样。device-events.test.cjs 走假 ctx 直喂
+ * session/event，覆盖不到这里的广播时机（必须**先推镜像再广播**）。
  */
 
 const fs = require('node:fs');

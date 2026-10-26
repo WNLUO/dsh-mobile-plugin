@@ -3,23 +3,17 @@
 /**
  * 回归：设备级 SSE「连着却一句话都不说」——会话状态变化到不了手机侧栏。
  *
- * 现场：手机上一条会话跑完（running → completed），侧栏那一行要等将近一分钟才变；
- * 日志里那条设备级流一直连着，`completed` / 红点却只在大约 60 秒的兜底轮询里更新。
+ * 根因（两侧叠加）：插件侧这条流的帧源只有宿主的 mux/host 事件，而宿主的 0.2.0 兼容桥只
+ * 订阅了 workspace/follow + session/control —— 会话状态变化表现为 session/projection，被
+ * lib/mobile/events.js 的 listRelevantPayload 白名单丢掉；App 侧只要流 open 就把兜底轮询从
+ * 15s 降到 60s。于是「流连着」被当成了「数据新鲜」，实际一个变化都传不过来。
  *
- * 根因（两侧叠加）：
- *  1. 插件侧这条流的帧源只有宿主的 mux/host 事件，而宿主的 0.2.0 兼容桥只订阅了
- *     workspace/follow + session/control —— 会话状态变化表现为 session/projection，
- *     被 lib/mobile/events.js 的 listRelevantPayload 白名单丢掉；
- *  2. App 侧只要流 open 就把兜底轮询从 15s 降到 60s。
- * 于是「流连着」被当成了「数据新鲜」，而实际上一个变化都传不过来。
+ * 本用例跑真链路：镜像推送调度器（lib/mirror/pusher.cjs）每 500ms 比一次会话清单的内容
+ * 指纹 → lib/shared/list-signal.js 广播 → handleDeviceStream 写出 device/list-changed 帧 →
+ * 手机立刻重拉列表。
  *
- * 本用例把两侧接起来跑真链路：镜像推送调度器（lib/mirror/pusher.cjs）每 500ms 比一次
- * 会话清单的内容指纹 → lib/shared/list-signal.js 广播 → lib/mobile/events.js 的
- * handleDeviceStream 写出 device/list-changed 帧 → 手机立刻重拉列表。
- *
- * 为什么必须新开一个文件：test/device-events.test.cjs 用假 ctx 直接把 session/event 喂进
- * handleDeviceStream，绕开了宿主合成路径（那正是本次失效所在），也没有任何用例驱动过
- * 推送调度器的清单指纹判定。本文件补的就是这条端到端。
+ * 单独成文件：device-events.test.cjs 用假 ctx 直接把 session/event 喂进 handleDeviceStream，
+ * 绕开了宿主合成路径（那正是失效所在），也没有用例驱动过推送调度器的清单指纹判定。
  */
 
 const fs = require('node:fs');

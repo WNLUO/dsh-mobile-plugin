@@ -4,18 +4,11 @@
  * 跨包共享小工具的防漂移测试。
  *
  * 插件包与中转服务器是两个独立部署单元，不能跨目录 require（插件会被拷到
- * `~/.dsh/plugins/`，中转是独立进程），所以 `HOP_BY_HOP` 各有一份手工同步的拷贝。
- * 插件独立发布，因此本测试钉住完整的逐跳头集合；本地存在独立中转仓库检出时
- * 再与 Rust 实现逐项比对。
+ * `~/.dsh/plugins/`，中转是独立进程），所以 `HOP_BY_HOP` 各有一份手工同步的拷贝。插件独立
+ * 发布，因此本测试钉住完整的逐跳头集合；本地存在独立中转仓库检出时再与 Rust 实现逐项比对。
  *
- * 曾经这里还钉着 `safeEqual`（权威 `dsh-mobile-server/lib/pair.js`）与 `isFreshRequest`
- * （权威 `dsh-mobile-server/lib/fresh-request.js`）。2026-10-16 自建版精简成纯转发后，
- * 中转不再配对、不再缓存，那两份权威文件随之删除；插件侧自己的实现仍在，只是不再有
- * 「两侧必须一致」这回事（插件的 `lib/shared/dshtoken.js`、`lib/shared/fresh-request.js`
- * 仍由各自的守卫覆盖）。
- *
- * 与 `protocol-parity.test.cjs` 同一思路：不强行抽公共包（会改变两侧的部署形状），
- * 而是用测试保证「改了必须两边一起改」。
+ * 与 `protocol-parity.test.cjs` 同一思路：不强行抽公共包（会改变两侧的部署形状），而是用
+ * 测试保证「改了必须两边一起改」。
  *
  * 运行：node --test test/shared-helpers-parity.test.cjs
  */

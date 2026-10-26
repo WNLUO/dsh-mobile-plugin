@@ -3,20 +3,19 @@
 /**
  * 会话正文检索代理（GET /api/mobile/v1/session/search）的透传契约。
  *
- * 桌面端侧栏搜索是「本地元数据匹配 + 宿主检索页」两路合并；移动端只代理宿主这一路，
- * 标题 / 工作区由 App 自己拼。所以这个 handler 的职责很窄，也很容易写错：
+ * 桌面端侧栏搜索是「本地元数据匹配 + 宿主检索页」两路合并；移动端只代理宿主这一路，标题 /
+ * 工作区由 App 自己拼。职责很窄，也很容易写错：
  *
- *  1. query 必须先按桌面端同口径清洗（去 NUL / 去空白 / 上限 500 个 UTF-16 码元且
- *     不劈开代理对），清洗后为空要直接 400 —— 既不能拿空串去打宿主的检索预算，
- *     也不能把 600 字的长串原样递给一个 `.max(500)` 的 schema（那样用户只会看到
- *     一个莫名其妙的 400）；
- *  2. 宿主的错误必须原样透出。本部署把 session-query-sqlite 配成 `openAt: never`
- *     （正文检索是显式开启的），宿主此时以错误回应；如果把错误吞成空列表，
- *     界面就无法区分「没有命中」和「这台宿主没开正文检索」；
+ *  1. query 必须先按桌面端同口径清洗（去 NUL / 去空白 / 上限 500 个 UTF-16 码元且不劈开
+ *     代理对），清洗后为空要直接 400 —— 既不能拿空串去打宿主的检索预算，也不能把长串原样
+ *     递给一个 `.max(500)` 的 schema（那样用户只会看到一个莫名其妙的 400）；
+ *  2. 宿主的错误必须原样透出。本部署把 session-query-sqlite 配成 `openAt: never`（正文检索
+ *     是显式开启的），宿主此时以错误回应；吞成空列表，界面就无法区分「没有命中」与「这台
+ *     宿主没开正文检索」；
  *  3. 宿主只该收到 { sessionId, snippet }，畸形条目要丢干净，不能让 undefined 漏进 UI。
  *
- * 本测试驱动真实的 handleSessionSearch（不是转写实现）：起一个只挂它的真 http 服务，
- * 用真 req/res。
+ * 本测试驱动真实的 handleSessionSearch（不是转写实现）：起一个只挂它的真 http 服务，用真
+ * req/res。
  */
 
 const test = require('node:test');
@@ -28,10 +27,10 @@ const { handleSessionSearch } = require('../lib/mobile/sessions.js');
 const { readWiring } = require('./lib/wiring.cjs')
 
 /**
- * 复刻宿主 `sessions.search(request, signal)` 的第一步：`isAborted(signal)` 直接
- * `return signal.aborted`，没有 undefined 兜底。代理不传第二个参数时这里就会抛
- * `Cannot read properties of undefined (reading 'aborted')` —— 真机上是 500。
- * 把它放进每一个用例的入口，缺失 signal 的改动会在本文件全线报错。
+ * 复刻宿主 `sessions.search(request, signal)` 的第一步：对 signal 直接取 `.aborted`，没有
+ * undefined 兜底。代理不传第二个参数时这里就会抛 `Cannot read properties of undefined
+ * (reading 'aborted')` —— 真机上是 500。放进每个用例的入口，缺失 signal 的改动会在本文件
+ * 全线报错。
  */
 const hostIsAborted = (signal) => signal.aborted;
 
@@ -52,7 +51,7 @@ async function serve(searchImpl) {
     },
   };
   const server = http.createServer((req, res) => {
-    // 复刻 lib/index.js:537 的 guarded()：handler 抛错就回 500 JSON —— 真机上那个
+    // 复刻装配层 guarded() 的行为：handler 抛错就回 500 JSON —— 真机上那个
     // 「Cannot read properties of undefined (reading 'aborted')」500 就是从这里出去的。
     Promise.resolve(handleSessionSearch(ctx, req, res)).catch((error) => {
       if (res.headersSent || res.writableEnded) return;

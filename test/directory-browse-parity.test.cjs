@@ -3,27 +3,20 @@
 /**
  * 插件自带的目录浏览原语与宿主 browse 后端之间的**防漂移测试**。
  *
- * 为什么会有两份实现：宿主那套选择器由 `dsh-host-directory-picker-auto` 启动时二选一，
- * 「桌面 profile 宿主 + 手机远程连」这一格没人盖（详见 lib/mobile/directory-browse.js
- * 的头注释）。修在 bundle 层会把桌面操作者面前的原生选择框换成 browse，所以只能由插件
- * 自带一份原语兜底。上游那份**没法直接 require**：`@deepseek-ai/dsh-host-directory-picker-browse`
- * 是 ESM 的 Cordis 插件，`ancestryCrumbs` / `directoryRow` 这类纯函数没有导出，
- * `src/` 也没随包发布（`files` 里只有 lib）。所以只能复制，而复制的唯一防线就是这份测试。
+ * 为什么有两份实现：宿主那套选择器由 `dsh-host-directory-picker-auto` 启动时二选一，
+ * 「桌面 profile 宿主 + 手机远程连」这一格没人盖（见 lib/mobile/directory-browse.js 的头
+ * 注释）。修在 bundle 层会把桌面操作者面前的原生选择框换成 browse，所以只能由插件自带一份
+ * 原语兜底。上游那份**没法直接 require**（ESM 的 Cordis 插件，`ancestryCrumbs` /
+ * `directoryRow` 这类纯函数没有导出，`src/` 也没随包发布），只能复制，而复制的唯一防线就是
+ * 这份测试。
  *
- * 两档强度：
+ * 两档强度：**永远跑**的那档钉本地实现自己的契约（策略常量、错误码集合、`wireError` 值域、
+ * `hostServesBrowse` 判定、`listDirectory` 返回形状、路由分支），CI 里也生效；**上游在场才跑**
+ * 的那档逐条对齐上游源码与行为（`ancestryCrumbs` / `fullyQualified` / `boundedInsert` /
+ * `raceAbort` 等价，加四条策略断言）。
  *
- *  1. **永远跑**（不依赖上游在场）—— 钉住本地实现自己的契约：策略常量、错误码集合、
- *     `wireError` 的值域、`hostServesBrowse` 的判定、`listDirectory` 的返回形状，
- *     以及 endpoints.js 的路由分支。这一档在 CI 里也生效。
- *  2. **上游在场才跑** —— 逐条对齐上游源码与行为：`ancestryCrumbs` / `fullyQualified` /
- *     `boundedInsert` / `raceAbort` 的行为等价，加上四条策略断言（隐藏项标记但返回、
- *     跟随符号链接、`resolve` 而非 realpath、错误码同名）。
- *
- * 第 2 档需要上游包在场。它**已进 devDependencies**（0.1.35 起）：此前只有本机那份被
- * npm 装脏的 node_modules 里有它，CI 的 `pnpm install --frozen-lockfile` 树里没有，
- * 于是这一档在 CI 里静默 skip —— 一份不在 CI 里跑的防漂移测试等于没有。现在干净树实测
- * 608 tests / 0 skipped，两档都真跑。`skip` 分支仍然保留：树里真没有上游包时（例如把
- * 插件目录单独拷出去跑）它会带理由 skip，并在 `skipped` 计数里看得见，不会变成假绿。
+ * 上游包已进 devDependencies，所以第二档在干净树上真跑；树里真没有它时（例如把插件目录
+ * 单独拷出去跑）它带理由 skip 并出现在 `skipped` 计数里，不会变成假绿。
  *
  * 运行：node --test test/directory-browse-parity.test.cjs
  */

@@ -2,22 +2,20 @@
 /**
  * 版本号计算与外写：本仓库里「发布时自动 +1」这件事的唯一实现。
  *
- * 为什么要单独一个模块：这个仓库有两条完全独立的发布链，过去都没有自动抬版本——
- *   · 插件 OTA（dsh-hub.wnluo.com）：中转按 version_name 做 semver 比较，忘抬版本
- *     会被判成「没有更新」，包发出去了但没人会收到。
- *   · App OTA（app.wnluo.com）：版本坐标抄在三个文件里（app/package.json、
- *     app/src/version.ts、app/android/app/build.gradle），必须逐字一致；平台还按
- *     (应用,渠道,运行时,版本,构建号) 判重，沿用旧构建号会被直接拒绝。
- * 两条链都需要「读旧值 → 算新值 → 原样写回」，算法若各写一份，迟早会漂。
+ * 两条发布链都需要「读旧值 → 算新值 → 原样写回」，算法各写一份迟早会漂：
+ * 插件 OTA 那条，中转按 version_name 做 semver 比较，忘抬版本会被判成「没有更新」；
+ * App OTA 那条，版本坐标抄在 app/package.json、app/src/version.ts、
+ * app/android/app/build.gradle 三个文件里，必须逐字一致，平台还按
+ * (应用,渠道,运行时,版本,构建号) 判重，沿用旧构建号会被直接拒绝。
  *
- * 这个模块只做四件事，全部是纯函数 + 明确的文件读写，不联网：
+ * 只做四件事，全是纯函数 + 明确的文件读写，不联网：
  *   1. 解析并校验稳定版 SemVer；
  *   2. 按 patch|minor|major 抬一位；
- *   3. 把新版本号写回 package.json / version.ts / build.gradle（保留原文件格式）；
+ *   3. 把新号写回三个文件（保留原文件格式）；
  *   4. 从 git 历史生成发布说明。
  *
- * 它**不**决定 App 的构建号：构建号必须比分发平台上已有的都大，那要联网查，
- * 由调用方（app/scripts/publish-app-ota.mjs）查完把结果传进来。
+ * 它**不**决定 App 的构建号：构建号必须比分发平台上已有的都大，那要联网查，由调用方
+ * （app/scripts/publish-app-ota.mjs）查完把结果传进来。
  *
  * 用 node dsh-mobile-plugin/scripts/bump-version.mjs --help 看命令行用法。
  */

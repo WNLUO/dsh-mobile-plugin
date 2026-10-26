@@ -3,37 +3,20 @@
 /**
  * 移动端「添加工作区」的目录选择器：宿主必须挂 browse 后端。
  *
- * 现象：手机上点抽屉里的「为设备 X 添加工作区」，浮层只显示
- * `host.listDirectory needs the browse capability; the composed picker serves "native"`，
- * 一个条目都列不出来，连「新建文件夹」也是灰的 —— 也就是说「新建工作目录」这条
- * 流程在手机端根本走不通，只能登记一个恰好已经存在的目录。
- *
- * 根因：目录选择器由 dsh-host-directory-picker-auto 在启动时二选一
- * （`resolveDirectoryPickerBackend`）。它只在「宿主 web 服务绑定到非 127.0.0.1」时才
- * 认为存在远程客户端从而挂 browse；而 host.js 让移动宿主故意留在回环（web-runtime 的
- * trustedHosts: []，手机是从 sidecar/中转进来的），darwin/win32 于是必定解析成 native。
- * native 后端要弹被控端的系统对话框，手机是远程客户端，看不到也点不到。
- * 而 host.listDirectory 和 host.createDirectory 是**同一道闸**：
- * dsh-host-apiproxy/lib/types/api-proxy.js 里两处都先检查
+ * 选择器由 dsh-host-directory-picker-auto 启动时二选一，只在「宿主 web 服务绑定到非
+ * 127.0.0.1」时才认为有远程客户端从而挂 browse；而 host.js 让移动宿主故意留在回环，所以在
+ * darwin/win32 上必定解析成 native —— native 要弹被控端的系统对话框，手机是远程客户端，
+ * 看不到也点不到。`host.listDirectory` 与 `host.createDirectory` 是**同一道闸**，两处都先查
  * `ctx.directoryPicker.capability().kind !== 'browse'` 才放行。
  *
- * 修复：upstream 那行自己写了出口 —— 「Mount -native or -browse directly in an overlay
- * to pin the interaction.」所以本包的 cordis.mobile-host.yml 按它说的把这一行钉成 browse。
+ * 本包的 cordis.mobile-host.yml 按 upstream 给的出口（「Mount -native or -browse directly in
+ * an overlay to pin the interaction」）把这一行钉成 browse。这一层只属于**无头宿主**：桌面
+ * GUI 装本包时 cordis.patch.yml 会落到桌面 profile 的层栈上，把这两行留在那层会把桌面自己
+ * 的「选择目录」从原生对话框换成 browse。
  *
- * 注意这一层落在**哪个文件**里：钉 browse 是**无头宿主专属**的。桌面 GUI 把本包装成
- * bundle 时 cordis.patch.yml 会落到桌面 profile 的层栈上，如果把这两行留在那层，桌面
- * 自己的「选择目录」也会从原生对话框换成 browse —— 桌面不需要，它的使用者就坐在机器前。
- * 两层分工见 cordis.mobile-host.yml 头部注释：cordis.patch.yml 只留「挂载本插件自己」。
- *
- * 这里要盯住两件容易再犯的事：
- *
- *  1. **patch 里的 `name` 是断言，不是改写**。cordis-plugin-include 的
- *     applyEntryPatches 会把 `name` 从覆盖字段里摘出去，并且
- *     `if (name && name !== target.name) { warn(...); continue; }` —— 于是
- *     「`- id: directory-picker` + 新 `name:`」不会换掉插件，只会被静默跳过
- *     （仅留一行 loader 警告），现场表现就是「改了没效果」。换挂载必须
- *     `disabled: true` 关掉原行 + `insert` 自己的行，且关行上**不能写 name**。
- *  2. **修的是宿主，不是 App**。App 侧只能把英文原因翻成人话。
+ * 两件容易再犯的事：patch 里的 `name` 是**断言，不是改写**（名字不一致就 warn 并静默跳过，
+ * 换挂载必须 `disabled: true` 关掉原行 + `insert` 自己的行，关行上不能写 name）；修的是宿主，
+ * 不是 App。
  *
  * 另外验证 browse 后端本身的行为（真正创建目录、拒绝越权名字），驱动的是真模块。
  */

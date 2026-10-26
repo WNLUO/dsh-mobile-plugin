@@ -3,25 +3,13 @@
 /**
  * 移动端「Agent 预设管理」（只读查看 / 复制 / 删除）的透传契约。
  *
- * 桌面端 dsh-client-ui-agent-preset 的第 4 个表层是设置页里的管理分区：名单卡片、
- * 随附预设的只读查看器、复制对话框（桌面端**唯一**的创建入口）、以及删除确认。
- * 手机此前只有「即将开跑的这个会话用哪一档」，读不到预设正文也造不出自定义预设。
+ * 手机此前只有「即将开跑的这个会话用哪一档」，读不到预设正文也造不出自定义预设。这条链路
+ * 走宿主 apiProxy 的 agentPreset 域（`{ rpcId, method, payload }` → `{ result: { ok, value } }`
+ * 信封），不是 Typert Remote。
  *
- * 这条链路每一条都容易写错：
- *
- *  1. 走的是宿主 apiProxy 的 agentPreset 域，不是 Typert Remote——调用形状与
- *     sessions.js 的 callAgentPresets 一致：`{ rpcId, method: 'agentPreset.<x>', payload }`，
- *     回执是 `{ result: { ok, value } }` 信封（与 messageFeedback / references 那两条
- *     完全不同的形状，那两个回的是 decode 后的业务结果本体）；
- *  2. copy 的字段是 `{ from, agentPreset, name? }`——源头叫 from、新 id 叫 agentPreset，
- *     写反了宿主会当成「从新 id 复制到旧 id」；
- *  3. 重名不是单独的码：宿主的 PresetExistsError 与 InvalidPresetIdError 都映射成
- *     `agent-preset-invalid`，所以客户端不能靠码区分「名字被占了」与「标识非法」，
- *     只能把两种可能一起说；
- *  4. 随附预设删不掉：宿主回 `agent-preset-read-only`（403），不是 400/404；
- *  5. 本地能拒的先拒（空标识、非法标识、超长、缺 from），别拿明知会被拒的请求去打扰宿主；
- *  6. 宿主的失败对象只有 code + details，没有给用户看的 message，中文按 code 说，
- *     原文留在 details.hostMessage 里备查。
+ * 几条容易写错的地方：copy 的字段是 `{ from, agentPreset, name? }`，写反会变成「从新 id
+ * 复制到旧 id」；重名与非法标识共用 `agent-preset-invalid`，客户端要两种可能一起说；随附
+ * 预设删不掉（`agent-preset-read-only`，403）；本地能拒的先拒，别拿明知会被拒的请求去打扰宿主。
  *
  * 本测试驱动真实的 handler（不是转写实现）。
  */

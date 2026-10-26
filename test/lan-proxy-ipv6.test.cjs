@@ -278,15 +278,13 @@ test('/__lan_pair：原生全球 IPv6 来源被拒，IPv4 来源照旧配对', a
 /**
  * `ipv6Only` 真的传到了内核，而不是被当成 backlog 丢掉。
  *
- * 为什么这条一定要有：`listen(port, host, backlog)` 的第三位是 backlog（数字），把
- * `{ ipv6Only: true }` 传在那儿会被**静默忽略**。而 macOS / BSD 的 v6 套接字默认就是
- * v6only，所以上面那两条「IPv6 侧应通」在本机一直绿；Linux 默认双栈，忽略之后 `::`
- * 会和 `0.0.0.0` 撞成 EADDRINUSE，整条 IPv6 监听静默不建立 —— 这正是 2026-10-23 发布
- * 流水线在 GitHub runner 上红的原因，而在本机跑多少遍都复现不出来。
+ * `listen(port, host, backlog)` 的第三位是 backlog（数字），把 `{ ipv6Only: true }` 传在那
+ * 儿会被**静默忽略**。macOS / BSD 的 v6 套接字默认就是 v6only，所以「IPv6 侧应通」在 mac
+ * 上一直绿；Linux 默认双栈，忽略之后 `::` 会和 `0.0.0.0` 撞成 EADDRINUSE，整条 IPv6 监听
+ * 静默不建立 —— 只在 CI 的 Linux runner 上照得出来。
  *
- * 判据不依赖平台：直接拿 `::` 单独起一个监听，`ipv6Only: true` 时 IPv4 拨不进去。
- * 两条写法各跑一次，**必须一个单栈、一个双栈** —— 若两者行为相同，说明该选项根本没被
- * 采纳（旧写法就是这样）。
+ * 判据不依赖平台：直接拿 `::` 单独起一个监听，`ipv6Only: true` 时 IPv4 拨不进去。两条写法
+ * 各跑一次，**必须一个单栈、一个双栈** —— 两者行为相同就说明该选项根本没被采纳。
  */
 test('ipv6Only 走 options 位置才生效（旧写法会被当 backlog 丢掉）', async (t) => {
   if (!(await hasIpv6Loopback())) {

@@ -3,22 +3,16 @@
 /**
  * 手机端目录浏览的回落实现 + 路由选择。
  *
- * 现象（真机）：手机上点抽屉里的「为设备 X 添加工作区」，浮层只显示
- * `host.listDirectory needs the browse capability; the composed picker serves "native"`，
- * 一个条目都列不出来，「新建文件夹」也是灰的 —— 只能登记一个恰好已存在的绝对路径。
+ * 根因不只在无头宿主：`dsh-host-directory-picker-auto` 启动时二选一，只有「宿主 web 服务绑到
+ * 非 127.0.0.1」或「平台不是 darwin/win32」才挂 browse。无头移动宿主被本包的
+ * cordis.mobile-host.yml 钉成 browse，但**桌面 profile 宿主 + 手机远程连**这一格两边都不满足，
+ * 于是恒为 native，手机上一个条目都列不出来。把那一行钉进 bundle 层对桌面操作者是纯粹的
+ * 退步（见 test/directory-picker.test.cjs），所以这里修的是另一头：插件自带一份 browse 原语，
+ * 只在宿主**不服务 browse** 时接手。
  *
- * 根因不只在无头宿主：`dsh-host-directory-picker-auto` 启动时二选一
- * （`resolveDirectoryPickerBackend`），只有「宿主 web 服务绑到非 127.0.0.1」或「平台不是
- * darwin/win32」才挂 browse。无头移动宿主被本包的 cordis.mobile-host.yml 钉成 browse，
- * 但**桌面 profile 宿主 + 手机远程连**这一格两边都不满足，于是恒为 native。桌面操作者
- * 就坐在机器前，把那一行钉进 bundle 层（cordis.patch.yml）对它是纯粹的退步 —— 见
- * test/directory-picker.test.cjs。所以这里修的是另一头：插件自带一份 browse 原语，只在
- * 宿主**不服务 browse** 时接手。
- *
- * 本文件钉两件事：
- *   1. **路由**：宿主服务 browse 就整条走网关；宿主服务 native（或查不到选择器）时用
- *      本地实现，且**一次网关都不打**（否则每次翻目录都白挨一趟失败往返）。
- *   2. **本地实现的行为**：形状必须与宿主 browse 后端逐条一致，客户端分不出来。
+ * 本文件钉两件事：**路由**（宿主服务 browse 就整条走网关；服务 native 或查不到选择器时用
+ * 本地实现，且**一次网关都不打**，否则每次翻目录都白挨一趟失败往返）；**本地实现的行为**
+ * （形状必须与宿主 browse 后端逐条一致，客户端分不出来）。
  */
 
 const assert = require('node:assert/strict');

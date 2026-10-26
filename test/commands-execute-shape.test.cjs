@@ -3,28 +3,17 @@
 /**
  * commands/execute 的 args 形状守卫。
  *
- * 这个 bug 的杀伤力在「一半静默」上：宿主 typertGateway 用 assertExactArguments
- * 严格校验 args 键名，形状写错回 gateway/arguments-invalid，而 App 把 /session/send
- * 的 400 渲染成错误卡也只是提示 —— 结果**所有** slash 命令一律失败：切权限模式弹
- * 「切换权限模式失败」，计划模式的 /plan off 也点不动，而普通发消息完全正常，很容易
+ * 宿主 typertGateway 用 assertExactArguments 严格校验 args 键名，形状写错回
+ * gateway/arguments-invalid，而 App 把那个 400 渲染成错误卡也只是提示 —— 结果**所有**
+ * slash 命令一律失败（切权限模式、`/plan off` 都点不动），普通发消息却完全正常，很容易
  * 被当成「权限功能单独坏了」。
  *
- * 真机原话（2026-10-02）：
- *   typert gateway: commands/execute: args fields do not match the descriptor:
- *   missing "submittedAttachments"; unexpected "images"
+ * 所以假网关不是「宽松地记录一下 args」，而是**照抄宿主那条断言**：键名必须恰好等于
+ * descriptor 的 wire 名，多一个少一个都抛 gateway/arguments-invalid。任何把
+ * `submittedAttachments` 写回 `images` 的改动都会当场红。
  *
- * 所以这里的假网关不是「宽松地记录一下 args」，而是**照抄宿主那条断言**：键名必须
- * 恰好等于 descriptor 的 wire 名，多一个少一个都抛 gateway/arguments-invalid。这样
- * 任何把 `submittedAttachments` 写回 `images` 的改动都会当场红。
- *
- * descriptor 的依据（app.asar，@deepseek-ai/dsh-commands#commands/execute，
- * 源码 packages/interaction/commands/src/index.ts:361）：
- *   scope wire    = "agentId"（source: lookup，agent）
- *   参数 wire 名  = "line" + "submittedAttachments"
- *   submittedAttachments = array(union(
- *     intersection(object({type:'image'}), object({mediaType: png|jpeg|webp|gif, data, name?})),
- *     object({type:'file', receiptId})),
- *   )，纯命令调用传 [] 合法
+ * descriptor 的 wire 名（`@deepseek-ai/dsh-commands#commands/execute`）：scope 为 `agentId`，
+ * 参数为 `line` + `submittedAttachments`（array(union(image, file))，纯命令调用传 [] 合法）。
  */
 
 const test = require('node:test');

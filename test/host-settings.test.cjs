@@ -4,16 +4,15 @@
  * 宿主设置 / 模型提供方代理（GET /api/mobile/v1/host-settings、/api/mobile/v1/llm/providers）
  * 的透传契约。
  *
- * 桌面端「设置」面板读的是宿主的 settings.describe 与 llm.providers；手机端此前完全没有
- * 这一块。这两个 handler 的职责很窄，但每一条都容易写错：
+ * 桌面端「设置」面板读的是宿主的 settings.describe 与 llm.providers；手机端此前完全没有这
+ * 一块。职责很窄，但每条都容易写错：
  *
- *  1. 宿主的 settings.describe 里 `schema` 是序列化后的 zod 树（几百个 uid/refs），对手机
- *     毫无用处，必须丢掉 —— 漏出去就是几百 KB 的无效负载；
- *  2. 凭据槽只能给 { path, set }。宿主自己就是这么脱敏的（settingsSecretViewSchema），
- *     代理绝不能把值补回来，也不能把 path 数组原样塞给 UI；
+ *  1. `settings.describe` 的 `schema` 是序列化后的 zod 树（几百个 uid/refs），对手机毫无用处，
+ *     必须丢掉 —— 漏出去就是几百 KB 的无效负载；
+ *  2. 凭据槽只能给 `{ path, set }`：宿主自己就是这么脱敏的，代理绝不能把值补回来，也不能把
+ *     path 数组原样塞给 UI；
  *  3. settings.describe / llm.providers 的 invoke 都不传 signal（只有 settings.openDocument
- *     传），所以代理必须只传一个信封参数 —— 宿主 `isAborted(signal)` 直接
- *     `return signal.aborted`，多传 / 少传都会在真机上变成 500；
+ *     传），所以代理必须只传一个信封参数 —— 多传 / 少传都会在真机上变成 500；
  *  4. writable / hasDocument / active 都是严格布尔。宿主回 `'yes'` / `1` 时不能读成 true，
  *     否则界面会显示「可以改」，而实际写入会被拒。
  *

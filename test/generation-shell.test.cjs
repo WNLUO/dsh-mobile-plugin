@@ -3,18 +3,15 @@
 /**
  * 自更新的**机制**测试：外壳能不能在不重启进程的前提下换掉实现。
  *
- * ## 2026-10 新模型：npm 正式代与设备 OTA 代
- *
- * 正式 npm 包由 DSH 市场装进 profile，紧急完整包落在 `$DSH_HOME/plugin-ota/`。稳定外壳 `lib/index.js`
- * （导出 `name` / `inject` / `apply`，内部 import `lib/shell/{runtime,updater,manager}.js`）从这两个来源
- * 装载完整包目录；profile 中的 npm 包通过以下链接定位：
+ * 正式 npm 包由 DSH 市场装进 profile，紧急完整包落在 `$DSH_HOME/plugin-ota/`。稳定外壳
+ * `lib/index.js`（导出 `name` / `inject` / `apply`，内部 import `lib/shell/{runtime,updater,manager}.js`）
+ * 从这两个来源装载完整包目录；profile 里的 npm 包是一条 symlink：
  *
  *   <PROFILE_NODE_MODULES>/dsh-mobile-plugin  --symlink-->  <store>/<id>/dsh-mobile-plugin
  *
- * 市场在 profile 里跑 pnpm：新版装进**一个新的 store 目录**，装完把上面那条链接指过去。
- * 「新目录 = 新 realpath = 新 URL」，这正是当年非得靠 `.live/<releaseId>` 才能拿到的东西
- * （同一路径换代码骗不过 ESM 缓存），所以市场更新正式包只需「重指链接 + 重新 import 一代」；
- * 紧急 OTA 则下载完整包到独立目录。
+ * 市场在 profile 里跑 pnpm：新版装进**一个新的 store 目录**，装完把那条链接指过去。
+ * 「新目录 = 新 realpath = 新 URL」正是同一路径换代码骗不过 ESM 缓存所要求的，所以市场更新
+ * 正式包只需「重指链接 + 重新 import 一代」；紧急 OTA 则下载完整包到独立目录。
  *
  * 测试照这个形状造：每一代写在自己的目录里，**换版本 = 写新目录 + 重指链接**。
  * `DSH_MOBILE_PROFILE_NODE_MODULES` 是给测试用的逃生口（指到临时 profile），必须在
@@ -39,9 +36,9 @@ const PLUGIN_PKG = 'dsh-mobile-plugin';
 // 一个临时 profile：node_modules 在其下，每一代写进它旁边的 store/（形状同 pnpm）。
 // 整个文件共用这一个 profile 根 —— manager.js 在模块加载时就把路径定死了，换不了。
 // 真机形状：`DSH_HOME` 是 `~/.dsh`，profile 是它下面的 `profiles/desktop`，而 OTA 落在
-// `DSH_HOME/plugin-ota/`。从前这两者共用一个根目录，于是 OTA 代**顺手**就能沿祖先目录
-// 解析到 profile 的 node_modules —— 「OTA 包在真实 home 里 import 不到依赖」这个真机
-// 故障（`Cannot find package '@deepseek-ai/schemastery'`）在测试里一次都复现不出来。
+// `DSH_HOME/plugin-ota/`。这两者要是共用一个根目录，OTA 代就能**顺手**沿祖先目录解析到
+// profile 的 node_modules ——「OTA 包在真实 home 里 import 不到依赖」那个故障
+// （`Cannot find package '@deepseek-ai/schemastery'`）在测试里一次都复现不出来。
 const HOME_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-home-'));
 const PROFILE_ROOT = path.join(HOME_ROOT, 'profiles', 'desktop');
 const PROFILE_NODE_MODULES = path.join(PROFILE_ROOT, 'node_modules');
@@ -124,7 +121,7 @@ function pkgDirOf(dir) {
   return path.join(dir, PLUGIN_PKG);
 }
 
-/** 写一代里的 CJS 子模块 `lib/relay/leaf.js`（`lib/relay` 是 commonjs 子包）。 */
+/** 在这一代里写一个 CJS 子模块 `leaf.js`（`lib/relay` 是测试现场造的 commonjs 子包）。 */
 function writeLeaf(dir, value) {
   const relayDir = path.join(pkgDirOf(dir), 'lib', 'relay');
   fs.mkdirSync(relayDir, { recursive: true });

@@ -3,21 +3,18 @@
 /**
  * 子代理目录代理（GET /api/mobile/v1/subagents）的透传契约。
  *
- * 桌面端会话标题栏挂着「N 个子代理」下拉（@deepseek-ai/dsh-client-ui-subagent 的
- * SubagentHeaderLineage）：父会话按 `origin === "subagent" && parentId === 当前会话`
- * 把子代理收成一棵树，点进去能读子会话的完整记录。手机端把 origin === 'subagent'
- * 的行在侧栏里 continue 掉（app/src/drawerGroups.ts:122）之后就再没有任何入口。
- * 这个 handler 的职责很窄，但每一条都容易写错：
+ * 桌面端会话标题栏挂着「N 个子代理」下拉：父会话按 `origin === "subagent" && parentId ===
+ * 当前会话` 把子代理收成一棵树，点进去能读子会话的完整记录。手机端把 origin === 'subagent'
+ * 的行在侧栏里 continue 掉之后就再没有任何入口。职责很窄，但每条都容易写错：
  *
- *  1. sessionId 是必填：宿主 subagent.list 的 payload 是 `{ parentSessionId }`，
- *     缺了会被宿主报 invalid payload；代理应该在本地就 400，别把请求发出去；
- *  2. subagent.list 的签名是 `list(request, signal)`（**有** signal 形参），
- *     与 session.search 一样必须显式传一个 AbortController 的 signal —— 宿主内部
- *     `isAborted(signal)` 直接 `return signal.aborted`，不传 undefined 会 500；
- *  3. 条目是 union：child 要 mode/activity/hasChildren 都合法才留，
- *     diagnostic 只要有 id + 认识的 reason；两者都不能把未知字段漏给手机；
- *  4. parentAvailable 用严格比较：宿主漏字段时按「父会话不在线」处理，与桌面端
- *     「父会话不在线 → 只读」的判定方向一致，猜真值会让手机误以为还能发消息；
+ *  1. sessionId 是必填：宿主 subagent.list 的 payload 是 `{ parentSessionId }`，缺了会被报
+ *     invalid payload；代理应该在本地就 400，别把请求发出去；
+ *  2. subagent.list 的签名是 `list(request, signal)`（**有** signal 形参），必须显式传一个
+ *     AbortController 的 signal —— 不传 undefined 会 500；
+ *  3. 条目是 union：child 要 mode/activity/hasChildren 都合法才留，diagnostic 只要有 id +
+ *     认识的 reason；两者都不能把未知字段漏给手机；
+ *  4. parentAvailable 用严格比较：宿主漏字段时按「父会话不在线」处理，与桌面端「父会话不在线
+ *     → 只读」的判定方向一致，猜真值会让手机误以为还能发消息；
  *  5. 按 id 去重（保留先出现的）并限条数，避免异常宿主把手机列表撑爆。
  *
  * 本测试驱动真实的 handler（不是转写实现）：起一个只挂它的真 http 服务，用真 req/res。

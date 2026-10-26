@@ -3,18 +3,17 @@
 /**
  * 会话日志导出代理（GET /api/mobile/v1/session-log）的透传契约（真机回归）。
  *
- * 真机现象：App 里输入 `/export` 只看到一行 `export · Session log download requested.`，
- * 之后什么都不会发生 —— 没有下载、没有提示、没有错误。桌面端这一步是「宿主执行命令 +
- * 浏览器下载」两步：命令只在 transcript 里留一行标记，真正的 ZIP 由
- * dsh-session-log-export 监听 command/executed 后拉宿主 127.0.0.1 上的
- * `GET /api/session.export`。手机既直连不到那个端点，也没有下载管理器。
+ * 桌面端这一步是「宿主执行命令 + 浏览器下载」两步：命令只在 transcript 里留一行标记，真正的
+ * ZIP 由 dsh-session-log-export 监听 command/executed 后拉宿主 `GET /api/session.export`。
+ * 手机既直连不到那个端点、也没有下载管理器，所以 App 里 `/export` 只看到一行「已请求」，
+ * 之后什么都不会发生。
  *
- * 本测试驱动真实的 handleSessionLog（不是转写实现）：起一个只挂它的真 http 服务，
- * 用真 req/res，检查状态码、透传的 query、响应头与字节流。
+ * 本测试驱动真实的 handleSessionLog（不是转写实现）：起一个只挂它的真 http 服务，用真
+ * req/res，检查状态码、透传的 query、响应头与字节流。
  *
- * 覆盖的关键点：
- *  1. 缺 sessionId / includeDescendants 取值非法 → 400，且**不触碰宿主**（笔误不该
- *     变成一次真实的导出请求）；
+ * 关键点：
+ *  1. 缺 sessionId / includeDescendants 取值非法 → 400，且**不触碰宿主**（笔误不该变成一次
+ *     真实的导出请求）；
  *  2. includeDescendants 缺省即 true（与桌面客户端一致：导出整棵会话树）；
  *  3. 宿主的 application/zip 流原样落到客户端，content-disposition 照抄；
  *  4. 宿主 404/500/501 的纯文本原因原样透出，不能只剩一个状态码。

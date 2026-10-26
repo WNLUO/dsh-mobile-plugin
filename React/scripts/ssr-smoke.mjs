@@ -1,5 +1,5 @@
 // 冒烟渲染：在 node 里把各张卡与配置弹窗渲染一遍，抓运行期崩（不依赖浏览器）。
-// 注意：Base UI 的弹窗走 portal，SSR 渲染出来是空字符串，弹窗要另用浏览器验收。
+// Base UI 的弹窗走 portal，SSR 渲染出来是空字符串，弹窗要另用浏览器验收。
 import { ToastProvider } from '@appica/ui-react/toast'
 import { fileURLToPath } from 'node:url'
 import { createElement as h } from 'react'
@@ -15,9 +15,8 @@ const server = await createServer({
 
 // 断言里写的是**源语言**的原文，所以先把界面语言钉到简中。
 //
-// 这个脚本跑在 node 里，`navigator.languages` 是 `['en-US']` —— 不钉的话整片渲染成英文，
-// 下面每一条带中文的 `must` 都会红（2026-10-24 字典接上之后这个脚本就一直红在这个口径上，
-// 跟组件本身没关系）。钉的是**偏好**那一档，走的还是组件真正读的那份状态。
+// 脚本跑在 node 里，`navigator.languages` 是 `['en-US']`，不钉就整片渲染成英文，
+// 带中文的 `must` 全会红。钉的是**偏好**那一档，走的还是组件真正读的那份状态。
 const { setPanelLanguagePreference } = await server.ssrLoadModule('/src/lib/i18n/index.ts')
 setPanelLanguagePreference('zh-Hans')
 
@@ -78,8 +77,8 @@ const noop = () => {}
 /**
  * 地址库（`/api/relay/addresses`）：一块有线 + 一块无线的局域网地址，另有一条公网与两条 IPv6。
  *
- * IPv6 那两条按**真机现场**给：本机实测一台电信宽带的 `en1` 上就是「一条 `::998` 稳定地址 +
- * 一条随机后缀的隐私地址」，两条都是真 GUA。这里用它来冒烟「第三份只显示、不进单选」那条路。
+ * IPv6 两条照真机形状给：一条 `::998` 稳定地址 + 一条随机后缀的隐私地址，都是真 GUA。
+ * 用它冒烟「第三份只显示、不进单选」那条路。
  */
 const addressBook = {
   ok: true,
@@ -107,14 +106,14 @@ const addressBook = {
 }
 
 /**
- * 只有 IPv6 的机器：一条私网、一条公网都没有。
+ * 只有 IPv6 的机器：私网、公网都没有。
  *
- * 这一台是「可选项为空」那一支的**唯一**入口 —— 从前那里直接退成「还没取到地址」，而
- * 这串地址正是这台机器在公网上的唯一入口，退掉等于用户在面板上看不到任何能用的地址。
+ * 这是「可选项为空」那一支的**唯一**入口：退成「还没取到地址」等于用户在面板上看不到
+ * 任何可用地址，而 IPv6 正是这台机器唯一能进来的路。
  */
 const ipv6OnlyBook = { ok: true, port: 18787, preferred: '', lan: [], public: [], ipv6: addressBook.ipv6 }
 
-/** 服务器那台：一条私网都没有，候选全落在公网那份上（用户 2026-10-11 截图那个现场）。 */
+/** 服务器那台：一条私网都没有，候选全落在公网那份上。 */
 const serverBook = {
   ok: true,
   port: 18787,
@@ -160,10 +159,9 @@ const cases = [
     }),
   ],
   ['ConnectionCard（白名单拒绝）', h(Conn.ConnectionCard, { status: { ...status, tunnel: { state: 'error', error: 'unknown instance: xyz', instanceNotAllowed: true, admissionHint: 'instance-allowlist' } }, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop })],
-  // 这三处默认遮着（二维码、中转地址、手机该填的地址），所以断言的是「遮着的时候页面里有什么」：
-  // 二维码那张图**根本不在 DOM 里**（整块换成占位），地址只留「已隐藏」+ 一颗贴上无障碍名的
-  // 「显示」按钮。点开之后长什么样是纯前端状态，`renderToString` 一遍就结束、也不留状态，
-  // 这里看不到了 —— 要靠真浏览器点。
+  // 这三处默认遮着（二维码、中转地址、手机该填的地址），断言的是「遮着的时候页面里有什么」：
+  // 二维码**根本不在 DOM 里**（整块换成占位），地址只留「已隐藏」+ 一颗贴上无障碍名的
+  // 「显示」按钮。点开之后是纯前端状态，`renderToString` 不留状态，要靠真浏览器点。
   ['PairingCard', h(Pair.PairingCard, pairingProps), 'aria-label="显示本地识别地址"'],
   ['PairingCard（二维码默认遮着）', h(Pair.PairingCard, pairingProps), '二维码已隐藏'],
   ['PairingCard（只有公网地址的机器）', h(Pair.PairingCard, { ...pairingProps, addressBook: serverBook }), 'aria-label="显示本地识别地址"'],
@@ -171,13 +169,12 @@ const cases = [
   ['PairingCard（重启失败）', h(Pair.PairingCard, { ...pairingProps, busy: 'restart', restartError: 'spawn ENOENT' })],
   // 老宿主没有 `/api/relay/addresses`：退回配对接口给的那串 URL，只显示、不能选。
   ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), 'aria-label="显示本地识别地址"'],
-  // 2026-10-26：中转地址那一行从这张卡里删掉了（左边配对卡里本来就有同一个值），
-  // 所以这里改钉「准入开关在卡里」—— 它现在摆在远程控制上面。
+  // 中转地址那一行不在卡里（配对卡里已有同一个值），这里钉「准入开关在卡里」——
+  // 它摆在远程控制上面。
   ['ConnectionCard（准入开关在卡里）', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop }), '允许新设备绑定'],
-  // 更新卡片现在先问宿主那四条 `/api/relay/update/*`，拿不到才退化成市场那条老路。
-  // SSR 里 effect 不跑（`renderToString` 不会执行 useEffect），所以两条分支都不进：
-  // 这一遍只冒烟「标题 + 正在读状态」那一屏。宿主 / 市场两条完整分支要用真浏览器看
-  // （ssr-smoke 没有全局 fetch 打桩，见 `noop` 上面的说明）。
+  // 更新卡片先问宿主那四条 `/api/relay/update/*`，拿不到才退化成市场老路。
+  // SSR 里 effect 不跑，两条分支都不进：这一遍只冒烟「标题 + 正在读状态」那一屏。
+  // 完整分支要用真浏览器看 —— 这里没有全局 fetch 打桩。
   ['UpdateCard', h(Upd.UpdateCard, { version: '0.1.47', busy: '', onRestartSidecar: noop }), '插件更新'],
   ['UpdateCard（正在重启 sidecar）', h(Upd.UpdateCard, { version: '0.1.47', busy: 'restart', onRestartSidecar: noop })],
   // 收件文件卡：与 UpdateCard 同一个处境 —— 它先问 `/api/relay/inbox/status`，SSR 里
@@ -199,9 +196,8 @@ const cases = [
   // 悬浮那颗「加入交流群」独立于两张卡，单独过一遍：它要贴住右下角（`fixed`）、
   // 文字和微信图标都得在。点开之后是什么还没定，所以只看按钮在不在。
   ['JoinGroupButton', h(Join.JoinGroupButton, {}), '加入交流群'],
-  // 右上角那组按钮（日夜 + 界面语言）：SSR 里没有 ThemeProvider（`useTheme` 回空值 ⇒
-  // 当作还没定主题），所以这一遍只冒烟「两颗按钮都在、无障碍名给的是下一步」；图标换不换、
-  // 贴没贴住右上角要看真浏览器（位置写在 `TopRightActions` 的类名里，渲染出来看不见）。
+  // 右上角那组按钮（日夜 + 界面语言）：SSR 里没有 ThemeProvider（`useTheme` 回空值），
+  // 只冒烟「两颗按钮都在、无障碍名给的是下一步」；图标换不换、贴没贴住要看真浏览器。
   ['ThemeToggle', h(Toggle.ThemeToggle, {}), 'aria-label="切换到夜间模式"'],
   ['LanguageMenu', h(Lang.LanguageMenu, {}), 'aria-label="界面语言"'],
   ['TopRightActions', h(Actions.TopRightActions, {}), 'aria-label="切换到夜间模式"'],

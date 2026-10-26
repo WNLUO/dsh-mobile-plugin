@@ -3,20 +3,16 @@
 /**
  * 守卫：开发机同步脚本（`scripts/reload-dev.mjs`）到底把哪些文件装进 profile。
  *
- * 起因有两层。第一层（2026-10-20）：脚本原来只收 `lib/` 下的 js/cjs/mjs，于是**面板产物**
- * （`lib/panel/index.html`）、`lib` 各子目录里的 `package.json`（那几个目录的 `"type":
- * "commonjs"` 声明）、`config/agent-presets` 的 preset、`cordis.mobile-host.yml`、`host.js`、
- * 内联的凭据包全都推不过去，改完这些再跑一次同步界面一点变化都没有，而脚本还报「已就地
- * 重新装载」。第二层（2026-10-23）：装进去的东西**不是 profile 声明的产物**，重启 DSH 时
- * 宿主按声明重装一遍，装回来的又是旧快照 —— 表现是「热重载过了，重启又是旧版」。
+ * 两层坑：脚本只收 `lib/` 下的 js/cjs/mjs 时，**面板产物**（`lib/panel/index.html`）、`lib`
+ * 各子目录里的 `package.json`（那几个目录的 `"type": "commonjs"` 声明）、
+ * `config/agent-presets` 的 preset、`cordis.mobile-host.yml`、`host.js`、内联的凭据包全都
+ * 推不过去，改完这些再同步界面一点变化都没有，而脚本还报「已就地重新装载」；而装进去的东西
+ * **不是 profile 声明的产物**时，重启 DSH 按声明重装一遍，装回来的又是旧快照。
  *
- * 现在默认那条路的判据是**包自己的 `files` 白名单**（`npm pack --dry-run` 说了算），所以
- * 这里钉三件事：
- *   1. 包清单必须收住运行时要读的每一类文件（实现、面板产物、子目录声明、preset、yml、
- *      凭据库、`host.js`）；
- *   2. 包清单必须排掉构建源码、测试、脚本、依赖、tgz 与锁文件；
- *   3. 脚本必须真的走「打包 + 依赖声明改写 + 运行时 pnpm install」这套动作，不能悄悄退回
- *      逐文件拷贝 —— 退回就又是那个重启就回退的 bug。
+ * 默认那条路的判据是**包自己的 `files` 白名单**（`npm pack --dry-run` 说了算），所以这里钉
+ * 三件事：清单必须收住运行时要读的每一类文件（实现、面板产物、子目录声明、preset、yml、
+ * 凭据库、`host.js`）；清单必须排掉构建源码、测试、脚本、依赖、tgz 与锁文件；脚本必须真的
+ * 走「打包 + 依赖声明改写 + 运行时 pnpm install」这套动作，不能悄悄退回逐文件拷贝。
  *
  * 运行：node --test test/reload-dev-scope.test.cjs
  */

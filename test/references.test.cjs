@@ -3,22 +3,16 @@
 /**
  * 移动端「引用发现」（@文件 / @会话 补全）的透传契约。
  *
- * 桌面端输入 @ 会同时发起 fileReferences/list 与 sessionReferenceResolver/candidates
- * 两个 Remote 调用，文件排在会话前面。手机端此前完全没有这条入口。这两个宿主服务
- * 不在 apiProxy 上，是 Typert Remote 服务，同进程经 ctx.get('typertGateway') 到达。
+ * 桌面端输入 @ 会同时发起 `fileReferences/list` 与 `sessionReferenceResolver/candidates` 两个
+ * Remote 调用，文件排在会话前面。这两个宿主服务不在 apiProxy 上，是 Typert Remote 服务，同
+ * 进程经 ctx.get('typertGateway') 到达。
  *
- * 这条链路每一条都容易写错：
- *
- *  1. **参数名是宿主生成的 wire 名**。两个方法的声明参数都是
- *     agent(wire=agentId) + query(wire=query)，所以 args 必须是
- *     `{ agentId, query }`；query 是普通 JSON 字符串（messageFeedback 则是
- *     `{ request: {…} }` 包装），写成 `{sessionId}` 会被宿主 arguments-invalid 拒绝；
- *  2. 方法是 `list` / `candidates`，命名空间是 `fileReferences` /
- *     `sessionReferenceResolver`——写成 sessionReferences 之类就 service-unavailable；
- *  3. 宿主返回的是 **数组**（不是 {items}），畸形行必须丢掉而不是原样透传；
- *  4. 会话候选的 mention 是宿主规范写法，缺 mention 的行等于不可用，必须丢；
- *  5. 两个域各自独立降级：一个域不可用不影响另一个域；
- *  6. 网关缺失（宿主没装 dsh-api-gateway 或对应服务）是 503，不是 400。
+ * 容易写错的地方：**参数名是宿主生成的 wire 名**（两个方法的声明参数都是 agent(wire=agentId)
+ * + query(wire=query)，所以 args 必须是 `{ agentId, query }`；query 是普通 JSON 字符串，
+ * 写成 `{sessionId}` 会被宿主 arguments-invalid 拒绝）；方法是 `list` / `candidates`，
+ * 命名空间写错就是 service-unavailable；宿主返回的是**数组**（不是 {items}），畸形行必须丢掉
+ * 而不是原样透传；会话候选的 mention 是宿主规范写法，缺它的行等于不可用；两个域各自独立
+ * 降级；网关缺失是 503，不是 400。
  *
  * 本测试驱动真实的 handler（不是转写实现）。
  */

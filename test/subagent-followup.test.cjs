@@ -1,28 +1,26 @@
 'use strict';
 
 /**
- * 子代理续话 / 打断代理（POST /api/mobile/v1/subagents/prompt、/subagents/interrupt）
- * 的透传契约。
+ * 子代理续话 / 打断代理（POST /api/mobile/v1/subagents/prompt、/subagents/interrupt）的
+ * 透传契约。
  *
  * 手机端的输入框平时只发 session.send，而宿主对**子会话**的 session.prompt 一律回
- * agent-busy（"use subagent delivery for this child session"）；给「可继续」子代理发
- * 消息必须换 subagent.prompt，打断必须换 subagent.interrupt。这个代理的每一条规则
- * 都对应一个真机才会暴露的坑：
+ * agent-busy（"use subagent delivery for this child session"）；给「可继续」子代理发消息
+ * 必须换 subagent.prompt，打断必须换 subagent.interrupt。每条规则都对应一个真机才暴露的坑：
  *
- *  1. 两个 id 都是必填：宿主 payload 是 `{ parentSessionId, childSessionId }`，
- *     缺了会被宿主报 invalid payload；代理应该在本地就 400，别把请求发出去；
- *  2. prompt 的签名是 `prompt(request, signal)`（**有** signal 形参），与
- *     subagent.list 一样必须显式传一个 AbortController 的 signal —— 宿主内部
- *     `isAborted(signal)` 直接 `return signal.aborted`，不传 undefined 会 500；
- *     而 interrupt 的签名是 `interrupt(request)`（**没有** signal），多传一个参数
- *     不会报错，但会让人误以为它有取消语义，所以源码契约里钉住「interrupt 不传」；
- *  3. mode 固定 'continuable'：一次性子代理宿主压根不收续话（桌面端也是先判
- *     one-shot 再本地拒绝），不给客户端挑的机会；
- *  4. 图片一律拒绝，且报 attachment-error / SUBAGENT_IMAGE_UNSUPPORTED —— 与桌面端
- *     runtime 的本地判定同一个 code/reason。runtime 只把 text 块 flatMap 出去，
- *     图片根本到不了宿主，这里跟着拒，免得静默丢块让用户以为图发出去了；
- *  5. 宿主的 `{ messageId }` 不透传：手机端自己生成乐观行的 clientMessageId，
- *     多回一个用不上的字段只会让 App 侧契约漂移。
+ *  1. 两个 id 都是必填：宿主 payload 是 `{ parentSessionId, childSessionId }`，缺了会被报
+ *     invalid payload；代理应该在本地就 400，别把请求发出去；
+ *  2. prompt 的签名是 `prompt(request, signal)`（**有** signal 形参），必须显式传一个
+ *     AbortController 的 signal —— 不传 undefined 会 500；而 interrupt 的签名是
+ *     `interrupt(request)`（**没有** signal），多传一个参数不会报错，但会让人误以为它有取消
+ *     语义，所以源码契约里钉住「interrupt 不传」；
+ *  3. mode 固定 'continuable'：一次性子代理宿主压根不收续话（桌面端也是先判 one-shot 再本地
+ *     拒绝），不给客户端挑的机会；
+ *  4. 图片一律拒绝，报 attachment-error / SUBAGENT_IMAGE_UNSUPPORTED —— 与桌面端 runtime 的
+ *     本地判定同一个 code/reason。runtime 只把 text 块 flatMap 出去，图片根本到不了宿主，
+ *     这里跟着拒，免得静默丢块让用户以为图发出去了；
+ *  5. 宿主的 `{ messageId }` 不透传：手机端自己生成乐观行的 clientMessageId，多回一个用不上
+ *     的字段只会让 App 侧契约漂移。
  *
  * 本测试驱动真实的 handler（不是转写实现）：起一个只挂它们的真 http 服务，用真 req/res。
  */

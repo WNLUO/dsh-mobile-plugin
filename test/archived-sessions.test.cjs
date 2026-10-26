@@ -3,17 +3,12 @@
 /**
  * 归档会话必须真的从会话列表里消失（真机回归）。
  *
- * 真机现象：App 侧边栏「归档会话」→ 确认框 → 点「归档」，那一行照旧留在侧边栏，
- * 没有任何归档标记。直接 POST /api/mobile/v1/workspace/archive-session 得到
- * `{"ok":true,"archivedSessionIds":["session-df678214-…"]}`，宿主
- * ~/.dsh-lan-host/storages/workspace.json 的 `global.archivedSessionIds` 也确实记下了它，
- * 但 GET /api/mobile/v1/sessions 仍然把这条会话发回手机。
- *
  * 根因有两处，都在透传层：
- *  1. 宿主 `sessions.list` **不按归档过滤**——「哪些会话已归档」只存在于
- *     `workspace.list` 的 `archivedSessionIds`（见 dsh-host-apiproxy workspace.list），
- *     移动端必须读这个集合过滤会话；
- *  2. 工作区 revision 只覆盖 `items`，归档集合变化时镜像判重会跳过新快照，桌面端仍显示旧归档状态。
+ *  1. 宿主 `sessions.list` **不按归档过滤** ——「哪些会话已归档」只存在于 `workspace.list`
+ *     的 `archivedSessionIds`（见 dsh-host-apiproxy workspace.list），移动端必须读这个集合
+ *     过滤会话；
+ *  2. 工作区 revision 只覆盖 `items`，归档集合变化时镜像判重会跳过新快照，桌面端仍显示
+ *     旧归档状态。
  * 于是 App 的归档在移动端表现为一次毫无反馈的空操作。
  *
  * 本测试驱动真实的 `buildSessionsResponse` / `buildWorkspacesBody`（不是转写实现）。
@@ -166,7 +161,7 @@ test('源码契约：会话列表读归档集合、工作区快照只把它算�
   assert.match(flagsSrc, /ctx\.apiProxy\.workspace\.list\(/);
   assert.match(sessionsSrc, /workspaceSessionFlags\(ctx\)/);
   assert.doesNotMatch(sessionsSrc, /const allSummaries = value\.items \|\| \[\];/);
-  // 2026-10-22 起 items 先过 attachGitMarkers 挂 Git 仓库标记（回的是那份 marked）。
+  // items 要先过 attachGitMarkers 挂 Git 仓库标记（回的是那份 marked）。
   // 归档集合不再随 body 下发，但必须留在 revision 里 —— 删掉它等于「仅归档变化」判成没变化。
   assert.match(workspacesSrc, /const marked = await attachGitMarkers\(items,/);
   assert.match(workspacesSrc, /revision: stableRevision\(\{ items: marked, archivedSessionIds \}\)/);

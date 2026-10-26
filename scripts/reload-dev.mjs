@@ -2,42 +2,18 @@
 /**
  * 开发机：把仓库里的插件改动**装进 profile**，再让它**就地重新装载**（不重启 DSH）。
  *
- * ## 为什么是「打包 + 正规安装」而不是「拷文件」
+ * 宿主加载的是 profile 里装着的那一份，而 profile 的依赖声明写的是一个 `file:` 指向的 tgz。
+ * 逐份拷文件虽然能让就地重载生效，但**那份安装不是声明的产物**：重启时宿主按
+ * `package.json` + `pnpm-lock.yaml` 重跑安装，装回来又是冻结的旧 tgz，表现是「热重载过了、
+ * 重启又是旧版」。所以默认走 `npm pack` → 放进 profile → 声明与锁文件指过去 → 用运行时
+ * 自带的 pnpm 装一遍 → 就地重载，装完盘上那份就是声明的那一份。profile 是 hoisted 布局、
+ * `realpath` 不变，所以装完不用重启。
  *
- * 宿主加载的是 profile 里装着的那一份（见 docs/dev-map-parts/03-plugin.md 的 A3-42），
- * 而 profile 的依赖声明写的是一个 `file:` 指向的 tgz。以前这里把仓库文件逐份拷进
- * `<profile>/node_modules/dsh-mobile-plugin/`：文件确实换了、就地重载也确实生效，但
- * **那份安装不是 profile 声明的产物**。重启 DSH 时宿主按 `package.json` + `pnpm-lock.yaml`
- * 重跑一遍安装，装回来的又是声明里那个冻结的旧 tgz —— 表现就是「热重载过了，重启又是旧版」
- * （2026-10-23 用户报的正是这个）。
+ * 换得掉 `lib/impl.js` 及它 require 进来的一切；换不掉**外壳自己**（`lib/index.js` +
+ * `lib/shell/*`），它们在进程启动时被 Node 缓存。`--only` 只拷指定文件、不落安装声明，
+ * 重启会退回声明里那一份。端口默认扫本机监听端口，挑答得出 `/api/relay/status` 的宿主。
  *
- * 所以默认这条路把两件事合成一件：`npm pack` 出当前仓库的包 → 放进 profile → 把 profile
- * 的依赖声明与锁文件都指到它 → 用**运行时自带的那个 pnpm** 装一遍 → 就地重载。装完盘上那份
- * 就是声明的那一份，重启装出来的必然也是它。
- *
- * 路径不会变：本机 profile 是 hoisted 布局，`node_modules/dsh-mobile-plugin` 是实体目录，
- * 重装前后 `realpath` 一致，所以**装完仍然就地重载，不用重启**（换装法那种「新目录 = 新
- * realpath」才要重启一次，这里不是）。
- *
- * ## 它能做到什么、做不到什么
- *
- * 换得掉：`lib/impl.js` 以及它 require 进来的一切（路由、移动 API、relay、镜像……），
- * 也就是日常改动的几乎全部。
- *
- * 换不掉：**外壳自己**（`lib/index.js` + `lib/shell/*`）。它们在进程启动时被 Node 缓存，
- * 换掉它们只能重启。脚本会把这两种情况分开报。
- *
- * ## 用法
- *
- *   node dsh-mobile-plugin/scripts/reload-dev.mjs                       # 打包 + 安装 + 重载
- *   node dsh-mobile-plugin/scripts/reload-dev.mjs --dry-run             # 只说会做什么
- *   node dsh-mobile-plugin/scripts/reload-dev.mjs --only lib/routes/x.js # 只推这几个文件
- *   node dsh-mobile-plugin/scripts/reload-dev.mjs --port 52772
- *
- * `--only` 是「仓库里有别的对话没做完的改动，我只要自己这几个」时的快路：它只拷这几个文件，
- * **不落进安装声明**，重启会退回声明里那一份。要让重启也保留，跑一次不带 `--only` 的。
- *
- * 端口默认自己找：扫本机监听端口，挑那个答得出 `/api/relay/status` 的宿主。
+ * 用法：`--dry-run` 只看会做什么、`--only <文件…>` 只推几个文件、`--port <端口>` 指定宿主。
  */
 
 import fs from 'node:fs'
@@ -453,8 +429,8 @@ function syncPartial(files) {
 /**
  * 面板产物是**提交物**：`React/` 源码比 `lib/panel/index.html` 新，就说明产物不是这份源码的。
  *
- * 以前这一步靠调用方记得「改 React 后先跑 build」——忘了的症状是界面一个像素都没变，
- * 而脚本照样报成功。现在把它放进这条路里：陈旧就重建，重建失败就什么都不装。
+ * 不能靠调用方记得「改 React 后先跑 build」—— 忘了的症状是界面一个像素都没变，而脚本照样报
+ * 成功。所以放进这条路里：陈旧就重建，重建失败就什么都不装。
  */
 const PANEL_ARTIFACT = path.join(PLUGIN_ROOT, 'lib', 'panel', 'index.html')
 const PANEL_SOURCES = [

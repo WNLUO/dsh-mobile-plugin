@@ -3,10 +3,10 @@
 /**
  * 守卫：lib/mobile/sessions.js 的模块边界。
  *
- * 起因：sessions.js 一度长到 1964 行，HTTP 路由、宿主 RPC 调用、缓存与纯事件派生
- * 全混在一个文件里。它是 lib/mobile 下被引用最多的模块（stream / credentials /
- * skills / subagents / workspaces / host-settings 都从它取 unwrap、callSessions 等），
- * 一旦继续膨胀，改一处缓存语义就可能波及所有 handler。
+ * sessions.js 一度长到 1964 行，HTTP 路由、宿主 RPC 调用、缓存与纯事件派生全混在一个文件里。
+ * 它是 lib/mobile 下被引用最多的模块（stream / credentials / skills / subagents / workspaces /
+ * host-settings 都从它取 unwrap、callSessions 等），继续膨胀的话，改一处缓存语义就可能波及
+ * 所有 handler。
  *
  * 这里钉的是**边界本身**，不是某段实现：
  *   1. sessions.js 必须回到一个可读的行数区间；

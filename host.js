@@ -2,16 +2,13 @@
 /**
  * Headless Cordis Host for the DSH mobile app.
  *
- * The repository used to ship an Electron desktop shell that owned the Host
- * process; the DSH mobile app never used that surface. This entry replaces it:
- * it boots the same upstream Cordis Host, composes the shipped DSH Web
- * bundle, and adds one plugin — the mobile API at `/api/mobile/v1`.
+ * Boots the upstream Cordis Host, composes the shipped DSH Web bundle, and adds
+ * one plugin — the mobile API at `/api/mobile/v1`.
  *
- * The Host itself is upstream. `@deepseek-ai/dsh-app-boot#boot` mounts a
- * `cordis.yml` entry list, so the root list stays empty and every plugin is
- * contributed by a patch layer: the profile's bundle layers (dsh-base then
- * dsh-web-app), the profile's own `cordis.patch.yml`, and finally this
- * package's `cordis.patch.yml`.
+ * `@deepseek-ai/dsh-app-boot#boot` mounts a `cordis.yml` entry list, so the root
+ * list stays empty and every plugin comes from a patch layer: the profile's
+ * bundle layers (dsh-base then dsh-web-app), the profile's own
+ * `cordis.patch.yml`, and finally this package's `cordis.patch.yml`.
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -67,24 +64,19 @@ try {
   /**
    * 本插件是**装在这个 profile 里**的，还是「源码树直接跑」的？
    *
-   * 这两种现场的挂载方式不一样，而差别全在「挂哪一份入口」上（2026-10-11 起两条都留着）：
+   * 两种现场挂的不是同一份入口：
+   *  - **装在 profile 里**（桌面端）→ 挂 `<profile>/node_modules/dsh-mobile-plugin/lib/index.js`，
+   *    即**稳定外壳**：查更新、装新版、就地换代都在它手里，面板上才有「检查 / 立即更新」。
+   *  - **源码树直接跑**（无头部署、开发时 `node host.js`）→ 没有任何人把它放进 `node_modules`，
+   *    于是挂随包发布的 `lib/impl.js`。代价是**没有外壳**，那台只能同步源码 + 重启宿主。
    *
-   *  - **装在 profile 里**（桌面端；服务器那台改成 `pnpm 装进 profile` 之后也是）→ 挂
-   *    `<profile>/node_modules/dsh-mobile-plugin/lib/index.js`，也就是**稳定外壳**：
-   *    查更新、装新版、就地换代那一套全在它手里，所以面板上才有「检查 / 立即更新」。
-   *  - **源码树直接跑**（老的无头部署、开发时直接 `node host.js`）→ 插件**就是** Loader 自己
-   *    正跑的那个包，没有任何人把它放进 `node_modules`，于是这一支挂随包发布的
-   *    `lib/impl.js`（真正的实现）。代价是**没有外壳** → 那台的面板里更新不了，只能同步
-   *    源码 + 重启宿主。
+   * **两处都走绝对路径而不是包名**：`cordis.patch.yml` 里那行按包名挂载是给桌面端用的，
+   * 无头宿主这边解析不到 —— loader 从**它自己所在的位置**解析包名，而它在宿主自己的依赖树里，
+   * 看不见 profile 里装的那份。loader 对解析失败不是留一条警告，是**整棵插件树加载失败**，
+   * 所以那行在这里一律摘掉，由这里按绝对路径插一行。装没装 profile 决定的是**挂哪一份**，
+   * 不是挂不挂。
    *
-   * **两处都走「绝对路径」而不是包名**：`cordis.patch.yml` 里那行按包名挂载是给桌面端用的，
-   * 无头宿主这边解析不到 —— loader 是从**它自己所在的位置**解析包名的（实测报错原文：
-   * `Cannot find package 'dsh-mobile-plugin' imported from <…>/@deepseek-ai/cordis-plugin-loader/lib/index.js`），
-   * 而它在宿主自己的依赖树里，profile 里装的那份它根本看不见。而 loader 对解析失败不是留一条
-   * 警告，是**整棵插件树加载失败**（服务器那台当年就是这么完全起不来的）。所以那行在无头宿主
-   * 里一律摘掉，由这里按绝对路径插一行 —— 装没装 profile 决定的是**挂哪一份**，不是挂不挂。
-   *
-   * 判据取「profile 里有没有这个包」，不看环境变量、不看目录名：装没装是事实，改不了口径。
+   * 判据取「profile 里有没有这个包」，不看环境变量、不看目录名：装没装是事实。
    */
   const installedDir = join(profileDir, 'node_modules', BIN_NAME)
   const selfInstalled = existsSync(join(installedDir, 'package.json'))
@@ -230,17 +222,11 @@ try {
   await assertEntriesActivated(ctx, BIN_NAME)
   // 装载期结束，撤掉 installFailLoud 的兜底。
   //
-  // 它自己的语义是对的：一个插件**装载**失败不该让宿主半死不活地上线，所以
-  // 任何 unhandledRejection 都直接 exit(1)。但它注册在 process 上之后**一辈子
-  // 不摘**（releaseFailLoud 在成功路径上从来没被调用过），而宿主是长驻进程——
-  // 于是运行期任意一次游离 reject 都会走到它那里把进程带走。上一版提交
-  // （ca60417）在真机上被这条打脸：账本记下了「未处理的 Promise 拒绝（已忽略）」，
-  // 紧接着一行 `fatal load failure` 就把 PID 换掉了。
-  //
-  // 这里在 assertEntriesActivated 通过之后才撤：那一刻树已经确认全部激活
-  //（激活失败的 entry 会在它内部 throw，进上面的 catch 走 boot failed），
-  // 此后再出现的 reject 就不再是「装载失败」而是运行期故障，
-  // 交给进程级错误边界记账 + 熔断。
+  // 它注册在 process 上之后**一辈子不摘**，而宿主是长驻进程 —— 运行期任意一次游离
+  // reject 都会走到它那里把进程带走，而它本该只管「装载失败」。所以这里在
+  // assertEntriesActivated 通过之后才撤：那一刻树已确认全部激活（激活失败的 entry 会在
+  // 它内部 throw，进上面的 catch 走 boot failed），此后的 reject 是运行期故障，交给
+  // 进程级错误边界记账 + 熔断。
   releaseFailLoud()
   process.stderr.write(`${BIN_NAME}: mobile host ready (profile ${PROFILE_NAME})\n`)
 } catch (error) {

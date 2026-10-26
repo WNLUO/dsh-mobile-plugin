@@ -2,14 +2,12 @@
 /**
  * 抬版本号：把插件或 App 的版本推到下一号，并把结果写回仓库。
  *
- * 存在的理由：这个仓库过去两条发布链都要人手改版本号，而两条链的失败方式都很隐蔽——
- *   · 插件：中转按 version_name 做 semver 比较，忘抬版本 → 包发出去了，但客户端
- *     永远判「没有更新」，没有任何报错。
- *   · App：版本名抄在三个文件里（app/package.json、app/src/version.ts、
- *     app/android/app/build.gradle），手改漏一处，构建出来的坐标就和设备上报的对不上；
- *     构建号还得比分发平台上已有的都大，手填旧号会被平台按重复坐标直接拒绝。
- * 两个发布脚本（publish-plugin-ota.mjs / publish-app-ota.mjs）在发布时也会调用同一个
- * 实现，所以「脚本发出去的版本」和「仓库里写的版本」不可能再不是同一个号。
+ * 两条发布链的失败方式都很隐蔽：插件那条，中转按 version_name 做 semver 比较，忘抬版本
+ * 包照样发出去，但客户端永远判「没有更新」，没有任何报错；App 那条，版本名抄在
+ * app/package.json、app/src/version.ts、app/android/app/build.gradle 三处，漏一处构建出来
+ * 的坐标就和设备上报的对不上，构建号还必须比分发平台上已有的都大，手填旧号会被按重复坐标
+ * 直接拒绝。两个发布脚本（publish-plugin-ota.mjs / publish-app-ota.mjs）发布时调用同一个
+ * 实现，所以「脚本发出去的版本」和「仓库里写的版本」不会分叉。
  *
  * 用法：
  *   node dsh-mobile-plugin/scripts/bump-version.mjs                       # 插件补丁号 +1
@@ -18,9 +16,8 @@
  *   node dsh-mobile-plugin/scripts/bump-version.mjs --product app --build-number 221
  *   node dsh-mobile-plugin/scripts/bump-version.mjs --dry-run --notes     # 只预览，顺便看发布说明
  *
- * App 的构建号注意：本脚本在没给 --build-number 时只做「仓库里现有号 +1」。平台上
- * 已有的构建号可能更高（历史上有过仓库停在 190、平台已经到 220 的情况），所以
- * 真要发布时请用 publish-app-ota.mjs —— 它会先查平台再决定号。
+ * App 的构建号：没给 `--build-number` 时只做「仓库里现有号 +1」。平台上已有的号可能更高，
+ * 真要发布请用 publish-app-ota.mjs —— 它会先查平台再决定号。
  */
 import { APP_COORD_FILES, buildReleaseNotes, nextVersion, PLUGIN_DEMO_VERSION_FILE, readAppCoordinates, readPluginVersion, writeAppCoordinates, writePluginVersion } from './lib/version-bump.mjs'
 

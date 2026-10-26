@@ -3,26 +3,21 @@
 /**
  * 移动端 handler 的**活体**守卫：真的把每条路由跑一遍，宿主怎么调就怎么调。
  *
- * 起因是一次真机 500：`GET /api/mobile/v1/session` 回
- * `{"ok":false,"error":{"code":"internal","message":"eventSeqOf is not defined"}}`，
- * 而 App 那边把这一发 catch 掉、界面上毫无痕迹 —— 它只用来取工作目录，拿不到就退化成
- * 绝对路径显示，谁都不会注意。根因是 2026-10 把 sessions.js 拆成九个按域模块时，
+ * 有些 500 在界面上毫无痕迹：`GET /api/mobile/v1/session` 曾回
+ * `{"ok":false,"error":{"code":"internal","message":"eventSeqOf is not defined"}}`，而 App 把
+ * 这一发 catch 掉、拿不到就退化成绝对路径显示。根因是 sessions.js 拆成按域模块时，
  * `eventSeqOf` 搬去了 session-snapshot.js，**调用处却没把名字接进来**。
  *
- * 为什么已有的三套测试全绿：
- *   - `mobile-routes.test.cjs` 读源码文本，只比对路径清单与 App 对齐；
- *   - `mobile-route-dispatch.test.cjs` 真派发，但只断言「无凭据时写出 401」——handler
- *     体根本不会被走到；
- *   - `module-split.test.cjs` 只钉「某个函数住在哪个文件」，不钉「调用它的地方有没有
- *     把它引进来」。方向正好反了：它查的是新家，漏的正是旧调用点。
+ * 已有的三套测试全绿：`mobile-routes.test.cjs` 只比对路径清单与 App 对齐；
+ * `mobile-route-dispatch.test.cjs` 只断言「无凭据时写出 401」，handler 体根本不会被走到；
+ * `module-split.test.cjs` 只钉「某个函数住在哪个文件」，不钉「调用它的地方有没有把它引进来」。
  *
- * 所以这里补的是最后一块：**带一个形状完整的 ctx 真跑一遍每个 handler**，任何一处
- * 「名字没接进来 / 接线指向不存在的路径」都会当场变成 `ReferenceError` 或 5xx。
+ * 所以这里补最后一块：**带一个形状完整的 ctx 真跑一遍每个 handler**，任何一处「名字没接
+ * 进来 / 接线指向不存在的路径」都会当场变成 `ReferenceError` 或 5xx。
  *
- * 假宿主用 Proxy：任何属性都存在、任何方法调用都回一个空信封 `{ result: { ok: true,
- * value: {} } }`。这样 handler 里每一行都会被执行到（包括它怎么解包、怎么兜底），
- * 但不会真的碰宿主的磁盘或 RPC。断言只钉一件事：**不许抛异常、不许回 5xx**。
- * 具体字段对不对是各 handler 自己的契约测试的事，这里只管「这条路还活着」。
+ * 假宿主用 Proxy：任何属性都存在、任何方法调用都回一个空信封 `{ result: { ok: true, value: {} } }`。
+ * 这样 handler 里每一行都会被执行到（包括它怎么解包、怎么兜底），但不会真的碰宿主的磁盘或
+ * RPC。断言只钉一件事：**不许抛异常、不许回 5xx**。
  */
 
 const { after, before, test } = require('node:test');

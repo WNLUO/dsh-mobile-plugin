@@ -2,9 +2,8 @@
  * 网页版设置页的主页（`dsh-mobile-plugin/lib/panel/index.html` 的产物源）。
  *
  * 只做展示与转发：每张卡片的信息都来自 `/api/relay/*`（宿主是唯一事实来源），页面自己
- * 不留状态副本。为什么这半块界面住在这里而不是插件设置页签里：**这一页热更即生效**，
- * 而设置页签那一半（`lib/client.js`）由渲染器从安装目录加载、改一次要完整安装 + 重启
- * （见 `dsh-mobile-plugin/lib/client-half.cjs` 的文件头）。
+ * 不留状态副本。这一页由浏览器加载，改完刷新即生效；插件设置页签那一半要完整安装 +
+ * 重启 DSH 才换得掉。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from './lib/i18n/index.ts'
@@ -45,7 +44,7 @@ export function App() {
   /** 读不到状态：整页只剩这一条错误，因为没有状态就没法渲染任何卡片。 */
   const [fatal, setFatal] = useState('')
   /**
-   * 「某次动作的结果」一律走右上角的胶囊，不在页面里铺长条（2026-10-11 用户要求统一）。
+   * 「某次动作的结果」一律走右上角的胶囊，不在页面里铺长条。
    * 页面里只留 `fatal` —— 那是「整页读不到状态」，不是一个动作的结果。
    */
   const notify = useNotify()
@@ -109,7 +108,7 @@ export function App() {
     void loadPairing()
   }, [status?.enabled, pairing, pairingError, loadPairing])
 
-  // 「刷新」按钮按用户要求删了，局域网地址就靠打开「局域网直连」弹窗时补取一次。
+  // 局域网地址靠打开「局域网直连」弹窗时补取一次。
   useEffect(() => {
     if (!lanOpen || !status?.enabled) return
     void loadPairing()
@@ -266,8 +265,8 @@ export function App() {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          {/* 准入总闸搬到右边「连接状态」里了（2026-10-26 用户要求）：它和远程控制是同一种
-              东西 —— 两颗决定「收不收」的开关，摆在同一张卡里才不用来回找。 */}
+          {/* 准入总闸摆在右边「连接状态」里：它和远程控制是同一种东西 —— 两颗决定
+              「收不收」的开关，同一张卡里才不用来回找。 */}
 
           <PairingCard
             status={status}
@@ -284,8 +283,7 @@ export function App() {
           />
 
           {/* 「谁被这台机器放进来过」：设备清单自己轮询（`/api/relay/devices`），
-              一台设备都没有时整卡不出现。
-              2026-10-26 用户要求与「插件更新」对调：更新放在前面，设备清单落到最后。 */}
+              一台设备都没有时整卡不出现。更新在前，设备清单在后。 */}
 
           <UpdateCard
             version={status.appVersion || ''}
@@ -297,13 +295,9 @@ export function App() {
         </div>
 
         {/*
-          右栏是「这台电脑现在怎么样」的一列：连接状态在上，收件目录紧挨着它下面
-          （2026-10-26 用户要求搬过来）。两块都是**普通排版的一块地方，不跟随滚动** ——
-          从前这里挂了 `lg:sticky`，翻页面时它一直钉在视口里（用户原话：这样「页面还得
-          滑到底部才可以」），现在跟着页面一起走，滑过去就到头了。
-
-          **也不再套内滚动**：更早那版还有 `max-h` + `overflow-y-auto`，会让这一列自己
-          长出第二条滚动条，看着像两个独立的小窗（用户说的「悬浮窗」）。
+          右栏是「这台电脑现在怎么样」的一列：连接状态在上，收件目录紧挨着它下面。
+          两块都不跟随滚动、也不套内滚动 —— 挂 `lg:sticky` 会让页面「还得滑到底部才可以」，
+          加 `max-h` + `overflow-y-auto` 会在这一列里长出第二条滚动条，看着像两个独立小窗。
 
           窄屏放不下两列时它排到最前 —— 先看状态，再做事。
         */}

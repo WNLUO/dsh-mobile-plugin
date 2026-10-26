@@ -3,23 +3,15 @@
 /**
  * `ask_user_question` 工具必须存在于移动宿主的工具目录里。
  *
- * 背景：App 有完整的问题面板（`app/src/hooks/useChatStream.ts:246` 的
- * `question/requested` → `app/src/components/UserQuestionDock.tsx` →
- * `respondQuestion`），插件的 `lib/mobile/questions.js` 听着 `user-questions/request`
- * 钩子（0.2.x 的形状）并实现了回答端点 —— 但**没有任何一行把工具本身挂进工具目录**：
- * `config/agent-presets/standard/agent.cordis.yml` 缺 `tool-ask-user` 行，
- * `package.json` 也缺 `@deepseek-ai/dsh-tool-ask-user` 依赖。
+ * App 有完整的问题面板，插件的 `lib/mobile/questions.js` 听着 `user-questions/request`
+ * 钩子并实现了回答端点 —— 但少了把工具本身挂进工具目录的那一行（预设缺 `tool-ask-user`、
+ * package.json 缺依赖），于是模型的工具清单里没有 `ask_user_question`，问题面板永远不出现。
+ * 这个测试把预设行、依赖归属、工具身份三处一起钉住。
  *
- * 后果是模型的工具清单里没有 `ask_user_question`，于是它只会回一句
- * 「there's no `ask_user_question` tool available in this session」，
- * 问题面板永远不会出现。这个测试把三处一起钉住：预设行、依赖归属、工具身份。
- *
- * **版本不再由本包钉。** 这几个官方包互相之间用精确版本咬死（`0.2.1-rc.2` 要求
- * `dsh-agent` 恰好 `0.2.1-rc.2`），而 `dsh-app-boot` 装载前对不上的处理是**整行禁用**，
- * 不是降级。钉死哪一代都只对得上那一代 —— 官方每抬一次代就失效一次，而一台机器上装的
- * DSH 是哪一代，发版时无从知道。所以它们只在 `devDependencies` 里留一份**范围**声明
- * （离线测试与源码树兜底），正式安装不带；预设里的 `name` 是占位，由 `host.js` 在启动时
- * 换成本次运行时同代那一份的入口绝对路径。
+ * **版本不由本包钉**：这几个官方包互相之间用精确版本咬死，而 `dsh-app-boot` 装载前对不上
+ * 的处理是**整行禁用**，不是降级。所以只在 `devDependencies` 留一份**范围**声明（离线测试
+ * 与源码树兜底），正式安装不带；预设里的 `name` 是占位，由 `host.js` 启动时换成本次运行时
+ * 同代那一份的入口绝对路径。
  *
  * 运行：node --test test/ask-user-tool.test.cjs
  */
@@ -90,13 +82,13 @@ test('已安装的工具包确实导出 ask_user_question 且注入 userQuestion
 })
 
 /**
- * `present` 是**同一类**坑，2026-10-22 补上：手机这份 preset 里一直缺这一行。
+ * `present` 是**同一类**坑：手机这份 preset 里一直缺这一行。
  *
  * 后果不是「交付卡丑一点」，而是**完全没有交付卡** —— 模型在手机上根本没有「把文件交给
  * 用户」这个动作，只能写完文件什么也不说；App 那边就退化成「从 write/edit 反推」，于是
- * 每改一次都冒一张卡、而用命令行改出来的一张都没有（用户就是这么报的）。
+ * 每改一次都冒一张卡、而用命令行改出来的一张都没有。
  *
- * 版本同样跟着运行时走（见文件头）：0.2.1 的 `present` 要 `dsh-agent` 恰好同代，对不上时
+ * 版本同样跟着运行时走（见文件头）：`present` 要 `dsh-agent` 恰好同代，对不上时
  * `dsh-app-boot` 会整行禁用，模型只会说「没有这个工具」。预设里那一行的 `name` 是占位，
  * 由宿主启动时换成本次运行时的入口。
  */

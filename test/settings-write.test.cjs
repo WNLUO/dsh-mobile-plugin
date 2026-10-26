@@ -4,20 +4,18 @@
  * 改宿主设置（POST /api/mobile/v1/host-settings/mutate）的透传契约。
  *
  * 桌面端「设置」里改默认模型走的是 `settings.mutate`：一次一个 op（`{op:'set',path:[…],value}`），
- * 带上看到的 revision 做乐观并发（dsh-client-ui-settings/lib/client.js）。手机端此前只能看不能改。
+ * 带上看到的 revision 做乐观并发。这个 handler 很薄，但每条都容易写错：
  *
- * 这个 handler 很薄，但每一条都容易写错：
- *
- *  1. op 是「按路径寻址」的，路径必须是**非空字符串数组**。空路径等于整段替换命名空间，
- *     手机端不该有这条路；`[0]` 这种下标也不该被当成合法路径放过去；
+ *  1. op 按路径寻址，路径必须是**非空字符串数组**。空路径等于整段替换命名空间，手机端不该
+ *     有这条路；`[0]` 这种下标也不该被当成合法路径放过去；
  *  2. expectedRevision 必须是正整数才带上。宿主 schema 是 `z.number().int().positive()`，
  *     把 0 / 负 / 小数字符串塞过去只会拿到一个难懂的 settings-rejected，不如不带；
- *  3. 宿主的 settings.mutate 不接受 signal（apiproxy 的 invoke 只传 request），
- *     `isAborted(signal)` 又是 `return signal.aborted` —— 多传一个参数就是真机上的 500；
+ *  3. 宿主的 settings.mutate 不接受 signal（apiproxy 的 invoke 只传 request），多传一个
+ *     参数就是真机上的 500；
  *  4. 成功时宿主回的是该命名空间的**新视图**（含 schema zod 树），要过一遍
  *     normalizeNamespace 再给手机，否则几百 KB 的 zod 树会原样漏出去；
- *  5. settings-conflict 的 details 里有 expected / actual，必须原样透传，
- *     App 才能说清「别处改过了」。
+ *  5. settings-conflict 的 details 里有 expected / actual，必须原样透传，App 才能说清
+ *     「别处改过了」。
  *
  * 本测试驱动真实的 handler（不是转写实现）：起一个只挂它的真 http 服务，用真 req/res。
  */

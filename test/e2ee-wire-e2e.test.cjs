@@ -1,18 +1,17 @@
 'use strict';
 
 /**
- * 协议 v2 的**接线**（讨论记录 §8.3(4)(5)(6) / §8.4）。
+ * 协议 v2 的**接线**：App 封出来的东西宿主能不能真解开、宿主封的 App 能不能真解开，以及
+ * 「私密参数搬走之后签名还算不算数」。
  *
- * `e2ee-envelope-e2e.test.cjs` 钉的是宿主侧守卫的行为（错误码、重放、时钟），
- * `app/scripts/test-e2ee-vectors.js` 钉的是两端的字节口径。**这两者之间还有一层没人管**：
- * App 封出来的东西宿主能不能真解开、宿主封的 App 能不能真解开，以及「私密参数搬走之后
- * 签名还算不算数」。这一层出错的症状是「联调时一直解不开」，而两端各自看代码都对。
+ * `e2ee-envelope-e2e.test.cjs` 钉宿主侧守卫的行为（错误码、重放、时钟），
+ * `app/scripts/test-e2ee-vectors.js` 钉两端的字节口径。**这两者之间还有一层没人管**：这一层
+ * 出错的症状是「联调时一直解不开」，而两端各自看代码都对。
  *
- * 所以这里做两件事：
- *  1. 用 App 侧真实实现（`e2ee-envelope.ts`）封一条带私密参数的请求，喂进宿主的
- *     `createGuarded`，断言宿主的验签通过、业务 handler **拿到合并回来的查询串**；
- *  2. 反过来用宿主封一条响应 / 一帧流 / 一块文件，喂给 App 侧的 `openResponse` /
- *     `openStreamFrame` / `openFileChunk`，断言能解开且内容一致。
+ * 所以这里做两件事：用 App 侧真实实现（`e2ee-envelope.ts`）封一条带私密参数的请求，喂进
+ * 宿主的 `createGuarded`，断言验签通过、业务 handler **拿到合并回来的查询串**；反过来用宿主
+ * 封一条响应 / 一帧流 / 一块文件，喂给 App 侧的 `openResponse` / `openStreamFrame` /
+ * `openFileChunk`，断言能解开且内容一致。
  *
  * 跑法：`node dsh-mobile-plugin/test/e2ee-wire-e2e.test.cjs`。宿主那侧是 CJS 直接 require，
  * App 那侧用 `app/scripts/load-ts.js` 加载（需要 stub 掉 react-native 与原生随机口）。

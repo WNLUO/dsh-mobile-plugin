@@ -3,22 +3,15 @@
 /**
  * 移动端「插件清单」（桌面端 设置 → 插件 的只读快照）的透传契约。
  *
- * 桌面端由 dsh-client-ui-settings-plugin-inventory 渲染：模块短名作标题、小标签表示
- * 有效启停、彩色圆点表示根 fiber 状态，展开看 Loader 条目 id。数据来自宿主
- * dsh-host-plugin-inventory 的 pluginInventory.list —— 这个服务不在 apiProxy 上，
- * 是 Typert Remote 服务，同进程经 ctx.get('typertGateway') 到达。
+ * 数据来自宿主 `dsh-host-plugin-inventory` 的 `pluginInventory.list` —— 这个服务不在
+ * apiProxy 上，是 Typert Remote 服务，同进程经 ctx.get('typertGateway') 到达。
  *
- * 这条链路容易写错的地方：
- *
- *  1. **这个方法没有声明任何参数**，args 必须是空对象；多塞一个字段会被
- *     assertExactArguments 判 arguments-invalid。它也没声明 cancellation，
- *     所以不能像 references 那样多给一个 signal；
- *  2. 命名空间是 `pluginInventory`，方法是 `list`；
- *  3. 宿主的 result 声明是 `{ entries: [...] }` 对象（不是数组、也不是 {items}），
- *     invoke 回来就是这个对象——畸形行必须丢掉而不是原样透传；
- *  4. entryId 与 moduleName 缺一不可（身份与标题），fiberPhase 只认五种枚举值，
- *     停用条目宿主会给 null；
- *  5. 网关缺失（宿主没装 dsh-api-gateway 或对应服务）是 503，不是 400。
+ * 容易写错的地方：**这个方法没有声明任何参数**，args 必须是空对象（多塞一个字段会被
+ * assertExactArguments 判 arguments-invalid；它也没声明 cancellation，不能像 references 那样
+ * 多给一个 signal）；命名空间是 `pluginInventory`、方法是 `list`；宿主的 result 声明是
+ * `{ entries: [...] }` 对象（不是数组、也不是 {items}），畸形行必须丢掉而不是原样透传；
+ * entryId 与 moduleName 缺一不可，fiberPhase 只认五种枚举值，停用条目宿主会给 null；
+ * 网关缺失（宿主没装 dsh-api-gateway 或对应服务）是 503，不是 400。
  *
  * 本测试驱动真实的 handler（不是转写实现）。
  */

@@ -3,18 +3,16 @@
 /**
  * 回归：后台 500ms 的镜像 tick 在「什么都没变」时还在整轮重建冷会话快照。
  *
- * 现场：桌面宿主被整机内存压力拖到 504（App 侧表现为设备在线又马上离线，见
- * docs/.dev-map-parts/02-app-data.md 的 A2-32）。追成本时发现这个 tick 才是常驻的大头：
- * 每一轮都要为一个冷会话拉 200 条消息正文 —— lib/mobile/session-mirror.js 的 2 分钟
- * 缓存要求指纹里的 updatedAt 一致，而 lib/mirror/pusher.cjs 的 buildSessionData 传的是
- * 合成 summary（updatedAt = Date.now()），指纹每轮都不同 ⇒ **缓存永远命中不了**，
- * 于是每 500ms 真拉一次 200 条，接着统计投影（无缓存）、模型目录，最后算指纹时又常常
- * 因为内容逐字段相同被判重跳过：白烧宿主 CPU/内存，一份镜像都没多推出去。
+ * 每一轮都要为一个冷会话拉 200 条消息正文 —— `lib/mobile/session-mirror.js` 的 2 分钟缓存
+ * 要求指纹里的 updatedAt 一致，而 `lib/mirror/pusher.cjs` 的 buildSessionData 传的是合成
+ * summary（updatedAt = Date.now()），指纹每轮都不同 ⇒ **缓存永远命中不了**；接着统计投影
+ * （无缓存）、模型目录，最后算指纹时又常常因为内容逐字段相同被判重跳过：白烧宿主 CPU / 内存，
+ * 一份镜像都没多推出去。
  *
- * 修法：清单与工作区的 revision 都没变、又没到轮转窗口时，这一轮到此为止（
- * BG_COLD_ROTATE_MIN_INTERVAL_MS = 5s）；一变就照旧立刻重建（App「最多旧 500ms」的
- * 新鲜度契约分毫不动）。冷会话按定义（没在跑、5 分钟没动过）正文不可能变，
- * 轮转退到 5s 只剩「补热还没热身的冷会话」和「让 pushedAt 继续走」两个作用。
+ * 修法：清单与工作区的 revision 都没变、又没到轮转窗口时，这一轮到此为止
+ * （BG_COLD_ROTATE_MIN_INTERVAL_MS = 5s）；一变就照旧立刻重建（App「最多旧 500ms」的新鲜度
+ * 契约分毫不动）。冷会话按定义（没在跑、5 分钟没动过）正文不可能变，轮转退到 5s 只剩
+ * 「补热还没热身的冷会话」和「让 pushedAt 继续走」两个作用。
  *
  * 本用例用假 ctx 数宿主调用次数，钉死三件事：没变就不许重建、变了必须 500ms 内重推、
  * 轮转窗口到点仍然要跑（pushedAt 不能冻结）。

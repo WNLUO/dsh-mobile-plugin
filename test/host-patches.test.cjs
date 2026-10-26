@@ -1,22 +1,20 @@
 'use strict';
 
 /**
- * 无头宿主装载前的两处运行时兼容修正（都实测过：不做，服务器宿主起不来）。
+ * 无头宿主装载前的两处运行时兼容修正（不做，服务器宿主起不来）。
  *
- * 背景：本包的代码是照 DSH 0.2.0 写的，但同一个包还有第二种宿主 ——
- * `host.js` 起的无头移动宿主，跑在一份**更老的 DSH** 上（服务器上那份是 0.1.1-rc.2，
- * 插件直接跑在包目录里，依赖树是整套 `@deepseek-ai/*`）。两处差异都会让整棵树加载失败：
+ * 本包的代码是照 DSH 0.2.0 写的，但同包的第二种宿主 —— `host.js` 起的无头移动宿主 —— 跑在
+ * 一份**更老的 DSH** 上（服务器那份是 0.1.1-rc.2，插件直接跑在包目录里）。两处差异都会让
+ * 整棵树加载失败：
  *
- *  1. `cordis.patch.yml` 里那行「按裸包名挂载本插件」在无头宿主下解析不到包名，
- *     而 loader 对解析失败是**致命**的（`Cannot find package 'dsh-mobile-plugin'`）。
- *     那一行必须留给桌面（桌面把包装进 profile 的 node_modules，裸名解析得到），
- *     所以只在无头宿主的内存里摘掉。见 lib/host-patches.cjs。
- *  2. 老运行时自带 `apiProxy`（`@deepseek-ai/dsh-host-apiproxy`），插件再 provide 一次
- *     会 `service "apiProxy" has been registered`。0.2.0 删掉了那个服务，兼容桥只在这时
- *     才该装。见 lib/impl.js 的 runtimeProvidesApiProxy。
+ *  1. `cordis.patch.yml` 里那行「按裸包名挂载本插件」在无头宿主下解析不到包名，而 loader 对
+ *     解析失败是**致命**的。那一行必须留给桌面（桌面把包装进 profile 的 node_modules，裸名
+ *     解析得到），所以只在无头宿主的内存里摘掉。见 lib/host-patches.cjs。
+ *  2. 老运行时自带 `apiProxy`，插件再 provide 一次会 `service "apiProxy" has been registered`。
+ *     0.2.0 删掉了那个服务，兼容桥只在这时才该装。见 lib/impl.js 的 runtimeProvidesApiProxy。
  *
- * 这里盯住「判据还在」：两个修正都容易被后来的人当成多余而删掉，删了不会立刻有测试红，
- * 只会在服务器上表现为「插件根本载不进来」。
+ * 这里盯住「判据还在」：两个修正都容易被后来的人当成多余删掉，删了不会立刻有测试红，只会
+ * 在服务器上表现为「插件根本载不进来」。
  */
 
 const assert = require('node:assert/strict');
@@ -154,9 +152,8 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
     /\['webServer', 'sessions', 'typertGateway'\]/,
     '0.2.0 这一支必须注入 typertGateway，否则实时推送整条挂掉而其它功能正常',
   );
-  // 从前这两条钉的是「外壳要把实现自己声明的 inject 带出来」。2026-10 拆掉外壳与代机制之后
-  // `lib/impl.js` 直接就是入口，cordis 拿到的是它自己 `export` 的 inject —— 那层转交没有了，
-  // 于是这条留在实现侧：谁把 inject 改回写死的集合，上面那条断言会红。
+  // 这两条留在实现侧：`lib/impl.js` 直接就是入口，cordis 拿到的是它自己 `export` 的 inject。
+  // 谁把 inject 改回写死的集合，上面那条断言会红。
 });
 
 test('解析不动就是「没有」：不能把插件带崩', () => {
