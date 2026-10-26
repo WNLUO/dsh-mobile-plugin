@@ -37,8 +37,14 @@ const test = require('node:test');
 const ROOT = path.join(__dirname, '..');
 const BROWSE = '@deepseek-ai/dsh-host-directory-picker-browse';
 
-/** 这份副本对齐的上游版本。上游抬版后这里会红，提示重新逐条核对语义。 */
-const UPSTREAM_ALIGNED_VERSION = '0.1.1-rc.2';
+/**
+ * 这份副本对齐的上游**代**（major.minor）。
+ *
+ * 只盯代、不盯具体版：同代内的 rc / patch 抬版不该红 —— 下面五条行为对账本来就在逐条
+ * 跑，它们才是「语义还一不一致」的判据；再加一条版本相等只会让官方每次抬版都来改一次
+ * 常量，而那种「红」不指示任何真实差异。上游换代（0.3）时这里红，那才真要重读一遍。
+ */
+const UPSTREAM_ALIGNED_SERIES = '0.2';
 
 const local = require('../lib/mobile/directory-browse.js');
 
@@ -223,10 +229,11 @@ test('endpoints.js 只在宿主不服务 browse 时才回落到本地实现', ()
 // 第二档：与上游逐条对齐（上游在场才跑）
 // ---------------------------------------------------------------------------
 
-test('上游包在场时：版本仍是这份副本对齐的那一版', { skip: SKIP_UPSTREAM }, () => {
-  assert.equal(upstream.version, UPSTREAM_ALIGNED_VERSION,
-    `上游已从 ${UPSTREAM_ALIGNED_VERSION} 变成 ${upstream.version}：请逐条重读 lib/index.js，`
-    + '确认策略没变，再把 UPSTREAM_ALIGNED_VERSION 抬上去');
+test('上游包在场时：仍是这份副本对齐的那一代', { skip: SKIP_UPSTREAM }, () => {
+  const series = upstream.version.split('.').slice(0, 2).join('.');
+  assert.equal(series, UPSTREAM_ALIGNED_SERIES,
+    `上游已从 ${UPSTREAM_ALIGNED_SERIES}.x 变成 ${upstream.version}：请逐条重读 lib/index.js，`
+    + '确认策略没变，再把 UPSTREAM_ALIGNED_SERIES 抬上去');
 });
 
 test('上游在场时：ancestryCrumbs 行为一致（面包屑是 App 的上跳路径）', { skip: SKIP_UPSTREAM }, () => {

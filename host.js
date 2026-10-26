@@ -14,21 +14,26 @@
  * package's `cordis.patch.yml`.
  */
 
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { installProcessGuard } from './lib/host-guard.cjs'
+import { DIRECTORY_PICKER_ROW, TOOL_ROWS, pinInsertedRows, syncPresetDir } from './lib/host-compat.cjs'
 import { dropBareNameSelfMounts } from './lib/host-patches.cjs'
 import {
   assertEntriesActivated,
   boot,
+  evaluatePluginCompatibility,
+  getDshRuntimeVersion,
   initProfile,
   installFailLoud,
   loadLayeredEnv,
   loadOverlayPatches,
   loadProfile,
   PROFILE_TEMPLATES,
+  readProfileCompatibility,
   resolveProfileDir,
 } from '@deepseek-ai/dsh-app-boot'
 
@@ -90,6 +95,82 @@ try {
   const rootConfig = join(profileDir, 'cordis.root.yml')
   writeFileSync(rootConfig, '[]\n')
 
+  /**
+   * 官方工具行跟着**运行时**换代，本包不再自带一份钉死的副本。
+   *
+   * 这三个包（提问工具 / 交付文件工具 / 目录浏览后端）互相之间用精确版本咬死，
+   * 而装载前的预检对不上的处理不是降级、是**整行禁用** —— 现象是手机上
+   * 「模型说没有这个工具」「添加工作区列不出目录」，桌面上却一切正常。钉在哪一代
+   * 都不对：官方每抬一次代，钉死的副本就失效一次，而一台机器上装的 DSH 是哪一代
+   * 我们发版时并不知道。
+   *
+   * 判据直接用 `dsh-app-boot` 自己导出的 `evaluatePluginCompatibility`，与装载前那次
+   * 预检**同源**：自己写一套 semver 只会让两边分叉，这里放过的行照样被预检禁掉。
+   * 先问运行时那棵树，再问本包自带的那份，都不行就返回 null —— 那一行保持原样，
+   * 交给官方预检去禁用并打印原因，等于退回旧行为，不会更差。
+   */
+  let runtimeRequire = null
+  try {
+    runtimeRequire = createRequire(new URL(import.meta.resolve('@deepseek-ai/dsh-app-boot')))
+  } catch (error) {
+    // 定位不到不是致命：下面每一行都会退回本包自带的那份，最差回归旧行为。
+    process.stderr.write(`${BIN_NAME}: 定位不到运行时那棵依赖树（${error?.message || error}），这一轮只按本包自带的解析\n`)
+  }
+  const bundledRequire = createRequire(import.meta.url)
+  const runtimeVersion = getDshRuntimeVersion()
+  let exemptions = {}
+  try {
+    exemptions = readProfileCompatibility(profileDir).exemptions
+  } catch (error) {
+    process.stderr.write(`${BIN_NAME}: 读不了 profile 的兼容性豁免文件，这一轮按无豁免处理：${error?.message || error}\n`)
+  }
+
+  const resolveGeneration = (scope, require, name) => {
+    if (!require) return null
+    try {
+      const manifestPath = require.resolve(`${name}/package.json`)
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      const issue = evaluatePluginCompatibility(manifest, exemptions, runtimeVersion)
+      if (issue !== undefined && !issue.exempted) return null
+      return { scope, name, version: manifest.version, entry: require.resolve(name) }
+    } catch {
+      return null
+    }
+  }
+
+  const pinnedRows = new Map()
+  for (const { id, name } of [...TOOL_ROWS, DIRECTORY_PICKER_ROW]) {
+    const hit = resolveGeneration('运行时', runtimeRequire, name)
+      ?? resolveGeneration('本包自带', bundledRequire, name)
+    if (hit) pinnedRows.set(id, hit)
+    process.stderr.write(
+      hit
+        ? `${BIN_NAME}: ${name} → 用${hit.scope}的 ${hit.version}\n`
+        : `${BIN_NAME}: ${name} 没解析到与 dsh ${runtimeVersion} 同代的一份，这一行维持原样（装载预检会说明它为什么被禁用）\n`,
+    )
+  }
+
+  // 预设里的两行默认按裸名写：Loader 从它自己的位置解析，命中哪一份不由我们决定。
+  // 解析到了同代的那份就改写一份副本给它，路径写死成那一份的入口。
+  const presetRoots = {}
+  for (const { id } of TOOL_ROWS) {
+    const hit = pinnedRows.get(id)
+    if (hit) presetRoots[id] = hit.entry
+  }
+  const presetDir = TOOL_ROWS.some(({ id }) => presetRoots[id] !== undefined)
+    ? syncPresetDir(
+      join(PACKAGE_DIR, 'config', 'agent-presets'),
+      join(profileDir, '.mobile-agent-presets'),
+      presetRoots,
+    )
+    : join(PACKAGE_DIR, 'config', 'agent-presets')
+
+  // patch 层里的 insert 行按包名写（`cordis.mobile-host.yml` 的目录浏览器），
+  // 同样换成解析到的那份入口。只改 insert：patch 里其它形态的 name 是断言，
+  // 改它会让整条 patch 被静默跳过。
+  const entryByName = {}
+  for (const hit of pinnedRows.values()) entryByName[hit.name] = hit.entry
+
   const patches = [
     ...profile.layers.flatMap(layer => layer.patches),
     ...profile.patches,
@@ -123,16 +204,18 @@ try {
       id: 'agent-presets',
       config: {
         default: 'standard',
-        roots: [{ path: join(PACKAGE_DIR, 'config', 'agent-presets'), trust: 'system' }],
+        roots: [{ path: presetDir, trust: 'system' }],
       },
     },
   ]
+
+  const pinnedPatches = pinInsertedRows(patches, entryByName)
 
   process.stderr.write(
     `${BIN_NAME}: 挂载方式 = ${selfInstalled ? `profile 里装的那份（${installedDir}，带稳定外壳，面板里能自更新）` : '源码树直挂（无外壳，更新靠同步源码 + 重启宿主）'}\n`,
   )
 
-  const ctx = await boot(BIN_NAME, rootConfig, patches, (hostCtx) => {
+  const ctx = await boot(BIN_NAME, rootConfig, pinnedPatches, (hostCtx) => {
     // A headless mobile host has no command line: nothing passes flags and
     // nobody is watching a help screen. The web startup plugin still waits on
     // `cmdlineArgs` before it will provide `webStartup`, so the service must

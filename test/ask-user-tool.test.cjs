@@ -12,20 +12,14 @@
  *
  * 后果是模型的工具清单里没有 `ask_user_question`，于是它只会回一句
  * 「there's no `ask_user_question` tool available in this session」，
- * 问题面板永远不会出现。这个测试把三处一起钉住：依赖、preset 行、工具身份。
+ * 问题面板永远不会出现。这个测试把三处一起钉住：预设行、依赖归属、工具身份。
  *
- * 为什么这条依赖**必须留在 dependencies**（别再当冗余清掉）：
- * 这份 preset 是**本包自带的**（`host.js` 把 agent-presets 的根指到本包
- * `config/agent-presets`），它按裸名解析 `@deepseek-ai/dsh-tool-ask-user` 时会落到
- * **本包自己的 node_modules**——所以本包不安一份，这一行就解析失败、工具静默消失。
- *
- * 版本号必须**精确钉在运行时那一代**（当前运行时 0.2.0-rc.2，所以钉 0.2.0-rc.2）。
- * 这个包的 peerDependencies 是逐版本紧咬的（0.1.1-rc.2 要 `dsh-agent ^0.1.1-rc.2`，
- * 0.2.0-rc.2 要 `dsh-agent 0.2.0-rc.2`），而 `dsh-app-boot` 的装载检查只要遇到
- * 对不上的 peer 就**整行禁用**——不是降级，是不加载。现象正是上面那句「没有这个工具」，
- * 只剩一行 `disabling profile plugin row "tool-ask-user"` 的启动日志。运行时抬代时
- * 这里要跟着抬，否则同样的静默失效会再来一次。
- *（旧运行时 0.1.x 那一侧已不再支持：本包现在只跟 0.2.x。）
+ * **版本不再由本包钉。** 这几个官方包互相之间用精确版本咬死（`0.2.1-rc.2` 要求
+ * `dsh-agent` 恰好 `0.2.1-rc.2`），而 `dsh-app-boot` 装载前对不上的处理是**整行禁用**，
+ * 不是降级。钉死哪一代都只对得上那一代 —— 官方每抬一次代就失效一次，而一台机器上装的
+ * DSH 是哪一代，发版时无从知道。所以它们只在 `devDependencies` 里留一份**范围**声明
+ * （离线测试与源码树兜底），正式安装不带；预设里的 `name` 是占位，由 `host.js` 在启动时
+ * 换成本次运行时同代那一份的入口绝对路径。
  *
  * 运行：node --test test/ask-user-tool.test.cjs
  */
@@ -68,11 +62,22 @@ test('preset 的 standard 工具目录里挂上了 ask_user_question 工具', ()
   assert.equal(row.disabled, false, '该行不得被 disabled，否则工具不会出现在工具目录里')
 })
 
-test('package.json 依赖里声明了该工具包（preset 从本包自己的树解析）', () => {
+test('package.json 不再把该工具包钉进 dependencies', () => {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'))
-  const version = manifest.dependencies && manifest.dependencies[TOOL_NAME]
-  assert.ok(version, `package.json dependencies 缺少 ${TOOL_NAME}，preset 行会解析失败`)
-  assert.match(version, /^\d+\.\d+\.\d+/, `${TOOL_NAME} 的版本应是精确版本，收到 ${version}`)
+  const deps = manifest.dependencies || {}
+  assert.equal(deps[TOOL_NAME], undefined,
+    `${TOOL_NAME} 一旦进 dependencies 就是把某一代钉死在发布物里：换一代 DSH 就整行被禁用`);
+  const dev = (manifest.devDependencies || {})[TOOL_NAME]
+  assert.ok(dev, `${TOOL_NAME} 应留在 devDependencies（离线测试与源码树兜底）`)
+  assert.match(dev, /^[\^~]/, `${TOOL_NAME} 的 dev 声明应是范围而非精确版本，收到 ${dev}`)
+})
+
+test('host.js 启动时把预设里的工具行换成本次运行时的入口', () => {
+  const host = fs.readFileSync(path.join(PACKAGE_DIR, 'host.js'), 'utf8')
+  assert.match(host, /syncPresetDir\(/, 'host.js 没同步预设副本，preset 里的 name 会一直按裸名解析')
+  assert.match(host, /evaluatePluginCompatibility\(/,
+    '判据必须用 dsh-app-boot 自己导出的那份，自己写一套 semver 会与装载预检分叉')
+  assert.match(host, /pinInsertedRows\(/, '目录浏览那一行同样要换成同代入口')
 })
 
 test('已安装的工具包确实导出 ask_user_question 且注入 userQuestions', () => {
@@ -91,8 +96,9 @@ test('已安装的工具包确实导出 ask_user_question 且注入 userQuestion
  * 用户」这个动作，只能写完文件什么也不说；App 那边就退化成「从 write/edit 反推」，于是
  * 每改一次都冒一张卡、而用命令行改出来的一张都没有（用户就是这么报的）。
  *
- * 版本同样必须钉在运行时那一代：0.2.1 的 `present` 要 `dsh-agent 0.2.1-rc.2`，对不上时
- * `dsh-app-boot` 会整行禁用，模型只会说「没有这个工具」。
+ * 版本同样跟着运行时走（见文件头）：0.2.1 的 `present` 要 `dsh-agent` 恰好同代，对不上时
+ * `dsh-app-boot` 会整行禁用，模型只会说「没有这个工具」。预设里那一行的 `name` 是占位，
+ * 由宿主启动时换成本次运行时的入口。
  */
 test('preset 的 standard 工具目录里挂上了 present 工具', () => {
   const rows = readPresetRows(fs.readFileSync(PRESET, 'utf8'))
@@ -102,15 +108,17 @@ test('preset 的 standard 工具目录里挂上了 present 工具', () => {
   assert.equal(row.disabled, false, '该行不得被 disabled')
 })
 
-test('present 的依赖版本与 ask-user 钉在同一代运行时上', () => {
+test('present 与 ask-user 的依赖归属一致：都不进 dependencies', () => {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'))
   const deps = manifest.dependencies || {}
-  const present = deps['@deepseek-ai/dsh-tool-present']
-  const ask = deps['@deepseek-ai/dsh-tool-ask-user']
-  assert.ok(present, 'package.json dependencies 缺少 @deepseek-ai/dsh-tool-present')
-  // 两条都按精确版本钉；同一代运行时下两者应一致 —— 一个 0.2.0 一个 0.2.1 时，
-  // 低的那一代会被兼容检查整行禁用，而现象只是「工具不见了」。
-  assert.equal(present, ask, `present(${present}) 与 ask-user(${ask}) 应钉在同一代运行时`)
+  const dev = manifest.devDependencies || {}
+  const present = '@deepseek-ai/dsh-tool-present'
+  assert.equal(deps[present], undefined, `${present} 不许进 dependencies（钉死一代的坑与 ask-user 同源）`)
+  assert.ok(dev[present], `${present} 应留在 devDependencies（离线测试与源码树兜底）`)
+  // 两条曾经按精确版本钉过；同一代运行时下两者应一致 —— 一个 0.2.0 一个 0.2.1 时，
+  // 低的那一代会被兼容检查整行禁用，而现象只是「工具不见了」。现在同理：两个都是范围，
+  // 少写一个就等于让那份兜底悄悄落后。
+  assert.match(dev[present], /^[\^~]/, `${present} 的 dev 声明应是范围而非精确版本，收到 ${dev[present]}`)
 })
 
 test('已安装的 present 工具确实叫 present 且注入 sessionProjections', () => {

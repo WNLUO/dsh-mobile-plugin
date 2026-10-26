@@ -166,9 +166,10 @@
   # the `user-questions/request` hook (0.2.x shape) and answers it — only the
   # tool row was missing.
   #
-  # The package must be pinned to the runtime's own generation (0.2.0-rc.2):
-  # its peerDependencies track the runtime release exactly, and the loader
-  # disables the whole row — rather than degrade — when one does not match.
+  # 这里的 `name` 是**占位**：无头宿主启动时会把同代那一份的入口绝对路径写进
+  # 一份副本（`host.js` 的 syncPresetDir），挂载的是运行时自己的那一代。这个包的
+  # peerDependencies 逐版本紧咬，对不上时 `dsh-app-boot` 会**整行禁用**（不是降级），
+  # 而钉死哪一代都不可能覆盖每台机器上装的 DSH —— 判据交给运行期，别在这里写死。
   - id: tool-ask-user
     name: '@deepseek-ai/dsh-tool-ask-user'
   # `present` 是模型**显式声明交付文件**的那一行。桌面 `standard` preset 里一直有它
@@ -180,7 +181,8 @@
   # `deliverables/presented` 事件追加进会话日志。卡片该不该出现，由**模型叫不叫这个工具**
   # 决定，不由「有没有文件被改」决定 —— 这是桌面的口径。
   #
-  # 版本必须钉在运行时那一代（当前 0.2.1-rc.2）：它的 peerDependencies 逐版本紧咬，
-  # 对不上时 `dsh-app-boot` 会**整行禁用**（不是降级），现象是模型说「没有这个工具」。
+  # 版本同样由运行期决定（见上面 tool-ask-user 那段）：0.2.1 的 `present` 要
+  # `dsh-agent` 恰好是同一代，对不上时 `dsh-app-boot` 会整行禁用，模型只会说
+  # 「没有这个工具」。`name` 是占位，宿主启动时换成本次运行时的入口。
   - id: tool-present
     name: '@deepseek-ai/dsh-tool-present'
