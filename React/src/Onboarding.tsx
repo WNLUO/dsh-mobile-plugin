@@ -6,8 +6,9 @@
  * 已经开着则不再重写配置，免得每次打开 `/setup` 都把配置重写一遍。
  *
  * 二维码带哪条局域网地址由人选：选中的写进 `preferredLanAddress`，宿主把它排在候选最前
- * （见 `lib/relay/lan-network.cjs` 的 `orderCandidates`）。「公用中转」是地址组里的一条
- * 选项，选它就是手机不在同一网络、走中转。
+ * （见 `lib/relay/lan-network.cjs` 的 `orderCandidates`）。「公用中转」「自建中转」是地址组里
+ * 的两条选项，选它就是手机不在同一网络、走中转；「内网穿透」是第三类 —— 用户自己把宿主的端口
+ * 暴露到一个公网域名上，手机拨的是那个域名（对手机来说仍是直连，所以写 `manualLanUrl` 当候选）。
  *
  * 按钮那一下：`POST /api/relay/config` → `/api/relay/toggle {enabled:true}` →
  * `/api/relay/onboarded`，再轮询状态。页面不猜连接结果，也不假报成功。
@@ -54,6 +55,12 @@ const OWN_RELAY = 'own-relay'
  * 别退回「一行一条网卡地址」的写法，机器有四五条地址时光看分不出哪条是现在要用的那条。
  */
 const LAN_DIRECT = 'lan-direct'
+/**
+ * 「内网穿透」：用户自己用 Cloudflare Tunnel / frp 这类工具把宿主的端口暴露到一个公网域名上，
+ * 手机拨的是那个域名 —— 对手机来说是**直连**，只是地址在公网。它不是中转，也不是网卡地址，
+ * 所以既单独成一条，又落在直连那一套里（写 `manualLanUrl`，与局域网地址并列当候选）。
+ */
+const PENETRATION = 'penetration'
 
 /** 自建中转那一栏右边那颗按钮指向的仓库（用户给的地址）。 */
 const RELAY_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-server'
@@ -136,6 +143,8 @@ export function Onboarding({ onDone }: Props) {
    * 输入框别读已有配置，也别动它。
    */
   const [previewSvg, setPreviewSvg] = useState('')
+  /** 内网穿透那栏填的域名（宿主设置项 `manualLanUrl`，进页读一次已有值）。 */
+  const [penetrationUrl, setPenetrationUrl] = useState('')
 
   /** 轮询要能被卸载打断，否则关掉页面后它还在打接口。 */
   const alive = useRef(true)
@@ -154,6 +163,7 @@ export function Onboarding({ onDone }: Props) {
         setAddresses(book)
         const pick = defaultPreferred(book)
         setPreferred(pick)
+        setPenetrationUrl((book.manual ?? '').trim())
         // 默认选中本地那条地址；这台机器已经配了中转（relayUrl 非空）就默认落在公用中转上，
         // 否则重开一次引导会把人家正在用的中转悄悄换掉。
         setSelected((current) => current || (status?.relayUrl ? PUBLIC_RELAY : LAN_DIRECT))
@@ -441,6 +451,9 @@ export function Onboarding({ onDone }: Props) {
       pairingPolicy: 'code',
     }
     if (preferred) patch.preferredLanAddress = preferred
+    // 内网穿透只有这一条会写它：填了就多一条候选，空着等于清掉。别的选项不顺手清它 ——
+    // 那会把用户先前填的东西悄悄删掉；要清就是这一栏留空再按一次。
+    if (mode === PENETRATION) patch.manualLanUrl = penetrationUrl.trim().replace(/\/+$/, '')
     try {
       setStatus(await apiPost<StatusView>('/api/relay/config', patch))
       if (toggle) {
@@ -774,6 +787,11 @@ export function Onboarding({ onDone }: Props) {
                       {t('panel.onboarding.githubRepo')}
                     </a>
                   </label>
+                  {/* 内网穿透：行里只有名字，地址在下面那一栏填（它是一条直连地址，不是中转）。 */}
+                  <label className="flex cursor-pointer items-baseline gap-1.5">
+                    <Radio value={PENETRATION} aria-label={t('panel.onboarding.penetration')} />
+                    <span className="text-sm text-foreground">{t('panel.onboarding.penetration')}</span>
+                  </label>
                 </RadioGroup>
 
                 {/*
@@ -898,6 +916,19 @@ export function Onboarding({ onDone }: Props) {
                     {t('panel.onboarding.probe.failedBody')}
                   </p>
                 ) : null}
+              </Field>
+            ) : null}
+
+            {/* 内网穿透：填自己的域名。它与局域网直连并存，二维码里多一条候选，其余照旧兜底。 */}
+            {selected === PENETRATION ? (
+              <Field>
+                <FieldLabel htmlFor="ob-penetration">{t('panel.onboarding.penetrationAddress')}</FieldLabel>
+                <Input
+                  inputProps={{ id: 'ob-penetration', className: 'font-mono' }}
+                  value={penetrationUrl}
+                  placeholder={t('panel.onboarding.penetrationPlaceholder')}
+                  onChange={(event) => setPenetrationUrl(event.target.value)}
+                />
               </Field>
             ) : null}
           </div>

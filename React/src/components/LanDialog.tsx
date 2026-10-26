@@ -53,14 +53,18 @@ const PORT_MAX = 65535
  */
 export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, busy, onSave, onSavePreferred }: Props) {
   const [portText, setPortText] = useState(String(status.lan.requestedPort))
-  /** 点了「修改」才进编辑态；关窗／取消都退回去。 */
-  const [editing, setEditing] = useState(false)
+  /** 内网穿透那一格的输入值。它不属于网卡地址（`AddressPicker` 管的是扫出来的那些），单独改。 */
+  const [penetrationText, setPenetrationText] = useState('')
+  /** 点了「修改」才进编辑态，端口与穿透地址共用这一格（一次只改一处）；关窗／取消都退回去。 */
+  const [editing, setEditing] = useState<'' | 'port' | 'penetration'>('')
+  /** 宿主上现在存的穿透域名（空串 = 没填）。 */
+  const manual = (addressBook?.manual ?? '').trim()
 
   // 开窗那一刻灌一次当前值：status 每 3 秒换一个对象，把它当依赖会把正在敲的字冲掉。
   useEffect(() => {
     if (!open) return
     setPortText(String(status.lan.requestedPort))
-    setEditing(false)
+    setEditing('')
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
 
@@ -72,11 +76,17 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
 
   function cancelEdit() {
     setPortText(String(status.lan.requestedPort))
-    setEditing(false)
+    setPenetrationText(manual)
+    setEditing('')
   }
 
   function submit() {
     if (!canSave) return
+    // 穿透域名留空 = 清掉这一条（宿主把空串当「没有这条候选」，与 `preferredLanAddress` 同口径）。
+    if (editing === 'penetration') {
+      onSave({ manualLanUrl: penetrationText.trim().replace(/\/+$/, '') })
+      return
+    }
     const patch: ConfigPatch = {}
     if (port !== null) patch.lanPort = port
     onSave(patch)
@@ -125,7 +135,28 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
                   <span className="font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
                 ) : null}
                 {editing ? null : (
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                  <Button variant="ghost" size="sm" onClick={() => setEditing('port')}>
+                    {t('panel.common.edit')}
+                  </Button>
+                )}
+              </span>
+            </InfoRow>
+            {/*
+              内网穿透那一格：网卡扫不出域名，所以它单独一行。它与上一条并存 —— 多一条候选，
+              不是把局域网换掉（穿透域名拨不通时手机还得顺着网卡地址摸回来）。
+            */}
+            <InfoRow label={t('panel.lanDialog.penetration')}>
+              <span className="inline-flex flex-wrap items-center justify-end gap-2">
+                <span className="min-w-0 font-mono text-xs break-all">{manual || '—'}</span>
+                {editing ? null : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setPenetrationText(manual)
+                      setEditing('penetration')
+                    }}
+                  >
                     {t('panel.common.edit')}
                   </Button>
                 )}
@@ -133,7 +164,7 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
             </InfoRow>
           </InfoList>
 
-          {editing ? (
+          {editing === 'port' ? (
             <Field>
               <FieldLabel htmlFor="relay-lan-port">{t('panel.connection.lanPort')}</FieldLabel>
               <Input
@@ -141,6 +172,18 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
                 value={portText}
                 placeholder={t('panel.lanDialog.unchanged')}
                 onChange={(event) => setPortText(event.target.value)}
+              />
+            </Field>
+          ) : null}
+
+          {editing === 'penetration' ? (
+            <Field>
+              <FieldLabel htmlFor="relay-penetration">{t('panel.lanDialog.penetration')}</FieldLabel>
+              <Input
+                inputProps={{ id: 'relay-penetration', className: 'font-mono' }}
+                value={penetrationText}
+                placeholder={t('panel.onboarding.penetrationPlaceholder')}
+                onChange={(event) => setPenetrationText(event.target.value)}
               />
             </Field>
           ) : null}

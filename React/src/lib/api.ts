@@ -93,6 +93,13 @@ export type AddressBook = {
    * （宿主按它把选中的排到最前，其余继续当兜底）。老宿主没有这个字段。
    */
   preferred?: string
+  /**
+   * 用户手填的直连地址（设置项 `manualLanUrl`，通常是内网穿透域名，空串 = 没填）。
+   *
+   * 与 `preferred` 同一套口径：它只是**多一条候选**，不顶掉网卡扫出来的那些 —— 穿透域名
+   * 拨不通时手机还得能顺着局域网地址摸回来。老宿主没有这个字段。
+   */
+  manual?: string
   lan: AddressEntry[]
   public: AddressEntry[]
   /**
@@ -207,6 +214,11 @@ export type ConfigPatch = {
    * 所以它跟 `name` 不一样，不会被宿主当成「没填」丢掉。
    */
   preferredLanAddress?: string
+  /**
+   * 手填的直连地址（内网穿透域名 / 公网 IP）。空串是合法值，表示「清掉这一条」——
+   * 理由与 `preferredLanAddress` 同。
+   */
+  manualLanUrl?: string
 }
 
 export class ApiError extends Error {
