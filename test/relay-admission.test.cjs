@@ -3,17 +3,14 @@
 /**
  * 中转注册准入：把「隧道关闭: 1008 …」翻译成「下一步该做什么」。
  *
- * 背景（真事）：另一台 Mac 上插件装好了、版本也最新，隧道却连不上，状态里只有一句
- * 「隧道关闭: 1008 bad registration secret」。注册密钥是中转 systemd unit 里的部署
- * 参数，客户端无处可查——那句话不指向任何动作。
+ * 背景：隧道连不上时状态里只有一句「隧道关闭: 1008 bad registration secret」。注册密钥
+ * 是中转 systemd unit 里的部署参数，客户端无处可查 —— 那句话不指向任何动作。
  *
- * 两处改动各钉各的：
+ * 两处各钉各的：
  *   1. 插件 describeTunnel()：状态里带上机器可读的判定 + 提示键
- *   2. 安装器 probeAdmission()：装之前就问一句中转要不要准入
+ *   2. 「宿主产出线索 → 网页版翻成人话」这条消费链
  *
- * 判定和探测都从真源码里抠出来 eval，不复述逻辑——这个仓库已经吃过一次亏：
- * 照着真代码另写一遍的测试在真代码坏掉时全程绿灯（见 test/sidecar-restart.test.cjs
- * 头部注释）。
+ * 判据直接从真模块取，不复述逻辑 —— 照着真代码另写一遍的测试在真代码坏掉时照样绿灯。
  */
 
 const { test } = require('node:test');
@@ -43,15 +40,14 @@ const statusSrc = fs.readFileSync(path.join(LIB, 'relay', 'status.js'), 'utf8')
 // 抠不到；现在抠的写法本身就是「照着真代码另跑一遍」，哪天真代码改了这里还在绿。
 const classify = require('../lib/relay/status.js')
 
-// 从前这里还从安装器里抠 `probeAdmission` / `reportAdmission` 出来跑（安装器自己拿它探测
-// 中转准入、决定退出码）。2026-10 插件改成 npm 分发，安装器连同整套插件 OTA 一起删掉了，
-// 那两个函数不存在了；准入线索这半条链仍在，钉法见下面「宿主产出 + 网页版消费」那条。
+// `probeAdmission` / `reportAdmission` 那套安装器准入探测随安装器一起删掉了（插件改走 npm
+// 分发）。准入线索这半条链仍在，钉法见下面「宿主产出 + 网页版消费」那条。
 
 // ── 插件侧：describeTunnel ───────────────────────────────────────────────────
 
 test('describeTunnel：认得中转的两种拼法，都归到「需要注册密钥」', () => {
   // 两种拼法都真实存在：中转 server.js 关连接时拼 'bad registration secret'，
-  // 而 lib/tunnel-registration.js 内部的 reason 拼 'bad register secret'。
+  // 而中转侧 `lib/tunnel-registration.js` 内部的 reason 拼 'bad register secret'。
   for (const error of [
     '隧道关闭: 1008 bad registration secret',
     '隧道关闭: 1008 bad register secret',
@@ -91,8 +87,8 @@ test('status() 用的是 describeTunnel 而不是裸快照', () => {
 
 test('命中准入时给出可执行提示：宿主产出线索，网页版把它翻成人话', () => {
   // 线索的**单一产地**在宿主：它从中转的拒绝文案里认出两种，各挂一个机器可读的键，
-  // 随 /api/relay/status 发出去。设置页那一半（lib/client.js）从 0.1.48 起不再画界面，
-  // 界面搬到了网页版（React/），所以这里钉的是「宿主产出 + 网页版消费」这条链。
+  // 随 /api/relay/status 发出去。画界面的是网页版（React/），设置页那一半（lib/client.js）
+  // 不画，所以这里钉的是「宿主产出 + 网页版消费」这条链。
   const status = fs.readFileSync(path.join(LIB, 'relay', 'status.js'), 'utf8')
   for (const hint of ['register-secret', 'instance-allowlist']) {
     assert.ok(status.includes(`'${hint}'`), `宿主应产出线索 ${hint}`)
@@ -110,6 +106,5 @@ test('命中准入时给出可执行提示：宿主产出线索，网页版把�
   }
 })
 
-// 安装器与 `probeAdmission` 的用例随安装器一起删掉了（见上面那段说明）。准入这件事现在
-// 只剩下「宿主从中转的拒绝文案里认出来 → 状态里带机器可读的线索 → 网页版翻成人话」，
+// 准入这件事只剩「宿主从中转的拒绝文案里认出来 → 状态里带机器可读的线索 → 网页版翻成人话」，
 // 也就是上面那条用例钉住的链路。

@@ -6,7 +6,7 @@
  * 根因（两侧叠加）：插件侧这条流的帧源只有宿主的 mux/host 事件，而宿主的 0.2.0 兼容桥只
  * 订阅了 workspace/follow + session/control —— 会话状态变化表现为 session/projection，被
  * lib/mobile/events.js 的 listRelevantPayload 白名单丢掉；App 侧只要流 open 就把兜底轮询从
- * 15s 降到 60s。于是「流连着」被当成了「数据新鲜」，实际一个变化都传不过来。
+ * 15s 降到 3 分钟。于是「流连着」被当成了「数据新鲜」，实际一个变化都传不过来。
  *
  * 本用例跑真链路：镜像推送调度器（lib/mirror/pusher.cjs）每 500ms 比一次会话清单的内容
  * 指纹 → lib/shared/list-signal.js 广播 → handleDeviceStream 写出 device/list-changed 帧 →
@@ -172,7 +172,7 @@ test('会话清单变化经变更信号总线送到手机那条设备级 SSE 连
   const stop = pusher.start();
   try {
     await flush();
-    // 兜底轮询也会看到这条变化，但那是「最多 60 秒后」的事；这里要的是变更信号先到。
+    // 兜底轮询也会看到这条变化，但那是「最多 3 分钟后」的事；这里要的是变更信号先到。
     res.chunks.length = 0;
     h.tick(500);
     await flush();
