@@ -14,6 +14,8 @@
  *     `.staging` 会随每次失败上传一直涨。
  *  4. 认不出的 uploadId 一律 404，不能靠「新建一个空上传」蒙过去。
  *  5. 路由表必须真的挂上这四条，且 handler 模块被引入（接线漏了 App 必然 404）。
+ *  6. 带 `destPath` 时落点跟着它走（右栏的「传到这里」）：越界 403 且不留暂存残片、不是
+ *     目录 400、重名照样加后缀；不带时行为与从前逐字相同 —— 仍进收件箱。
  *
  * 本测试驱动真实 handler（起真 http 服务、走真 req/res），只有收件根目录是临时目录。
  */
@@ -36,9 +38,36 @@ const {
 } = require('../lib/mobile/uploads.js');
 const { readWiring } = require('./lib/wiring.cjs');
 
-/** 起一个只挂四条上传 handler 的真 http 服务；收件根目录指向临时目录。 */
-async function serve(inbox) {
+/**
+ * 起一个只挂四条上传 handler 的真 http 服务；收件根目录指向临时目录。
+ *
+ * `options.workspaces` / `options.cwd` 是宿主那边的假清单：`destPath` 的允许区就按它判
+ * （工作区 ∪ 会话项目目录，见 lib/mobile/allowed-zone.js）。
+ */
+async function serve(inbox, options = {}) {
   process.env.DSH_MOBILE_INBOX = inbox;
+  const calls = { workspace: 0 };
+  const ctx = {
+    apiProxy: {
+      workspace: {
+        list: async () => {
+          calls.workspace += 1;
+          if (options.workspaceError) return { result: { ok: false, error: options.workspaceError } };
+          return {
+            result: {
+              ok: true,
+              value: { items: (options.workspaces || []).map((dir) => ({ workspaceId: 'w1', path: dir })) },
+            },
+          };
+        },
+      },
+      sessions: {
+        list: async () => ({
+          result: { ok: true, value: { items: [{ sessionId: 's1', cwd: options.cwd ?? null }] } },
+        }),
+      },
+    },
+  };
   const server = http.createServer((req, res) => {
     const route = String(req.url || '').split('?')[0];
     const handler = {
@@ -51,12 +80,13 @@ async function serve(inbox) {
       res.writeHead(404).end('{}');
       return;
     }
-    handler({}, req, res);
+    handler(ctx, req, res);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   return {
     base,
+    calls,
     post: async (route, body) => {
       const response = await fetch(base + route, {
         method: 'POST',
@@ -71,6 +101,13 @@ async function serve(inbox) {
 
 function tempInbox() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-upload-'));
+}
+
+/** 建一个临时目录（工作区 / 落点 / 隔壁），用例结束时删掉。 */
+function tempDir(t, prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  t.after(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+  return dir;
 }
 
 /** 把一段文本按片大小切成若干片，返回 base64 片数组。 */
@@ -273,6 +310,149 @@ test('abort 删掉暂存残片；畸形入参一律 400 且不建暂存', async 
     assert.equal(fs.readdirSync(path.join(inbox, '.staging')).length, 1);
     assert.equal((await api.post('/upload/abort', { uploadId })).status, 200);
     assert.deepEqual(fs.readdirSync(path.join(inbox, '.staging')), []);
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+/** 一次完整的上传：begin（可带 destPath / sessionId）→ 一片 → finish。 */
+async function uploadOnce(api, body, text) {
+  const begin = await api.post('/upload/begin', body);
+  if (begin.status !== 200) return { begin, finish: null };
+  await api.post('/upload/chunk', {
+    uploadId: begin.body.uploadId,
+    index: 0,
+    data: Buffer.from(text, 'utf8').toString('base64'),
+  });
+  return { begin, finish: await api.post('/upload/finish', { uploadId: begin.body.uploadId }) };
+}
+
+test('destPath：落进指定目录，收件箱一个字节都不落', async (t) => {
+  const inbox = tempInbox();
+  const dest = tempDir(t, 'dsh-upload-dest-');
+  const api = await serve(inbox, { workspaces: [dest] });
+  try {
+    const { begin, finish } = await uploadOnce(api, { name: '会议记录.txt', destPath: dest }, '第一段\n');
+    assert.equal(begin.status, 200);
+    assert.equal(finish.status, 200);
+    // 回执里的 path 就是最终落点（App 拿它写 @提及、弹「已存到」）。
+    assert.equal(finish.body.path, path.join(dest, '会议记录.txt'));
+    assert.equal(finish.body.name, '会议记录.txt');
+    assert.equal(finish.body.bytes, Buffer.byteLength('第一段\n'));
+    assert.equal(fs.readFileSync(finish.body.path, 'utf8'), '第一段\n');
+    // 收件箱那边只剩 .staging，没有按日期分的目录。
+    assert.deepEqual(fs.readdirSync(inbox), ['.staging']);
+    assert.deepEqual(fs.readdirSync(path.join(inbox, '.staging')), []);
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+test('destPath 越界：403 outside-allowed，且连暂存都不建', async (t) => {
+  const inbox = tempInbox();
+  const ws = tempDir(t, 'dsh-upload-ws-');
+  const outside = tempDir(t, 'dsh-upload-out-');
+  const api = await serve(inbox, { workspaces: [ws] });
+  try {
+    const begin = await api.post('/upload/begin', { name: 'a.txt', destPath: outside });
+    assert.equal(begin.status, 403);
+    assert.equal(begin.body.error.code, 'outside-allowed');
+    assert.equal(api.calls.workspace, 1, '越界判定要问过宿主的工作区清单');
+    // 拒得早：一个暂存残片都不该留下（残片要躺满 24 小时才清）。
+    assert.equal(fs.existsSync(path.join(inbox, '.staging')), false);
+
+    // 名字只是**以工作区路径为前缀**的隔壁目录也不认。
+    const sibling = await api.post('/upload/begin', { name: 'a.txt', destPath: `${ws}-evil` });
+    assert.equal(sibling.status, 403);
+    assert.equal(sibling.body.error.code, 'outside-allowed');
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+test('destPath 不是目录、不存在或不是绝对路径：400', async (t) => {
+  const inbox = tempInbox();
+  const ws = tempDir(t, 'dsh-upload-ws-');
+  fs.writeFileSync(path.join(ws, 'file.txt'), 'x');
+  const api = await serve(inbox, { workspaces: [ws] });
+  try {
+    const onFile = await api.post('/upload/begin', { name: 'a.txt', destPath: path.join(ws, 'file.txt') });
+    assert.equal(onFile.status, 400);
+    assert.equal(onFile.body.error.code, 'not-a-directory');
+
+    const gone = await api.post('/upload/begin', { name: 'a.txt', destPath: path.join(ws, 'nope') });
+    assert.equal(gone.status, 400);
+    assert.equal(gone.body.error.code, 'not-a-directory');
+
+    // 相对路径没有可信基准：直接 400，连宿主都不问。
+    const before = api.calls.workspace;
+    const relative = await api.post('/upload/begin', { name: 'a.txt', destPath: 'sub/dir' });
+    assert.equal(relative.status, 400);
+    assert.equal(relative.body.error.code, 'bad-request');
+    assert.equal(api.calls.workspace, before);
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+test('destPath 重名不覆盖：同目录里第二个自动加后缀', async (t) => {
+  const inbox = tempInbox();
+  const dest = tempDir(t, 'dsh-upload-dest-');
+  const api = await serve(inbox, { workspaces: [dest] });
+  try {
+    const first = await uploadOnce(api, { name: '方案.pdf', destPath: dest }, 'A');
+    const second = await uploadOnce(api, { name: '方案.pdf', destPath: dest }, 'B');
+    assert.equal(path.basename(first.finish.body.path), '方案.pdf');
+    assert.equal(path.basename(second.finish.body.path), '方案-1.pdf');
+    assert.equal(fs.readFileSync(first.finish.body.path, 'utf8'), 'A');
+    assert.equal(fs.readFileSync(second.finish.body.path, 'utf8'), 'B');
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+test('destPath 在会话的项目目录里：带了 sessionId 才放行', async (t) => {
+  const inbox = tempInbox();
+  const cwd = tempDir(t, 'dsh-upload-cwd-');
+  const ws = tempDir(t, 'dsh-upload-ws-');
+  const api = await serve(inbox, { workspaces: [ws], cwd });
+  try {
+    // cwd 没登记成工作区：不带 sessionId 时它就在允许区之外。
+    const narrow = await api.post('/upload/begin', { name: 'main.c', destPath: cwd });
+    assert.equal(narrow.status, 403);
+    assert.equal(narrow.body.error.code, 'outside-allowed');
+
+    const { finish } = await uploadOnce(api, { name: 'main.c', destPath: cwd, sessionId: 's1' }, 'int main;');
+    assert.equal(finish.status, 200);
+    assert.equal(finish.body.path, path.join(cwd, 'main.c'));
+    assert.equal(fs.readFileSync(finish.body.path, 'utf8'), 'int main;');
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+test('不带 destPath：仍落进收件箱，begin 的回执形状一个字没变', async () => {
+  const inbox = tempInbox();
+  const api = await serve(inbox, { workspaces: [] });
+  try {
+    const { begin, finish } = await uploadOnce(api, { name: 'share.txt' }, '正文');
+    assert.equal(begin.status, 200);
+    assert.deepEqual(Object.keys(begin.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'uploadId']);
+    assert.equal(api.calls.workspace, 0, '不带 destPath 不该为了判范围去问宿主');
+    assert.equal(path.relative(inbox, finish.body.path).split(path.sep).length, 2);
+    assert.equal(fs.readFileSync(finish.body.path, 'utf8'), '正文');
   } finally {
     await api.close();
     fs.rmSync(inbox, { recursive: true, force: true });

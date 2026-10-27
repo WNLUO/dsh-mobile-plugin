@@ -82,7 +82,7 @@ function toolCards(events) {
   return out;
 }
 
-test('新形状：tool/result 里的图片挂到消息的附件上，工具卡里只剩文字', () => {
+test('新形状：tool/result 里的图片挂到消息的附件上，结果正文不下发', () => {
   const events = [
     userEvent('画一张图'),
     assistantCallEvent('call_img', 'codex_image_generate', { prompt: '一只猫' }),
@@ -93,7 +93,7 @@ test('新形状：tool/result 里的图片挂到消息的附件上，工具卡�
   ];
   const [card] = toolCards(events);
   assert.equal(card.state, 'ok');
-  assert.match(card.output, /Generated/);
+  assert.equal(card.output, undefined, '过程正文不下发（图片是唯一的例外通道）');
   assert.equal(card.images, undefined, '工具卡不再重复画这张图（两处画会把字节翻倍）');
 
   const assistant = deriveMessages(events).find((item) => item.role === 'assistant');
@@ -111,7 +111,7 @@ test('新形状：结果级 isError 读出失败态（interrupted 仍是已停�
   ];
   const [card] = toolCards(events);
   assert.equal(card.state, 'error');
-  assert.match(card.output, /command failed/);
+  assert.equal(card.argsRaw, undefined, '普通工具的 arguments 不下发');
 });
 
 test('旧形状没有被新形状的判定弄坏：图片与失败态照样认得', () => {
@@ -149,7 +149,7 @@ test('没有图片的普通结果不长出 images；只有 attachment 引用的�
   ];
   const cards = toolCards(events);
   assert.equal(cards[0].images, undefined);
-  assert.equal(cards[0].output, 'file body');
+  assert.equal(cards[0].output, undefined, '结果正文不下发');
   // 引用模式：工具产出的图同样提到消息附件上，形状是 { mediaType, attachmentId }，不带 data。
   assert.equal(cards[1].images, undefined, '工具卡仍不自己画图（图挂在消息附件上）');
   const assistant = deriveMessages(events).find((item) => item.role === 'assistant' && item.images);
@@ -162,8 +162,10 @@ test('流式帧与历史同一口径：两种形状都走解包，不靠 content
     require('node:path').join(__dirname, '..', 'lib', 'mobile', 'history-derive.js'),
     'utf8',
   );
+  // 解包本身（toolResultParts）仍两种形状都认；减法是先在它前面过一遍 wire-cut。
   assert.match(source, /function toolResultParts\(msg\)/);
-  assert.match(source, /const \{ parts, isError \} = toolResultParts\(msg\);/);
+  assert.match(source, /const kept = cutToolResultEvent\(e, toolNames\.nameOf\(src\.callId\)\);/);
+  assert.match(source, /const \{ parts, isError \} = toolResultParts\(kept\.data\.message\);/);
 });
 
 test('工具产出的图也挂成这条消息的图片附件（App 画在气泡上方的那张卡）', () => {

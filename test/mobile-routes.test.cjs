@@ -102,6 +102,17 @@ test('App 声明的每一条移动端路径，插件侧都真的注册了', { sk
   assert.ok(appSubPaths().length >= 30, '解析出来的 App 路径条数偏少，正则可能失效了');
 });
 
+test('右栏「打开文件」那条：两侧都叫 /file/read，且与 /session/file 是两条路', { skip: SKIP_NO_APP }, () => {
+  const registered = pluginPaths();
+  // 插件侧：注册在这张表上（走 route() 即需 token）。
+  assert.ok(registered.has(`${API_BASE}/file/read`), `插件侧没注册 ${API_BASE}/file/read`);
+  // App 侧：按**值**对账，不钉 key 名 —— 改名不该让这条守卫假红，路径才是契约。
+  const app = fs.readFileSync(APP_PATHS, 'utf8');
+  assert.match(app, /^\s{2}\w+:\s*'\/file\/read',?$/m, "App 侧 apiPaths.ts 得声明一条 '/file/read'");
+  // 两条并存：卡片/正文链接那条仍只认本会话工作区与交付声明，不能被这条顶掉。
+  assert.ok(registered.has(`${API_BASE}/session/file`), `卡片取字节那条被人删了：${API_BASE}/session/file`);
+});
+
 test('由中转提供的路径清单本身没腐化（App 里那把钥匙还在）', { skip: SKIP_NO_APP }, () => {
   const all = fs.readFileSync(APP_PATHS, 'utf8');
   for (const [key, why] of RELAY_SERVED) {

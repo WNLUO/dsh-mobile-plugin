@@ -206,8 +206,8 @@ test('设备清单：按 deviceId 聚合，取最新有值的名字、最早绑�
   delete records[0].format
   fs.writeFileSync(FILE, JSON.stringify(records))
   credentials.refresh()
-  // 新记录：带名字与密钥材料。
-  const fresh = credentials.issue(INSTANCE, { deviceId: 'p1', name: '小明的 iPhone', platform: 'ios', osVersion: '18.1' }, '', undefined, { deviceKey: DEVICE_KEY, keyId: KEY_ID })
+  // 新记录：带名字、机型与密钥材料。
+  const fresh = credentials.issue(INSTANCE, { deviceId: 'p1', name: '小明的 iPhone', model: 'iPhone 15 Pro', platform: 'ios', osVersion: '18.1' }, '', undefined, { deviceKey: DEVICE_KEY, keyId: KEY_ID })
   const record = credentials.lookup(fresh.credential, INSTANCE)
   credentials.touch(record, { channel: 'relay' })
   credentials.prune()
@@ -215,24 +215,43 @@ test('设备清单：按 deviceId 聚合，取最新有值的名字、最早绑�
   const rows = credentials.listDevices(INSTANCE)
   assert.equal(rows.length, 1, '同一台重配两次只出一行')
   assert.equal(rows[0].name, '小明的 iPhone', '名字取最新一条有值的（老记录是空的，不能覆盖它）')
+  assert.equal(rows[0].model, 'iPhone 15 Pro', '机型同样取最新一条有值的')
   assert.equal(rows[0].platform, 'ios')
   assert.equal(rows[0].lastChannel, 'relay')
+  assert.equal(rows[0].bindings, 2, '这台名下有两枚活凭据，界面要把「另有几条旧绑定」摆出来')
+  assert.equal(rows[0].suffix, '', '只有一台设备，标题不会撞，不给序号')
   assert.equal(rows[0].legacy, true, '带旧式记录的红旗必须立起来：单台吊销杀不掉旧 Bearer')
   assert.equal(rows[0].encrypted, true, '有设备密钥才走加密')
   assert.ok(!('hash' in rows[0]) && !('hostToken' in rows[0]) && !('deviceKey' in rows[0]), '面板拿不到凭据材料')
   assert.ok(old.credential)
 })
 
-test('同名同平台的两台才加 deviceId 后四位，名字本来不同的不加', () => {
+test('撞名才给序号：标题取机型、机型空着才取名字；标题不同的不动', () => {
   reset();
   credentials.setReadOnly(false)
-  const mk = (deviceId, name) => credentials.issue(INSTANCE, { deviceId, name, platform: 'ios' }, '')
-  mk('aaaa1111', 'iPhone')
-  mk('bbbb2222', 'iPhone')
-  mk('cccc3333', 'iPad')
+  const mk = (deviceId, extra) => credentials.issue(INSTANCE, { deviceId, platform: 'ios', ...extra }, '')
+  mk('aaaa1111', { name: 'iPhone' })
+  mk('bbbb2222', { name: 'iPhone' })
+  mk('cccc3333', { name: 'iPad' })
+  // 两台都没起名字、机型相同 → 标题都是「iPhone 15 Pro」，同样要编号。
+  mk('dddd4444', { model: 'iPhone 15 Pro' })
+  mk('eeee5555', { model: 'iPhone 15 Pro' })
+  // 没起名字但机型不同 → 标题本来就分得开，不编号。
+  mk('ffff6666', { model: 'Xiaomi 9' })
+  // 机型相同、名字不同：标题取机型，所以照样撞，照样编号。
+  mk('gggg7777', { model: 'Pixel 9', name: '桌上的' })
+  mk('hhhh8888', { model: 'Pixel 9', name: '包里的' })
   const rows = credentials.listDevices(INSTANCE)
-  const names = rows.map((row) => row.name).sort()
-  assert.deepEqual(names, ['iPad', 'iPhone · 1111', 'iPhone · 2222'], '撞名的才加后缀')
+  const byId = Object.fromEntries(rows.map((row) => [row.deviceId, row]))
+  assert.equal(byId.aaaa1111.name, 'iPhone', '名字原样返回，宿主不再往名字里拼机器号')
+  assert.equal(byId.aaaa1111.suffix, '1', '早绑的是 1')
+  assert.equal(byId.bbbb2222.suffix, '2')
+  assert.equal(byId.cccc3333.suffix, '', '名字不同的不给序号')
+  assert.equal(byId.dddd4444.suffix, '1', '没名字的两台按机型归到一组')
+  assert.equal(byId.eeee5555.suffix, '2')
+  assert.equal(byId.ffff6666.suffix, '', '机型不同就不是一组')
+  assert.equal(byId.gggg7777.suffix, '1', '机型优先当标题：名字不同但同机型仍然算撞名')
+  assert.equal(byId.hhhh8888.suffix, '2')
 })
 
 test('镜像摘要：只给活记录，吊销后立刻少一条', () => {

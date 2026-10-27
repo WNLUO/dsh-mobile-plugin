@@ -138,8 +138,16 @@ export type RevokeResult = {
  */
 export type RelayDevice = {
   deviceId: string
-  /** 旧记录没存名字时是空串 —— 界面显示「未知设备」。 */
+  /**
+   * 设备名。历史来源很乱：早期 App 把「App 里给这台**电脑**起的备注」当成手机自己的名字
+   * 报了进来，所以它排在机型后面当兜底（机型空着的老记录才会显示它）。
+   */
   name: string
+  /**
+   * 机型（「iPhone 15 Pro」/「Xiaomi 9」）。手机自己报的，跟名字不一样：它不随用户改。
+   * 空串 = 这台手机还没报过（老 App、或这一格出生前配的对）。
+   */
+  model: string
   /** `ios` / `android` / `linux` / `darwin` / `win32` 这类，宿主报什么就是什么。 */
   platform: string
   osVersion: string
@@ -150,6 +158,15 @@ export type RelayDevice = {
   lastSeenAt: number
   /** `relay` / `lan` / 空串（最近那条记录没记通道）。 */
   lastChannel: string
+  /** 这台名下**还有几条活凭据**：同一台手机重配一次就多一条，旧的仍然能用。 */
+  bindings: number
+  /**
+   * 标题会撞时才有的序号（`1`、`2`…），其余是空串。
+   *
+   * 两台都叫「iPhone 15 Pro」时靠它分得开；按绑定时间编，早绑的是 1。序号是显示用的，
+   * 宿主不存它、也不回给手机。
+   */
+  suffix: string
   /**
    * 这台设备名下还有**不带设备密钥**的活记录。
    *

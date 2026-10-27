@@ -1,11 +1,12 @@
 'use strict';
 
 /**
- * 统计账本的守卫：按天归账、水位差、范围折算、以及「归档 / 清理之后历史还在」。
+ * 统计账本的守卫：按天归账、水位差、范围折算、模型维度、以及「归档 / 清理之后历史还在」。
  *
  * 这一组全部跑真实现（不喂桩逻辑），因为最容易坏的地方不是公式，而是**口径**：
  * 首次采集该不该把历史全量补进来、会话消失之后那天账上的数字要不要留、多出来的
- * 会话会不会把卡片列表撑爆。每一条都对应一个用户会直接看到的后果。
+ * 会话会不会把卡片列表撑爆、模型卡的数字是不是与按天账同一份。每一条都对应一个用户
+ * 会直接看到的后果。
  */
 
 const test = require('node:test');
@@ -45,13 +46,21 @@ function usage(overrides = {}) {
 }
 
 function bookWith(entries) {
-  const book = { version: 1, updatedAt: 0, days: {}, sessions: {}, composition: null };
+  const book = { version: 1, updatedAt: 0, days: {}, sessions: {}, models: {}, composition: null };
   for (const entry of entries) ledger.applyDelta(book, entry);
   return book;
 }
 
-/** 一个只回会话清单与投影的假 ctx（够采集跑完一轮）。 */
-function fakeCtx({ items, projectionsById = {}, workspaces = [] }) {
+/** 宿主 `session.models` 的值：当前选择 + 可用目录（模型卡要画的名字从这里对上）。 */
+function modelCatalog(provider, model, providerName, modelName) {
+  return {
+    current: { provider, model },
+    groups: [{ id: provider, name: providerName, models: [{ id: model, name: modelName }] }],
+  };
+}
+
+/** 一个只回会话清单、投影与当前模型的假 ctx（够采集跑完一轮）；没配模型时回 null。 */
+function fakeCtx({ items, projectionsById = {}, workspaces = [], modelsById = {} }) {
   return {
     apiProxy: {
       sessions: {
@@ -59,9 +68,11 @@ function fakeCtx({ items, projectionsById = {}, workspaces = [] }) {
         projections: (request) => ({
           result: { ok: true, value: { values: projectionsById[request.payload.sessionId] || {} } },
         }),
+        models: (request) => ({ result: { ok: true, value: modelsById[request.payload.sessionId] || {} } }),
       },
       workspace: {
-        list: () => ({ result: { ok: true, value: { workspaces } } }),
+        // 宿主的形状是「数组或 { items }」，条目上目录叫 path、展示名是 title。
+        list: () => ({ result: { ok: true, value: { items: workspaces } } }),
       },
     },
   };
@@ -164,50 +175,49 @@ test('会话消失（归档后清理）之后历史数字还在，只标成已�
   assert.equal(sorted.sessions[1].gone, true);
 });
 
-test('会话卡片有上限，超出的退场（不上卡但仍留水位）；按天的账不受裁剪影响', () => {
+test('记录池上限只删最老的整条；卡片条数就是真实会话数，没有展示上限', () => {
   const book = { version: 1, updatedAt: 0, days: {}, sessions: {}, composition: null };
   const baseAt = Date.UTC(2026, 9, 1);
-  for (let index = 0; index < ledger.MAX_SESSIONS + 12; index += 1) {
+  const total = ledger.MAX_RECORDS + 12;
+  for (let index = 0; index < total; index += 1) {
     ledger.applyDelta(book, {
       sessionId: `s${index}`,
       at: baseAt + index * 60000,
       delta: usage({ uncachedInputTokens: 1 }),
     });
-    // 采集会把宿主累计值记成水位；这里手动补上，退场记录要留的就是它。
+    // 采集会把宿主累计值记成水位；删记录时它跟着一起没，所以这道上限必须抬得够高。
     book.sessions[`s${index}`].watermark = usage({ uncachedInputTokens: 1 });
   }
   ledger.trim(book);
-  assert.equal(Object.keys(book.sessions).length, ledger.MAX_SESSIONS + 12, '记录一条都没删');
-  assert.equal(book.sessions.s0.retired, true, '最老的退场');
-  assert.ok(book.sessions.s0.watermark, '退场记录仍留水位');
-  assert.ok(!book.sessions[`s${ledger.MAX_SESSIONS + 11}`].retired, '最新的还在场上');
+  assert.equal(Object.keys(book.sessions).length, ledger.MAX_RECORDS, '记录池按上限留');
+  assert.equal(book.sessions.s0, undefined, '最老的那条真删');
+  assert.ok(book.sessions[`s${total - 1}`], '最新的还在');
   const overview = ledger.summarize(book, 'all', baseAt + 60 * 86400000);
-  assert.equal(overview.sessions.length, ledger.MAX_SESSIONS, '退场的不上卡片');
-  assert.ok(!overview.sessions.some((row) => row.sessionId === 's0'));
-  const total = Object.values(book.days).reduce((sum, day) => sum + day.uncachedInputTokens, 0);
-  assert.equal(total, ledger.MAX_SESSIONS + 12, '总量还在（裁剪只动卡片，不动账）');
+  assert.equal(overview.sessions.length, ledger.MAX_RECORDS, '范围内有量的会话全部上卡片');
+  assert.equal(overview.kpi.sessions, ledger.MAX_RECORDS, '「会话」这一格等于卡片条数，不被裁到某个展示数字');
+  const daySum = Object.values(book.days).reduce((sum, day) => sum + day.uncachedInputTokens, 0);
+  assert.equal(daySum, total, '按天的账不受记录池裁剪影响');
 });
 
-test('退场的会话再活跃：只记增量，不把整段历史重记一遍', () => {
+test('老记录只瘦身、不删条数：明细与摘要丢掉，累计与水位留着', () => {
   const book = { version: 1, updatedAt: 0, days: {}, sessions: {}, composition: null };
-  const baseAt = Date.UTC(2026, 9, 1);
-  for (let index = 0; index < ledger.MAX_SESSIONS + 5; index += 1) {
-    ledger.applyDelta(book, {
-      sessionId: `s${index}`,
-      at: baseAt + index * 60000,
-      delta: usage({ uncachedInputTokens: 1 }),
-    });
-    book.sessions[`s${index}`].watermark = usage({ uncachedInputTokens: 1 });
-  }
+  const longAgo = Date.now() - 100 * 86400000;
+  ledger.applyDelta(book, { sessionId: 'old', at: longAgo, delta: usage({ uncachedInputTokens: 40, turns: 2 }), lastText: '很久以前那句' });
+  book.sessions.old.watermark = usage({ uncachedInputTokens: 40, turns: 2 });
+  ledger.applyDelta(book, { sessionId: 'fresh', at: Date.now(), delta: usage({ uncachedInputTokens: 7, turns: 1 }) });
   ledger.trim(book);
-  assert.equal(book.sessions.s0.retired, true);
 
-  // 水位 = 宿主累计（1）。它又跑了 9 个 token：增量只该多记 9。
-  const before = Object.values(book.days).reduce((sum, day) => sum + day.uncachedInputTokens, 0);
-  ledger.applyDelta(book, { sessionId: 's0', at: baseAt + 86400000, delta: usage({ uncachedInputTokens: 9 }) });
-  const after = Object.values(book.days).reduce((sum, day) => sum + day.uncachedInputTokens, 0);
-  assert.equal(after - before, 9, '只记这一次的增量');
-  assert.equal(book.sessions.s0.retired, false, '回到场上');
+  assert.equal(Object.keys(book.sessions).length, 2, '条数一条都不少');
+  assert.deepEqual(book.sessions.old.daily, {}, '按天明细丢掉（它只服务最近那段范围）');
+  assert.equal(book.sessions.old.lastText, '', '最后一句也丢掉');
+  assert.equal(book.sessions.old.billed.uncachedInputTokens, 40, '累计值留着');
+  assert.ok(book.sessions.old.watermark, '水位在：它再活跃不会被当成首采重记一遍');
+
+  const all = ledger.summarize(book, 'all', Date.now());
+  assert.equal(all.kpi.sessions, 2, '全部那档两条都算');
+  assert.equal(all.sessions.find((row) => row.sessionId === 'old').billedTokens, 40, '累计值照旧给得出');
+  const week = ledger.summarize(book, '7d', Date.now());
+  assert.equal(week.kpi.sessions, 1, '近 7 天只剩真在动的那条');
 });
 
 test('落盘再读回：结构一致，坏文件当空账本', async () => {
@@ -266,6 +276,36 @@ test('采集：60 秒内重复请求不再读投影', async () => {
     await collectStats(ctx, {});
     assert.equal(reads, afterFirst, '一分钟内的第二次采集不该再打宿主');
   });
+});
+
+test('采集：定期那一轮跳过一点没动的会话，空闲时连账本都不重写', async () => {
+  await withHome(async (home) => {
+    let reads = 0;
+    // 两分钟前动过：越过 60 秒最小间隔，这一轮真正读投影的是它。
+    const items = [{ sessionId: 's1', cwd: '/tmp/proj', updatedAt: Date.now() - 120_000 }];
+    const ctx = fakeCtx({ items, projectionsById: { s1: tokenProjection(10, 1) } });
+    const projections = ctx.apiProxy.sessions.projections;
+    ctx.apiProxy.sessions.projections = (request) => { reads += 1; return projections(request) };
+
+    await collectStats(ctx, {});
+    assert.equal(reads, 1, '第一轮读到它');
+    const file = path.join(home, 'mobile-stats.json');
+    const before = fs.readFileSync(file, 'utf8');
+
+    // 摘要的 `updatedAt` 一点没变：这一轮连投影都不该读，账本文件也不该被整份重写。
+    await collectStats(ctx, {});
+    assert.equal(reads, 1, '没变动就不读投影');
+    assert.equal(fs.readFileSync(file, 'utf8'), before, '没有改动就不重写整份 JSON');
+  });
+});
+
+test('定期采集的定时器归 stats-scheduler：start 交回一个停表的函数', () => {
+  const scheduler = require('../lib/mobile/stats-scheduler.cjs');
+  const stop = scheduler.start(fakeCtx({ items: [] }));
+  assert.equal(typeof stop, 'function', 'ctx.effect 的清理那一半必须是函数');
+  assert.ok(scheduler.PERIODIC_INTERVAL_MS >= 60_000, '一轮几分钟：按天归属靠的就是这个节奏');
+  stop();
+  stop(); // 重复清理由 effect 卸载路径兜底，不许抛
 });
 
 test('清理前补采（skipPreview）只读投影，不为卡片摘要读历史', async () => {
@@ -328,10 +368,25 @@ test('采集：项目名来自工作区表，cwd 末尾斜杠不影响匹配', a
     const ctx = fakeCtx({
       items,
       projectionsById: { s1: tokenProjection(1, 1) },
-      workspaces: [{ name: '我的项目', cwd: '/tmp/proj' }],
+      workspaces: [{ title: '我的项目', path: '/tmp/proj' }],
     });
     const book = await collectStats(ctx, { force: true });
     assert.equal(book.sessions.s1.workspaceName, '我的项目');
+  });
+});
+
+test('采集：卡片标题取摘要里的 title 投影（顶层 title 是真机上不存在的字段）', async () => {
+  await withHome(async () => {
+    const items = [
+      // 真机摘要：标题在 projections.values.title，顶层只有 sessionId / cwd / updatedAt。
+      { sessionId: 's1', cwd: '/tmp/proj', updatedAt: Date.now(), projections: { values: { title: '给统计页加个按钮' } } },
+      // 顶层那个假字段一律不认：以前照着它读，账本里几百条标题全是空串。
+      { sessionId: 's2', title: '假的', cwd: '/tmp/proj', updatedAt: Date.now() },
+    ];
+    const ctx = fakeCtx({ items, projectionsById: { s1: tokenProjection(1, 1), s2: tokenProjection(1, 1) } });
+    const book = await collectStats(ctx, { force: true });
+    assert.equal(book.sessions.s1.title, '给统计页加个按钮');
+    assert.equal(book.sessions.s2.title, '', '取不到就留空，由 App 拿目录末段兜底');
   });
 });
 
@@ -346,6 +401,7 @@ test('路由：range 归一化，返回 { ok, overview }', async () => {
     assert.equal(res.body.overview.range, '30d');
     assert.equal(res.body.overview.days.length, 30);
     assert.deepEqual(res.body.overview.sessions, []);
+    assert.deepEqual(res.body.overview.models, [], '没有模型桶时也要给空数组（App 缺这个字段整块不画）');
   });
   assert.equal(normalizeRange('999d'), '7d', '认不出来的范围退回七天');
   assert.equal(normalizeRange(undefined), '7d');
@@ -379,26 +435,22 @@ test('卡片数字跟着范围走：同一张卡在 7d 与 all 下就是两个�
   assert.equal(all.sessions[0].turns, 10);
 });
 
-test('卡片加起来能对上 KPI：差额只剩「退场」与「无明细」两笔明说的数', () => {
+test('卡片加起来能对上 KPI：差额只剩「无明细」那一笔', () => {
   const now = Date.UTC(2026, 9, 22, 6, 0);
   const book = bookWith([
-    { sessionId: 'live', at: now, delta: usage({ uncachedInputTokens: 100, outputTokens: 100 }) },
-    { sessionId: 'old', at: now, delta: usage({ uncachedInputTokens: 50, outputTokens: 50 }) },
+    { sessionId: 'a', at: now, delta: usage({ uncachedInputTokens: 100, outputTokens: 100 }) },
+    { sessionId: 'b', at: now, delta: usage({ uncachedInputTokens: 50, outputTokens: 50 }) },
   ]);
   // 模拟一条被老版本删掉记录的会话：只有按天的账，没有 sessions 记录。
-  const day = book.days[ledger.dayKeyOf(now)];
-  day.uncachedInputTokens += 30;
-  book.sessions.old.retired = true;
+  book.days[ledger.dayKeyOf(now)].uncachedInputTokens += 30;
 
   const overview = ledger.summarize(book, '7d', now);
   const rangeBilled = ledger.billedOf(overview.kpi);
   const cardSum = overview.sessions.reduce((sum, row) => sum + row.billedTokens, 0);
-  assert.equal(cardSum, 200, '只有在场的那条上卡片');
-  assert.equal(overview.retired.sessions, 1, '退场那条单独报条数');
-  assert.equal(overview.retired.tokens, 100);
+  assert.equal(cardSum, 300, '两条都在卡片上，一条都不许被裁掉');
   assert.equal(overview.untrackedBilled, 30, '没明细的那截单独报量');
-  assert.equal(cardSum + overview.retired.tokens + overview.untrackedBilled, rangeBilled, '三笔相加等于总量');
-  assert.equal(overview.kpi.sessions, 1, '会话数只数真正上卡片的');
+  assert.equal(cardSum + overview.untrackedBilled, rangeBilled, '两笔相加等于总量');
+  assert.equal(overview.kpi.sessions, 2, '会话数就是卡片条数');
 });
 
 test('范围内没有量的会话不上卡片（切到 7d 不显示两个月前的老会话）', () => {
@@ -463,4 +515,214 @@ test('采集：老会话不会被每轮预算饿死（先近后远，轮着往�
     // 第一轮到底采到几条取决于调度，这里只钉「两轮之后全都在」。
     assert.equal(Object.keys(second.sessions).length, 3, `第一轮 ${collectedFirst.length} 条`);
   });
+});
+
+test('模型维度：一次采集把同一份增量同时记进按天账、会话账与模型桶', async () => {
+  await withHome(async () => {
+    const now = Date.now();
+    const items = [{ sessionId: 's1', cwd: '/tmp/proj', updatedAt: now }];
+    const ctx = fakeCtx({
+      items,
+      projectionsById: { s1: tokenProjection(100, 20) },
+      modelsById: { s1: modelCatalog('p1', 'm1', '渠道一', '模型一') },
+    });
+
+    const book = await collectStats(ctx, { force: true });
+    const key = 'p1\u0000m1';
+    const bucket = book.models[key];
+    assert.ok(bucket, '按「渠道 + 模型」建桶');
+    assert.equal(bucket.providerName, '渠道一', '渠道名从宿主目录对上');
+    assert.equal(bucket.modelName, '模型一');
+    assert.equal(bucket.billed.uncachedInputTokens, 100);
+    assert.equal(bucket.billed.outputTokens, 20);
+    assert.equal(bucket.daily[ledger.dayKeyOf(now)].outputTokens, 20, '按天明细与总量同一个日期');
+    assert.ok(bucket.lastAt >= now, '最后活动时间记在采集这一刻');
+    assert.equal(book.days[ledger.dayKeyOf(now)].uncachedInputTokens, 100);
+    assert.equal(book.sessions.s1.billed.uncachedInputTokens, 100);
+    assert.equal(book.sessions.s1.model.provider, 'p1', '会话记录上落下此刻的模型');
+    assert.equal(book.sessions.s1.model.modelName, '模型一');
+
+    const overview = ledger.summarize(book, '7d', now);
+    assert.equal(overview.models.length, 1);
+    const row = overview.models[0];
+    assert.equal(row.provider, 'p1');
+    assert.equal(row.providerName, '渠道一');
+    assert.equal(row.model, 'm1');
+    assert.equal(row.modelName, '模型一');
+    assert.equal(row.uncachedInputTokens, 100);
+    assert.equal(row.cacheReadTokens, 0);
+    assert.equal(row.cacheWriteTokens, 0);
+    assert.equal(row.outputTokens, 20);
+    assert.equal(row.billedTokens, 120, '四个桶之和');
+    assert.equal(row.turns, 1);
+    assert.equal(row.requests, 1, '请求数取 steps，与按天账一个口径');
+  });
+});
+
+test('模型维度：模型读不到时只记会话与按天账，什么都不往模型表里写', async () => {
+  await withHome(async () => {
+    const now = Date.now();
+    const items = [{ sessionId: 's1', updatedAt: now }];
+    // 不配 modelsById：宿主这一轮没给当前模型（或那一趟读失败）。
+    const book = await collectStats(fakeCtx({ items, projectionsById: { s1: tokenProjection(30, 3) } }), { force: true });
+    assert.deepEqual(book.models, {}, '宁可不记，也不造一个空渠道的垃圾桶');
+    assert.equal(book.sessions.s1.billed.uncachedInputTokens, 30, '数字照常入账');
+    assert.equal(book.sessions.s1.model, null, '读不到就留空，下一轮再试');
+    assert.deepEqual(ledger.summarize(book, '7d', now).models, [], '没有桶时给空数组');
+  });
+});
+
+test('老账本升级：第一次采到模型就把这条会话的累计量回填进模型桶，且只回填一份', async () => {
+  await withHome(async (home) => {
+    const lastActive = Date.UTC(2026, 9, 19, 3, 0);
+    const billed = usage({ uncachedInputTokens: 300, outputTokens: 60, turns: 2, steps: 3 });
+    // 升级前的账本：会话累计与水位都在，没有 models 表，记录上也没有 model 字段。
+    const old = {
+      version: 1,
+      updatedAt: 0,
+      days: { [ledger.dayKeyOf(lastActive)]: { ...billed, requests: 3 } },
+      sessions: {
+        s1: {
+          title: '老会话',
+          firstAt: lastActive,
+          lastAt: lastActive,
+          collectedAt: 0,
+          billed,
+          daily: { [ledger.dayKeyOf(lastActive)]: billed },
+          watermark: billed,
+        },
+      },
+      composition: null,
+    };
+    fs.writeFileSync(path.join(home, 'mobile-stats.json'), JSON.stringify(old));
+    ledger.forgetLedger();
+
+    const items = [{ sessionId: 's1', title: '老会话', updatedAt: lastActive }];
+    // 宿主累计值与水位一致：这一轮没有增量，只有「升级回填」这一件事要做。
+    const ctx = fakeCtx({
+      items,
+      // 投影与水位逐项相等（含耗时字段）：这一轮真的没有增量。
+      projectionsById: { s1: {
+        tokenUsage: { uncachedInputTokens: 300, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 60 },
+        sessionStats: { turns: 2, steps: 3, llmMs: 0, toolMs: 0 },
+      } },
+      modelsById: { s1: modelCatalog('p1', 'm1', '渠道一', '模型一') },
+    });
+
+    const first = await collectStats(ctx, { force: true });
+    const key = 'p1\u0000m1';
+    assert.equal(first.models[key].billed.uncachedInputTokens, 300, '回填的是这条会话的累计量');
+    assert.equal(first.models[key].billed.outputTokens, 60);
+    assert.deepEqual(
+      Object.keys(first.models[key].daily),
+      [ledger.dayKeyOf(lastActive)],
+      '回填落在会话最后活动那天，与按天账同一天',
+    );
+    assert.ok(first.models[key].lastAt > 0, '没有更细的时刻，落到那天零点也算有');
+    assert.equal(first.sessions.s1.model.provider, 'p1');
+    assert.equal(first.days[ledger.dayKeyOf(lastActive)].uncachedInputTokens, 300, '按天账没被回填再动一次');
+    assert.equal(first.sessions.s1.billed.uncachedInputTokens, 300, '会话累计也没翻倍');
+
+    // 再采一轮：model 已经记在记录上，回填条件不再成立。
+    const second = await collectStats(ctx, { force: true });
+    assert.equal(second.models[key].billed.uncachedInputTokens, 300, '回填只做一次，不翻倍');
+    assert.equal(Object.keys(second.models[key].daily).length, 1);
+  });
+});
+
+test('模型桶跟着页面范围折算：7d 只有窗口内的天，all 用累计值', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([]);
+  const model = { provider: 'p1', providerName: '渠道一', model: 'm1', modelName: '模型一' };
+  ledger.applyModelUsage(book, { model, day: ledger.dayKeyOf(now - 20 * 86400000), usage: usage({ uncachedInputTokens: 900 }) });
+  ledger.applyModelUsage(book, { model, day: ledger.dayKeyOf(now), usage: usage({ uncachedInputTokens: 60, outputTokens: 40, turns: 1 }) });
+  // 一个只有日期、没有量的桶：范围折算后什么都不剩，不该上卡。
+  ledger.applyModelUsage(book, { model: { provider: 'p2', providerName: '', model: 'm2', modelName: '' }, day: ledger.dayKeyOf(now), usage: usage() });
+
+  const week = ledger.summarize(book, '7d', now);
+  assert.equal(week.models.length, 1, '零量的桶整块不出现');
+  assert.equal(week.models[0].billedTokens, 100, '近 7 天只剩今天那一笔');
+  assert.equal(week.models[0].turns, 1);
+  const month = ledger.summarize(book, '30d', now);
+  assert.equal(month.models[0].billedTokens, 1000, '放宽到 30 天就把 20 天前那笔加回来');
+  const all = ledger.summarize(book, 'all', now);
+  assert.equal(all.models[0].billedTokens, 1000, 'all 直接用累计 billed');
+  assert.deepEqual(book.days, {}, '模型桶不往按天总账里写');
+  assert.deepEqual(book.sessions, {}, '也不往会话账里写');
+});
+
+test('模型卡排序：计费量降序，相同再按最后活动时间降序', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([]);
+  const older = { provider: 'p1', providerName: '', model: 'm1', modelName: '' };
+  const newer = { provider: 'p2', providerName: '', model: 'm2', modelName: '' };
+  const small = { provider: 'p3', providerName: '', model: 'm3', modelName: '' };
+  ledger.applyModelUsage(book, { model: older, day: ledger.dayKeyOf(now - 86400000), usage: usage({ uncachedInputTokens: 100 }) });
+  ledger.applyModelUsage(book, { model: newer, day: ledger.dayKeyOf(now), usage: usage({ uncachedInputTokens: 100 }) });
+  ledger.applyModelUsage(book, { model: small, day: ledger.dayKeyOf(now), usage: usage({ uncachedInputTokens: 50 }) });
+  const rows = ledger.summarize(book, '7d', now).models;
+  assert.deepEqual(rows.map((row) => row.model), ['m2', 'm1', 'm3']);
+});
+
+test('读盘清洗：坏模型桶与坏 record.model 丢掉，老账本缺这两块按空处理', () => {
+  const good = { provider: 'p1', providerName: '渠道一', model: 'm1', modelName: '模型一' };
+  const raw = {
+    version: 1,
+    days: {},
+    sessions: {
+      s1: { billed: { uncachedInputTokens: 5 }, model: good },
+      s2: { billed: { uncachedInputTokens: 5 }, model: { provider: 'p1', model: 'm1' } },
+      s3: { billed: { uncachedInputTokens: 5 } },
+    },
+    models: {
+      'p1\u0000m1': {
+        ...good,
+        billed: { uncachedInputTokens: 5 },
+        daily: { '2026-10-01': { outputTokens: 1 }, '不是日期': { outputTokens: 9 } },
+        lastAt: 7,
+      },
+      // provider 空：垃圾桶，丢掉。
+      emptyProvider: { provider: '', model: 'm1', billed: { uncachedInputTokens: 9 } },
+      nothing: 'not-an-object',
+    },
+  };
+  const book = ledger.sanitizeLedger(raw);
+  assert.deepEqual(Object.keys(book.models), ['p1\u0000m1'], '只认 provider + model 都齐的桶');
+  assert.equal(book.models['p1\u0000m1'].billed.uncachedInputTokens, 5);
+  assert.deepEqual(Object.keys(book.models['p1\u0000m1'].daily), ['2026-10-01'], '坏日期丢掉');
+  assert.equal(book.models['p1\u0000m1'].lastAt, 7);
+  assert.deepEqual(book.sessions.s1.model, good);
+  assert.equal(book.sessions.s3.model, null, '老记录没有这一栏是 null');
+
+  // 展示名缺失不是「这条归属作废」：目录里那条模型下架了、渠道被卸载了都会给空名。若这里
+  // 读回 null，下一轮采集会把它当成「还没记过模型」再回填一次，同一段累计量在模型桶里翻倍。
+  assert.deepEqual(
+    book.sessions.s2.model,
+    { provider: 'p1', providerName: '', model: 'm1', modelName: '' },
+    '只有渠道 id + 模型 id 时，读盘仍然是同一条模型归属',
+  );
+
+  const old = ledger.sanitizeLedger({ version: 1, days: {}, sessions: {} });
+  assert.deepEqual(old.models, {}, '老账本没有 models 也照常读，不许整份丢弃');
+});
+
+test('trim 只裁模型桶的按天明细，桶本身按组合留着；空桶删掉', () => {
+  const book = bookWith([]);
+  const model = { provider: 'p1', providerName: '渠道一', model: 'm1', modelName: '模型一' };
+  const start = '2026-01-01';
+  const total = ledger.MAX_DAILY_DAYS + 8;
+  for (let index = 0; index < total; index += 1) {
+    ledger.applyModelUsage(book, { model, day: ledger.addDays(start, index), usage: usage({ uncachedInputTokens: 1 }) });
+  }
+  // 只有日期、没有量的桶：裁完就该消失，别在页面上占一张全 0 的卡。
+  book.models['p9\u0000m9'] = {
+    provider: 'p9', providerName: '', model: 'm9', modelName: '', billed: ledger.emptyUsage(), daily: {}, lastAt: 0,
+  };
+
+  ledger.trim(book);
+  const kept = book.models['p1\u0000m1'];
+  assert.equal(Object.keys(kept.daily).length, ledger.MAX_DAILY_DAYS, '明细裁到与每条会话同一档');
+  assert.equal(Object.keys(kept.daily).sort()[0], ledger.addDays(start, total - ledger.MAX_DAILY_DAYS), '裁掉最老的几天');
+  assert.equal(kept.billed.uncachedInputTokens, total, '累计值不裁');
+  assert.equal(book.models['p9\u0000m9'], undefined, 'billed 为 0 且明细空了就删掉');
 });

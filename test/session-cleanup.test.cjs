@@ -65,8 +65,7 @@ function cleanupCtx(sessionIds) {
   };
 }
 
-test('archive 分支不受影响：归档仍然当场写回宿主', withHome(async (home) => {
-  writeSession(home, 'session-old');
+test('archive 分支不受影响：归档仍然当场写回宿主', withHome(async (home) => {  writeSession(home, 'session-old');
   const ctx = cleanupCtx(['session-old']);
   const archived = [];
   ctx.apiProxy.workspace.archiveSession = async (request) => {
@@ -106,6 +105,45 @@ test('delete：只排队，进程里一条日志都不删、也不擦宿主归�
   assert.deepEqual(unarchived, [], '删日志就够；归档集合留到宿主启动时修剪');
   for (const directory of doomed) assert.equal(fs.existsSync(directory), true, '进程里不许删磁盘');
   assert.deepEqual(readPendingArchivedClearIds().sort(), ['session-a', 'session-b'], '两条都排进了待删队列');
+}));
+
+test('delete：删之前先把这批会话的用量采进统计账本', withHome(async () => {
+  // 日志一没，那部分用量就永远读不出来了；手机那个「清理已归档」按钮一直有这一刀，
+  // agent 这条删除路以前没有 —— 走它删掉的会话，上次采集之后的那一截增量就白丢。
+  const statsLedger = require('../lib/mobile/stats-ledger.cjs');
+  statsLedger.forgetLedger();
+  try {
+    const ctx = {
+      apiProxy: {
+        sessions: {
+          list: async () => envelope({ items: [{ sessionId: 'session-a', cwd: '/home/node', updatedAt: Date.now() }] }),
+          projections: async (request) => envelope({
+            values: request.payload.sessionId === 'session-a'
+              ? {
+                tokenUsage: { uncachedInputTokens: 120, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 30 },
+                sessionStats: { turns: 2, steps: 3, llmMs: 100, toolMs: 0 },
+              }
+              : {},
+          }),
+        },
+        workspace: {
+          list: async () => envelope({ archivedSessionIds: ['session-a'] }),
+          archiveSession: async () => envelope({}),
+        },
+      },
+    };
+
+    const outcome = await cleanupSessions(ctx, { action: 'delete', confirm: true, sessionIds: ['session-a'] });
+    assert.equal(outcome.deleted, 1);
+
+    const book = statsLedger.readLedger();
+    assert.equal(book.sessions['session-a'].billed.uncachedInputTokens, 120, '删除前的用量进了账本');
+    assert.equal(book.sessions['session-a'].billed.turns, 2);
+    const dayOutput = Object.values(book.days).reduce((sum, day) => sum + day.outputTokens, 0);
+    assert.equal(dayOutput, 30, '按天的账也记上了');
+  } finally {
+    statsLedger.forgetLedger();
+  }
 }));
 
 test('启动删队列：Windows 上目录被宿主的锁文件占住（ENOTEMPTY）时，日志已删就算删成', withHome(async (home) => {

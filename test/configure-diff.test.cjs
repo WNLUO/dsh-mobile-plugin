@@ -42,12 +42,17 @@ function baseConfig() {
   }
 }
 
-function bootWorker() {
-  const calls = { stopTunnel: 0, startTunnel: 0, stopLan: 0, startLan: 0, stopMonitor: 0, startMonitor: 0 }
+const { switchRelay: realSwitchRelay } = require(join(__dirname, '..', 'lib', 'relay', 'migrate.js'))
+
+function bootWorker(options = {}) {
+  const calls = { stopTunnel: 0, startTunnel: 0, stopLan: 0, startLan: 0, stopMonitor: 0, startMonitor: 0, switchRelay: 0, reconnectCancel: 0 }
   const registrations = []
+  // 换地址那条路的实现（`lib/relay/migrate.js`）有自己的守卫：这里只钉 configure 有没有
+  // 把它叫上、给它的东西对不对 —— 顺序与撤销在 relay-migrate.test.cjs 里逐帧验。
+  const switches = []
   const fakeTunnel = { updateRegistration: (patch) => registrations.push(patch) }
   const api = new Function('deps', `
-    const { status, stopLan, startLan, stopTunnel, startTunnel, stopNetworkMonitor, startNetworkMonitor, lanUrls, lanUrlPort } = deps;
+    const { status, stopLan, startLan, stopTunnel, startTunnel, stopNetworkMonitor, startNetworkMonitor, lanUrls, lanUrlPort, core, publishState, switchRelay, openTunnel, reconnect } = deps;
     let config = deps.initialConfig;
     let tunnel = deps.tunnel;
     ${SIGNATURES_BODY}
@@ -67,10 +72,16 @@ function bootWorker() {
     startNetworkMonitor: () => { calls.startMonitor += 1 },
     lanUrls: () => ['http://192.168.1.2:18787'],
     lanUrlPort: () => 18787,
+    reconnect: { cancel: () => { calls.reconnectCancel += 1 } },
+    // 地址规范化用真实现：尾斜杠那条边界就是它管的，桩一份就等于没测。
+    core: require(join(__dirname, '..', 'lib', 'relay', 'core.js')),
+    publishState: () => {},
+    switchRelay: options.switchRelay || ((opts) => { calls.switchRelay += 1; switches.push(opts); return options.switchResult ? options.switchResult(opts) : Promise.resolve(true) }),
+    openTunnel: options.openTunnel || (() => Promise.resolve()),
     initialConfig: {},
     tunnel: fakeTunnel,
   })
-  return { ...api, calls, registrations, fakeTunnel }
+  return { ...api, calls, registrations, switches, fakeTunnel }
 }
 
 test('配置一个字没变：不重建隧道、不重建局域网代理、重报也不发', async () => {
@@ -97,16 +108,75 @@ test('只改名：不重建，只在现有连接上重报一次', async () => {
   assert.equal(w.registrations[0].pairingCode, undefined, '没变的字段不该跟着重报')
 })
 
-test('中转地址变了：隧道重建，局域网代理不动', async () => {
+test('中转地址变了：走「先登记迁移、再重建」那条路，旧隧道不许先停', async () => {
   const w = bootWorker()
   await w.configure(baseConfig())
   const before = { ...w.calls }
   await w.configure({ ...baseConfig(), relayUrl: 'https://relay2.invalid' })
-  assert.equal(w.calls.stopTunnel, before.stopTunnel + 1, '中转地址变了必须重建隧道')
-  assert.equal(w.calls.startTunnel, before.startTunnel + 1)
+  assert.equal(w.calls.switchRelay, before.switchRelay + 1, '换地址必须交给 switchRelay（登记 → 重建 → 失败撤销）')
+  assert.equal(w.calls.stopTunnel, before.stopTunnel, '旧隧道要留着发 MIGRATE / 撤销，不许先停掉再重建')
+  assert.equal(w.calls.startTunnel, before.startTunnel, '新隧道由那条路自己起，不走普通的 stop+start')
+  const opts = w.switches[0]
+  assert.equal(opts.oldTunnel, w.fakeTunnel, '登记必须发生在旧隧道上')
+  assert.equal(opts.relayUrl, 'https://relay2.invalid', '登记的目标就是新地址')
+  assert.equal(typeof opts.open, 'function', '那条路要能自己起新隧道')
+  assert.equal(typeof opts.drop, 'function', '收旧隧道也交给它，否则没人发撤销')
   assert.equal(w.calls.startLan, before.startLan, '局域网代理与中转地址无关，不该动')
   assert.equal(w.registrations.length, 0, '隧道都重建了，不需要再补一次注册')
   assert.equal(w.currentConfig().relayUrl, 'https://relay2.invalid')
+})
+
+test('同时关掉总开关并换地址：走老路（停下就完了），不许把隧道又建起来', async () => {
+  const w = bootWorker()
+  await w.configure(baseConfig())
+  const before = { ...w.calls }
+  await w.configure({ ...baseConfig(), enabled: false, relayUrl: 'https://relay2.invalid' })
+  assert.equal(w.calls.switchRelay, before.switchRelay, '关掉远程时没有「搬去新地址」这回事')
+  assert.equal(w.calls.startTunnel, before.startTunnel + 1, '照老路走一遍 startTunnel（它自己会按 enabled 判掉）')
+  assert.equal(w.currentConfig().enabled, false)
+})
+
+test('换地址走的是真实现：MIGRATE 落在旧隧道上，之后才建新隧道', async () => {
+  const order = [];
+  const oldTunnel = {
+    connected: true,
+    updateRegistration: () => {},
+    sendJson: (type, id, body) => { order.push(`frame:${type}:${body.to}`); return true; },
+    stop: () => { order.push('stop-old'); },
+  };
+  const w = bootWorker({
+    switchRelay: realSwitchRelay,
+    // 真实现会先发帧、等帧出去，再叫这个 —— 顺序就是这里断言的。
+    openTunnel: () => { order.push('open-tunnel'); return Promise.resolve(); },
+  })
+  w.setTunnel(oldTunnel)
+  await w.configure(baseConfig())
+  order.length = 0
+  await w.configure({ ...baseConfig(), relayUrl: 'https://relay2.invalid' })
+
+  assert.deepEqual(order.slice(0, 2), ['frame:28:https://relay2.invalid', 'open-tunnel'],
+    'MIGRATE（0x1C=28）必须先发在旧隧道上，新隧道在那之后才建')
+  assert.equal(order.includes('stop-old'), false, '旧隧道要留到最后（撤销与响应都靠它）')
+})
+
+test('只差一个尾斜杠：还是同一台中转，不白跑一次迁移登记', async () => {
+  const w = bootWorker()
+  await w.configure(baseConfig())
+  const before = { ...w.calls }
+  await w.configure({ ...baseConfig(), relayUrl: 'https://relay.invalid/' })
+  assert.equal(w.calls.switchRelay, before.switchRelay, '规范化之后没变，就不是「换地址」')
+  assert.equal(w.calls.startTunnel, before.startTunnel + 1, '签名不同仍按老路重建一次隧道')
+})
+
+test('新地址注册失败：错误从 configure 抛回调用方（手机 / 面板看到的那一句）', async () => {
+  // 撤销与收旧隧道归那条路自己（relay-migrate.test.cjs 验），configure 只把错误原样往上抛。
+  const w = bootWorker({ switchResult: () => Promise.reject(new Error('隧道关闭: 1008 bad registration secret')) })
+  await w.configure(baseConfig())
+  await assert.rejects(
+    () => w.configure({ ...baseConfig(), relayUrl: 'https://relay2.invalid' }),
+    /bad registration secret/,
+    '失败原因必须原样回到调用方，不能吞成一句「配置下发失败」',
+  )
 })
 
 test('局域网端口变了：只重建局域网代理，隧道保持不动并重报候选地址', async () => {

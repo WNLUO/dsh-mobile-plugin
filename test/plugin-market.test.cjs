@@ -1,18 +1,21 @@
 'use strict';
 
 /**
- * 移动端「插件管理」（装 / 卸 / 启用 / 升级这台电脑上的 DSH 插件）的透传契约。
+ * 移动端「插件管理」（装 / 启用 / 升级这台电脑上的 DSH 插件）的透传契约。
  *
  * 这一层不自己跑包管理器：全部转发给宿主的 `pluginManager` 服务（桌面端 设置 → 插件
- * 那个页面背后的同一个服务）。所以钉的是四件事：
+ * 那个页面背后的同一个服务）。所以钉的是五件事：
  *  1. **args 键名与宿主 descriptor 逐字一致** —— 多一个少一个宿主都回 arguments-invalid，
  *     而这类失败在手机上只表现成「点了没反应」；
- *  2. **承载 App 连接的那个包不给卸载 / 停用**（卸载它等于把手机变砖），而且这条得在
- *     调网关**之前**拒掉，不能先打一发再拦；
+ *  2. **承载 App 连接的那个包不给停用**，而且这条得在调网关**之前**拒掉，不能先打一发
+ *     再拦。卸载没有这条保护位可言 —— 界面上根本没有这个入口（卸载要重启电脑上的 DSH，
+ *     手机上做不合适），插件侧也不再注册那条路由；
  *  3. 装 / 升都是**异步任务**：立即回 202 + requestId，进度另开一条轮询；失败要落进
  *     那条记录里，不能吞掉；
  *  4. 升级的语义是「卸载再装」（DSH 自己的规矩），官方按需插件用宿主给的确切目标版本，
- *     本地目录 / 压缩包来源没有「最新版」可言，如实拒绝。
+ *     本地目录 / 压缩包来源没有「最新版」可言，如实拒绝；
+ *  5. 安装时可以指定 npm 源：源清单三格都清洗，`registry` 只有真给了才放进
+ *     `options`（不传 = 跟随宿主自己配置的那个，空串不能代替）。
  *
  * 本测试驱动真实的 handler（不是转写实现）。
  */
@@ -25,12 +28,12 @@ const { Readable } = require('node:stream');
 
 const {
   handlePluginMarket,
+  handlePluginMarketRegistries,
   handlePluginMarketInspect,
   handlePluginMarketInstall,
   handlePluginMarketUpdate,
   handlePluginMarketProgress,
   handlePluginMarketCancel,
-  handlePluginMarketRemove,
   handlePluginMarketEnabled,
   normalizeBundle,
   operationView,
@@ -157,19 +160,10 @@ test('网关报服务不存在时同样收敛成 plugin-market-unavailable', asy
 });
 
 // ---------------------------------------------------------------------------
-// 自己：只可更新，不可卸载 / 停用
+// 自己：只可更新，不可停用
 // ---------------------------------------------------------------------------
 
-test('卸载承载手机连接的自己：调网关之前就拒，403 self-protected', async () => {
-  const gateway = makeGateway({ 'pluginManager/listBundles': () => [bundle({ name: SELF_NAME })] });
-  const res = makeRes();
-  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ name: SELF_NAME, confirm: true }), res);
-  assert.equal(res.status, 403);
-  assert.equal(res.body.error.code, 'self-protected');
-  assert.equal(gateway.calls.length, 0, '这条不许先打一发再拦');
-});
-
-test('停用自己同样拒绝；启用自己则照常转给宿主', async () => {
+test('停用自己拒绝；启用自己则照常转给宿主', async () => {
   const gateway = makeGateway({ 'pluginManager/setBundleEnabled': () => ({ changed: true, application: 'applied', stage: 'enable', target: SELF_NAME }) });
   const denied = makeRes();
   await handlePluginMarketEnabled(makeCtx(gateway), makeReq({ name: SELF_NAME, enabled: false }), denied);
@@ -182,30 +176,67 @@ test('停用自己同样拒绝；启用自己则照常转给宿主', async () =>
   assert.deepEqual(gateway.calls[0].args, { name: SELF_NAME, enabled: true });
 });
 
-test('卸载必须带 confirm:true 与包名', async () => {
-  const gateway = makeGateway();
-  const missingConfirm = makeRes();
-  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ name: 'x' }), missingConfirm);
-  assert.equal(missingConfirm.status, 400);
+// ---------------------------------------------------------------------------
+// npm 源：安装时能选一个
+// ---------------------------------------------------------------------------
 
-  const missingName = makeRes();
-  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ confirm: true }), missingName);
-  assert.equal(missingName.status, 400);
-  assert.equal(gateway.calls.length, 0);
-});
-
-test('卸载别人的插件：转给 removeBundle，并把 application 原样回报', async () => {
+test('registries：三格清洗后原样透出（空串 / 非字符串 / 超长 / 非数组都收口）', async () => {
   const gateway = makeGateway({
-    'pluginManager/removeBundle': (request) => {
-      assert.deepEqual(request.args, { name: 'some-plugin' });
-      return { changed: true, application: 'restart-required', restartReason: 'no-hmr', stage: 'remove', target: 'some-plugin' };
+    'pluginManager/registries': (request) => {
+      assert.deepEqual(request.args, {}, 'registries 不带参数');
+      return {
+        registry: '  https://registry.npmmirror.com/  ',
+        fallbackRegistries: [
+          'https://registry.npmjs.org/',
+          '',
+          '   ',
+          42,
+          null,
+          'https://registry.yarnpkg.com/',
+          'x'.repeat(400),
+        ],
+        resolved: 'https://registry.npmmirror.com/',
+      };
     },
   });
   const res = makeRes();
-  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ name: 'some-plugin', confirm: true }), res);
+  await handlePluginMarketRegistries(makeCtx(gateway), makeReq(undefined), res);
   assert.equal(res.status, 200);
-  assert.equal(res.body.operation.application, 'restart-required');
-  assert.equal(res.body.operation.restartReason, 'no-hmr');
+  assert.equal(res.body.registry, 'https://registry.npmmirror.com/', '前后空白要削掉');
+  assert.deepEqual(res.body.fallbackRegistries, [
+    'https://registry.npmjs.org/',
+    'https://registry.yarnpkg.com/',
+    'x'.repeat(300),
+  ], '脏项丢掉，长的截 300');
+  assert.equal(res.body.resolved, 'https://registry.npmmirror.com/');
+});
+
+test('registries：主源 / 解析结果读不到就给 null，备用源不是数组就当没有', async () => {
+  const res = makeRes();
+  await handlePluginMarketRegistries(makeCtx(makeGateway({
+    'pluginManager/registries': () => ({ registry: null, fallbackRegistries: 'https://registry.npmjs.org/', resolved: 7 }),
+  })), makeReq(undefined), res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.registry, null);
+  assert.deepEqual(res.body.fallbackRegistries, []);
+  assert.equal(res.body.resolved, null, '非字符串的解析结果不能编成 "7"');
+});
+
+test('registries：备用源最多留 20 条', async () => {
+  const many = Array.from({ length: 30 }, (_, i) => `https://registry-${i}.example.com/`);
+  const res = makeRes();
+  await handlePluginMarketRegistries(makeCtx(makeGateway({
+    'pluginManager/registries': () => ({ registry: null, fallbackRegistries: many, resolved: null }),
+  })), makeReq(undefined), res);
+  assert.equal(res.body.fallbackRegistries.length, 20);
+  assert.equal(res.body.fallbackRegistries[19], many[19], '按顺序留前 20 条');
+});
+
+test('registries：宿主没有插件管理器时与别的 handler 同一个码', async () => {
+  const res = makeRes();
+  await handlePluginMarketRegistries({ get: () => null }, makeReq(undefined), res);
+  assert.equal(res.status, 503);
+  assert.equal(res.body.error.code, 'plugin-market-unavailable');
 });
 
 // ---------------------------------------------------------------------------
@@ -277,6 +308,55 @@ test('装：approvedBuilds（允许依赖脚本那次重试）原样透传', asy
   await handlePluginMarketInstall(makeCtx(gateway), makeReq({ spec: 'dsh-foo', requestId: 'req-builds', approvedBuilds: ['esbuild', 'sharp', 42] }), res);
   assert.equal(res.status, 202);
   await settle(require('../lib/mobile/plugin-market.js').tasks.get('req-builds'));
+});
+
+test('装：给了 npm 源就逐字放进 options.registry', async () => {
+  let seenOptions = null;
+  const gateway = makeGateway({
+    'pluginManager/installBundle': (request) => {
+      seenOptions = request.args.options;
+      return { changed: true, application: 'applied', stage: 'install', target: 'dsh-foo' };
+    },
+  });
+  const res = makeRes();
+  await handlePluginMarketInstall(makeCtx(gateway), makeReq({
+    spec: 'dsh-foo',
+    requestId: 'req-registry',
+    registry: '  https://registry.npmmirror.com/  ',
+  }), res);
+  assert.equal(res.status, 202);
+  await settle(require('../lib/mobile/plugin-market.js').tasks.get('req-registry'));
+  assert.deepEqual(seenOptions, { requestId: 'req-registry', enabled: true, registry: 'https://registry.npmmirror.com/' });
+});
+
+test('装：没给 npm 源时 options 里连这个键都没有（空着不等于「跟随宿主配置」）', async () => {
+  for (const [requestId, registry] of [['req-no-registry', undefined], ['req-null-registry', null], ['req-blank-registry', '   ']]) {
+    let seenOptions = null;
+    const gateway = makeGateway({
+      'pluginManager/installBundle': (request) => {
+        seenOptions = request.args.options;
+        return { changed: true, application: 'applied', stage: 'install', target: 'dsh-foo' };
+      },
+    });
+    const res = makeRes();
+    await handlePluginMarketInstall(makeCtx(gateway), makeReq({ spec: 'dsh-foo', requestId, registry }), res);
+    assert.equal(res.status, 202);
+    await settle(require('../lib/mobile/plugin-market.js').tasks.get(requestId));
+    assert.deepEqual(seenOptions, { requestId, enabled: true });
+    assert.equal(Object.prototype.hasOwnProperty.call(seenOptions, 'registry'), false, `${requestId}: 不传就不该有 registry 这个键`);
+  }
+});
+
+test('装：registry 类型不对或太长 → 400，不建任务也不打网关', async () => {
+  for (const registry of [42, { url: 'https://registry.npmjs.org/' }, ['https://registry.npmjs.org/'], 'https://x/'.repeat(40)]) {
+    const gateway = makeGateway();
+    const res = makeRes();
+    await handlePluginMarketInstall(makeCtx(gateway), makeReq({ spec: 'dsh-foo', requestId: 'req-bad-registry', registry }), res);
+    assert.equal(res.status, 400, `${JSON.stringify(registry).slice(0, 40)} 该被拒`);
+    assert.equal(res.body.error.code, 'bad-request');
+    assert.equal(gateway.calls.length, 0, '脏值不该先打一发再拦');
+    assert.equal(require('../lib/mobile/plugin-market.js').tasks.has('req-bad-registry'), false);
+  }
 });
 
 test('装失败：失败也落进那条记录（手机否则只能干等到超时）', async () => {
@@ -388,20 +468,23 @@ test('动作结果只认宿主那五个 application，别的按失败算', () =>
   assert.equal(withError.error.message, '需要 0.3');
 });
 
-test('接线：八条路由都挂在移动端路由表里，且都经 route()（= 带 token 守卫）', () => {
+test('接线：该有的八条都挂在移动端路由表里，卸载那条不在', () => {
   const table = readSource('lib/routes/mobile-api.js');
   for (const suffix of [
     '/plugin/market',
+    '/plugin/market/registries',
     '/plugin/market/inspect',
     '/plugin/market/install',
     '/plugin/market/update',
     '/plugin/market/progress',
     '/plugin/market/cancel',
-    '/plugin/market/remove',
     '/plugin/market/enabled',
   ]) {
     assert.ok(table.includes(`route('/api/mobile/v1${suffix}'`), `${suffix} 没注册（App 打过去必然 404）`);
   }
+  // 手机上不做卸载（那要重启电脑上的 DSH）：路由与 handler 一起拿掉，别留一条没人该打的路。
+  assert.ok(!table.includes("'/api/mobile/v1/plugin/market/remove'"), '卸载那条不该还注册着');
+  assert.ok(!readSource('lib/mobile/plugin-market.js').includes('handlePluginMarketRemove'), '卸载 handler 的导出也该一起删掉');
 });
 
 test('契约：不借道 shell / 不自己跑包管理器（能力面收在 pluginManager 上）', () => {

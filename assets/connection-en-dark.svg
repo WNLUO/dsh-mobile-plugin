@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="300" viewBox="0 0 780 300" role="img" aria-label="The phone app reaches the DSH on your computer through a relay, or over the LAN">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6e7681"/>
+    </marker>
+  </defs>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif">    <rect x="30" y="95" width="176" height="92" rx="14" fill="none" stroke="#3d444d" stroke-width="1.6"/>
+    <text x="118" y="133" text-anchor="middle" font-size="16" font-weight="600" fill="#e6edf3">Phone app</text>
+    <text x="118" y="158" text-anchor="middle" font-size="12.5" fill="#9198a1">iOS · Android</text>    <rect x="302" y="95" width="176" height="92" rx="14" fill="none" stroke="#3d444d" stroke-width="1.6" stroke-dasharray="6 5"/>
+    <text x="390" y="133" text-anchor="middle" font-size="16" font-weight="600" fill="#e6edf3">Relay server</text>
+    <text x="390" y="158" text-anchor="middle" font-size="12.5" fill="#9198a1">public, optional</text>    <rect x="574" y="95" width="176" height="92" rx="14" fill="none" stroke="#3d444d" stroke-width="1.6"/>
+    <text x="662" y="133" text-anchor="middle" font-size="16" font-weight="600" fill="#e6edf3">Your computer</text>
+    <text x="662" y="158" text-anchor="middle" font-size="12.5" fill="#9198a1">plugin + DSH</text>    <line x1="213" y1="141" x2="295" y2="141" stroke="#6e7681" stroke-width="1.6" marker-start="url(#a)" marker-end="url(#a)"/>    <line x1="485" y1="141" x2="567" y2="141" stroke="#6e7681" stroke-width="1.6" marker-start="url(#a)" marker-end="url(#a)"/>    <text x="254" y="126" text-anchor="middle" font-size="12" fill="#9198a1">HTTPS / WSS</text>
+    <text x="526" y="126" text-anchor="middle" font-size="12" fill="#9198a1">WSS tunnel</text>
+    <path d="M118 190 C118 254, 662 254, 662 190" fill="none" stroke="#6e7681" stroke-width="1.6" stroke-dasharray="5 6" marker-start="url(#a)" marker-end="url(#a)"/>
+    <text x="390" y="272" text-anchor="middle" font-size="12.5" fill="#9198a1">On the same Wi-Fi it connects directly over the LAN</text>
+  </g>
+</svg>

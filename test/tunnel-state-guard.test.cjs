@@ -10,8 +10,10 @@
 // 于是形成这个错位：/status 说「已连接」→ 宿主据此放行镜像推送 → worker 按真值回 503 tunnel
 // not connected。状态越乐观，推送越是必然失败，而且没有任何补偿手段。
 //
-// 本用例把 startTunnel() 的**真源码**抠出来 eval，配上假的 RelayTunnel 驱动那条时序 ——
-// 测的是真代码，不是照着真代码另写一遍（后者会在真代码坏掉时照样绿灯）。
+// 本用例把 openTunnel() / startTunnel() 的**真源码**抠出来 eval，配上假的 RelayTunnel 驱动
+// 那条时序 —— 测的是真代码，不是照着真代码另写一遍（后者会在真代码坏掉时照样绿灯）。
+// 建隧道那段之所以在 openTunnel() 里：换中转地址时新隧道要**在旧隧道还开着的时候**起来
+// （见 lib/relay/migrate.js），所以它不能再被 startTunnel 的 stopTunnel() 包着。
 const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { join } = require('node:path')
@@ -19,10 +21,10 @@ const { join } = require('node:path')
 const worker = readFileSync(join(__dirname, '..', 'lib', 'sidecar-facade-worker.cjs'), 'utf8')
 
 const START_TUNNEL_BODY = worker.slice(
-  worker.indexOf('function startTunnel() {'),
+  worker.indexOf('function openTunnel() {'),
   worker.indexOf('function startLan() {'),
 )
-assert.ok(START_TUNNEL_BODY.length > 0, '应能在 worker 源码里定位 startTunnel()')
+assert.ok(START_TUNNEL_BODY.length > 0, '应能在 worker 源码里定位 openTunnel() / startTunnel()')
 
 // 把真源码连同它依赖的模块级状态一起装进一个闭包：tunnel / tunnelState /
 // tunnelError 和 stopTunnel() 都按 worker 里的写法原样重建，这样 eval 出来的
@@ -94,15 +96,19 @@ function bootWorker() {
   const lines = START_TUNNEL_BODY.split('\n')
   const fromCallbacks = lines.findIndex((l) => l.includes('new RelayTunnel('))
   assert.ok(fromCallbacks > 0, '应能定位到 new RelayTunnel(')
+  // 扫到 `function startTunnel()` 就停：那里面那句 `stopTunnel(); tunnelState = 'connecting'`
+  // 是新实例在宣告自己（旧代码里它就在 new RelayTunnel 之前），没有「过期」可言。
+  const untilStart = lines.findIndex((l, i) => i > fromCallbacks && l.includes('function startTunnel() {'))
+  const end = untilStart > 0 ? untilStart : lines.length
   const writers = []
-  lines.forEach((line, i) => {
-    if (i <= fromCallbacks) return
-    if (!/\btunnelState\s*=|\btunnelError\s*=/.test(line)) return
+  for (let i = fromCallbacks + 1; i < end; i += 1) {
+    const line = lines[i]
+    if (!/\btunnelState\s*=|\btunnelError\s*=/.test(line)) continue
     // 守卫可以就在同一行（`onRegistered: () => { if (tunnel !== current) return; …`），
     // 也可以是紧挨着的上一行。两处都算。
     const near = `${lines[i - 1] || ''}${line}`
     writers.push({ line: i + 1, text: line.trim().slice(0, 58), guarded: /tunnel (===|!==) current/.test(near) })
-  })
+  }
   assert.ok(writers.length >= 3, `回调里应至少找到 3 处状态写入，实际 ${writers.length}`)
   for (const w of writers) {
     assert.ok(

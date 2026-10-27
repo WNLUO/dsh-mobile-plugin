@@ -132,6 +132,10 @@ function deviceMeta(device) {
   const meta = {};
   const name = truncate(device?.name, NAME_MAX);
   if (name) meta.name = name;
+  // 机型（「iPhone 15 Pro」/「Xiaomi 9」）：名字是用户起的、两台可能一模一样，机型是手机
+  // 自己报的，用来补上「这台到底是什么」。缺了就不写 —— 判重仍只看 `deviceId`。
+  const model = truncate(device?.model, NAME_MAX);
+  if (model) meta.model = model;
   const platform = truncate(device?.platform, FIELD_MAX);
   if (platform) meta.platform = platform;
   const osVersion = truncate(device?.osVersion ?? device?.version, FIELD_MAX);
@@ -364,9 +368,20 @@ function listActive() {
 /**
  * 面板要的那份设备清单。
  *
- * 按 `deviceId` 聚成一行：同一台手机重配几次不该在列表里重复出现。名字与平台取最新一条
- * **有值的**记录（老记录这些字段是空的，空的不能覆盖有值的），绑定时间取最早，最近连接取
- * 最大，走哪条路取最近那条的。
+ * 按 `deviceId` 聚成一行：同一台手机重配几次不该在列表里重复出现。机型号、名字、平台、
+ * 系统版本、App 版本都取最新一条**有值的**记录（老记录这些字段是空的，空的不能覆盖有值的），
+ * 绑定时间取最早，最近连接取最大，走哪条路取最近那条的。
+ *
+ * **`deviceId` 是这一页唯一的键**：它是手机第一次启动时自己生成的，配对那一刻交给宿主，
+ * 之后每条请求都带着它。名字、机型、平台、版本一概不参与判重 —— 改个名字不该变成两台。
+ *
+ * `bindings` 是这台名下**还有几条活凭据**：同一台手机重配一次就多一条，旧的那条仍然能用。
+ * 大于 1 时面板要把「另有几条旧绑定」摆出来，否则人只在解除绑定那一下看到「2 条凭据」，
+ * 之前一直以为只有一份。
+ *
+ * `suffix` 只在**同一批设备里标题会撞**时给出序号（`1`、`2`…），其余是空串——分组用的就是
+ * 面板拿来当标题的那一格：机型优先，机型空着才用名字。按绑定时间编号：早绑的是 1。
+ * 序号是显示用的，不进库、也不回给手机。
  *
  * `legacy` 标的是「这个 deviceId 下还有不带设备密钥的活记录」：那种凭据的吊销杀不掉旧
  * Bearer，界面上的撤销文案必须区别对待，不能写「立即失效」。
@@ -386,6 +401,7 @@ function listDevices(instanceId) {
       row = {
         deviceId: key,
         name: '',
+        model: '',
         platform: '',
         osVersion: '',
         appVersion: '',
@@ -393,14 +409,18 @@ function listDevices(instanceId) {
         lastSeenAt: 0,
         lastChannel: '',
         lastSeenFrom: 0,
+        bindings: 0,
+        suffix: '',
         legacy: false,
         encrypted: false,
         expiresAt: 0,
       };
       rows.set(key, row);
     }
+    row.bindings += 1;
     if (createdAt && (!row.boundAt || createdAt < row.boundAt)) row.boundAt = createdAt;
-    // 名字与平台取最新一条有值的：老记录没有这些字段，空不能覆盖有值。
+    // 机型号、名字、平台等取最新一条有值的：老记录没有这些字段，空不能覆盖有值。
+    if (record.model && createdAt >= (row.modelAt || 0)) { row.model = record.model; row.modelAt = createdAt; }
     if (record.name && createdAt >= (row.nameAt || 0)) { row.name = record.name; row.nameAt = createdAt; }
     if (record.platform && createdAt >= (row.platformAt || 0)) { row.platform = record.platform; row.platformAt = createdAt; }
     if (record.osVersion && createdAt >= (row.osVersionAt || 0)) { row.osVersion = record.osVersion; row.osVersionAt = createdAt; }
@@ -416,21 +436,24 @@ function listDevices(instanceId) {
     // 带设备密钥的记录才走逐请求签名；只带 6 位码配对的那个版本永远是明文。
     if (record.deviceKey) row.encrypted = true;
   }
-  const out = [];
-  const labelCount = new Map();
+  // 撞名才编号：分组用的正是面板拿来当标题的那一格 —— **机型优先，没有机型才用名字**。
+  // 两台都叫「iPhone 15 Pro」时「· 1 / · 2」是人认得出的；挂着机器号后四位则不是。
+  const groups = new Map();
   for (const row of rows.values()) {
-    const label = `${row.name}\u0000${row.platform}`;
-    labelCount.set(label, (labelCount.get(label) || 0) + 1);
+    const label = row.model || row.name || '';
+    const bucket = groups.get(label);
+    if (bucket) bucket.push(row);
+    else groups.set(label, [row]);
   }
+  for (const bucket of groups.values()) {
+    if (bucket.length < 2) continue;
+    const ordered = [...bucket].sort((a, b) => (a.boundAt - b.boundAt) || String(a.deviceId).localeCompare(String(b.deviceId)));
+    ordered.forEach((row, index) => { row.suffix = String(index + 1); });
+  }
+  const out = [];
   for (const row of rows.values()) {
-    const { nameAt, platformAt, osVersionAt, appVersionAt, lastSeenFrom, ...rest } = row;
-    // 同名同平台的两台手机在列表里长得一样，加 deviceId 后 4 位才分得清；名字本来就不重复的
-    // 不加，别让每行都挂一串十六进制。
-    const duplicated = Boolean(row.name) && (labelCount.get(`${row.name}\u0000${row.platform}`) || 0) > 1;
-    out.push({
-      ...rest,
-      name: duplicated ? `${row.name} · ${String(row.deviceId).slice(-4)}` : row.name,
-    });
+    const { modelAt, nameAt, platformAt, osVersionAt, appVersionAt, lastSeenFrom, ...rest } = row;
+    out.push(rest);
   }
   // 最近连着的排前面；从没连过的按绑定时间倒序垫后。
   out.sort((a, b) => (b.lastSeenAt - a.lastSeenAt) || (b.boundAt - a.boundAt));

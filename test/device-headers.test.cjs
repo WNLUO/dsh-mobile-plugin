@@ -24,24 +24,28 @@ const path = require('node:path');
 
 const { deviceMetaFromHeaders } = require('../lib/shared/device-headers.js');
 
-test('四个头各读各的；缺的格子不出现在结果里（空串会冲掉已有值）', () => {
+test('五个头各读各的；缺的格子不出现在结果里（空串会冲掉已有值）', () => {
   const meta = deviceMetaFromHeaders({
     headers: {
       'x-dsh-device-name': 'Pixel 9',
+      'x-dsh-device-model': 'Xiaomi 9',
       'x-dsh-platform': 'android',
       'x-dsh-os-version': '34',
       'x-dsh-app-version': '0.3.24',
     },
   });
-  assert.deepEqual(meta, { name: 'Pixel 9', platform: 'android', osVersion: '34', appVersion: '0.3.24' });
+  assert.deepEqual(meta, { name: 'Pixel 9', model: 'Xiaomi 9', platform: 'android', osVersion: '34', appVersion: '0.3.24' });
 
-  // 老版本 App 一个头都不带：结果必须是空对象，不能是四个空串。
+  // 老版本 App 一个头都不带：结果必须是空对象，不能是五个空串。
   assert.deepEqual(deviceMetaFromHeaders({ headers: {} }), {});
   assert.deepEqual(deviceMetaFromHeaders(undefined), {});
   assert.deepEqual(deviceMetaFromHeaders({}), {});
 
   // 只带了版本：只写这一格。
   assert.deepEqual(deviceMetaFromHeaders({ headers: { 'x-dsh-app-version': '0.3.25' } }), { appVersion: '0.3.25' });
+
+  // 只带机型（这一格出生之前配的对，靠这里补登记）：也只写这一格。
+  assert.deepEqual(deviceMetaFromHeaders({ headers: { 'x-dsh-device-model': ' iPhone 15 Pro ' } }), { model: 'iPhone 15 Pro' });
 
   // 重复头是数组，只认第一个；首尾空白裁掉。
   assert.equal(deviceMetaFromHeaders({ headers: { 'x-dsh-device-name': ['  iPhone  ', 'x'] } }).name, 'iPhone');
@@ -60,17 +64,20 @@ test('凭据库：touch 带身份时写回去，缺的格子保持原值', () =>
   const issued = credentials.issue('inst-meta', {
     deviceId: 'dev-meta',
     name: '旧名字',
+    model: 'iPhone 14 Pro',
     platform: 'ios',
     appVersion: '0.3.0',
   });
   const record = credentials.lookup(issued.credential, 'inst-meta');
   assert.equal(record.appVersion, '0.3.0');
+  assert.equal(record.model, 'iPhone 14 Pro', '配对那一刻带的机型要落进记录');
 
-  // 手机升级了：只带版本与系统版本 → 名字与平台保持原样。
+  // 手机升级了：只带版本与系统版本 → 名字、机型与平台保持原样。
   credentials.touch(record, { channel: 'lan', meta: { appVersion: '0.3.24', osVersion: '18.2' } });
   assert.equal(record.appVersion, '0.3.24', '版本必须被刷新（这正是「面板还报旧版本」那条）');
   assert.equal(record.osVersion, '18.2');
   assert.equal(record.name, '旧名字', '这次没带名字，已有的必须留着');
+  assert.equal(record.model, 'iPhone 14 Pro', '这次没带机型，已有的必须留着 —— 冲成空就成了「认不出是哪台」');
   assert.equal(record.platform, 'ios');
 
   // 不带任何身份（老版本 App）：什么都不改。
@@ -107,13 +114,15 @@ test('两侧头名逐字一致：App 写的名字必须就是宿主读的那几�
     'utf8',
   );
   const host = fs.readFileSync(path.join(__dirname, '..', 'lib', 'shared', 'device-headers.js'), 'utf8');
-  for (const name of ['X-Dsh-Platform', 'X-Dsh-Os-Version', 'X-Dsh-App-Version']) {
+  for (const name of ['X-Dsh-Device-Model', 'X-Dsh-Platform', 'X-Dsh-Os-Version', 'X-Dsh-App-Version']) {
     assert.ok(app.includes(name), `App 侧没有写 ${name}`);
     assert.ok(
       host.toLowerCase().includes(name.toLowerCase()),
       `宿主侧没有读 ${name}（改了一边忘另一边：身份永远刷不上去，而且不会报错）`,
     );
   }
-  assert.ok(headers.includes('X-Dsh-Device-Name'), '设备名要在鉴权头里带上（它来自会话）');
-  assert.ok(host.toLowerCase().includes('x-dsh-device-name'), '宿主侧要读设备名');
+  // 设备名那一格 App **不再发**（2026-10-27）：它填的是 App 里给这台电脑起的备注，不是手机
+  // 自己的名字，报上去等于把「书房的 Mac」挂到手机头上。宿主仍读这条头，老 App 照旧能补。
+  assert.ok(!headers.includes('X-Dsh-Device-Name'), 'App 不该再把电脑的备注当手机名发出去');
+  assert.ok(host.toLowerCase().includes('x-dsh-device-name'), '宿主侧要读设备名（老 App 还会发）');
 });

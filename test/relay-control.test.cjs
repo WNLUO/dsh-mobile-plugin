@@ -282,6 +282,137 @@ test('测速：只测 http(s)、最多 8 条，不把宿主当任意地址探测
   assert.ok(seen.every((url) => /^https?:\/\//.test(url)), '只许 http(s)');
 });
 
+test('试连（stage:"prepare"）：一行都不落盘，临时实例 id 与正式 id 不同', async () => {
+  const seen = [];
+  const { deps, calls, state } = makeDeps({
+    deps: { verifyRelay: async (opts) => { seen.push(opts); } },
+  });
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ relayUrl: ' https://new.example.com/ ', stage: 'prepare' }), res);
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { ok: true, verified: true, target: 'https://new.example.com' });
+  // 「不落盘」是这条的全部意义：填错地址时这台电脑会从网上消失，而改地址的入口就在那条隧道上。
+  assert.equal(calls.update.length, 0, '试连不许写配置');
+  assert.equal(calls.sync, 0, '试连也不许碰正在服务的隧道（推下去就断了）');
+  assert.equal(state.relayUrl, 'https://relay.example.com', '配置里还是老地址');
+  assert.equal(seen.length, 1, '试连要真连一次中转，不是看一眼字符串');
+  const probe = seen[0];
+  assert.notEqual(probe.instanceId, state.instanceId, '临时 id 必须与正式 id 不同：撞上会把正在服务的那条顶掉');
+  assert.ok(probe.instanceId.startsWith(state.instanceId), '临时 id 以正式 id 打头，中转侧看得出是谁在试');
+  assert.ok(probe.instanceId.includes('~probe~'), '临时 id 要带标记段');
+  assert.equal(probe.upstreamPort, 3080, '试连也要一个本地上游端口');
+  assert.equal(probe.relayUrl.replace(/\/+$/, ''), 'https://new.example.com', '验证的就是用户刚填的那个地址');
+});
+
+test('试连失败：回 400 并带上原因，配置一个字都没动', async () => {
+  const { deps, calls, state } = makeDeps({
+    deps: { verifyRelay: async () => { throw new Error('隧道关闭: 1008 bad registration secret'); } },
+  });
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ relayUrl: 'https://typo.example.com', stage: 'prepare' }), res);
+
+  assert.equal(res.status, 400, '验证不通过不许当成功');
+  assert.equal(res.body.verified, false);
+  assert.match(res.body.error.message, /bad registration secret/, '原因要原样带给用户，别换成一句「失败」');
+  assert.equal(calls.update.length, 0);
+  assert.equal(calls.sync, 0);
+  assert.equal(state.relayUrl, 'https://relay.example.com');
+});
+
+test('试连缺新地址 / stage 不认识：回 400，不许当成普通保存', async () => {
+  const { deps, calls } = makeDeps();
+  const handlers = createRelayControlHandlers(deps);
+
+  const noUrl = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ lanPort: 18787, stage: 'prepare' }), noUrl);
+  assert.equal(noUrl.status, 400, '没有新地址就没有可验证的东西');
+
+  const emptyUrl = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ relayUrl: '   ', stage: 'prepare' }), emptyUrl);
+  assert.equal(emptyUrl.status, 400, '空地址没什么可试连的');
+
+  const typo = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ relayUrl: 'https://new.example.com', stage: 'verify' }), typo);
+  assert.equal(typo.status, 400, '只认 prepare / commit，拼错的 stage 不许悄悄按保存处理');
+  assert.equal(calls.update.length, 0);
+});
+
+test('提交（stage:"commit"）换地址：等这次下发完才回包，失败如实回 502', async () => {
+  let applied = false;
+  const { deps, state } = makeDeps({
+    deps: { syncSidecar: async () => { applied = true; } },
+  });
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ relayUrl: 'https://new.example.com', stage: 'commit' }), res);
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.migrated, true);
+  assert.equal(applied, true, 'commit 必须真的等「迁移 + 重建」走完');
+  assert.equal(state.relayUrl, 'https://new.example.com');
+
+  const failed = makeDeps({
+    deps: { syncSidecar: async () => { throw new Error('sidecar facade request failed: 503 (隧道关闭: 1008 bad registration secret)'); } },
+  });
+  const failRes = fakeRes();
+  await createRelayControlHandlers(failed.deps).handleRelayConfigSave(
+    {}, reqWith({ relayUrl: 'https://bad.example.com', stage: 'commit' }), failRes,
+  );
+  assert.equal(failRes.status, 502, '换地址失败不能先回 200 再记账');
+  assert.equal(failRes.body.error.code, 'relay-switch-failed');
+  assert.match(failRes.body.error.message, /bad registration secret/, '真实原因要一路回到手机上');
+});
+
+test('提交但没换地址：仍按老节奏「先回包、再推下去」', async () => {
+  const { deps, calls } = makeDeps();
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ name: '新名字', stage: 'commit' }), res);
+  assert.equal(res.status, 200);
+  assert.equal(calls.sync, 0, '响应返回时还没推');
+  await wait(AFTER_RESPONSE_MS + 60);
+  assert.equal(calls.sync, 1);
+});
+
+test('POST /relay/config 与 /relay/config/save 是同一份实现（GET 仍是读配置）', async () => {
+  const { deps, state } = makeDeps();
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleRelayConfig({}, reqWith({ relayUrl: 'https://posted.example.com' }), res);
+  assert.equal(res.status, 200);
+  assert.equal(state.relayUrl, 'https://posted.example.com', 'POST 落在这条路径上也要真的改配置');
+
+  const read = fakeRes();
+  await handlers.handleRelayConfig({}, { method: 'GET', headers: {} }, read);
+  assert.equal(read.body.config.relayUrl, 'https://posted.example.com', 'GET 还是读配置');
+});
+
+test('诊断：重建失败的台账报得出来（手机「运行状态」读的就是这一格）', async () => {
+  const applyLedger = require('../lib/relay/apply-ledger.cjs');
+  applyLedger.reset();
+  applyLedger.recordFailure(new Error('sidecar facade request failed: 503 (注册超时)\n    at 堆栈第二行'), 'https://relay2.example.com');
+  const { deps } = makeDeps();
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleRelayDiagnostics({}, {}, res);
+
+  const apply = res.body.apply;
+  assert.ok(apply && apply.lastFailure, '失败台账必须在诊断里，否则「保存成功然后掉线」永远查不出来');
+  assert.equal(apply.lastFailure.message, 'sidecar facade request failed: 503 (注册超时)', '只留第一行，不搬堆栈');
+  assert.equal(apply.lastFailure.target, 'https://relay2.example.com', '要能说出当时切的是哪个地址');
+  assert.equal(typeof apply.lastFailure.at, 'number', '要带时间');
+  assert.equal(apply.okAt, null, '还没成功过');
+
+  applyLedger.recordSuccess();
+  const ok = fakeRes();
+  await handlers.handleRelayDiagnostics({}, {}, ok);
+  assert.equal(typeof ok.body.apply.okAt, 'number', '之后成功过要看得出来');
+  applyLedger.reset();
+});
+
 test('诊断：故障只搬最近几条、只留第一行（不搬堆栈）', async () => {
   const { deps } = makeDeps();
   const handlers = createRelayControlHandlers(deps);

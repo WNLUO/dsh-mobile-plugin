@@ -15,7 +15,7 @@ const EXPECTED_TYPES = {
   ping: 0x10, pong: 0x11, pairRequest: 0x12, pairConfirm: 0x13,
   httpCancel: 0x14, httpPause: 0x15, httpResume: 0x16, sync: 0x17,
   revokeAll: 0x18, revokeAllAck: 0x19,
-  pushRegister: 0x1a, pushSend: 0x1b,
+  pushRegister: 0x1a, pushSend: 0x1b, migrate: 0x1c,
 }
 const SHARED = {
   T: EXPECTED_TYPES,

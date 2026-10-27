@@ -179,10 +179,29 @@ test('开关摆在「连接状态」卡里、远程控制上面，且只有一�
 });
 
 test('设备类型与接口路径跟宿主契约对齐', () => {
-  for (const field of ['deviceId', 'name', 'platform', 'osVersion', 'appVersion', 'boundAt', 'lastSeenAt', 'lastChannel', 'legacy', 'encrypted', 'expiresAt']) {
+  for (const field of ['deviceId', 'name', 'model', 'platform', 'osVersion', 'appVersion', 'boundAt', 'lastSeenAt', 'lastChannel', 'bindings', 'suffix', 'legacy', 'encrypted', 'expiresAt']) {
     assert.match(api, new RegExp(`\\b${field}\\b`), `RelayDevice 少了契约字段 ${field}`);
   }
   assert.match(api, /serverNow: number/, '设备清单的回答要带 serverNow');
   assert.match(api, /revoked: number/, '吊销的回答里有 revoked');
   assert.match(api, /closed: number/, '吊销的回答里有 closed（断开几条已建立的流）');
+});
+
+test('撞名靠序号，不靠机器号尾数；机型与旧绑定条数都要摆出来', () => {
+  // 标题回退：机型（手机自己报的）→ 名字（历史来源很乱，见 DevicesCard 的注释）→「未知设备」。
+  assert.match(
+    devices,
+    /device\?\.model \|\| device\?\.name \|\| t\('panel\.devices\.unknown'\)/,
+    '标题要按 机型 → 名字 → 未知设备 的顺序取',
+  );
+  assert.match(devices, /device\?\.suffix \?/, '宿主给了序号才拼「· N」');
+  assert.ok(!/slice\(-\d\)/.test(devices), '不许再把 deviceId 后几位拼进名字：那串机器号人认不出来，也没法和手上的手机对上');
+  // 标题已经占了机型那一格，第二行只报平台 / 系统 / App 版本，不重复。
+  assert.ok(!/device\.name && device\.model/.test(devices), '第二行不再重复标题那格');
+  // 同一台手机重配过几次 → 名下好几枚活凭据，要把多出来的条数说出来。
+  assert.match(devices, /device\.bindings > 1/, '多家绑定要按 bindings 判');
+  assert.match(devices, /panel\.devices\.extraBindings/, '旧绑定那条提示要走字典');
+  assert.equal(zh('panel.devices.extraBindings'), '另有 {count} 条旧绑定');
+  const rows = dict.split('panel.devices.extraBindings').length - 1;
+  assert.ok(rows >= 5, `旧绑定那句只在 ${rows} 门语言里出现，五门都得有`);
 });

@@ -126,12 +126,20 @@ export function DevicesCard() {
   const devices = list?.devices ?? []
   const now = list?.serverNow ?? 0
   /**
-   * 设备名：空串是旧记录没存名字，不是「这台不存在」。
+   * 一行设备的标题：机型 → 名字 → 「未知设备」。
    *
-   * 2026-10-26 起名字后面挂设备号尾六位：一堆「未知设备」并排时，光看这四个字分不出
-   * 哪台是哪台（手机重新配过会多出一条新行，两条都叫「未知设备」）。
+   * **机型排在前面**：它是手机自己报的，稳定且说得清是哪种机器；名字那一格的历史要乱得多
+   * ——它来自 App 里给**这台电脑**起的备注（`session.name`），被当成手机自己的名字写了进来，
+   * 于是书房那台 Mac 的面板上会出现一台叫「书房的 Mac」的手机。所以只在机型还空着时
+   * 才拿名字兜底（这一格出生之前配的老记录就是这种）。
+   *
+   * 撞名时宿主会配一个序号（`device.suffix`）——早绑的是 1 ——不再拿 `deviceId` 后几位当
+   * 尾巴：那串机器号人认不出来，也没法和手上的手机对上号。
    */
-  const nameOf = (device: RelayDevice | null) => device?.name || `${t('panel.devices.unknown')} · ${String(device?.deviceId || '').slice(-6)}`
+  const nameOf = (device: RelayDevice | null) => {
+    const title = device?.model || device?.name || t('panel.devices.unknown')
+    return device?.suffix ? `${title} · ${device.suffix}` : title
+  }
 
   async function revoke(device: RelayDevice) {
     setRevoking(true)
@@ -184,6 +192,13 @@ export function DevicesCard() {
                   {device.legacy ? (
                     <Badge variant="warning" size="xs">
                       {t('panel.devices.legacy')}
+                    </Badge>
+                  ) : null}
+                  {/* 同一台手机重配过几次就会有好几条活凭据：不摆出来，人只在解除绑定那一下
+                      看到「2 条凭据」，之前一直以为只有一份。 */}
+                  {device.bindings > 1 ? (
+                    <Badge variant="secondary" size="xs">
+                      {t('panel.devices.extraBindings', { count: device.bindings - 1 })}
                     </Badge>
                   ) : null}
                   <span className="text-xs text-foreground-muted">
