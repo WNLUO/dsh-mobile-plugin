@@ -4,8 +4,7 @@
  * 移动端「引用发现」（@文件 / @会话 补全）的透传契约。
  *
  * 桌面端输入 @ 会同时发起 `fileReferences/list` 与 `sessionReferenceResolver/candidates` 两个
- * Remote 调用，文件排在会话前面。这两个宿主服务不在 apiProxy 上，是 Typert Remote 服务，同
- * 进程经 ctx.get('typertGateway') 到达。
+ * Remote 调用，文件排在会话前面。这两个宿主服务经 host-bridge 传输层调用。
  *
  * 容易写错的地方：**参数名是宿主生成的 wire 名**（两个方法的声明参数都是 agent(wire=agentId)
  * + query(wire=query)，所以 args 必须是 `{ agentId, query }`；query 是普通 JSON 字符串，

@@ -3,8 +3,7 @@
 /**
  * 移动端「插件清单」（桌面端 设置 → 插件 的只读快照）的透传契约。
  *
- * 数据来自宿主 `dsh-host-plugin-inventory` 的 `pluginInventory.list` —— 这个服务不在
- * apiProxy 上，是 Typert Remote 服务，同进程经 ctx.get('typertGateway') 到达。
+ * 数据来自宿主 `dsh-host-plugin-inventory` 的 `pluginInventory.list`，经 host-bridge 传输层调用。
  *
  * 容易写错的地方：**这个方法没有声明任何参数**，args 必须是空对象（多塞一个字段会被
  * assertExactArguments 判 arguments-invalid；它也没声明 cancellation，不能像 references 那样
