@@ -97,7 +97,7 @@ test('不同块、不同类型的增量不合并', async () => {
     '参数正文不下发；帧与身份字段照留（App 靠它们建流式工具块）');
 });
 
-test('tool-call-delta：帧照发，参数正文一帧都不带', async () => {
+test('tool-call-delta：只留身份帧，参数正文一帧都不带', async () => {
   const body = '{"path":"/tmp/a.md","content":"' + 'x'.repeat(3000);
   const res = await runStream([
     chunkFrame({ type: 'tool-call-delta', index: 2, id: 'c1', name: 'write', argumentsDelta: body }),
@@ -112,6 +112,17 @@ test('tool-call-delta：帧照发，参数正文一帧都不带', async () => {
   assert.equal(chunk.index, 2);
   assert.equal('argumentsDelta' in chunk, false, '整份文件内容不许跟着增量走');
   assert.equal(JSON.stringify(frames[0]).includes('/tmp/a.md'), false, '一个字节都不许漏出去');
+});
+
+test('tool-call-delta：参数砍空之后的帧整条不发（一次调用只占一帧身份）', async () => {
+  // 第一帧带身份，后面几十帧只剩 { type, index }。那些空壳在线上每 200ms 一窗、每窗补 2KB，
+  // 一个改文件的调用光参数流式就能白走几十上百 KB —— 手机只要「有个工具开始了、叫什么」。
+  const identity = chunkFrame({ type: 'tool-call-delta', index: 3, id: 'c7', name: 'edit', argumentsDelta: '{"pa' });
+  const shells = Array.from({ length: 8 }, () => chunkFrame({ type: 'tool-call-delta', index: 3, argumentsDelta: 'th":"/a"}' }));
+  const frames = dataFrames(await runStream([identity, ...shells]));
+  assert.equal(frames.length, 1, `空壳帧一帧都不该发，实际 ${frames.length} 帧`);
+  assert.deepEqual(frames[0].data.chunk, { type: 'tool-call-delta', index: 3, id: 'c7', name: 'edit' });
+  assert.equal(JSON.stringify(frames).includes('argumentsDelta'), false, '参数正文不许跟着走');
 });
 
 test('推理增量一帧都不下发（推理不出本机）', async () => {
@@ -208,7 +219,7 @@ test('tool/result：schedule_create 的结果正文留着（定时任务卡解�
   assert.equal(frames[1].data.message.content[0].text, '{"id":"t1","cron":"0 9 * * *"}', '卡的料一个字都不能少');
 });
 
-test('tool/call：arguments 只为三张轮尾卡的工具留着', async () => {
+test('tool/call：整条不下发（手机端没有消费者，但它带 seq、每帧补 2KB）', async () => {
   const bash = { type: 'tool/call', seq: 4, data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls -la"}' } };
   const schedule = { type: 'tool/call', seq: 5, data: { turn: 1, step: 1, callId: 'c2', name: 'schedule_create', arguments: '{"cron":"0 9 * * *"}' } };
   const nameless = { type: 'tool/call', seq: 6, data: { turn: 1, step: 1, callId: 'c3', arguments: '{"command":"rm -rf /"}' } };
@@ -217,10 +228,10 @@ test('tool/call：arguments 只为三张轮尾卡的工具留着', async () => {
     { payload: { type: 'session/event', sessionId, event: schedule } },
     { payload: { type: 'session/event', sessionId, event: nameless } },
   ]);
-  const frames = dataFrames(res);
-  assert.deepEqual(frames[0].data, { turn: 1, step: 1, callId: 'c1', name: 'bash' });
-  assert.equal(frames[1].data.arguments, '{"cron":"0 9 * * *"}');
-  assert.deepEqual(frames[2].data, { turn: 1, step: 1, callId: 'c3' }, '认不出工具名时按「不留」处理');
+  assert.equal(dataFrames(res).length, 0, '三条 tool/call 一条都不该上线');
+  // 三张轮尾卡的料走 assistant/message 里的 tool-call 块（见上一条用例），不靠这条事件。
+  const text = String(res.chunks.join(''));
+  assert.equal(text.includes('ls -la'), false, '命令行一个字节都不许漏出去');
 });
 
 test('非草稿帧之前先把攒着的草稿写出去（顺序）', async () => {

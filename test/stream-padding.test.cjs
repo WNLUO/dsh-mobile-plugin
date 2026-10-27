@@ -163,11 +163,12 @@ test('回放成批灌入也只按窗口补注释，一帧都不少', async () =>
   const restore = stubIntervals();
   const sessionId = 's-padding-replay';
   // 一次断线重放的形状：一长串带 seq 的事件连着写出去（实测一次 903 帧、2.06MB，
-  // 其中约 1.85MB 是逐条补出来的注释）。
+  // 其中约 1.85MB 是逐条补出来的注释）。样本用 `assistant/message`：它是这条流上最常见的
+  // 持久事件，而 `tool/call` 2026-10-28 起整条不上线路（见 stream-traffic 的用例）。
   const events = Array.from({ length: 60 }, (_, i) => ({
-    type: 'tool/call',
+    type: 'assistant/message',
     seq: i + 2,
-    data: { callId: `c${i}`, name: 'read' },
+    data: { message: { role: 'assistant', content: [{ type: 'text', text: `第 ${i} 条` }] } },
   }));
   const res = response();
   const ctl = muxOf([]);
