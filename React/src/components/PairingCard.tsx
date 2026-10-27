@@ -83,6 +83,9 @@ export function PairingCard({
   // 地址那一行不在这里：它点开的是弹窗（`addressOpen`），关掉弹窗就等于又遮上了。
   const [shown, setShown] = React.useState({ qr: false, relay: false })
   const [addressOpen, setAddressOpen] = React.useState(false)
+  // 放大二维码：屏幕缩放、手机离得远时，卡片里那颗太小。它只是同一张码的另一个尺寸，
+  // 揭开状态另算 —— 关掉弹窗回到卡片里的样子，不改变「默认遮着」那条。
+  const [qrZoom, setQrZoom] = React.useState(false)
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   return (
@@ -126,20 +129,28 @@ export function PairingCard({
               根本不存在那张图，截屏工具、开发者工具、页面另存为都拿不到它。
             */}
             {!shown.qr && pairing?.svg ? (
-              <div className="flex size-[224px] flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
+              <div className="flex size-[280px] flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
                 <span className="text-xs">{t('panel.pairing.qrHidden')}</span>
                 <RevealButton what={t('panel.pairing.qr')} label={t('panel.common.show')} onClick={() => toggle('qr')} />
               </div>
             ) : (<div className="flex items-start justify-center overflow-hidden rounded-md border border-border-muted bg-white p-3">
                 {pairing?.svg ? (
-                  // 宿主生成的 SVG（带 280px 固定宽高），内嵌后必须被这里压到方框大小；
-                  // 不是用户输入，没有注入面。
-                  <div
-                    className="size-[200px] [&_svg]:h-full [&_svg]:w-full"
-                    dangerouslySetInnerHTML={{ __html: pairing.svg }}
-                  />
+                  // 点码本身也能放大：手指落在图上的人不会先去找下面那颗按钮。
+                  <button
+                    type="button"
+                    className="cursor-zoom-in rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    onClick={() => setQrZoom(true)}
+                    aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
+                  >
+                    {/* 宿主生成的 SVG（带 280px 固定宽高），内嵌后必须被这里压到方框大小；
+                        不是用户输入，没有注入面。 */}
+                    <div
+                      className="size-[256px] [&_svg]:h-full [&_svg]:w-full"
+                      dangerouslySetInnerHTML={{ __html: pairing.svg }}
+                    />
+                  </button>
                 ) : (
-                  <div className="flex size-[200px] items-center justify-center text-foreground-subtle">
+                  <div className="flex size-[256px] items-center justify-center text-foreground-subtle">
                     {busy === 'pairing' ? <Spinner /> : t('panel.pairing.noQr')}
                   </div>
                 )}
@@ -147,6 +158,13 @@ export function PairingCard({
             )}
 
           </div>
+
+          {/* 放大那颗只在码真的摆出来之后才有一件事可做：遮着的时候点开只会看见一片白。 */}
+          {shown.qr && pairing?.svg ? (
+            <Button variant="ghost" size="md" onClick={() => setQrZoom(true)}>
+              {t('panel.pairing.qrZoom')}
+            </Button>
+          ) : null}
 
           <Button variant="outline" size="md" disabled={idle} onClick={onRegenerate}>
             {t('panel.pairing.regenerate')}
@@ -233,6 +251,41 @@ export function PairingCard({
           {t('panel.pairing.revokeAll')}
         </Button>
       </div>
+
+      {/*
+        放大二维码：与卡片里那颗是同一份 SVG，只是给到能凑近扫的尺寸。
+        屏幕缩放、显示器离得远、手机举着不方便时，这块比把卡片撑大管用。
+      */}
+      <Dialog open={qrZoom} onOpenChange={setQrZoom}>
+        <DialogContent className="w-[min(560px,92vw)] max-w-none" closeLabel={t('panel.common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('panel.pairing.qr')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex items-center justify-center rounded-md bg-white p-4">
+                {pairing?.svg ? (
+                  <div
+                    className="size-[min(70vh,440px)] [&_svg]:h-full [&_svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: pairing.svg }}
+                  />
+                ) : null}
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm text-foreground-muted">{t('panel.pairing.code')}</span>
+                <span className="font-mono text-xl tracking-[0.2em] text-foreground-intense">
+                  {pairing?.pairingCode || status.pairingCode || '—'}
+                </span>
+              </div>
+            </div>
+          </DialogBody>
+          <DialogFooter className="flex justify-end">
+            <Button variant="outline" onClick={() => setQrZoom(false)}>
+              {t('panel.common.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/*
         「本地识别地址」弹窗：地址清单与「手机优先用这条」都摆在这里。

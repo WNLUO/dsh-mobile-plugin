@@ -133,6 +133,37 @@ test('畸形 inbox 一律退化成空 items，不报错也不伪造行', async (
   }
 });
 
+// 宿主会把**系统注入**也当 user 行塞进同一份 inbox（后台任务结束、时间/环境上下文、
+// 子代理消息、模型切换提示……），来源在 `source.kind`，不是 `user`。队列帧的条目形状没有
+// source 这一格，摊平出去以后 App 会把它们画成「我发出去的气泡」（next-step 那条在 App 侧
+// 就是用户气泡）。这些注入在正文里本来就被来源过滤丢掉，这里必须同样丢掉。
+// 缺 source 的老宿主按用户消息算，与 history-derive 的口径一致。
+test('系统注入不进队列帧（它们不是用户说的话）', async () => {
+  const injected = (id, kind, text) => ({ id, source: { kind, form: 'notice' }, content: [{ type: 'text', text }] });
+  const { ctx } = makeCtx([
+    baselineFor('s-1', {
+      inbox: {
+        'next-turn': [inboxMessage('u1', '用户排队的'), injected('i1', 'tool-jobs', 'background job finished')],
+        'next-step': [
+          inboxMessage('u2', '用户插话的'),
+          injected('i2', 'devmap-hint', '<system-reminder>'),
+          injected('i3', 'time-context', 'Time sampled while preparing turn 1'),
+          injected('i4', 'subagent-settled', 'Background subagent finished'),
+          injected('i5', 'model-selection', '[model changed: a → b]'),
+          // 老宿主可能连 source 都没有：按用户消息处理，别顺手把真消息也丢了。
+          { id: 'legacy', content: [{ type: 'text', text: '没有 source 的旧行' }] },
+        ],
+      },
+    }),
+  ]);
+  const frames = await collect(muxFrames(ctx, { payload: { sessionId: 's-1' } }));
+  assert.deepEqual(queueFrames(frames)[0].payload.items, [
+    { id: 'u1', placement: 'queued', message: { id: 'u1', content: [{ type: 'text', text: '用户排队的' }] } },
+    { id: 'u2', placement: 'steering', message: { id: 'u2', content: [{ type: 'text', text: '用户插话的' }] } },
+    { id: 'legacy', placement: 'steering', message: { id: 'legacy', content: [{ type: 'text', text: '没有 source 的旧行' }] } },
+  ]);
+});
+
 test('投影里没有 inbox 就不发队列帧', async () => {
   const { ctx } = makeCtx([baselineFor('s-1', { model: { lastUsed: 'x' } })]);
   const frames = await collect(muxFrames(ctx, { payload: { sessionId: 's-1' } }));

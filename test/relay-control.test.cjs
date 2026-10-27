@@ -426,6 +426,45 @@ test('诊断：故障只搬最近几条、只留第一行（不搬堆栈）', as
   assert.equal(body.port.inUse, 18787);
 });
 
+test('诊断：插件版本 / 后台服务 / 镜像推送都报得出来，而密钥一格都不出现', async () => {
+  const { deps } = makeDeps({
+    deps: {
+      status: () => ({
+        enabled: true,
+        localPort: 3080,
+        appVersion: '0.4.4',
+        platform: 'darwin',
+        arch: 'arm64',
+        osVersion: '23.6.0',
+        instanceId: 'i1',
+        pairingCode: '123456',
+        registerSecret: 'shh-secret',
+        lan: { state: 'listening', port: 18787 },
+        tunnel: { state: 'connected', error: null },
+        sidecar: { state: 'running', restarts: 2, restartedAt: 900, restartError: null },
+        mirror: { pushedAt: 700, ok: false, error: 'push timeout' },
+      }),
+    },
+  });
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleRelayDiagnostics({}, {}, res);
+  const body = res.body;
+  assert.equal(body.host.plugin, '0.4.4', '报障第一句就要问插件版本');
+  assert.equal(body.host.webPort, 3080);
+  assert.equal(body.relay.enabled, true);
+  assert.equal(body.sidecar.state, 'running');
+  assert.equal(body.sidecar.restarts, 2, '后台服务重启过几回要看得见');
+  assert.equal(body.sidecar.restartError, null);
+  assert.equal(body.mirror.ok, false);
+  assert.equal(body.mirror.error, 'push timeout', '镜像推不动的原因要原样带出来');
+  // 这条是底线：诊断面板会被用户复制给别人，密钥类字段一个都不许进响应。
+  const raw = JSON.stringify(body);
+  for (const secret of ['shh-secret', 'old-secret', '123456', 'i1']) {
+    assert.equal(raw.includes(secret), false, `诊断响应里不许出现 ${secret}`);
+  }
+});
+
 test('装配没接上时统一回 503，不是 500 代码错误', async () => {
   // 需要 relay.json 真值的那八条：没接线时回「这台没这个能力」，而不是让 handler 去读
   // undefined 被守卫兜成 500 internal（那种错在手机上跟「代码坏了」长得一样）。

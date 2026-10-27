@@ -132,6 +132,8 @@ export function Onboarding({ onDone }: Props) {
   const [ipv6Open, setIpv6Open] = useState(false)
   /** 「选择地址」那颗按钮开的弹窗：机器有好几条网卡地址时，只有在这能看清并换掉走哪条。 */
   const [lanDialogOpen, setLanDialogOpen] = useState(false)
+  /** 「看大图」：同一张二维码的放大版。屏幕缩放或手机离得远时，卡片里那颗不够大。 */
+  const [qrZoomOpen, setQrZoomOpen] = useState(false)
   /**
    * 进页自动体检这台机器正在用的那个中转：`null` 还没查完、`true` 通、`false` 不通。
    * 不通要把底部那颗按钮拦掉 —— 带着一条死路往下走，用户到手机那一步才发现白配一场。
@@ -635,10 +637,10 @@ export function Onboarding({ onDone }: Props) {
 
         {/* 面板宽的时候二维码和地址分两栏：左边是「要扫的东西 + 现在通没通」，右边只剩
             「手机连哪条」。夹在侧栏里（窄屏）自动叠回一列，从上到下顺序不变。 */}
-        <div className="grid gap-6 px-4 pb-2 md:grid-cols-[212px_1fr]">
+        <div className="grid gap-6 px-4 pb-2 md:grid-cols-[280px_1fr]">
           <div className="flex flex-col items-center gap-3">
             {qrBlocked ? (
-              <div className="flex size-[200px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border-muted px-5 text-center">
+              <div className="flex size-[280px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border-muted px-5 text-center">
                 {needsOwnRelayAddress ? (
                   <>
                     <span className="text-xs text-foreground-muted">{t('panel.onboarding.qrAfterRelay')}</span>
@@ -649,13 +651,20 @@ export function Onboarding({ onDone }: Props) {
                 )}
               </div>
             ) : qrSvg ? (
-              <div
-                className="size-[200px] rounded-lg bg-white p-2 [&_svg]:h-full [&_svg]:w-full"
-                // 宿主自己吐的 SVG，不是用户输入。
-                dangerouslySetInnerHTML={{ __html: qrSvg }}
-              />
+              <button
+                type="button"
+                className="cursor-zoom-in rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                onClick={() => setQrZoomOpen(true)}
+                aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
+              >
+                <div
+                  className="size-[280px] rounded-lg bg-white p-3 [&_svg]:h-full [&_svg]:w-full"
+                  // 宿主自己吐的 SVG，不是用户输入。
+                  dangerouslySetInnerHTML={{ __html: qrSvg }}
+                />
+              </button>
             ) : (
-              <div className="flex size-[200px] items-center justify-center rounded-lg border border-border-muted text-xs text-foreground-muted">
+              <div className="flex size-[280px] items-center justify-center rounded-lg border border-border-muted text-xs text-foreground-muted">
                 {busy ? <Spinner /> : t('panel.onboarding.noQr')}
               </div>
             )}
@@ -664,6 +673,11 @@ export function Onboarding({ onDone }: Props) {
                 {pairing?.pairingCode ?? status?.pairingCode ?? '—'}
               </p>
             )}
+            {qrSvg && !qrBlocked ? (
+              <Button variant="ghost" size="sm" onClick={() => setQrZoomOpen(true)}>
+                {t('panel.pairing.qrZoom')}
+              </Button>
+            ) : null}
 
             {/* 中转还没连上时二维码里只有局域网地址：中转地址要隧道真连出去才写进码里，
                 不然手机扫到的是一条通不了的路。 */}
@@ -1000,6 +1014,35 @@ export function Onboarding({ onDone }: Props) {
             </span>
             <Button variant="primary" onClick={() => setFirewallOpen(false)}>
               {t('panel.onboarding.gotIt')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 放大二维码：与左栏那颗是同一份 SVG，只是给到能凑近扫的尺寸。 */}
+      <Dialog open={qrZoomOpen} onOpenChange={setQrZoomOpen}>
+        <DialogContent className="w-[min(560px,92vw)] max-w-none" closeLabel={t('panel.common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('panel.pairing.qr')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <div className="flex flex-col items-center gap-3">
+              <div className="flex items-center justify-center rounded-md bg-white p-4">
+                {qrSvg ? (
+                  <div
+                    className="size-[min(70vh,440px)] [&_svg]:h-full [&_svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: qrSvg }}
+                  />
+                ) : null}
+              </div>
+              <p className="font-mono text-lg tracking-[0.25em] text-foreground-intense">
+                {pairing?.pairingCode ?? status?.pairingCode ?? '—'}
+              </p>
+            </div>
+          </DialogBody>
+          <DialogFooter className="flex justify-end">
+            <Button variant="outline" onClick={() => setQrZoomOpen(false)}>
+              {t('panel.common.close')}
             </Button>
           </DialogFooter>
         </DialogContent>
