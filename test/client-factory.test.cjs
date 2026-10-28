@@ -552,6 +552,62 @@ test('宿主半边没加载（404）时说清怎么处理，不甩一句 HTTP 40
   assert.equal(text.includes('HTTP 404'), false);
 });
 
+test('404 时问外壳要原因：贴出宿主自己的说法，并给一颗「重新装载」', async () => {
+  // 老宿主没有 `/api/relay/host-half`（也 404），这条口问不到就当没有 —— 上面那条用例
+  // 钉的就是这个回退：只剩 loadMissing，不许多出一句报错。
+  const calls = [];
+  let reloaded = 0;
+  const env = materialize({
+    fetch: async (url, init = {}) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/status')) return { ok: false, status: 404, json: async () => ({}) };
+      if (String(url).endsWith('/host-half/reload')) {
+        reloaded += 1;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, half: { lastError: null, retrying: false } }),
+        };
+      }
+      if (String(url).endsWith('/host-half')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            half: { lastError: '装载 0.5.0 超时：它可能卡在等一个永远不来的依赖服务上', retrying: true },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.render();
+  await env.hooks.flush();
+
+  const tree = env.render();
+  const text = texts(tree).join('');
+  assert.match(text, /插件宿主侧没有加载/);
+  assert.match(text, /装载 0\.5\.0 超时/);
+  assert.match(text, /还在后台自己重试/);
+
+  const button = elements(tree)
+    .find((node) => node.type === 'button' && texts(node).join('') === '重新装载');
+  assert.ok(button, '装载失败时要有「重新装载」，否则用户只能重启整个 DSH');
+  assert.equal(button.props.disabled, false);
+  await button.props.onClick();
+  // 这里刻意用 settle 而不是 hooks.flush：flush 会再跑一遍挂载 effect（3 秒轮询那条），
+  // 于是刚拿回来的「已装好」又被下一次 404 自检覆盖掉，测的就不是这一次重装了。
+  await settle();
+
+  assert.equal(reloaded, 1);
+  const post = calls.find((call) => call.url.endsWith('/host-half/reload'));
+  assert.equal(post.init.method, 'POST');
+  assert.equal(post.init.credentials, 'same-origin');
+  // 重装成功之后原因就不该再挂在界面上。
+  assert.equal(texts(env.render()).join('').includes('装载 0.5.0 超时'), false, texts(env.render()).join(' | '));
+});
+
 test('errorText 把三种错误形状拍平成一句话', async () => {
   const cases = [
     [{ error: '直接一句' }, 500, '直接一句'],
@@ -615,9 +671,11 @@ test('字典注册在启动时一次性完成，且中英键一一对应', () =>
   const dict = env.dictionaries.get(NS);
   assert.ok(dict, `${NS} 字典必须注册`);
   assert.deepEqual(Object.keys(dict.zh).sort(), Object.keys(dict.en).sort());
-  // 键集**逐个钉死**：客户端 UI 只保留网页入口与本机临时访问开关，不长成第二个管理面板。
+  // 键集**逐个钉死**：客户端 UI 只保留网页入口、本机临时访问开关，以及 404 时那条
+  // 「宿主为什么没起来」的自检口，不长成第二个管理面板。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
-    'cardPanel', 'heading', 'loadFailed', 'loadMissing', 'nav', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
+    'cardPanel', 'heading', 'hostHalfReason', 'hostHalfReload', 'hostHalfReloadFailed', 'hostHalfRetrying',
+    'loadFailed', 'loadMissing', 'nav', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
     'webAccessClose', 'webAccessError', 'webAccessHint', 'webAccessOff', 'webAccessOn', 'webAccessOpen', 'webAccessUnavailable',
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);

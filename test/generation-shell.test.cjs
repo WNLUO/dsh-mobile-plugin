@@ -414,7 +414,10 @@ test('换代：装进来的新代可以顶上，不必重启进程，旧代的�
   assert.equal(after.lastError, null);
 
   // 假 webServer 撞重复路径会抛：新代能注册同一条路径，本身就证明旧代已经摘干净。
-  assert.equal(server.routes.size, 1, '换代替换而不是叠加：路由数不应增长');
+  // 外壳自己那两条自检口（host-half / host-half/reload）是常驻的，不算换代叠加 ——
+  // 这里数的是**实现**注册的路由。
+  const implRoutes = [...server.routes.keys()].filter((p) => !p.startsWith('/api/relay/host-half'));
+  assert.deepEqual(implRoutes, ['/api/relay/gen'], '换代替换而不是叠加：实现的路由不该增长');
   assert.equal(await routeReply(server, '/api/relay/gen'), 'b-0.9.3', '换完跑的必须真是新代那一段代码');
 });
 
@@ -636,7 +639,8 @@ export function apply(ctx) {
   assert.equal(reread.version, '2.0.0', '版本号没变，换的是同一份目录里的新代码');
   assert.equal(reread.lastError, null);
   assert.equal(await routeReply(server, '/api/relay/leaf'), 'disk-v2', 'reread 之后必须读到盘上新写的那份');
-  assert.equal(server.routes.size, 1, '换代替换而不是叠加：路由数不应增长');
+  const implRoutes = [...server.routes.keys()].filter((p) => !p.startsWith('/api/relay/host-half'));
+  assert.deepEqual(implRoutes, ['/api/relay/leaf'], '换代替换而不是叠加：实现的路由不该增长');
   assert.equal(manager.installedVersion(), '2.0.0');
 });
 
