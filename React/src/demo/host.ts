@@ -24,7 +24,7 @@ import qr2 from './qr-2.svg?raw'
 import qr3 from './qr-3.svg?raw'
 
 /** 画面上报的那个版本。必须跟插件包一致，否则演示里会出现一个不存在的版本号（守卫钉着）。 */
-export const DEMO_VERSION = '0.4.9'
+export const DEMO_VERSION = '0.4.10'
 
 /** 固定的演示身份。名字走真机也会有的那种，不写「演示」二字。 */
 const DEMO_NAME = 'Studio-Mac'
@@ -195,7 +195,8 @@ function statusView(): StatusView {
     },
     mirror: { pushedAt: DEMO_TIME.getTime(), ok: true, error: null },
     onboarded: state.onboarded,
-    lastMobileAt: 0,
+    // 与自检那一份同一口径：配上之后手机「四分钟前来过」，没配过就是从来没来过。
+    lastMobileAt: state.enabled ? DEMO_TIME.getTime() - 4 * 60_000 : 0,
     panelUrl: 'http://127.0.0.1:5274/demo.html',
   }
 }
@@ -208,6 +209,42 @@ function addressBook(): AddressBook {
     preferred: state.preferredLanAddress,
     lan: [{ address: DEMO_LAN_ADDRESS, url: `http://${DEMO_LAN_ADDRESS}:${state.lanPort}`, interface: 'en0', family: 'IPv4' }],
     public: [{ address: '203.0.113.9', url: `http://203.0.113.9:${state.lanPort}`, interface: 'en0', family: 'IPv4' }],
+  }
+}
+
+/**
+ * `/api/relay/selfcheck` 的假应答：形状与宿主一致，页面按真接口的字段读。
+ *
+ * 演示有两幕：还没配过时直连没起来（`not-listening`）、手机也没来过；配上之后直连在听、
+ * 隧道连着、手机四分钟前来过（`ok`）。`appPath` 故意写成 Homebrew 那种带版本号的长路径，
+ * 弹窗里该只露文件名。
+ */
+function selfCheck() {
+  const tunnelUp = state.enabled && state.relayUrl !== ''
+  const lanUp = state.enabled && state.lanEnabled
+  const lastMobileAt = state.enabled ? DEMO_TIME.getTime() - 4 * 60_000 : 0
+  const idle = lastMobileAt === 0
+  const verdict = !lanUp ? 'not-listening' : idle ? 'network' : 'ok'
+  return {
+    ok: true,
+    checkedAt: DEMO_TIME.getTime(),
+    platform: DEMO_PLATFORM,
+    verdict,
+    listening: {
+      state: lanUp ? 'listening' : 'off',
+      port: state.lanPort,
+      urls: lanUrls(),
+      portAdjusted: false,
+    },
+    tunnel: { state: tunnelUp ? 'connected' : 'off', relayUrl: state.relayUrl || null },
+    firewall: {
+      supported: true,
+      enabled: true,
+      allowsApp: true,
+      appPath: '/opt/homebrew/Cellar/node/26.8.1/bin/node',
+      reason: null,
+    },
+    mobile: { lastMobileAt, idle },
   }
 }
 
@@ -282,6 +319,8 @@ function route(pathname: string, init?: RequestInit): Response | null {
 
   if (pathname === '/api/relay/status' && method === 'GET') return json(statusView())
   if (pathname === '/api/relay/addresses' && method === 'GET') return json(addressBook())
+  // 连接自检：页面只在开弹窗（或手机 30 分钟没来过）时打这一条，`?force=1` 也答同一份。
+  if (pathname === '/api/relay/selfcheck' && method === 'GET') return json(selfCheck())
   // 设备清单与解除绑定：面板那张卡自己轮询这一条，演示里也得答，否则整卡不出现。
   if (pathname === '/api/relay/devices' && method === 'GET') return json(deviceList())
   if (pathname === '/api/relay/devices/revoke' && method === 'POST') {

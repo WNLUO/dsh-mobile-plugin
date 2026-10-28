@@ -56,7 +56,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl, Lang, Actions] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -71,6 +71,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl
   server.ssrLoadModule('/src/components/DownloadAppButton.tsx'),
   server.ssrLoadModule('/src/components/LanguageMenu.tsx'),
   server.ssrLoadModule('/src/components/TopRightActions.tsx'),
+  server.ssrLoadModule('/src/components/NoticeBoard.tsx'),
 ])
 
 const noop = () => {}
@@ -206,6 +207,8 @@ const cases = [
   // 下载入口：按钮本身总是在，四条渠道在弹窗里 —— 弹窗未打开时不进 DOM（Base UI 走 portal），
   // 所以这一遍只冒烟按钮；四条链接有没有齐要看真浏览器点开（和上面几颗弹窗同一种处境）。
   ['DownloadAppButton', h(Dl.DownloadAppButton, {}), '下载 APP'],
+  // 公告板：标题与那条号都得在 —— 号是常量、正文从它拼，缺了就是占位符没接上。
+  ['NoticeBoard', h(Notice.NoticeBoard, {}), '关于公用中转限制插件版本的公告'],
 ]
 
 let failed = 0

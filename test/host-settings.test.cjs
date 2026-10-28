@@ -441,8 +441,8 @@ test('llm/models：把宿主的模型目录压成选择器形状（空组与坏�
             ok: true,
             value: {
               groups: [
-                { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }, { id: '', name: '坏条目' }] },
-                { id: 'noname', name: '', models: [{ id: 'm1', name: '' }] },
+                { id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat', reasoningEfforts: { low: 'low', max: 'max' } }, { id: '', name: '坏条目' }] },
+                { id: 'noname', name: '', models: [{ id: 'm1', name: '' }, { id: 'm2', name: 'M2', reasoningEfforts: ['low', 'high'] }] },
                 { id: 'empty', name: '空组', models: [] },
                 { id: '', name: '没 id', models: [{ id: 'x', name: 'X' }] },
               ],
@@ -462,8 +462,45 @@ test('llm/models：把宿主的模型目录压成选择器形状（空组与坏�
   const body = JSON.parse(res.payload);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(body.groups.map((group) => group.provider), ['deepseek-official', 'noname']);
-  assert.deepEqual(body.groups[0].models, [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }]);
+  assert.deepEqual(body.groups[0].models, [{ id: 'deepseek-chat', name: 'DeepSeek Chat', reasoningEfforts: ['low', 'max'] }]);
   // 名字缺失时用 id 兜底，界面不会出现空白行。
   assert.equal(body.groups[1].displayName, 'noname');
   assert.equal(body.groups[1].models[0].name, 'm1');
+  // 推理强度档位：宿主给「id → 显示名」的表或数组都认，没有这一项就不带这个字段。
+  assert.deepEqual(body.groups[1].models[1].reasoningEfforts, ['low', 'high']);
+  assert.equal('reasoningEfforts' in body.groups[1].models[0], false);
+});
+
+test('host-settings：字段控件形状从宿主 schema 推出来（开关 / 点选 / 数字 / 文本框）', () => {
+  const schema = {
+    uid: 100,
+    refs: {
+      1: { type: 'boolean', meta: {} },
+      2: { type: 'string', meta: { required: true } },
+      3: { type: 'number', meta: { min: 0, max: 24, step: 1 } },
+      4: { type: 'const', value: 'sidebar' },
+      5: { type: 'const', value: 'new-tab' },
+      6: { type: 'union', list: [4, 5] },
+      // 联合里混了非常量（transform / 对象）：枚举不出来，索性不给控件。
+      7: { type: 'union', list: [4, { type: 'object', dict: {} }] },
+      // 只有一个常量的联合等于没有选择。
+      8: { type: 'union', list: [4] },
+      // 嵌套对象 / 数组：手机上本来就不给控件。
+      9: { type: 'object', dict: { nested: 1 } },
+      10: { type: 'array', inner: 1 },
+      100: { type: 'object', dict: { enabled: 1, provider: 2, maxActiveSubagents: 3, linkOpening: 6, mixed: 7, onlyOne: 8, nested: 9, list: 10 } },
+    },
+  };
+  const out = normalizeNamespace({ ns: 'ui-chat', value: {}, applies: 'live', revision: 4, secrets: [], schema });
+  assert.deepEqual(out.fields, [
+    { key: 'enabled', type: 'boolean' },
+    { key: 'provider', type: 'string', required: true },
+    { key: 'maxActiveSubagents', type: 'number', min: 0, max: 24, step: 1 },
+    { key: 'linkOpening', type: 'enum', options: ['sidebar', 'new-tab'] },
+  ]);
+  // 老宿主 / 畸形 schema：一个 fields 都不给，App 退回文本框。
+  for (const bad of [undefined, 'nope', 7, [], {}, { uid: 1 }, { uid: 1, refs: {} }]) {
+    const shaped = normalizeNamespace({ ns: 'x', value: { a: 1 }, schema: bad });
+    assert.equal('fields' in shaped, false, JSON.stringify(bad));
+  }
 });

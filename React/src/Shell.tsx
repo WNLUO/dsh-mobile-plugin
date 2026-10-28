@@ -13,6 +13,7 @@
  * 两个入口（`main.tsx` 与 `demo/main.tsx`）都渲染这一个组件，别各写一份。
  */
 import { JoinGroupButton } from './components/JoinGroupButton.tsx'
+import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { TopRightActions } from './components/TopRightActions.tsx'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
 import { Root } from './Root.tsx'
@@ -29,6 +30,9 @@ export function Shell() {
           2026-10-26 用户要求引导页也放一颗，与其在两页各挂一次（各写一个坐标、
           迟早错开），不如跟着外壳渲染一次。 */}
       <JoinGroupButton />
+      {/* 左栏那块公告板：和上面两颗同理，两屏共用一份 —— 走公用中转的人在配对之前
+          就该看见版本上限，等到进了主页才看见已经晚了。 */}
+      <NoticeBoard />
     </>
   )
 }

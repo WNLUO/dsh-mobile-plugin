@@ -1,3 +1,9 @@
+/**
+ * 主页右栏「连接状态」卡：两颗开关（准入、远程控制）+ 只读事实 + 最后一行连接自检结论。
+ *
+ * 这一页的所有数字都来自宿主（`/api/relay/*`），界面不改写；自检那一行刻意不跟 3 秒轮询，
+ * 见文件末尾组件注释与 `lib/selfcheck.ts`。
+ */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
 import { Badge } from '@appica/ui-react/badge'
@@ -6,7 +12,8 @@ import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
 
 import type { PairingPolicy, StatusView } from '../lib/api.ts'
-import { sidecarText, timeText, tunnelText, tunnelTone } from '../lib/format.ts'
+import { cn, sidecarText, timeText, toneText, tunnelText, tunnelTone } from '../lib/format.ts'
+import { selfCheckRow, type SelfCheckView } from '../lib/selfcheck.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 
 type Props = {
@@ -16,6 +23,14 @@ type Props = {
   /** 准入总闸（`status.pairingPolicy`）：`'code'` 收新设备、`'deny'` 一律拒。 */
   onChangePolicy: (policy: PairingPolicy) => void
   onOpenLan: () => void
+  /**
+   * 连接自检（`GET /api/relay/selfcheck`）：卡片最后那一行读它。
+   *
+   * 这一行的数据**不跟着上面那 3 秒轮询走**（查一次防火墙要在宿主上开一个子进程）——
+   * 只在开弹窗、或手机三十分钟没来过时后台补一次，见 `lib/selfcheck.ts`。
+   */
+  selfcheck: SelfCheckView
+  onOpenSelfCheck: () => void
 }
 
 /**
@@ -35,14 +50,19 @@ type Props = {
  * 「局域网直连」弹窗。这一行也不带状态点（用户要求）：点绿了点红了都只是告诉一半的话，
  * 通没通、为什么没通，都在弹窗里说。
  *
+ * 卡片最后一行是**连接自检的结论**（`GET /api/relay/selfcheck`）：正常一行灰字、查不到黄、
+ * 异常红，点开是四行明细与「重新自检」。它刻意不跟着上面那 3 秒轮询 —— 宿主查一次防火墙
+ * 要开一个子进程，请求只在开弹窗或手机三十分钟没来过时发（见 `lib/selfcheck.ts`）。
+ *
  * **中转地址不在这张卡里**（2026-10-26 用户要求删）：域名长的时候那一行会把「隐藏」那颗
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, busy, onToggle, onChangePolicy, onOpenLan }: Props) {
+export function ConnectionCard({ status, busy, onToggle, onChangePolicy, onOpenLan, selfcheck, onOpenSelfCheck }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
   const pairingAllowed = status.pairingPolicy === 'code'
+  const selfcheckRow = selfCheckRow(selfcheck)
 
   return (
     <Card frame="solid">
@@ -125,6 +145,20 @@ export function ConnectionCard({ status, busy, onToggle, onChangePolicy, onOpenL
             text={status.mirror.ok ? t('panel.connection.mirrorOk') : t('panel.connection.mirrorOff')}
             detail={timeText(status.mirror.pushedAt)}
           />
+        </InfoRow>
+        {/* 最后一行就是「为什么连不上」的结论：正常一行灰字、查不到黄、异常红；
+            点它看四行明细与重查。正常时也不藏起来 —— 连不上的人第一眼要能看见这一行。 */}
+        <InfoRow label={t('panel.selfcheck.short')}>
+          <button
+            type="button"
+            className={cn(
+              'cursor-pointer text-xs underline-offset-2 hover:underline',
+              toneText[selfcheckRow.tone],
+            )}
+            onClick={onOpenSelfCheck}
+          >
+            {selfcheckRow.text}
+          </button>
         </InfoRow>
       </InfoList>
 

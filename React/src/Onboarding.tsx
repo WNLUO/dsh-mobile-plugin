@@ -42,7 +42,15 @@ import {
   type PairingInfo,
   type StatusView,
 } from './lib/api.ts'
-import { lanText, lanTone, tunnelText, tunnelTone } from './lib/format.ts'
+import { cn, lanText, lanTone, toneText, tunnelText, tunnelTone } from './lib/format.ts'
+import {
+  firewallRow,
+  mobileLooksIdle,
+  mobileRow,
+  useSelfCheck,
+  verdictText,
+  verdictTone,
+} from './lib/selfcheck.ts'
 import { PUBLIC_RELAYS } from './lib/links.ts'
 import { t } from './lib/i18n/index.ts'
 
@@ -147,6 +155,17 @@ export function Onboarding({ onDone }: Props) {
   const [previewSvg, setPreviewSvg] = useState('')
   /** 内网穿透那栏填的域名（宿主设置项 `manualLanUrl`，进页读一次已有值）。 */
   const [penetrationUrl, setPenetrationUrl] = useState('')
+  /**
+   * 连接自检：清单里那两行（防火墙放不放行、手机最近来过没有）与总结句都读它。
+   *
+   * 这一页通常正是「手机还没连上」的那一幕，所以它的后台补查就是**手机三十分钟没来过**
+   * 那一条：由 `status.lastMobileAt` 判，节流在 `useSelfCheck` 里面。既不跟轮询，也不每次
+   * 渲染都发 —— 宿主查一次防火墙要开一个子进程。
+   */
+  const selfcheck = useSelfCheck(mobileLooksIdle(status?.lastMobileAt))
+  const firewallInfo = firewallRow(selfcheck.data)
+  const mobileInfo = mobileRow(selfcheck.data, status?.lastMobileAt)
+  const selfcheckVerdict = selfcheck.data?.verdict ?? ''
 
   /** 轮询要能被卸载打断，否则关掉页面后它还在打接口。 */
   const alive = useRef(true)
@@ -705,7 +724,31 @@ export function Onboarding({ onDone }: Props) {
                     <ToneValue tone={tunnelTone(status?.tunnel.state ?? 'off')} text={tunnelText(status?.tunnel.state ?? 'off')} />
                   </InfoRow>
                 )}
+                {/* 上面那几行是「我们自己起没起来」；这两行是「别人能不能进来」——
+                    防火墙放没放行、手机最近有没有真的来过。查不到就写查不到。 */}
+                <InfoRow label={t('panel.selfcheck.firewall')}>
+                  <ToneValue tone={firewallInfo.tone} text={firewallInfo.text} detail={firewallInfo.detail} />
+                </InfoRow>
+                <InfoRow label={t('panel.selfcheck.mobile')}>
+                  <ToneValue tone={mobileInfo.tone} text={mobileInfo.text} detail={mobileInfo.detail} />
+                </InfoRow>
               </InfoList>
+
+              {/* 清单下面那一句总结就是宿主的 `verdict`：正常灰、查不到黄、异常红。
+                  放在清单里而不是另一张卡/悬浮公告板 —— 那块公告板只在特别宽的窗口才出现，
+                  而引导页恰恰常在笔记本宽度下打开。 */}
+              {selfcheckVerdict ? (
+                <p
+                  className={cn(
+                    'mt-2 text-xs leading-relaxed break-words',
+                    verdictTone(selfcheckVerdict) === 'ok'
+                      ? 'text-foreground-muted'
+                      : toneText[verdictTone(selfcheckVerdict)],
+                  )}
+                >
+                  {verdictText(selfcheckVerdict)}
+                </p>
+              ) : null}
             </div>
 
             {/*

@@ -13,9 +13,11 @@ import { ADDRESS, CHANNELS, CONNECTION, INBOX, PAIRING } from './messages/panel.
 import { ONBOARDING } from './messages/onboarding.ts'
 import { UPDATE } from './messages/update.ts'
 import { DEVICES } from './messages/devices.ts'
+import { NOTICE } from './messages/notice.ts'
+import { SELFCHECK } from './messages/selfcheck.ts'
 
 /** 全部领域表。守卫按它逐门检查键集对齐与占位符一致。 */
-export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, ONBOARDING, UPDATE, DEVICES]
+export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, ONBOARDING, UPDATE, DEVICES, NOTICE, SELFCHECK]
 
 /** 合并后的字典：语言 → 扁平表。 */
 export const MESSAGES: Record<PanelLanguage, Record<string, string>> = (() => {

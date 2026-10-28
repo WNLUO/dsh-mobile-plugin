@@ -16,6 +16,7 @@ import { DevicesCard } from './components/DevicesCard.tsx'
 import { LanDialog } from './components/LanDialog.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
+import { SelfCheckDialog } from './components/SelfCheckDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import {
@@ -30,6 +31,7 @@ import {
   type StatusView,
 } from './lib/api.ts'
 import { useNotify } from './lib/notify.ts'
+import { mobileLooksIdle, useSelfCheck } from './lib/selfcheck.ts'
 
 /**
  * 移动端插件的设置页（网页版）。
@@ -58,6 +60,14 @@ export function App() {
    * 只在开窗时取一次，和老宿主兼容（那条路由不存在就保持 null，选择器不摆）。
    */
   const [addresses, setAddresses] = useState<AddressBook | null>(null)
+  /** 「连接自检」弹窗：地址那一行下面那张卡的最后一行点开的就是它。 */
+  const [selfCheckOpen, setSelfCheckOpen] = useState(false)
+  /**
+   * 自检**不跟上面那 3 秒轮询**：宿主每答一次都要开子进程查防火墙。
+   * 只有两种时候发请求 —— 人点开弹窗（`SelfCheckDialog` 开窗时调 `ensure`），
+   * 以及手机三十分钟没来过时的后台补一次（`useSelfCheck` 内部按 5 分钟节流）。
+   */
+  const selfcheck = useSelfCheck(mobileLooksIdle(status?.lastMobileAt))
 
   const loadStatus = useCallback(async () => {
     try {
@@ -308,6 +318,8 @@ export function App() {
             onToggle={toggle}
             onChangePolicy={(policy) => void savePolicy(policy)}
             onOpenLan={() => setLanOpen(true)}
+            selfcheck={selfcheck}
+            onOpenSelfCheck={() => setSelfCheckOpen(true)}
           />
 
           {/* 手机传上来的文件落在宿主的收件目录里，只在「删掉对话」时带不走它们 ——
@@ -322,6 +334,13 @@ export function App() {
         status={status}
         busy={busy}
         onSave={(patch) => void saveConfig(patch)}
+      />
+
+      <SelfCheckDialog
+        open={selfCheckOpen}
+        onOpenChange={setSelfCheckOpen}
+        state={selfcheck}
+        lastMobileAt={status.lastMobileAt}
       />
 
       <LanDialog

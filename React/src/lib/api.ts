@@ -238,6 +238,65 @@ export type ConfigPatch = {
   manualLanUrl?: string
 }
 
+/**
+ * 自检结论。五种取值与宿主一一对应，界面**照它说**、不自己另判一套：
+ *   · `not-listening` —— 直连端口没在监听，手机拨不进来；
+ *   · `firewall-blocked` —— 系统防火墙明确挡住了这个程序；
+ *   · `unknown` —— 防火墙状态读不到（Linux、或被系统策略限制），**不能算正常**；
+ *   · `network` —— 电脑这侧没问题，但手机三十分钟没来过；
+ *   · `ok` —— 最近连上过。
+ */
+export type SelfCheckVerdict = 'ok' | 'not-listening' | 'firewall-blocked' | 'unknown' | 'network'
+
+/**
+ * `/api/relay/selfcheck` 的回答。
+ *
+ * 这条路是**只读**的，代价却不在读上：宿主每答一次都要开子进程去问系统防火墙，
+ * 所以调用侧必须节流 —— 见 `lib/selfcheck.ts` 的文件头。`?force=1` 让宿主跳过它自己
+ * 那 30 秒缓存重新问一次，只有人主动按「重新自检」时才带。
+ */
+export type SelfCheck = {
+  ok: boolean
+  /** 这次自检的毫秒时刻。 */
+  checkedAt: number
+  /** 宿主所在系统。防火墙那一段怎么读，四种结果都跟它有关。 */
+  platform: string
+  verdict: SelfCheckVerdict
+  listening: {
+    state: 'listening' | 'off' | 'error'
+    port: number
+    /** 手机该拨的那几条地址（宿主按当前网卡算的）。 */
+    urls: string[]
+    /** 首选端口被占用时退到了别的端口。 */
+    portAdjusted: boolean
+  }
+  tunnel: {
+    state: 'connected' | 'off' | 'error'
+    relayUrl: string | null
+  }
+  firewall: {
+    /** false = 这台系统上压根没有可查的防火墙（Linux 常见）。 */
+    supported: boolean
+    /** null = 问系统时没拿到；不是「没开」。 */
+    enabled: boolean | null
+    /** null = 不知道有没有放行这个程序。 */
+    allowsApp: boolean | null
+    /**
+     * 宿主进程自己的可执行文件路径（nvm / Homebrew 那种带版本号的长路径）。
+     * **只拿来给人看**：界面上取文件名，别整条铺上去。
+     */
+    appPath: string
+    /** 读不到时的原因；`null` = 读到了。 */
+    reason: null | 'unsupported' | 'no-command' | 'timeout' | 'no-permission' | 'parse-failed'
+  }
+  mobile: {
+    /** 最近一次手机上真的来过（毫秒，0 = 从来没来过）。 */
+    lastMobileAt: number
+    /** 三十分钟内没来过。 */
+    idle: boolean
+  }
+}
+
 export class ApiError extends Error {
   code: string
   status: number

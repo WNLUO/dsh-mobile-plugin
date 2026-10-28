@@ -88,6 +88,9 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/config',
     // 面板上「检查端口」用的真实探针：只读、只试绑，不写配置。
     '/api/relay/check-port',
+    // 手机连不上时的连接自检：本机在不在听 / 中转通不通 / 防火墙放不放行 / 手机最近来过没有。
+    // 只读，不改规则也不提权（见 lib/relay/connection-check.js 的文件头）。
+    '/api/relay/selfcheck',
     // 面板显示「手机该填哪个地址」用：检测到的局域网 / 公网地址，只读。
     '/api/relay/addresses',
     '/api/relay/reconnect',
