@@ -3,6 +3,7 @@
   "version": "0.4.9",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
+  "icon": "./icon.png",
   "engines": {
     "dsh": ">=0.2.0 <0.3.0"
   },
@@ -14,6 +15,7 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "repository": {
@@ -37,6 +39,8 @@
     "lib/**/*.html",
     "lib/**/package.json",
     "dsh-mobile-credentials",
+    "locale/*.json",
+    "icon.png",
     "README.md"
   ],
   "publishConfig": {

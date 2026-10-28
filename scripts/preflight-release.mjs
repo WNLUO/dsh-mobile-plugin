@@ -41,6 +41,9 @@ const REQUIRED_FILES = [
   'lib/index.js',
   'lib/panel/index.html',
   'dsh-mobile-credentials/lib/credentials.js',
+  'icon.png',
+  'locale/zh.json',
+  'locale/en.json',
 ];
 /** 包内不该出现的东西：源码、测试、脚本、依赖树。 */
 const FORBIDDEN_PREFIXES = ['React/', 'test/', 'scripts/', 'node_modules/'];
