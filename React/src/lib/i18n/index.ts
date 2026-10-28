@@ -19,7 +19,18 @@ export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRE
 
 /** 合并后的字典：语言 → 扁平表。 */
 export const MESSAGES: Record<PanelLanguage, Record<string, string>> = (() => {
-  const out = { 'zh-Hans': {}, 'zh-Hant': {}, en: {}, ja: {}, ko: {} } as Record<PanelLanguage, Record<string, string>>
+  const out = {
+    'zh-Hans': {},
+    'zh-Hant': {},
+    en: {},
+    ja: {},
+    ko: {},
+    de: {},
+    es: {},
+    fr: {},
+    pt: {},
+    ru: {},
+  } as Record<PanelLanguage, Record<string, string>>
   for (const language of Object.keys(out) as PanelLanguage[]) {
     out[language] = mergeTables(MESSAGE_TABLES.map((table) => table[language] ?? {}))
   }

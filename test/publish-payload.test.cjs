@@ -79,6 +79,21 @@ test('每个入口都真实存在，而且都被 files 白名单收住', () => {
   assert.ok(entries.length > 0, '一个入口都没有的包发出去没有意义');
   for (const [label, rel] of entries) {
     const clean = normalize(rel);
+    // 入口可以是 glob（`./locale/*.json` 那种）：目录要在、要匹配到文件、匹配到的每一条都要进包。
+    if (clean.includes('*')) {
+      const dir = path.dirname(clean);
+      const base = path.basename(clean);
+      const abs = path.join(PKG_DIR, dir);
+      assert.ok(fs.existsSync(abs), `${label} = ${rel} 的目录不存在`);
+      const rx = new RegExp(`^${base.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')}$`);
+      const hits = fs.readdirSync(abs).filter((name) => rx.test(name));
+      assert.ok(hits.length > 0, `${label} = ${rel} 一个文件都没匹配到`);
+      hits.forEach((name) => {
+        const rel2 = path.posix.join(dir, name);
+        assert.ok(shipped(rel2), `${label} = ${rel} 匹配到的 ${rel2} 没被 files 白名单收住`);
+      });
+      continue;
+    }
     assert.ok(fs.existsSync(path.join(PKG_DIR, clean)), `${label} = ${rel} 在仓库里不存在`);
     assert.ok(shipped(clean), `${label} = ${rel} 没被 files 白名单收住：装上去之后这个入口是空文件`);
   }

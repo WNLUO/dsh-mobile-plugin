@@ -26,7 +26,7 @@ const SRC = path.join(__dirname, '..', 'React', 'src');
 const I18N = path.join(SRC, 'lib', 'i18n');
 const MESSAGES = path.join(I18N, 'messages');
 
-const LANGUAGES = ['zh-Hans', 'zh-Hant', 'en', 'ja', 'ko'];
+const LANGUAGES = ['zh-Hans', 'zh-Hant', 'en', 'ja', 'ko', 'de', 'es', 'fr', 'pt', 'ru'];
 
 /** 读一个领域文件，返回 `{ 键: { 语言: 文案 } }`。 */
 function loadDomain(file) {
@@ -234,7 +234,12 @@ test('语言标签归一：繁体的四种写法与认不出', async () => {
     ['en-GB', 'en'],
     ['ja', 'ja'],
     ['ko-KR', 'ko'],
-    ['fr-FR', null],
+    ['de-DE', 'de'],
+    ['es-419', 'es'],
+    ['fr-CA', 'fr'],
+    ['pt-BR', 'pt'],
+    ['ru-RU', 'ru'],
+    ['it-IT', null],
     ['', null],
   ];
   for (const [tag, want] of cases) assert.equal(core.normalizeLocale(tag), want, `认错了：${tag}`);
@@ -246,8 +251,8 @@ test('默认跟着浏览器走，认不出落英文', async () => {
   assert.equal(japanese.panelLanguage(), 'ja');
 
   const russian = await freshCore();
-  fakeBrowser({ languages: ['ru-RU'] });
-  assert.equal(russian.panelLanguage(), 'en', '系统语言不是这五门时该给英文');
+  fakeBrowser({ languages: ['it-IT'] });
+  assert.equal(russian.panelLanguage(), 'en', '系统语言不是这些语言时该给英文');
 });
 
 test('手动选的那一门压过浏览器，并且写进 localStorage', async () => {
@@ -316,7 +321,7 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
     assert.doesNotMatch(read('components', file), /fixed /, `${file} 不许自己钉坐标，位置归 TopRightActions`);
   }
 
-  // 语言清单只能来自 PANEL_LANGUAGES：手写一份五门等于第二处真源。
+  // 语言清单只能来自 PANEL_LANGUAGES：手写一份等于第二处真源。
   const menu = read('components', 'LanguageMenu.tsx');
   assert.match(menu, /PANEL_LANGUAGES\.map/, '语言清单必须来自 PANEL_LANGUAGES');
   assert.match(menu, /LANGUAGE_LABELS\[/, '语言自称必须来自 LANGUAGE_LABELS');

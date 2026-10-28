@@ -4,7 +4,7 @@
  * 这一页有自己的字典，不沿用 App 那套：面板是电脑上的一个网页（宿主起在 `127.0.0.1` 上），
  * 跟手机 App 是两个进程、两套构建，共用不了同一份模块。
  *
- * 口径与 App 一致（`app/src/i18n/language.ts`）：简中 / 繁中 / 英 / 日 / 韩五门，认不出的
+ * 口径与 App 一致（`app/src/i18n/language.ts`）：简中 / 繁中 / 英 / 日 / 韩 / 德 / 西 / 法 / 葡 / 俄十门，认不出的
  * 语言落**英文**；中文只一条规则：出现 `hant` / `tw` / `hk` / `mo` 算繁体。
  *
  * 手动选的那一门写进 localStorage 的 `dsh-mobile-panel-language`（按来源隔离，与主题那个键
@@ -14,9 +14,20 @@
  * 括号占位符替换」两件事。
  */
 
-export type PanelLanguage = 'zh-Hans' | 'zh-Hant' | 'en' | 'ja' | 'ko'
+export type PanelLanguage = 'zh-Hans' | 'zh-Hant' | 'en' | 'ja' | 'ko' | 'de' | 'es' | 'fr' | 'pt' | 'ru'
 
-export const PANEL_LANGUAGES: readonly PanelLanguage[] = ['zh-Hans', 'zh-Hant', 'en', 'ja', 'ko']
+export const PANEL_LANGUAGES: readonly PanelLanguage[] = [
+  'zh-Hans',
+  'zh-Hant',
+  'en',
+  'ja',
+  'ko',
+  'de',
+  'es',
+  'fr',
+  'pt',
+  'ru',
+]
 
 /** 语言自称：一律用该语言自己的写法，**不进字典**（翻译过的语言名没人认得出）。 */
 export const LANGUAGE_LABELS: Record<PanelLanguage, string> = {
@@ -25,6 +36,11 @@ export const LANGUAGE_LABELS: Record<PanelLanguage, string> = {
   en: 'English',
   ja: '日本語',
   ko: '한국어',
+  de: 'Deutsch',
+  es: 'Español',
+  fr: 'Français',
+  pt: 'Português',
+  ru: 'Русский',
 }
 
 /** 源语言：键集真源，其他语言缺键时回退它。 */
@@ -54,6 +70,11 @@ export function normalizeLocale(tag: string): PanelLanguage | null {
   if (head === 'en') return 'en'
   if (head === 'ja') return 'ja'
   if (head === 'ko') return 'ko'
+  if (head === 'de') return 'de'
+  if (head === 'es') return 'es'
+  if (head === 'fr') return 'fr'
+  if (head === 'pt') return 'pt'
+  if (head === 'ru') return 'ru'
   return null
 }
 
@@ -74,7 +95,7 @@ function navigatorLanguages(): string[] {
  * 浏览器说的是哪一门。
  *
  * 按语言列表逐个试：第一个认得出的说了算。都不认得出就落英文 —— 与 App 同一条
- * 兜底（系统语言不是我们支持的五种时，英文比中文更有用）。
+ * 兜底（系统语言不是我们支持的那十种时，英文比中文更有用）。
  */
 function detectLanguage(): PanelLanguage {
   for (const tag of navigatorLanguages()) {
