@@ -48,7 +48,7 @@ function bootWorker() {
     deliverRegistered() { this.registered = true; this.opts.onRegistered() }
   }
   const api = new Function('deps', `
-    const { config, core, RelayTunnel, upstream, lanUrls, lanUrlPort, currentLanUrls, snapshotRead, parentJson, log, publishState, reconnect } = deps;
+    const { config, core, RelayTunnel, upstream, lanUrls, lanUrlPort, currentLanUrls, snapshotRead, parentJson, log, publishState, reconnect, markOutdated } = deps;
     let tunnel = null;
     let tunnelState = 'off';
     let tunnelError = null;
@@ -85,6 +85,9 @@ function bootWorker() {
     // worker 的 publishState()：状态跳变要立刻经 IPC 推给宿主，别等 10s 健康轮询。
     // 这里只数调用次数；「推的是不是真状态」由下面的契约断言钉住。
     publishState: () => { log.publishes += 1 },
+    // 「被中转按版本挡下来」那一档的入口（真实现见 sidecar-facade-worker 的 markOutdated，
+    // 它自己带实例身份闸）。这里不需要它，用例只看正常断线那条路。
+    markOutdated: () => false,
   })
   return { ...api, instances, log }
 }
