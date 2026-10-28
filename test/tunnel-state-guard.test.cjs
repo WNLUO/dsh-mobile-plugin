@@ -182,7 +182,7 @@ function bootWorker() {
 {
   const define = worker.slice(worker.indexOf('function publishState() {'), worker.indexOf('function send(res, code, value) {'))
   assert.ok(define.includes('type: \'state\''), 'publishState 必须发一条 type=state 的 IPC 消息')
-  assert.match(define, /tunnel: \{ state: tunnelState, error: tunnelError \}/, '状态消息必须带真实 tunnel 状态')
+  assert.match(define, /tunnel: \{ state: tunnelState, error: tunnelError, mirror: relayMirror \}/, '状态消息必须带真实 tunnel 状态（含对端存不存镜像的口径）')
   assert.match(define, /process\.send\?\.\(/, '必须走 IPC（没有父进程时要能静默跳过）')
   // 三处状态跳变（connecting / connected / error）都得上报，少一处就回到「滞后 10s」。
   const publishes = START_TUNNEL_BODY.match(/publishState\(\)/g) || []
