@@ -33,7 +33,7 @@ const test = require('node:test');
 const PLUGIN = 'dsh-mobile-plugin';
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-install-'));
 
-const { installLatest, installLatestIfNeeded, declaredSource, toolSearchDirs, normalizeInvocation, runningAgentIds, DEFAULT_NAME } = require('../lib/update-install.cjs');
+const { installLatest, installLatestIfNeeded, declaredSource, toolSearchDirs, normalizeInvocation, runningAgentIds, profileRegistry, DEFAULT_NAME } = require('../lib/update-install.cjs');
 
 /** 造一个假 profile：`<tmp>/profiles/desktop/node_modules/<插件>` 里放一个版本号。 */
 function makeProfile(label, version) {
@@ -290,22 +290,34 @@ test('来源那道门排在挑包管理器之前：没有包管理器的本机�
   assert.equal(result.failure.code, 'LOCAL_SOURCE', '「不该装」必须排在「装不了」前面');
 });
 
-test('force 与 auto 都跳过「新发布先晾一会儿」那道门槛', async () => {
-  const quiet = makeProfile('quiet', '0.1.60');
-  const quietFake = makeFakePnpm('quiet');
-  await installLatest({ profileNodeModules: quiet.nodeModules, version: '0.2.0', dirs: [quietFake.binDir], env: isolatedEnv(quietFake.binDir) });
-  assert.match(quietFake.calls()[0], /auto-install-peers=false/, 'peer 里有一串 npm 上根本没有的 @deepseek-ai/*，必须显式关掉');
-  assert.equal(/minimum-release-age/.test(quietFake.calls()[0]), false, '没标 force / auto 的调用不该绕供应链那点等待');
+test('所有安装都绕开「新发布先晾一会儿」：命令行与环境变量各带一份', async () => {
+  const profile = makeProfile('quiet', '0.1.60');
+  const fake = makeFakePnpm('quiet');
+  await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [fake.binDir], env: isolatedEnv(fake.binDir) });
+  assert.match(fake.calls()[0], /auto-install-peers=false/, 'peer 里有一串 npm 上根本没有的 @deepseek-ai/*，必须显式关掉');
+  assert.match(fake.calls()[0], /--config\.minimum-release-age=0/, '不再分哪一档才跳过晾置期：手动那一档同样要即时');
+  assert.equal(fake.calls().length, 1, '开关一开始就带上，不许先失败一次再靠重试绕过去');
+});
 
-  const forced = makeProfile('forced', '0.1.60');
-  const forcedFake = makeFakePnpm('forced');
-  await installLatest({ profileNodeModules: forced.nodeModules, version: '0.2.0', force: true, dirs: [forcedFake.binDir], env: isolatedEnv(forcedFake.binDir) });
-  assert.match(forcedFake.calls()[0], /--config\.minimum-release-age=0/);
-
-  const auto = makeProfile('auto-flag', '0.1.60');
-  const autoFake = makeFakePnpm('auto-flag');
-  await installLatest({ profileNodeModules: auto.nodeModules, version: '0.2.0', auto: true, dirs: [autoFake.binDir], env: isolatedEnv(autoFake.binDir) });
-  assert.match(autoFake.calls()[0], /--config\.minimum-release-age=0/, '自动那一轮要一检测到就装，不许先被晾置期挡回来');
+test('策略开关走环境变量那一份：pnpm 12 只认它', async () => {
+  const profile = makeProfile('policy-env', '0.1.60');
+  const binDir = path.join(TMP, 'bin-policy-env');
+  fs.mkdirSync(binDir, { recursive: true });
+  const log = path.join(binDir, 'env.log');
+  const file = path.join(binDir, 'pnpm');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    'if [ "$1" = "--version" ]; then echo "12.3.0"; exit 0; fi',
+    `printf '%s|%s\\n' "$PNPM_CONFIG_AUTO_INSTALL_PEERS" "$PNPM_CONFIG_MINIMUM_RELEASE_AGE" >> "${log}"`,
+    `mkdir -p node_modules/${PLUGIN}`,
+    `printf '{"name":"${PLUGIN}","version":"0.2.0"}\\n' > node_modules/${PLUGIN}/package.json`,
+    'exit 0',
+    '',
+  ].join('\n'));
+  fs.chmodSync(file, 0o755);
+  const result = await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [binDir], env: isolatedEnv(binDir) });
+  assert.equal(result.installed, true);
+  assert.equal(fs.readFileSync(log, 'utf8').trim(), 'false|0', '两个策略键都要以 PNPM_CONFIG_* 传给 pnpm');
 });
 
 test('来源判定：npm / file / link / workspace，读不到就说不知道', () => {
@@ -553,24 +565,6 @@ test('宿主发布的调用方式形状不对就整个丢掉（半份调用等�
   assert.deepEqual(ok, { command: 'node', args: ['pnpm.cjs'], env: { A: '1' } }, 'env 只收字符串值');
 });
 
-test('撞上 pnpm 的发布时长策略：带开关重试一次，并如实记下重试过', async () => {
-  const profile = makeProfile('age-retry', '0.1.60');
-  const fake = makeFakePnpm('age-retry');
-  const result = await installLatest({
-    profileNodeModules: profile.nodeModules,
-    version: '0.2.0',
-    dirs: [fake.binDir],
-    env: isolatedEnv(fake.binDir, { FAKE_PNPM_MODE: 'agefail' }),
-  });
-  assert.equal(result.installed, true, '重试那次要真的装上');
-  assert.equal(result.installedVersion, '0.2.0');
-  assert.equal(result.retried, true, '要如实说这次是重试过的');
-  assert.equal(fake.calls().length, 2, '第一次不带开关、第二次带上');
-  assert.equal(/minimum-release-age=0/.test(fake.calls()[0]), false);
-  assert.match(fake.calls()[1], /--config\.minimum-release-age=0/);
-  assert.match(result.output, /发布时长策略/, '输出里要能看出为什么重试');
-});
-
 test('别的失败不许乱重试（网络 / 权限 / 盘满重试一次只是把同一条错误再说一遍）', async () => {
   const profile = makeProfile('no-blind-retry', '0.1.60');
   const fake = makeFakePnpm('no-blind-retry');
@@ -582,23 +576,96 @@ test('别的失败不许乱重试（网络 / 权限 / 盘满重试一次只是�
   });
   assert.equal(result.installed, false);
   assert.equal(result.failure.code, 'INSTALL_FAILED');
-  assert.equal(result.retried, false);
+  assert.equal(result.healed, null);
   assert.equal(fake.calls().length, 1, '只该跑一次');
 });
 
-test('force 一开始就带开关：不该再多跑一次重试', async () => {
-  const profile = makeProfile('age-forced', '0.1.60');
-  const fake = makeFakePnpm('age-forced');
+test('装成功就把这一版登记进排除清单：不留一条未满期的记录把别的安装挡住', async () => {
+  const profile = makeProfile('register', '0.1.60');
+  fs.writeFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - dsh-mobile-plugin@0.1.60\n');
+  const fake = makeFakePnpm('register');
   const result = await installLatest({
     profileNodeModules: profile.nodeModules,
     version: '0.2.0',
-    force: true,
     dirs: [fake.binDir],
-    env: isolatedEnv(fake.binDir, { FAKE_PNPM_MODE: 'agefail' }),
+    env: isolatedEnv(fake.binDir),
   });
   assert.equal(result.installed, true);
-  assert.equal(result.retried, false);
-  assert.equal(fake.calls().length, 1, 'force 那次第一次就该带上开关');
+  assert.equal(result.releaseAgeRecorded, true);
+  const yaml = fs.readFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'utf8');
+  assert.match(yaml, /^\s+- dsh-mobile-plugin@0\.1\.60 \|\| 0\.2\.0$/m, '并进已有的那一行，不新开一行（pnpm 只读第一条）');
+  assert.equal((yaml.match(/dsh-mobile-plugin/g) || []).length, 1);
+});
+
+test('排除清单：没有这个键就补一段，看不懂的 flow 写法不碰', async () => {
+  const profile = makeProfile('register-new', '0.1.60');
+  fs.writeFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n');
+  const fake = makeFakePnpm('register-new');
+  const first = await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [fake.binDir], env: isolatedEnv(fake.binDir) });
+  assert.equal(first.releaseAgeRecorded, true);
+  const yaml = fs.readFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'utf8');
+  assert.match(yaml, /^minimumReleaseAgeExclude:\n  - dsh-mobile-plugin@0\.2\.0$/m);
+
+  // 已经登记过同一版：不再重复追加。
+  const again = await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [fake.binDir], env: isolatedEnv(fake.binDir) });
+  assert.equal(again.installed, false, '版本没变不算装上');
+});
+
+test('宿主 pnpm 说依赖树是旧版建的：重建一次再重试', async () => {
+  const profile = makeProfile('heal-rebuild', '0.1.60');
+  const binDir = path.join(TMP, 'bin-heal-rebuild');
+  fs.mkdirSync(binDir, { recursive: true });
+  const log = path.join(binDir, 'calls.log');
+  const file = path.join(binDir, 'pnpm');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    `echo "$@" >> "${log}"`,
+    'if [ "$1" = "--version" ]; then echo "11.28.5"; exit 0; fi',
+    'if [ "$1" = "install" ]; then exit 0; fi',
+    'if [ -f .rebuilt ]; then',
+    `  mkdir -p node_modules/${PLUGIN}`,
+    `  printf '{"name":"${PLUGIN}","version":"0.2.0"}\\n' > node_modules/${PLUGIN}/package.json`,
+    '  exit 0',
+    'fi',
+    ': > .rebuilt',
+    'echo "[ERR_PNPM_PUBLIC_HOIST_PATTERN_DIFF] The modules directory was created by a different pnpm major" >&2',
+    'exit 1',
+    '',
+  ].join('\n'));
+  fs.chmodSync(file, 0o755);
+  const result = await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [binDir], env: isolatedEnv(binDir) });
+  assert.equal(result.installed, true);
+  assert.equal(result.healed, 'rebuild');
+  assert.ok(fs.readFileSync(log, 'utf8').split('\n').some(line => /^install --no-frozen-lockfile/.test(line)), '重建那条命令要真的跑过');
+});
+
+test('宿主 pnpm 的 store 对不上：把记录里的那个写回 storeDir 再重试', async () => {
+  const profile = makeProfile('heal-store', '0.1.60');
+  fs.writeFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n');
+  const storeDir = path.join(TMP, 'store-heal');
+  fs.mkdirSync(storeDir, { recursive: true });
+  const binDir = path.join(TMP, 'bin-heal-store');
+  fs.mkdirSync(binDir, { recursive: true });
+  const file = path.join(binDir, 'pnpm');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    'if [ "$1" = "--version" ]; then echo "11.28.5"; exit 0; fi',
+    'need=1',
+    'while IFS= read -r line; do case "$line" in storeDir:*) need=0 ;; esac; done < pnpm-workspace.yaml',
+    'if [ "$need" = "0" ]; then',
+    `  mkdir -p node_modules/${PLUGIN}`,
+    `  printf '{"name":"${PLUGIN}","version":"0.2.0"}\\n' > node_modules/${PLUGIN}/package.json`,
+    '  exit 0',
+    'fi',
+    `echo "[ERR_PNPM_UNEXPECTED_STORE] The dependencies at \\"${profile.nodeModules}\\" are currently linked from the store at \\"${storeDir}\\", but pnpm wants to use the store at \\"/nowhere\\"." >&2`,
+    'exit 1',
+    '',
+  ].join('\n'));
+  fs.chmodSync(file, 0o755);
+  const result = await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [binDir], env: isolatedEnv(binDir) });
+  assert.equal(result.installed, true);
+  assert.equal(result.healed, 'store');
+  assert.match(fs.readFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'utf8'), new RegExp(`^storeDir: ${storeDir}$`, 'm'));
 });
 
 test('顺序：已经是最新时，哪怕有 agent 在跑也要如实答「没东西可装」', async () => {
@@ -615,4 +682,62 @@ test('顺序：已经是最新时，哪怕有 agent 在跑也要如实答「没�
     assert.equal(outcome.failure, null);
     assert.deepEqual(fake.calls(), []);
   });
+});
+
+test('注册表：问本机 pnpm 自己用的是哪个，一轮只问一次', async () => {
+  const profile = makeProfile('registry', '0.1.60');
+  const binDir = path.join(TMP, 'bin-registry');
+  fs.mkdirSync(binDir, { recursive: true });
+  const log = path.join(binDir, 'calls.log');
+  const file = path.join(binDir, 'pnpm');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    `echo "$@" >> "${log}"`,
+    'if [ "$1" = "--version" ]; then echo "11.28.5"; exit 0; fi',
+    'if [ "$1" = "config" ]; then echo "https://registry.npmmirror.com/"; exit 0; fi',
+    'exit 0',
+    '',
+  ].join('\n'));
+  fs.chmodSync(file, 0o755);
+  const cache = new Map();
+  const first = await profileRegistry({ profileNodeModules: profile.nodeModules, dirs: [binDir], env: isolatedEnv(binDir), cache });
+  assert.equal(first, 'https://registry.npmmirror.com', '末尾斜杠要削掉');
+  const second = await profileRegistry({ profileNodeModules: profile.nodeModules, dirs: [binDir], env: isolatedEnv(binDir), cache });
+  assert.equal(second, first);
+  assert.equal(fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).length, 1, '缓存期内不许每轮都起一个进程');
+});
+
+test('查更新走本机 pnpm 的源：镜像有这一版就查得到（官方源根本没问）', async () => {
+  const registryVersion = '0.3.0';
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ name: PLUGIN, version: registryVersion }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const profile = makeProfile('registry-check', '0.2.0');
+  const binDir = path.join(TMP, 'bin-registry-check');
+  fs.mkdirSync(binDir, { recursive: true });
+  const file = path.join(binDir, 'pnpm');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    'if [ "$1" = "--version" ]; then echo "11.28.5"; exit 0; fi',
+    'if [ "$1" = "config" ]; then echo "$FAKE_REGISTRY"; exit 0; fi',
+    `if [ "$1" = "add" ]; then mkdir -p node_modules/${PLUGIN}; printf '{"name":"${PLUGIN}","version":"0.3.0"}\\n' > node_modules/${PLUGIN}/package.json; exit 0; fi`,
+    'exit 0',
+    '',
+  ].join('\n'));
+  fs.chmodSync(file, 0o755);
+  try {
+    const outcome = await installLatestIfNeeded({
+      profileNodeModules: profile.nodeModules,
+      dirs: [binDir],
+      env: isolatedEnv(binDir, { FAKE_REGISTRY: base }),
+      registryCache: new Map(),
+    });
+    assert.equal(outcome.check.latestVersion, registryVersion, '镜像源上那一版要看得到');
+    assert.equal(outcome.installed, true);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
 });
