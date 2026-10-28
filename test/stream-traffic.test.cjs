@@ -8,6 +8,11 @@
  * 补的 2KB 注释。这里钉住收口：同一步同一块的增量合并成一帧（正文一字不少）。
  * 另外一条边界也在这里：推理、工具参数、工具结果正文与 diff 都不上线路，只留图片与
  * 三张轮尾卡的料（减法在 `lib/mobile/wire-cut.js`，与历史那条路同一份实现）。
+ *
+ * 2026-10-29 起线上多了一种**自制帧** `session/live-steps`（跑着那一轮的过程清单，见
+ * `live-steps.js` / A3-68）：一步一条，只带 kind / 名字 / 一行摘要 / 状态，**推理正文与参数
+ * 仍一个字都不带**。下面那些「内容帧」的断言因此改用 `contentFrames`（把这一种滤掉），
+ * 它自己那几条断言集中在文件末尾。
  * 顺序/收尾约束同样在这里：非草稿帧之前必须先写掉攒着的草稿；流结束不许丢尾巴。
  *
  * 运行：node --test test/stream-traffic.test.cjs
@@ -67,6 +72,11 @@ const dataFrames = (res) => res.chunks
   .map((chunk) => JSON.parse(chunk.split('\n').find((line) => line.startsWith('data: ')).slice(6)))
   .filter((frame) => frame && frame.type !== 'session/resync-required');
 
+/** 内容帧：把过程清单那一类自制帧滤掉，剩下的才是下发给手机的会话内容。 */
+const contentFrames = (res) => dataFrames(res).filter((frame) => frame.type !== 'session/live-steps');
+/** 过程清单帧（一步一条：新的一步，或某一步的状态变了）。 */
+const stepFrames = (res) => dataFrames(res).filter((frame) => frame.type === 'session/live-steps');
+
 const runStream = async (frames) => {
   const res = response();
   await handleStream(ctxWith(muxOf(frames)), request(`/api/mobile/v1/session/stream?sessionId=${sessionId}`), res);
@@ -76,7 +86,7 @@ const runStream = async (frames) => {
 test('同一步同一块的增量合并成一帧，正文一字不少', async () => {
   const parts = ['第一段', '第二段', '第三段', '第四段'];
   const res = await runStream(parts.map((text) => textDelta(text)));
-  const frames = dataFrames(res);
+  const frames = contentFrames(res);
   assert.equal(frames.length, 1, `四条增量应该并成一帧，实际 ${frames.length} 帧`);
   assert.equal(frames[0].data.chunk.text, parts.join(''));
   assert.equal(frames[0].data.chunk.index, 0);
@@ -89,7 +99,7 @@ test('不同块、不同类型的增量不合并', async () => {
     chunkFrame({ type: 'tool-call-delta', index: 2, id: 'c1', name: 'read', argumentsDelta: '{"pa' }),
     chunkFrame({ type: 'tool-call-delta', index: 2, id: 'c1', name: 'read', argumentsDelta: 'th":"a"}' }),
   ]);
-  const frames = dataFrames(res);
+  const frames = contentFrames(res);
   assert.equal(frames.length, 3, '文本两块各一帧、工具参数两块并一帧');
   assert.equal(frames[0].data.chunk.text, '甲');
   assert.equal(frames[1].data.chunk.text, '乙');
@@ -103,7 +113,7 @@ test('tool-call-delta：只留身份帧，参数正文一帧都不带', async ()
     chunkFrame({ type: 'tool-call-delta', index: 2, id: 'c1', name: 'write', argumentsDelta: body }),
     chunkFrame({ type: 'tool-call-delta', index: 2, id: 'c1', name: 'write', argumentsDelta: body }),
   ]);
-  const frames = dataFrames(res);
+  const frames = contentFrames(res);
   assert.equal(frames.length, 1, '同一块的增量照旧并成一帧');
   const chunk = frames[0].data.chunk;
   assert.equal(chunk.type, 'tool-call-delta');
@@ -119,19 +129,22 @@ test('tool-call-delta：参数砍空之后的帧整条不发（一次调用只�
   // 一个改文件的调用光参数流式就能白走几十上百 KB —— 手机只要「有个工具开始了、叫什么」。
   const identity = chunkFrame({ type: 'tool-call-delta', index: 3, id: 'c7', name: 'edit', argumentsDelta: '{"pa' });
   const shells = Array.from({ length: 8 }, () => chunkFrame({ type: 'tool-call-delta', index: 3, argumentsDelta: 'th":"/a"}' }));
-  const frames = dataFrames(await runStream([identity, ...shells]));
+  const frames = contentFrames(await runStream([identity, ...shells]));
   assert.equal(frames.length, 1, `空壳帧一帧都不该发，实际 ${frames.length} 帧`);
   assert.deepEqual(frames[0].data.chunk, { type: 'tool-call-delta', index: 3, id: 'c7', name: 'edit' });
   assert.equal(JSON.stringify(frames).includes('argumentsDelta'), false, '参数正文不许跟着走');
 });
 
-test('推理增量一帧都不下发（推理不出本机）', async () => {
+test('推理增量本身一帧都不下发，只留一句「有一步在思考」（正文不出本机）', async () => {
   const res = await runStream([
     reasoningDelta('思'.repeat(400)),
     reasoningDelta('考'.repeat(400)),
   ]);
-  const frames = dataFrames(res);
-  assert.equal(frames.length, 0, `推理帧一条都不该发，实际 ${frames.length} 帧`);
+  assert.equal(contentFrames(res).length, 0, '推理增量一条都不该发');
+  const steps = stepFrames(res);
+  assert.equal(steps.length, 1, `过程清单只该多出一步，实际 ${steps.length} 帧`);
+  assert.equal(steps[0].steps[0].step.kind, 'think');
+  assert.equal(JSON.stringify(steps).includes('思'), false, '推理正文一个字节都不许漏出去');
 });
 
 test('assistant/message：推理块删掉，tool-call 只留骨架（三张轮尾卡的工具留 arguments）', async () => {
@@ -153,7 +166,7 @@ test('assistant/message：推理块删掉，tool-call 只留骨架（三张轮�
     },
   };
   const res = await runStream([{ payload: { type: 'session/event', sessionId, event } }]);
-  const content = dataFrames(res)[0].data.message.content;
+  const content = contentFrames(res)[0].data.message.content;
   assert.deepEqual(content, [
     { type: 'text', text: '答案是 42' },
     { type: 'tool-call', id: 'c1', name: 'bash' },
@@ -177,7 +190,7 @@ test('tool/result：正文与 meta 都不落，状态与图片照旧', async () 
     },
   };
   const res = await runStream([{ payload: { type: 'session/event', sessionId, event } }]);
-  const frame = dataFrames(res)[0];
+  const frame = contentFrames(res)[0];
   assert.equal(frame.data.message.source.callId, 'call-1', 'callId 必须原样留着（状态回填靠它）');
   assert.deepEqual(frame.data.message.content, [
     { type: 'image', attachment: { attachmentId: 'sha256:abc', mediaType: 'image/png' } },
@@ -212,7 +225,7 @@ test('tool/result：schedule_create 的结果正文留着（定时任务卡解�
     { payload: { type: 'session/event', sessionId, event: call } },
     { payload: { type: 'session/event', sessionId, event: result } },
   ]);
-  const frames = dataFrames(res);
+  const frames = contentFrames(res);
   assert.deepEqual(frames[0].data.message.content, [
     { type: 'tool-call', id: 'c9', name: 'schedule_create', arguments: '{"cron":"0 9 * * *"}' },
   ]);
@@ -228,7 +241,7 @@ test('tool/call：整条不下发（手机端没有消费者，但它带 seq、�
     { payload: { type: 'session/event', sessionId, event: schedule } },
     { payload: { type: 'session/event', sessionId, event: nameless } },
   ]);
-  assert.equal(dataFrames(res).length, 0, '三条 tool/call 一条都不该上线');
+  assert.equal(contentFrames(res).length, 0, '三条 tool/call 一条都不该上线');
   // 三张轮尾卡的料走 assistant/message 里的 tool-call 块（见上一条用例），不靠这条事件。
   const text = String(res.chunks.join(''));
   assert.equal(text.includes('ls -la'), false, '命令行一个字节都不许漏出去');
@@ -239,7 +252,7 @@ test('非草稿帧之前先把攒着的草稿写出去（顺序）', async () =>
     textDelta('先到的正文'),
     { payload: { type: 'session/event', sessionId, event: { type: 'assistant/message', seq: 3, data: { message: { role: 'assistant', content: [{ type: 'text', text: '整段' }] } } } } },
   ]);
-  const types = dataFrames(res).map((f) => f.type);
+  const types = contentFrames(res).map((f) => f.type);
   assert.deepEqual(types, ['assistant/chunk', 'assistant/message'], `顺序错了：${types.join(',')}`);
 });
 
@@ -275,4 +288,27 @@ test('草稿的填充窗口是 250ms（底线从 16KB/s 降到 8KB/s）', async 
   } finally {
     Date.now = realNow;
   }
+});
+
+test('过程清单帧：一步一条、开流不空发、摘要等参数齐了才带', async () => {
+  // 跑着那一轮的过程清单走自制帧（`session/live-steps`）：思考从第一段推理就算一步，
+  // 工具的参数齐了才拼出摘要（路径 / 命令 —— 这一行是 2026-10-29 过程清单的一部分，
+  // 参数原文本身仍然不上线路）。
+  const res = await runStream([
+    reasoningDelta('先看这个文件'),
+    chunkFrame({ type: 'block-end', index: 0 }),
+    chunkFrame({ type: 'tool-call-delta', index: 1, id: 'c1', name: 'read', argumentsDelta: '{"file_path":"/tmp/a.md"}' }),
+    chunkFrame({ type: 'block-end', index: 1 }),
+  ]);
+  const steps = stepFrames(res);
+  assert.deepEqual(steps.map((frame) => frame.steps[0].key), ['think:0', 'think:0', 'tool:c1', 'tool:c1']);
+  assert.equal(steps[0].steps[0].step.state, 'running');
+  assert.equal(steps[0].steps[0].step.summary, '', '思考还在写的时候不先塞半句');
+  assert.equal(steps[1].steps[0].step.state, 'ok');
+  assert.equal(steps[1].steps[0].step.summary, '先看这个文件');
+  assert.equal(steps[2].steps[0].step.summary, '', '参数还在流，先不发半截路径');
+  assert.equal(steps[3].steps[0].step.summary, '/tmp/a.md');
+  assert.equal(steps.every((frame) => frame.full === false), true, '开流那一份没有东西就不发');
+  assert.equal(steps.every((frame) => !('seq' in frame)), true, '清单帧不带 seq（不参与序门与水位）');
+  assert.equal(JSON.stringify(steps).includes('argumentsDelta'), false, '参数原文不上线路');
 });

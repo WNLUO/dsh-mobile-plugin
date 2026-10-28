@@ -283,7 +283,12 @@ test('采集：定期那一轮跳过一点没动的会话，空闲时连账本�
     let reads = 0;
     // 两分钟前动过：越过 60 秒最小间隔，这一轮真正读投影的是它。
     const items = [{ sessionId: 's1', cwd: '/tmp/proj', updatedAt: Date.now() - 120_000 }];
-    const ctx = fakeCtx({ items, projectionsById: { s1: tokenProjection(10, 1) } });
+    // 带上当前模型：记录一落地就有模型，跳过分支里那条「老记录补模型」不会插进来改动账本。
+    const ctx = fakeCtx({
+      items,
+      projectionsById: { s1: tokenProjection(10, 1) },
+      modelsById: { s1: modelCatalog('p1', 'm1', '渠道一', '模型一') },
+    });
     const projections = ctx.apiProxy.sessions.projections;
     ctx.apiProxy.sessions.projections = (request) => { reads += 1; return projections(request) };
 
@@ -306,6 +311,58 @@ test('定期采集的定时器归 stats-scheduler：start 交回一个停表的�
   assert.ok(scheduler.PERIODIC_INTERVAL_MS >= 60_000, '一轮几分钟：按天归属靠的就是这个节奏');
   stop();
   stop(); // 重复清理由 effect 卸载路径兜底，不许抛
+});
+
+test('老记录补模型：没模型又没新动作的会话，跳过分支里读一次当前模型把累计量挂上去，只补一份', async () => {
+  await withHome(async () => {
+    const items = [{ sessionId: 's1', title: 't', updatedAt: Date.now() - 120_000 }];
+    // 第一轮：宿主还读不到模型（升级前那段时间的样子）—— 量入账，模型一栏为空。
+    const first = fakeCtx({ items, projectionsById: { s1: tokenProjection(300, 3) } });
+    await collectStats(first, {});
+    assert.equal(ledger.readLedger().sessions.s1.model, null, '这一轮确实没有模型');
+
+    // 第二轮：摘要一点没变（水位差是 0），但宿主现在读得到模型了。
+    let modelReads = 0;
+    const second = fakeCtx({
+      items,
+      projectionsById: { s1: tokenProjection(300, 3) },
+      modelsById: { s1: modelCatalog('p1', 'm1', '渠道一', '模型一') },
+    });
+    const models = second.apiProxy.sessions.models;
+    second.apiProxy.sessions.models = (request) => { modelReads += 1; return models(request) };
+
+    await collectStats(second, {});
+    const book = ledger.readLedger();
+    const key = ledger.modelKeyOf('p1', 'm1');
+    assert.equal(modelReads, 1, '补模型只读一次宿主');
+    assert.equal(book.sessions.s1.model.provider, 'p1', '模型落在记录上，之后的增量会记到它名下');
+    assert.equal(book.models[key].billed.uncachedInputTokens, 300, '累计量补进模型桶，只补一份');
+    assert.equal(book.sessions.s1.billed.uncachedInputTokens, 300, '会话账不因为补模型而变');
+
+    // 第三轮：已经有模型了，不再问宿主。
+    await collectStats(second, {});
+    assert.equal(modelReads, 1, '补过就不再问');
+    assert.equal(ledger.readLedger().models[key].billed.uncachedInputTokens, 300, '也不会补第二遍');
+  });
+});
+
+test('老记录补模型：读不到就记下尝试时间，当天不再为同一条再问一次', async () => {
+  await withHome(async () => {
+    const items = [{ sessionId: 's1', title: 't', updatedAt: Date.now() - 120_000 }];
+    let modelReads = 0;
+    const ctx = fakeCtx({ items, projectionsById: { s1: tokenProjection(300, 3) } });
+    const models = ctx.apiProxy.sessions.models;
+    ctx.apiProxy.sessions.models = (request) => { modelReads += 1; return models(request) };
+
+    await collectStats(ctx, {});
+    await collectStats(ctx, {});
+    const after = ledger.readLedger();
+    assert.ok(after.sessions.s1.modelTriedAt > 0, '试过要落盘，否则下一轮还会再问');
+    assert.equal('p1\u0000m1' in after.models, false, '读不到模型就不往模型表里写');
+    const reads = modelReads;
+    await collectStats(ctx, {});
+    assert.equal(modelReads, reads, '同一天内不再重复问');
+  });
 });
 
 test('清理前补采（skipPreview）只读投影，不为卡片摘要读历史', async () => {
@@ -662,6 +719,65 @@ test('模型卡排序：计费量降序，相同再按最后活动时间降序',
   ledger.applyModelUsage(book, { model: small, day: ledger.dayKeyOf(now), usage: usage({ uncachedInputTokens: 50 }) });
   const rows = ledger.summarize(book, '7d', now).models;
   assert.deepEqual(rows.map((row) => row.model), ['m2', 'm1', 'm3']);
+});
+
+test('成本：按模型桶的四档价折算，合计只含有价的那些行，没价的落进 unpricedBilled', () => {
+  // 价目从真表里取一条：具体数字会随快照变，所以只拿「这一条自己」当基准。
+  const table = require('../lib/mobile/model-prices-table.cjs');
+  const key = Object.keys(table.BY_PROVIDER_MODEL)[0];
+  const split = key.indexOf('/');
+  const price = table.BY_PROVIDER_MODEL[key];
+  const priced = { provider: key.slice(0, split), providerName: '渠道', model: key.slice(split + 1), modelName: '模型' };
+  const unpriced = { provider: 'route-model-a', providerName: '', model: 'nobody-knows-this-one', modelName: '' };
+
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  // 走 `applyDelta`（按天账 + 会话 + 模型三件事一起记）：`unpricedBilled` 是拿按天总账减去
+  // 有价的那几行算出来的，只往模型表里写、按天账空着，这个差就没有意义。
+  const book = bookWith([
+    {
+      sessionId: 's1',
+      at: now,
+      model: priced,
+      delta: usage({ uncachedInputTokens: 1e6, outputTokens: 1e6, cacheReadTokens: 1e6, cacheWriteTokens: 1e6 }),
+    },
+    {
+      sessionId: 's2',
+      at: now,
+      model: unpriced,
+      delta: usage({ uncachedInputTokens: 500 }),
+    },
+  ]);
+
+  const overview = ledger.summarize(book, '7d', now);
+  const pricedRow = overview.models.find((row) => row.model === priced.model);
+  const unpricedRow = overview.models.find((row) => row.model === unpriced.model);
+  const expected = Math.round((price[0] + price[1] + price[2] + price[3]) * 1e6) / 1e6;
+
+  assert.equal(pricedRow.cost, expected, '四档各乘各的价、除以一百万');
+  assert.equal('cost' in unpricedRow, false, '查不到价的模型不画一个 0');
+  assert.equal(overview.cost.currency, 'USD');
+  assert.equal(overview.cost.total, expected);
+  assert.equal(overview.cost.pricedBilled, 4e6);
+  assert.equal(overview.cost.unpricedBilled, 500, '没价的那一截 token 要单独说出来');
+  assert.match(overview.cost.asOf, /^\d{4}-\d{2}-\d{2}$/, '页面要写清按哪天的价估的');
+  const rowsTotal = overview.models
+    .filter((row) => typeof row.cost === 'number')
+    .reduce((sum, row) => sum + row.cost, 0);
+  assert.ok(Math.abs(rowsTotal - overview.cost.total) < 1e-6, '合计就是各行之合');
+  assert.equal(JSON.stringify(book).includes('"cost"'), false, '金额不落盘（价格变了下次出数就该跟着变）');
+});
+
+test('成本：一台机器一个模型都查不到价时，整项不给（页面据此不画）', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([]);
+  ledger.applyModelUsage(book, {
+    model: { provider: 'route-model-a', providerName: '', model: 'nobody-knows-this-one', modelName: '' },
+    day: ledger.dayKeyOf(now),
+    usage: usage({ uncachedInputTokens: 5, outputTokens: 5 }),
+  });
+  const overview = ledger.summarize(book, '7d', now);
+  assert.equal(overview.models.length, 1);
+  assert.equal('cost' in overview, false, '没有一行有价时整项不出，别给一个 $0');
 });
 
 test('读盘清洗：坏模型桶与坏 record.model 丢掉，老账本缺这两块按空处理', () => {
