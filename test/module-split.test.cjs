@@ -271,8 +271,8 @@ test('按 ctx 隔离的可变状态只在 session-cache.js 与 rpc.js 里', () =
   assert.deepEqual([...owners.keys()].sort(), ['rpc.js', 'session-cache.js'], `模块级 WeakMap 跑到了 ${[...owners.keys()].join('、')}`);
   // 归档清理新增 deletedSessionIds，避免宿主旧列表快照复活已删除会话。
   // 其它表覆盖模型目录 / 列表响应 / 预览 / 预览在途 / 预览时钟 / 镜像历史 / 完成态 /
-  // 完成代际 / 上一轮事实 / 发送幂等 / 写操作幂等 / 工作区列表短路。
-  assert.equal(owners.get('session-cache.js'), 13, '会话侧的十三张表（含已删除会话 ID 与上一轮事实）：状态均按 ctx 隔离');
+  // 完成代际 / 上一轮事实 / 发送幂等 / 写操作幂等 / 工作区列表短路 / 代发续写的已发轮次。
+  assert.equal(owners.get('session-cache.js'), 14, '会话侧的十四张表（含已删除会话 ID、上一轮事实与代发轮次）：状态均按 ctx 隔离');
   // session-cache.js 是叶子：它不许反过来依赖任何会话模块。
   assert.doesNotMatch(read(path.join(MOB, 'session-cache.js')), /require\(/);
   // 对外路径不变：这五个访问器仍从 sessions.js 转出。
