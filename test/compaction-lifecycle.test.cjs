@@ -91,3 +91,25 @@ test('没有 compaction/start 的孤儿 end 也留一条（中途接入的会话
   assert.equal(rows[0].state, 'failed');
   assert.equal(rows[0].error, REFUSED);
 });
+
+/**
+ * 压缩行必须跟直播侧同形：带一个空正文。
+ *
+ * 反例是 2026-10-27 的真机白屏：历史派生的压缩行没有这个字段，没跟上判空修复的旧安装包
+ * 在气泡里直接读正文，`Cannot read property 'trim' of undefined`，整页崩掉。四种造法
+ * （start / end / summary / 检查点）都要覆盖，漏掉哪一种，老客户端就在那一种上崩。
+ */
+test('派生的压缩行带空正文（旧安装包读正文不做判空）', () => {
+  const rows = compactions(deriveMessages([
+    start('c1', 3, 1),
+    end('c1', 3, 2, REFUSED),
+    checkpoint('c2', 4),
+    summary('c3', 5),
+    end('c9', 6, 6),
+  ]));
+  assert.equal(rows.length, 4, JSON.stringify(rows.map((row) => row.id)));
+  for (const row of rows) assert.equal(row.text, '', `${row.id} 缺 text`);
+  // 其它结构行不受影响：turn-aborted 照旧不带正文（`history-turn-end` 钉的就是这一条）。
+  const aborted = deriveMessages([{ type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'aborted' } } }]);
+  assert.equal(aborted[0].text, undefined);
+});
