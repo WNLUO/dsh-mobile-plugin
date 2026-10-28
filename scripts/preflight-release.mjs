@@ -17,6 +17,7 @@
  *   4. 面板产物跟得上源码：拿当前源码真重建一次，与盘上那份对不上就停在这一步
  *   5. 整套测试（在主仓里跑才包含跨仓对账）
  *   6. 真打一次包：关键产物在不在、有没有把源码和测试带出去、版本号对不对
+ *   7. 公开仓库的 issue：列出来给人看（只提醒，连不上就跳过，不挡发版）
  *
  * 跑完打印接下来那三步。README 的发版流程第一步就是它。
  */
@@ -43,8 +44,10 @@ const REQUIRED_FILES = [
 ];
 /** 包内不该出现的东西：源码、测试、脚本、依赖树。 */
 const FORBIDDEN_PREFIXES = ['React/', 'test/', 'scripts/', 'node_modules/'];
+/** 用户提 issue 的地方：插件在 npm 上的公开仓库。 */
+const PUBLIC_REPO = 'WNLUO/dsh-mobile-plugin';
 
-const TOTAL = 6;
+const TOTAL = 7;
 
 class Stop extends Error {
   constructor(reason, hint) {
@@ -235,6 +238,58 @@ function checkPackage(version) {
   }
 }
 
+/**
+ * 公开仓库里未关闭的 issue；连不上 / 没装 gh / 没登录都回 null。
+ *
+ * 这一条只提醒、不挡发版：网络抖一下不该拦一次发版，issue 也不是发版的前置条件。
+ * 判据只做一件事——「有没有除提问者以外的人回过」，用来把等人回应的那几条排前面。
+ */
+function fetchOpenIssues() {
+  const result = spawnSync(
+    'gh',
+    [
+      'issue', 'list', '-R', PUBLIC_REPO, '--state', 'open', '--limit', '30',
+      '--json', 'number,title,createdAt,author,comments',
+    ],
+    { encoding: 'utf8', timeout: 20000 },
+  );
+  if (result.error || result.status !== 0) return null;
+  try {
+    const list = JSON.parse(result.stdout);
+    return Array.isArray(list) ? list : null;
+  } catch {
+    return null;
+  }
+}
+
+function checkPublicIssues() {
+  step(`7/${TOTAL} 公开仓库的 issue（只提醒，不挡发版）`);
+  const issues = fetchOpenIssues();
+  if (issues === null) {
+    process.stdout.write('  · 连不上 GitHub 或本机没有 gh，跳过这一条\n');
+    return [];
+  }
+  if (!issues.length) {
+    ok('没有未关闭的 issue');
+    return [];
+  }
+  const answered = (issue) =>
+    (issue.comments ?? []).some((comment) => comment.author?.login !== issue.author?.login);
+  const waiting = [];
+  for (const issue of issues) {
+    const day = String(issue.createdAt ?? '').slice(5, 10);
+    const title = String(issue.title ?? '').trim();
+    if (answered(issue)) {
+      process.stdout.write(`  · #${issue.number} ${title}（${day}，已回）\n`);
+    } else {
+      process.stdout.write(`  ! #${issue.number} ${title}（${day}，还没人回）\n`);
+      waiting.push(issue);
+    }
+  }
+  ok(`${issues.length} 条未关闭，${waiting.length} 条还等人回`);
+  return waiting;
+}
+
 function main() {
   process.stdout.write('插件发版预检\n');
   checkCheckout();
@@ -243,6 +298,7 @@ function main() {
   checkPanelArtifact();
   runTests();
   checkPackage(version);
+  const waiting = checkPublicIssues();
   process.stdout.write(
     `\n全绿：${version} 可以发。接下来三步：\n`
     + '  1. 把这次发版的提交同步到公开仓库（只带该带的文件）\n'
@@ -250,6 +306,14 @@ function main() {
     + '  3. 流水线末尾会核注册表版本，你也可以手动 npm view dsh-mobile-plugin version\n\n'
     + '流水线是第二道闸，不是唯一一道：它单独检出、跨仓对账会跳过，面板产物只查在不在包里。\n',
   );
+  if (waiting.length) {
+    process.stdout.write(
+      `\n公开仓库还有 ${waiting.length} 条没人回：`
+      + waiting.map((issue) => `#${issue.number}`).join('、')
+      + '\n  挨条看过再发：gh issue view <号> -R ' + PUBLIC_REPO + ' --comments'
+      + '\n  该修的记进这一版，要信息的回一句，别让提问的人悬着。\n',
+    );
+  }
 }
 
 try {
