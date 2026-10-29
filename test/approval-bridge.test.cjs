@@ -301,7 +301,7 @@ test('注册带 prepend：不抢在宿主自己的转发器前面，桌面窗口
 
 test('审批桥与兼容桥同一道门：0.1.x 上不许再装一遍（那边帧与回答都还走得通）', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'impl.js'), 'utf8');
-  assert.match(source, /if \(!hasHostApiProxy\) ctx\.effect\(\(\) => installApprovalBridge\(ctx\)/,
+  assert.match(source, /if \(!hasHostApiProxy\) mount\('审批桥', \(\) => ctx\.effect\(\(\) => installApprovalBridge\(ctx\)/,
     '审批桥必须和兼容桥共用 hasHostApiProxy 这道门，否则 0.1.x 上同一个审批会多推一张卡');
 });
 

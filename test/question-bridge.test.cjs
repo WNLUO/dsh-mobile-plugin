@@ -125,7 +125,7 @@ test('钩子必须 prepend + global（否则桌面开着时永远轮不到手机
 
 test('只在 0.2.x 那一侧装（与审批桥同判据，0.1.x 别多推一张卡）', () => {
   const impl = fs.readFileSync(path.join(__dirname, '..', 'lib', 'impl.js'), 'utf8');
-  assert.match(impl, /if \(!hasHostApiProxy\) ctx\.effect\(\(\) => installQuestionBridge\(ctx\)/);
+  assert.match(impl, /if \(!hasHostApiProxy\) mount\('提问桥', \(\) => ctx\.effect\(\(\) => installQuestionBridge\(ctx\)/);
 });
 
 // ── 卡片 ────────────────────────────────────────────────────────────────────

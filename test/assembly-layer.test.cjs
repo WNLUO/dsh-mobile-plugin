@@ -42,8 +42,9 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   const lines = lineCount(INDEX);
   // 行数只是兜底：真正的判据是下面那几条「具体函数 / 定时器不许回到装配层」。这个上限只随
   // 装配层里多出来的**声明**（取值器转交、schema 一项、config 字段、二维码候选）与必要注释
-  // 往上抬，实现一行都没有搬回来。
-  assert.ok(lines <= 522, `lib/impl.js 回到 ${lines} 行了；超过 522 说明实现又被搬回装配层`);
+  // 往上抬，实现一行都没有搬回来。2026-10-30 +13：inject 只留 webServer、每块装配各自兜住
+  // （`mount` / `mountRoute` 的声明与说明），没有一行实现搬回来。
+  assert.ok(lines <= 536, `lib/impl.js 回到 ${lines} 行了；超过 536 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {
@@ -115,4 +116,37 @@ test('入口是稳定外壳：实现住在代里，换代不重启 DSH', () => {
   }
   // 实现那一侧不许反过来知道外壳的存在（它拿到的是普通 ctx）。
   assert.doesNotMatch(read(INDEX), /\.live|importGeneration|installedShellHash|wrapHandler/, 'impl.js 里还有热替换的残留');
+});
+
+/**
+ * 装配的**故障边界**：别人的插件撞了同一个路由 / 占了同一个服务名，代价只许是那一块，
+ * 不许是整张移动 API。
+ *
+ * 这一条只能钉形状：装配层里一个没兜住的 throw 会让 fiber 回滚，已经注册好的几百条路由
+ * 一起消失（手机上表现为「插件装了但什么都 404」），而造出那个现场的（另一个插件用了
+ * 同一个路径）不在这个仓库里。
+ */
+test('装配逐块兜住：路由撞车只丢那一条，一块挂不上不影响其余', () => {
+  const src = read(INDEX);
+  // 每条路由自己的 try：`webServer.register` 对重复路径是抛错。
+  assert.match(
+    src,
+    /const mountRoute = \(route, upgrade\) => mount\(`路由 \$\{route\.path\}`[\s\S]*?try \{ return upgrade \? ctx\.webServer\.registerUpgrade\(route\) : ctx\.webServer\.register\(route\) \} catch \(error\) \{/,
+    '注册失败必须在 mountRoute 里就地吞掉并记日志，抛出去会带走整个 fiber',
+  );
+  assert.match(src, /function registerRoute\(route\) \{\n    mountRoute\(route\)/, 'registerRoute 必须走 mountRoute');
+  assert.match(src, /registerUpgradeRoute: \(route\) => mountRoute\(route, true\)/, '升级路由（预览）同样要逐条兜住');
+  // 大块的装配各自 mount：任何一块炸掉只留一行日志。
+  for (const block of ['控制面路由', '移动端路由', 'sidecar', '镜像推送', '审批桥', '提问桥', '统计采集', '服务同步']) {
+    assert.ok(src.includes(`mount('${block}'`), `「${block}」这块装配没有各自的兜住`);
+  }
+  assert.match(src, /const warn = \(message, \.\.\.rest\) => \{\n    try \{ ctx\.logger\?\.warn\?\./, '告警出口自己不许反噬装配');
+  // `apiProxy` 是公共名字：别人先占了就用人家的，不跟它抢。
+  assert.match(src, /mount\('apiProxy 兼容桥', \(\) => ctx\.reflect\.provide\('apiProxy'/, 'provide 撞车必须降级，不许把整块装配带走');
+});
+
+test('外壳包装宿主的路由注册时可叠加、撤离不摘别人的那层', () => {
+  const shell = read(path.join(LIB, 'index.js'));
+  assert.match(shell, /const wrapper = function register\(route\)/, '包装要留一个可比较的引用');
+  assert.match(shell, /if \(server\.register === wrapper\) server\.register = outer/, '只在「现在挂的是我们这层」时才还原，否则会摘掉别的插件叠在上面的包装');
 });

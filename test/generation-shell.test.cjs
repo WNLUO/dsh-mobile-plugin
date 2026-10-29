@@ -518,7 +518,7 @@ test('换代：代不声明 inject 时退回外壳默认的依赖集合', async 
 
   const status = await waitForStatus(runtime);
   assert.equal(status.version, '0.9.8');
-  assert.deepEqual(globalThis.__seenDefaultInject, ['sessions', 'webServer'], '没声明就退回外壳默认的 webServer + sessions');
+  assert.deepEqual(globalThis.__seenDefaultInject, ['webServer'], '没声明就退回外壳默认的 webServer（兜底值也不许挂在不存在的服务上）');
   assert.ok(server.routes.has('/api/relay/noinject'), '退回默认 inject 之后这一代必须能注册路由');
   delete globalThis.__seenDefaultInject;
 });

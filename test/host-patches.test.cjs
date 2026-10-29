@@ -127,8 +127,8 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
   );
   assert.match(
     IMPL,
-    /if \(!hasHostApiProxy\) ctx\.reflect\.provide\('apiProxy', createApiProxy\(ctx\)\)/,
-    '无条件 provide 会在老运行时撞上宿主的 apiProxy，整棵树加载失败',
+    /mount\('apiProxy 兼容桥', \(\) => ctx\.reflect\.provide\('apiProxy', createApiProxy\(ctx\)\)\)/,
+    '无条件 provide 会在老运行时撞上宿主的 apiProxy（整棵树加载失败）；现在还得兜住「别的插件也占了这个名字」',
   );
   assert.match(
     IMPL,
@@ -137,23 +137,18 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
   );
   assert.match(IMPL, /function runtimeProvidesApiProxy\(\)/);
   // 光不 provide 还不够：旧运行时上读宿主的 apiProxy **必须声明 inject**，否则 cordis 的
-  // get trap 抛 "cannot get property ... without inject"。所以 inject 也得是二选一的。
+  // get trap 抛 "cannot get property ... without inject"。所以 inject 是二选一的。
+  //
+  // 但**只有 `webServer` 是硬依赖**：cordis 的 inject 缺一个就整行 pending —— 网关由后装载
+  // 的另一行提供、`sessions` 来自别的 bundle，任何一条被别人关掉 / 换掉，代价都是路由、
+  // sidecar、配对一起不出现（日志只有一行 pending，手机上就是「装了但连不上」）。
+  // 所以 0.2.0 那一支只等 `webServer`，其余一律 `ctx.get` 现取。
   assert.match(
     IMPL,
-    /export const inject = runtimeProvidesApiProxy\(\)\s*\?\s*\['webServer', 'apiProxy', 'sessions'\]\s*:\s*\['webServer', 'sessions', 'typertGateway'\]/,
-    'inject 必须按运行时二选一：旧运行时要 apiProxy，0.2.0 要 typertGateway（事件流全靠它派发）',
+    /export const inject = runtimeProvidesApiProxy\(\)\s*\?\s*\['webServer', 'apiProxy'\]\s*:\s*\['webServer'\]/,
+    'inject 必须按运行时二选一：旧运行时要 apiProxy，0.2.0 只等 webServer（其余服务现取，不许把整行挂在别人身上）',
   );
-  // 不注入 `typertGateway` 的后果不是报错而是**静默降级**：`ctx.get('typertGateway')` 在
-  // 装载那一刻取到空值（它是后装载的服务），每条事件流都抛「宿主版本没有提供该能力」。
-  // 收发消息与会话列表走普通请求因而照常工作，看着只像「刷新不实时」——服务器宿主上
-  // 就这么躺了很久。所以这条与上面二分的是同一件事的两半，别只改一半。
-  assert.match(
-    IMPL,
-    /\['webServer', 'sessions', 'typertGateway'\]/,
-    '0.2.0 这一支必须注入 typertGateway，否则实时推送整条挂掉而其它功能正常',
-  );
-  // 这两条留在实现侧：`lib/impl.js` 直接就是入口，cordis 拿到的是它自己 `export` 的 inject。
-  // 谁把 inject 改回写死的集合，上面那条断言会红。
+  assert.ok(!/typertGateway'\]/.test(IMPL), '0.2.0 那一支不许再把 typertGateway 写进 inject');
 });
 
 test('解析不动就是「没有」：不能把插件带崩', () => {
