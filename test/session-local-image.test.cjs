@@ -19,6 +19,14 @@ const {
 } = require('../lib/mobile/local-images.js');
 const { handleSessionLocalImage } = require('../lib/mobile/session-local-image.js');
 
+/**
+ * App 侧那两张表只在整仓检出里存在：插件被单独 clone 出去（公开发布仓库）时主仓的 `app/`
+ * 不在，那条流水线跑的是发出去的包本身。判据是文件在不在，整仓检出里缺了照样红。
+ */
+const APP_PATHS = path.join(__dirname, '../../app/src/services/viewmodels/apiPaths.ts');
+const APP_IMAGE_URLS = path.join(__dirname, '../../app/src/utils/markdown/imageUrls.ts');
+const SKIP_NO_APP = !fs.existsSync(APP_PATHS) && `${APP_PATHS} 不存在（插件单独检出），跳过跨仓对账`;
+
 /** 造一张只有文件头、尺寸字段是真的假 PNG（宽 3 高 2）。 */
 function fakePng(width = 3, height = 2) {
   const buf = Buffer.alloc(32);
@@ -138,11 +146,11 @@ test('正文产出与取图口对得上：正文里的编号一定能取回字�
   assert.equal(res.statusCode, 200, '正文里出现的编号必须取得到');
 }));
 
-test('两侧契约：路由表、路径常量、编号前缀三处同一个形状', () => {
+test('两侧契约：路由表、路径常量、编号前缀三处同一个形状', { skip: SKIP_NO_APP }, () => {
   const routes = fs.readFileSync(path.join(__dirname, '../lib/routes/mobile-api.js'), 'utf8');
   assert.ok(routes.includes("'/api/mobile/v1/session/local-image'"), '插件路由表要注册这条');
-  const appPaths = fs.readFileSync(path.join(__dirname, '../../app/src/services/viewmodels/apiPaths.ts'), 'utf8');
+  const appPaths = fs.readFileSync(APP_PATHS, 'utf8');
   assert.ok(appPaths.includes("sessionLocalImage: '/session/local-image'"), 'App 路径常量要同名');
-  const appUrls = fs.readFileSync(path.join(__dirname, '../../app/src/utils/markdown/imageUrls.ts'), 'utf8');
+  const appUrls = fs.readFileSync(APP_IMAGE_URLS, 'utf8');
   assert.ok(appUrls.includes('dsh-local-image:'), 'App 要认这个前缀');
 });
