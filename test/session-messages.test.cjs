@@ -194,7 +194,8 @@ test('抛出的宿主调用失败作为 502，而非客户端 400', async () => 
 
 test('入口那一发带 thin=1：窗口按轮取整，不是按条数硬切', async () => {
   // `maxMessages` 量的是消息条数，宿主一步一条 assistant 消息，长回合里最后 40 条可能
-  // 一条用户消息都没有 —— 入口必须让宿主往回跨够几轮、停在 turn/start 上。
+  // 一条用户消息都没有 —— 入口必须让宿主停在 turn/start 上。`minTurns` 只取 1：
+  // 进对话要的是「尾部这一屏」，多要几轮会把窗口撑到一百多条（见 entry-window 文件头）。
   const host = await serve();
   try {
     const response = await fetch(host.url('?sessionId=root-1&limit=25&thin=1'));
@@ -202,7 +203,7 @@ test('入口那一发带 thin=1：窗口按轮取整，不是按条数硬切', a
     assert.deepEqual(host.calls[0].request.payload, {
       sessionId: 'root-1',
       maxMessages: 2000,
-      turnWindow: { minMessages: 25, minTurns: 6 },
+      turnWindow: { minMessages: 25, minTurns: 1 },
     });
   } finally {
     await host.close();

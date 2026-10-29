@@ -55,6 +55,28 @@ test('历史图片条目带 attachmentId、不带 data（默认引用模式）',
   assert.equal(calls.length, 0, '引用模式不该发宿主 attachment RPC');
 });
 
+test('条目带上宿主附件里的原始宽高（手机靠它第一帧就占好位置）', async () => {
+  const { ctx } = makeCtx();
+  const event = imageEvent([
+    {
+      type: 'image',
+      mediaType: 'image/png',
+      attachment: { attachmentId: 'sha256:abc', mediaType: 'image/png', width: 2165, height: 1937 },
+    },
+  ]);
+  const [item] = deriveMessages([await resolveEventAttachments(ctx, 'sess-1', event)]);
+  assert.deepEqual(item.images, [{ mediaType: 'image/png', width: 2165, height: 1937, attachmentId: 'sha256:abc' }]);
+});
+
+test('宽高非法（缺失 / 非正数）时不出这两格，别拿脏数据当已知尺寸', async () => {
+  const { ctx } = makeCtx();
+  const event = imageEvent([
+    { type: 'image', mediaType: 'image/png', attachment: { attachmentId: 'a', width: 0, height: '1200' } },
+  ]);
+  const [item] = deriveMessages([await resolveEventAttachments(ctx, 'sess-1', event)]);
+  assert.deepEqual(item.images, [{ mediaType: 'image/png', attachmentId: 'a' }]);
+});
+
 test('块里只有内联 data、没有 attachmentId：照旧下发 data（兜底不能删）', async () => {
   const { ctx } = makeCtx();
   const event = imageEvent([
