@@ -40,7 +40,7 @@ test('绝对路径的本机 PNG 被换成 data URI，且保留 alt 与周围文�
   const text = `看这张图\n\n![截图](${shot})\n\n后面还有话`;
   const out = await inlineTextImages(text);
   assert.notEqual(out, text, '应当被改写');
-  assert.ok(out.includes(`![截图](data:image/png;base64,${TINY_PNG.toString('base64')})`), out);
+  assert.ok(/!\[截图\]\(dsh-local-image:[a-f0-9]{16}(\?w=\d+&h=\d+)?\)/.test(out), out);
   assert.ok(out.includes('看这张图') && out.includes('后面还有话'), '图片以外的文本必须原样保留');
 }));
 
@@ -48,8 +48,8 @@ test('尖括号包裹的目的地（CommonMark）同样能内联', () => withTem
   const shot = path.join(dir, 'shot.png');
   fs.writeFileSync(shot, TINY_PNG);
   const out = await inlineTextImages(`![](<${shot}>)`);
-  assert.ok(out.includes('data:image/png;base64,'), out);
-  assert.ok(!out.includes('data:image/png;base64,<'), '尖括号不能留在 data URI 上');
+  assert.ok(out.includes('dsh-local-image:'), out);
+  assert.ok(!/dsh-local-image:<|%3C/.test(out), '尖括号不能留在编号上');
 }));
 
 test('带空格的路径靠 `<>` 包裹也能内联，括号两侧的空白一并忽略', () => withTempDir(async (dir) => {
@@ -62,11 +62,11 @@ test('带空格的路径靠 `<>` 包裹也能内联，括号两侧的空白一�
 
   // 带空格的路径只有 `<>` 这一种合法写法，而 App 侧解析器认它 —— 两边必须一致。
   const bracketed = await inlineTextImages(`![](<${spacedShot}>)`);
-  assert.ok(bracketed.includes('data:image/png;base64,'), bracketed.slice(0, 80));
+  assert.ok(bracketed.includes('dsh-local-image:'), bracketed.slice(0, 80));
 
   // 括号内的首尾空白按 mdast 的做法忽略（`![a]( /x/a.png )`）。
   const padded = await inlineTextImages(`![a]( ${plainShot} )`);
-  assert.ok(padded.includes('data:image/png;base64,'), padded.slice(0, 80));
+  assert.ok(padded.includes('dsh-local-image:'), padded.slice(0, 80));
 
   // 裸写带空格的路径连解析都不成立（会截成 `…/nested`），保持字面。
   const bare = `![a](${spacedShot})`;
@@ -77,7 +77,7 @@ test('file:// 形式的绝对路径能内联', () => withTempDir(async (dir) => 
   const shot = path.join(dir, 'shot.png');
   fs.writeFileSync(shot, TINY_PNG);
   const out = await inlineTextImages(`![](file://${shot})`);
-  assert.ok(out.includes('data:image/png;base64,'), out);
+  assert.ok(out.includes('dsh-local-image:'), out);
 }));
 
 test('代码块与行内代码里的图片语法保持字面（那是写法示例，不是图）', () => withTempDir(async (dir) => {
@@ -109,8 +109,8 @@ test('代码块与行内代码里的图片语法保持字面（那是写法示�
   assert.ok(out.includes(`~~~\n![波浪号围栏](${shot})\n~~~`), '波浪号围栏同样原样保留');
   assert.ok(out.includes(`\`\`\`\n![四反引号围栏](${shot})\n\`\`\``), '4 个反引号的围栏不能被 3 个的闭合行提前关掉');
   assert.ok(out.includes(`\`![行内](${shot})\``), '行内代码必须原样保留');
-  assert.ok(out.includes('![真图](data:image/png;base64,'), '围栏外的真图仍要内联');
-  assert.equal((out.match(/data:image\/png;base64,/g) || []).length, 1, '只有代码块外那一处能变成 data URI');
+  assert.ok(out.includes('![真图](dsh-local-image:'), '围栏外的真图仍要换成编号');
+  assert.equal((out.match(/dsh-local-image:/g) || []).length, 1, '只有代码块外那一处能换成编号');
 }));
 
 test('未闭合的围栏一直保护到文末', () => withTempDir(async (dir) => {
@@ -150,7 +150,7 @@ test('相对地址按工作区目录内联；没给目录或文件不存在时�
   const withCwd = createTextImageBudget();
   withCwd.cwd = dir;
   const out = await inlineTextImages(text, withCwd);
-  assert.ok(out.includes('data:image/png;base64,'), out.slice(0, 80));
+  assert.ok(out.includes('dsh-local-image:'), out.slice(0, 80));
   assert.ok(out.includes('![日落插画]('), 'alt 与文字保持原样');
 
   assert.equal(await inlineTextImages(text), text, '没有工作区目录时不猜');
@@ -184,9 +184,9 @@ test('预算用尽后剩下的图片保持字面 markdown', async () => withTemp
   assert.equal(out, text, '预算为 0 时一个字都不该动');
 
   const first = await inlineTextImages(text);
-  assert.ok(first.includes('data:image/png;base64,'), first);
-  // 单次调用内的两处图片共享同一份文本级预算：小图两张都装得下。
-  assert.equal((first.match(/data:image\/png;base64,/g) || []).length, 2, first);
+  assert.ok(first.includes('dsh-local-image:'), first);
+  // 预算按「张数」算（编号只有几十字节）：两张小图都换得了。
+  assert.equal((first.match(/dsh-local-image:/g) || []).length, 2, first);
 }));
 
 test('单张超过上限的图保持字面 markdown', async () => withTempDir(async (dir) => {
@@ -232,8 +232,8 @@ test('接线：事件文本里的本机图片在派生出的消息里也是内�
   const resolved = await resolveEventAttachments({}, 'sess-1', event);
   const items = deriveMessages([resolved]);
   const item = items[0];
-  assert.ok(item.text.includes('data:image/png;base64,'), item.text.slice(0, 120));
-  assert.ok(item.blocks[0].text.includes('data:image/png;base64,'), JSON.stringify(item.blocks[0]).slice(0, 120));
+  assert.ok(item.text.includes('dsh-local-image:'), item.text.slice(0, 120));
+  assert.ok(item.blocks[0].text.includes('dsh-local-image:'), JSON.stringify(item.blocks[0]).slice(0, 120));
   assert.ok(item.text.includes('![截图]('), '文字部分仍在，只是目的地换了');
 
   const untouched = await resolveEventAttachments({}, 'sess-1', event, { budget: { remaining: 0 } });
@@ -265,8 +265,8 @@ test('接线：正文里的相对地址图片按会话工作区内联', () => wi
   };
   const resolved = await resolveEventAttachments(ctx, 'sess-1', event);
   const [item] = deriveMessages([resolved]);
-  assert.ok(item.text.includes('data:image/png;base64,'), item.text.slice(0, 120));
-  assert.ok(item.blocks[0].text.includes('data:image/png;base64,'), 'blocks 那条路同样要画得出来');
+  assert.ok(item.text.includes('dsh-local-image:'), item.text.slice(0, 120));
+  assert.ok(item.blocks[0].text.includes('dsh-local-image:'), 'blocks 那条路同样要画得出来');
   assert.equal(listCalls, 1, '同一条响应只查一次会话列表');
 
   const noCwd = { apiProxy: { sessions: { list: async () => ({ result: { ok: true, value: { items: [] } } }) } } };
@@ -283,7 +283,7 @@ test('接线：正文里的相对地址图片按会话工作区内联', () => wi
   let absoluteCalls = 0;
   const counting = { apiProxy: { sessions: { list: async () => { absoluteCalls += 1; throw new Error('不该被调用'); } } } };
   const absoluteResolved = await resolveEventAttachments(counting, 'sess-1', absolute);
-  assert.ok(deriveMessages([absoluteResolved])[0].text.includes('data:image/png;base64,'), '绝对路径照旧内联');
+  assert.ok(deriveMessages([absoluteResolved])[0].text.includes('dsh-local-image:'), '绝对路径照旧换成编号');
   assert.equal(absoluteCalls, 0, '绝对路径不该触发会话列表查询');
 }));
 

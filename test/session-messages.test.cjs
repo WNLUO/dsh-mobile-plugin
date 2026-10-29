@@ -84,7 +84,9 @@ test('子代理走同一条 session.history，只是 payload 带上父会话与�
         sessionId: 'child-1',
         parentSessionId: 'parent-1',
         mode: 'continuable',
-        maxMessages: 25,
+        // 25 = 这一页要的 25 条；多要的 120 条只用来看「这一轮的工具结果带什么图」，
+        // 不回给手机（倒着翻页时工具结果常落在比消息更早的位置）。
+        maxMessages: 145,
         beforeSeq: 17,
       },
     });
@@ -217,7 +219,8 @@ test('带游标的请求不按内容裁：thin=1 也只当普通分页', async (
     await fetch(host.url('?sessionId=root-1&limit=25&thin=1&beforeSeq=17'));
     assert.deepEqual(host.calls[0].request.payload, {
       sessionId: 'root-1',
-      maxMessages: 25,
+      // 25 条 + 120 条只用来看工具结果的那一段；「按内容裁」那一档没有被这一发打开。
+      maxMessages: 145,
       beforeSeq: 17,
     });
   } finally {

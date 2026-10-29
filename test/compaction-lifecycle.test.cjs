@@ -113,3 +113,112 @@ test('派生的压缩行带空正文（旧安装包读正文不做判空）', ()
   const aborted = deriveMessages([{ type: 'turn/end', seq: 1, time: 1, data: { turn: 1, reason: { kind: 'aborted' } } }]);
   assert.equal(aborted[0].text, undefined);
 });
+
+/**
+ * 手动 `/compact` 在桌面上是**一件事**：`CompactionCommandCard` 只画一个 `CompactionItem`
+ * （标题取命令名、摘要位放条数与 token 数），命令行那块根本不出现。
+ *
+ * 手机侧以前两半都发：重连拿到半截增量窗口时，屏幕上并排三行 ——「compact·执行中…」、
+ * 「上下文已压缩·压缩摘要不可用」、「命令·Compacted 206 history items」（宿主 en locale 的
+ * 英文原句，标题连命令名都丢了）。现在压缩行按 `sourceCommandId` 认领命令行。
+ */
+const withCommand = (event, sourceCommandId) => ({ ...event, data: { ...event.data, sourceCommandId } });
+const runCommand = (commandId, seq) => ({ type: 'command/run', seq, time: seq, data: { commandId, name: 'compact' } });
+const doneCommand = (commandId, seq) => ({
+  type: 'command/done',
+  seq,
+  time: seq,
+  data: { commandId, kind: 'success', text: 'Compacted 206 history items (~79534 tokens).' },
+});
+
+test('手动 /compact：命令行被压缩行认领，只留一行、标题继承命令名', () => {
+  const items = deriveMessages([
+    runCommand('cmd-1', 1),
+    withCommand(start('c1', null, 2), 'cmd-1'),
+    withCommand(summary('c1', 3), 'cmd-1'),
+    withCommand(end('c1', null, 4), 'cmd-1'),
+    doneCommand('cmd-1', 5),
+  ]);
+  assert.equal(items.filter((item) => item.kind === 'command').length, 0, '命令行不该单独成行');
+  const rows = compactions(items);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].compactionCommandId, 'cmd-1');
+  assert.equal(rows[0].compactionTitle, 'compact');
+  assert.equal(rows[0].state, 'done');
+  assert.equal(rows[0].shadowedItemCount, 3);
+  assert.ok(rows[0].summary, '摘要仍要带上（展开区靠它）');
+});
+
+test('增量窗口只覆盖半截生命周期时，也不漏出无名命令行', () => {
+  const items = deriveMessages([
+    withCommand(end('c1', null, 4), 'cmd-1'),
+    doneCommand('cmd-1', 5),
+  ]);
+  assert.equal(items.filter((item) => item.kind === 'command').length, 0, '认领后命令行不上屏');
+  assert.equal(compactions(items).length, 1);
+});
+
+test('没有压缩行配对的命令照旧单独成行（别把普通命令吞掉）', () => {
+  const items = deriveMessages([runCommand('cmd-2', 1), doneCommand('cmd-2', 2)]);
+  const commands = items.filter((item) => item.kind === 'command');
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].name, 'compact');
+});
+
+test('done 先到时建的命令行也带 id（否则 App 按 id 合并配不上那半截 run 行）', () => {
+  const items = deriveMessages([doneCommand('cmd-3', 2)]);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].kind, 'command');
+  assert.equal(items[0].id, 'cmd-3');
+});
+
+/**
+ * 触发命令的 id 还有第二个落点：**压缩检查点自己的 `source.sourceCommandId`**。
+ *
+ * 桌面 `compactSource` 读的就是它（`compaction/*` 的 data 只是另一半证据）。只认
+ * `compaction/*` 时，检查点先到、那些事件在增量窗口外的场合就配不上：屏幕上并排两行
+ * （一条压缩行、一条「命令 · Compacted N history items」），压缩行还退化成「压缩摘要不可用」。
+ */
+const checkpointWithCommand = (id, seq, commandId) => ({
+  type: 'user/message',
+  seq,
+  time: seq,
+  data: {
+    id: `m-${seq}`,
+    role: 'user',
+    source: { kind: 'plugin', plugin: 'compact', compactionId: id, sourceCommandId: commandId },
+    content: [],
+  },
+});
+
+test('检查点自带 sourceCommandId 也能认领命令行，条数不齐时用命令结果兜摘要位', () => {
+  const items = deriveMessages([
+    runCommand('cmd-5', 1),
+    checkpointWithCommand('c5', 2, 'cmd-5'),
+    doneCommand('cmd-5', 3),
+  ]);
+  assert.equal(items.filter((item) => item.kind === 'command').length, 0, '命令行不该单独成行');
+  const rows = compactions(items);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].compactionTitle, 'compact');
+  assert.equal(rows[0].shadowedItemCount, null);
+  assert.equal(rows[0].compactionFallbackSummary, 'Compacted 206 history items (~79534 tokens).');
+});
+
+test('命令那半截完全不在窗口里时标题仍写 compact', () => {
+  const rows = compactions(deriveMessages([checkpointWithCommand('c6', 2, 'cmd-6')]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].compactionTitle, 'compact');
+  assert.equal(rows[0].compactionFallbackSummary, undefined);
+});
+
+test('条数齐全时不塞命令原文兜底（桌面 counts 优先于 fallbackSummary）', () => {
+  const rows = compactions(deriveMessages([
+    checkpointWithCommand('c7', 2, 'cmd-7'),
+    summary('c7', 3),
+    doneCommand('cmd-7', 4),
+  ]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].shadowedItemCount, 3);
+  assert.equal(rows[0].compactionFallbackSummary, undefined);
+});
