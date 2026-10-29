@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { handleMessages } = require('../lib/mobile/session-snapshot.js');
+const { handleMessages, buildMessagesSnapshot } = require('../lib/mobile/session-snapshot.js');
 const { thinEntryMessages } = require('../lib/mobile/history-derive.js');
 
 const ROUTE = '/api/mobile/v1/session/messages';
@@ -272,4 +272,30 @@ test('thinEntryMessages：出轮尾卡的工具块留下，而且照样计入过
   assert.deepEqual(kept.map((item) => item.id), ['u1', 'a1']);
   assert.deepEqual(kept[1].blocks.map((block) => block.name), ['schedule_create']);
   assert.equal(kept[0].turnProcess.count, 1, '保留下来的过程块也要计数');
+});
+
+test('镜像正文快照必须能构建：这一路不带分页参数，宿主多给只留尾部一窗', async () => {
+  // 镜像正文是手机上「不现读宿主就能看到历史」的唯一来源。它整条抛错时上层只会记一句
+  // 「这条会话正文缺席」，手机上照样能点开会话（回源现读），所以功能测试不会红 ——
+  // 但每推一次就白烧一次宿主历史读取，镜像里的正文永远是空的。
+  const events = [1, 2, 3].map((seq) => ({
+    type: 'user/message',
+    seq,
+    time: seq,
+    data: { id: `m-${seq}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `第 ${seq} 条` }] },
+  }));
+  const ctx = { apiProxy: { sessions: { history: async () => okValue({ events, hasMore: false }) } } };
+  const snap = await buildMessagesSnapshot(ctx, 'root-1', 2);
+  assert.equal(snap.ok, true, '镜像正文快照不许整条失败');
+  assert.equal(snap.items.length, 2, '宿主多给了就只留尾部那一窗');
+  assert.equal(snap.lastSeq, 3, '水位取留下那一窗的最后一条');
+});
+
+test('镜像正文快照读不到历史时如实回 ok:false，不抛', async () => {
+  const ctx = {
+    apiProxy: { sessions: { history: async () => errValue({ code: 'session-not-found', message: 'gone' }) } },
+  };
+  const snap = await buildMessagesSnapshot(ctx, 'root-1', 2);
+  assert.equal(snap.ok, false);
+  assert.equal(snap.error.code, 'session-not-found');
 });

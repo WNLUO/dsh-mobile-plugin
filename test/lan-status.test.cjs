@@ -108,14 +108,17 @@ const refusesConnection = (port) => new Promise((resolve) => {
 
     // --- 契约面：插件必须回写轮询到的权威状态 ---
     const source = readFileSync(join(__dirname, '..', 'lib', 'sidecar-lifecycle.cjs'), 'utf8')
-    const poll = source.slice(source.indexOf("sidecar.request('/status')"))
+    // 按「轮询那一段」切，不按固定字数切：这段的注释会随理由变长，钉 600 字等于
+    // 把注释长度也钉死，加一句解释就红。终点是这一段的定时器注册处。
+    const pollStart = source.indexOf("sidecar.request('/status')")
+    const poll = source.slice(pollStart, source.indexOf('HEALTH_POLL_INTERVAL_MS)', pollStart))
     assert.match(
-      poll.slice(0, 600),
+      poll,
       /if\s*\(\s*st\s*\)\s*sidecarSnapshot\s*=\s*st/,
       '健康轮询必须把权威 /status 回写 sidecarSnapshot，否则 /api/relay/status 的 lan.state 会永远停在 connecting',
     )
     assert.match(
-      poll.slice(0, 600),
+      poll,
       /noteTunnelConnected\(/,
       '回写快照不应破坏原有的隧道连接跳变检测',
     )

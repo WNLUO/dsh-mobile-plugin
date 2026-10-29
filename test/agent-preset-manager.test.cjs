@@ -25,6 +25,7 @@ const {
   handleAgentPresetRead,
   handleAgentPresetCopy,
   handleAgentPresetRemove,
+  handleAgentPresetDefault,
   normalizeId,
   normalizeName,
   normalizeRead,
@@ -48,6 +49,7 @@ const readSource = (relative) => {
 
 function makeCtx(impl = {}) {
   const calls = [];
+  const settingsCalls = [];
   const agentPresets = {};
   for (const method of ['list', 'select', 'read', 'copy', 'remove']) {
     agentPresets[method] = async (envelope) => {
@@ -60,7 +62,18 @@ function makeCtx(impl = {}) {
       return { result: { ok: true, value: out } };
     };
   }
-  return { calls, apiProxy: { agentPresets } };
+  // 「设为默认」写的是宿主 settings（不是预设自己的属性），单独记一份调用流水。
+  const settings = {
+    mutate: async (envelope) => {
+      settingsCalls.push(envelope);
+      const fn = impl.mutate;
+      if (!fn) return { result: { ok: true, value: { ns: envelope.payload.ns } } };
+      const out = fn(envelope);
+      if (out && typeof out === 'object' && out.result) return out;
+      return { result: { ok: true, value: out } };
+    },
+  };
+  return { calls, settingsCalls, apiProxy: { agentPresets, settings } };
 }
 
 function makeReq(url, body) {
@@ -251,6 +264,56 @@ test('remove 未知预设 → 404', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// 4b. 设为默认：写宿主 settings 的 agent-preset-registry.selectedDefault
+// ---------------------------------------------------------------------------
+
+test('default 先按名单确认这一档在，再写 settings 那一格', async () => {
+  const ctx = makeCtx({ list: () => ({ presets: [{ id: 'standard' }, { id: 'my-agent' }] }) });
+  const res = await call(handleAgentPresetDefault, ctx, { agentPreset: 'my-agent' });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { ok: true, agentPreset: 'my-agent' });
+  assert.deepEqual(ctx.settingsCalls[0].payload, {
+    ns: 'agent-preset-registry',
+    ops: [{ op: 'set', path: ['selectedDefault'], value: 'my-agent' }],
+  });
+});
+
+test('default 已经默认时不再写（省一次 revision 推进）', async () => {
+  const ctx = makeCtx({ list: () => ({ presets: [{ id: 'standard', isDefault: true }] }) });
+  const res = await call(handleAgentPresetDefault, ctx, { agentPreset: 'standard' });
+  assert.equal(res.status, 200);
+  assert.equal(ctx.settingsCalls.length, 0);
+});
+
+test('default 名单里没有这一档 → 404，一个字都不写', async () => {
+  const ctx = makeCtx({ list: () => ({ presets: [{ id: 'standard' }] }) });
+  const res = await call(handleAgentPresetDefault, ctx, { agentPreset: 'ghost' });
+  assert.equal(res.status, 404);
+  assert.equal(res.body.error.code, 'agent-preset-not-found');
+  assert.deepEqual(res.body.error.details.available, ['standard']);
+  assert.equal(ctx.settingsCalls.length, 0);
+});
+
+test('default 设置写不进去时把宿主原文带出来', async () => {
+  const ctx = makeCtx({
+    list: () => ({ presets: [{ id: 'standard' }] }),
+    mutate: () => ({ result: { ok: false, error: { code: 'settings/conflict', message: 'revision mismatch' } } }),
+  });
+  const res = await call(handleAgentPresetDefault, ctx, { agentPreset: 'standard' });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, 'settings/conflict');
+  assert.match(res.body.error.message, /默认预设没写进去.*revision mismatch/);
+});
+
+test('default 标识非法时本地 400，名单都不读', async () => {
+  const ctx = makeCtx();
+  const res = await call(handleAgentPresetDefault, ctx, { agentPreset: 'Bad Id' });
+  assert.equal(res.status, 400);
+  assert.equal(ctx.calls.length, 0);
+  assert.equal(ctx.settingsCalls.length, 0);
+});
+
+// ---------------------------------------------------------------------------
 // 5. 码表与信封
 // ---------------------------------------------------------------------------
 
@@ -294,12 +357,13 @@ test('unwrap：空响应与 ok:false 都变成 error', () => {
 // 6. 源码契约：路由挂上去了，且走的是 apiProxy 的 agentPreset 域
 // ---------------------------------------------------------------------------
 
-test('index.js 挂了三条例路由并 require 了新模块', () => {
+test('index.js 挂了四条路由并 require 了新模块', () => {
   const src = readWiring();
   assert.match(src, /require\('(?:\.\.\/mobile|\.\/mobile)\/agent-presets\.js'\)/);
   assert.match(src, /route\('\/api\/mobile\/v1\/agent-presets\/read', agentPresets\.handleAgentPresetRead\)/);
   assert.match(src, /route\('\/api\/mobile\/v1\/agent-presets\/copy', agentPresets\.handleAgentPresetCopy\)/);
   assert.match(src, /route\('\/api\/mobile\/v1\/agent-presets\/remove', agentPresets\.handleAgentPresetRemove\)/);
+  assert.match(src, /route\('\/api\/mobile\/v1\/agent-presets\/default', agentPresets\.handleAgentPresetDefault\)/);
   // 名单本身仍由 sessions.js 那条老路由提供，别被顶掉
   assert.match(src, /route\('\/api\/mobile\/v1\/agent-presets', sessions\.handleAgentPresets\)/);
 });

@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  WINDOWS_SCRIPT,
   parseDarwinState,
   parseDarwinAppAllowed,
   parseWindowsReport,
@@ -185,6 +186,15 @@ test('Windows 探测：输出不是 JSON 就说解析不了，不说「正常」
   assert.equal(result.supported, false);
   assert.equal(result.enabled, null);
   assert.equal(result.reason, 'parse-failed');
+});
+
+test('Windows：开关与规则都查生效策略，不查本地静态库', () => {
+  // 不写 `-PolicyStore` 时 PowerShell 读的是本地静态库（persistent store），而它不含
+  // 组策略下发的开关与规则。组策略管着的机器上，系统界面显示防火墙开着，按本地库读
+  // 出来三个 profile 全是「关」——「实际开着、自检说关着」就是这一条。
+  assert.match(WINDOWS_SCRIPT, /Get-NetFirewallProfile -PolicyStore ActiveStore/);
+  assert.match(WINDOWS_SCRIPT, /Get-NetFirewallApplicationFilter -PolicyStore ActiveStore -Program \$path/);
+  assert.match(WINDOWS_SCRIPT, /Get-NetFirewallRule -Name \$f\.Name -PolicyStore ActiveStore/);
 });
 
 test('Linux：只读得到「开着没」，放行与否一律是查不到', async () => {

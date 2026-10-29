@@ -140,8 +140,10 @@ const pairingProps = {
   onRevokeAll: noop,
   onSavePreferred: noop,
 }
+/** 连接自检的空视图：SSR 里 `useSelfCheck` 的 effect 不跑，卡片只读到「还没查」。 */
+const selfcheck = { data: null, checking: false, missing: false }
 const cases = [
-  ['ConnectionCard', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop })],
+  ['ConnectionCard', h(Conn.ConnectionCard, { status, selfcheck, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop })],
   [
     'ConnectionCard（隧道被拒+局域网调整+旁挂异常）',
     h(Conn.ConnectionCard, {
@@ -157,9 +159,10 @@ const cases = [
       onToggle: noop,
       onChangePolicy: noop,
       onOpenLan: noop,
+      selfcheck,
     }),
   ],
-  ['ConnectionCard（白名单拒绝）', h(Conn.ConnectionCard, { status: { ...status, tunnel: { state: 'error', error: 'unknown instance: xyz', instanceNotAllowed: true, admissionHint: 'instance-allowlist' } }, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop })],
+  ['ConnectionCard（白名单拒绝）', h(Conn.ConnectionCard, { status: { ...status, tunnel: { state: 'error', error: 'unknown instance: xyz', instanceNotAllowed: true, admissionHint: 'instance-allowlist' } }, selfcheck, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop })],
   // 这三处默认遮着（二维码、中转地址、手机该填的地址），断言的是「遮着的时候页面里有什么」：
   // 二维码**根本不在 DOM 里**（整块换成占位），地址只留「已隐藏」+ 一颗贴上无障碍名的
   // 「显示」按钮。点开之后是纯前端状态，`renderToString` 不留状态，要靠真浏览器点。
@@ -172,7 +175,7 @@ const cases = [
   ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), 'aria-label="显示本地识别地址"'],
   // 中转地址那一行不在卡里（配对卡里已有同一个值），这里钉「准入开关在卡里」——
   // 它摆在远程控制上面。
-  ['ConnectionCard（准入开关在卡里）', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop }), '允许新设备绑定'],
+  ['ConnectionCard（准入开关在卡里）', h(Conn.ConnectionCard, { status, selfcheck, busy: '', onToggle: noop, onChangePolicy: noop, onOpenLan: noop }), '允许新设备绑定'],
   // 更新卡片先问宿主那四条 `/api/relay/update/*`，拿不到才退化成市场老路。
   // SSR 里 effect 不跑，两条分支都不进：这一遍只冒烟「标题 + 正在读状态」那一屏。
   // 完整分支要用真浏览器看 —— 这里没有全局 fetch 打桩。

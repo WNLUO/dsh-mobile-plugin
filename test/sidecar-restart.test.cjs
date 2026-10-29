@@ -382,3 +382,26 @@ test('宿主把 onDown 接到了两处 facade 构造上，健康轮询失败也�
   assert.match(poll, /catch \(error\) \{[\s\S]*?markSidecarDown\(error\)/, '健康轮询失败必须把状态打回 off')
   assert.doesNotMatch(poll, /catch \{ \/\* ignore \*\/ \}/, '空的 catch 就是谎报的根源，不能再出现')
 })
+
+test('轮询自己写上去的 error 必须自愈，配置/重启失败的 error 不许被轮询抹掉', () => {
+  const src = read(LIFECYCLE)
+  const flat = (s) => s.replace(/\s+/g, ' ')
+  // 一次回环 reset（worker 正在被换掉、socket 抖一下）只该红到下一次轮询为止。原来的
+  // 写法只有失败分支会写状态、成功分支不回写，于是那行红字会一直挂到用户来点重启。
+  const poll = flat(src.slice(src.indexOf('const healthTimer = setInterval')))
+  assert.match(
+    poll,
+    /if \(stateFromPoll\) \{ sidecarState = 'healthy'; stateFromPoll = false \}/,
+    '轮询通了必须把轮询自己写上去的 error 抹回 healthy',
+  )
+  assert.match(
+    flat(src.slice(src.indexOf('const markSidecarDown'))),
+    /stateFromPoll = true/,
+    'markSidecarDown 必须把这一格标记成「轮询自己写的」，成功分支才知道能不能抹',
+  )
+  // 「配置没生效」是另一回事：worker 活得好好的也照样是坏的，轮询不许顺手抹成 healthy。
+  const apply = flat(src.slice(src.indexOf('const syncSidecar'), src.indexOf('const restartSidecar')))
+  assert.match(apply, /stateFromPoll = false sidecarState = `error:/, '下发配置失败必须标明「不是轮询写的」')
+  const restart = flat(src.slice(src.indexOf('const restartSidecar'), src.indexOf('const onTunnelUp')))
+  assert.match(restart, /stateFromPoll = false sidecarState = `error:/, '重启失败必须标明「不是轮询写的」')
+})

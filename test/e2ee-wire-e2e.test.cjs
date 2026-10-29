@@ -187,7 +187,7 @@ test('宿主封的响应 App 能解开（nonce 必须拼回去）', { skip: SKIP
   const sealed = wrapper(
     e2ee.sealWithNonce(keys.down, Buffer.alloc(12, 0x55), Buffer.from(JSON.stringify(plain)), e2ee.downAad('GET', '/api/mobile/v1/status', ts, reqNonce)),
   );
-  const got = appEnvelope.openResponse(context, { method: 'GET', path: '/api/mobile/v1/status', ts, nonce: reqNonce }, sealed);
+  const got = await appEnvelope.openResponse(context, { method: 'GET', path: '/api/mobile/v1/status', ts, nonce: reqNonce }, sealed);
   assert.deepEqual(got, plain);
 });
 
@@ -267,7 +267,7 @@ test('签名对不上时宿主拒收：搬参前后算签名会得到两个不�
   assert.notEqual(sealed.headers['X-Dsh-Sig'], e2ee.sign(keys.sig, canonical), '签的必须是搬参之后实际发出去的那一串');
 });
 
-test('列表类响应：外层留 ok/revision/generatedAt，正文在 env，App 解完要盖回去', { skip: SKIP_NO_APP }, () => {
+test('列表类响应：外层留 ok/revision/generatedAt，正文在 env，App 解完要盖回去', { skip: SKIP_NO_APP }, async () => {
   const ts = Date.now();
   const reqNonce = e2ee.b64url(Buffer.alloc(12, 0x44));
   const listPath = '/api/mobile/v1/sessions';
@@ -286,7 +286,7 @@ test('列表类响应：外层留 ok/revision/generatedAt，正文在 env，App 
   assert.equal(body.generatedAt, payload.generatedAt);
   assert.ok(body.env && typeof body.env === 'object', '正文在 env 里');
   // AAD 材料随响应走：这里直接把 `sealResponse` 收到的那条请求交回去。
-  const got = appApiEnvelope.openEnvelopeBody(context, body, 200, '2', { method: 'GET', path: listPath, ts, nonce: reqNonce });
+  const got = await appApiEnvelope.openEnvelopeBody(context, body, 200, '2', { method: 'GET', path: listPath, ts, nonce: reqNonce });
   assert.deepEqual(got.items, payload.items, '正文解回来了');
   assert.equal(got.ok, true, '外层 ok 要盖回去');
   assert.equal(got.revision, 'rev-abc', '外层 revision 要盖回去');

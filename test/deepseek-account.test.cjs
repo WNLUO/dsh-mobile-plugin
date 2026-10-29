@@ -75,7 +75,7 @@ test('已登录时仅投影资料、钱包与用量链接，不回传账号内�
   assert.deepEqual(result.body, {
     ok: true,
     status: 'credential-stored',
-    profile: { status: 'ready', name: '小明', contact: 'x@example.com' },
+    profile: { status: 'ready', name: '小明', contact: 'x@example.com', avatarUrl: 'https://example.com/avatar' },
     balance: {
       status: 'ready',
       wallets: [{ currency: 'CNY', balance: '12.30' }],
@@ -83,7 +83,8 @@ test('已登录时仅投影资料、钱包与用量链接，不回传账号内�
     },
     links: { usageUrl: 'https://deepseek.com/usage', topUpUrl: 'https://deepseek.com/top-up' },
   });
-  assert.doesNotMatch(JSON.stringify(result.body), /token|attempt|authorizeUrl|account-id|avatarUrl/);
+  // 头像是资料的一部分，随投影出去；账号 ID、token、attempt 仍然不许出这一层。
+  assert.doesNotMatch(JSON.stringify(result.body), /token|attempt|authorizeUrl|account-id|private/);
 });
 
 test('资料读取失败不影响余额，余额读取失败不泄漏宿主错误文本', async () => {
@@ -100,7 +101,7 @@ test('资料读取失败不影响余额，余额读取失败不泄漏宿主错�
     getProfile: async () => ok({ status: 'ready', value: { name: '小明', contact: null } }),
     getBalance: async () => error('balance-failed'),
   } } });
-  assert.deepEqual(balanceFailure.body.profile, { status: 'ready', name: '小明', contact: null });
+  assert.deepEqual(balanceFailure.body.profile, { status: 'ready', name: '小明', contact: null, avatarUrl: null });
   assert.deepEqual(balanceFailure.body.balance, { status: 'failed' });
   assert.doesNotMatch(JSON.stringify(balanceFailure.body), /internal detail|balance-failed/);
 

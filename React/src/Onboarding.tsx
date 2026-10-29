@@ -735,8 +735,8 @@ export function Onboarding({ onDone }: Props) {
               </InfoList>
 
               {/* 清单下面那一句总结就是宿主的 `verdict`：正常灰、查不到黄、异常红。
-                  放在清单里而不是另一张卡/悬浮公告板 —— 那块公告板只在特别宽的窗口才出现，
-                  而引导页恰恰常在笔记本宽度下打开。 */}
+                  放在清单里而不是单开一张卡 —— 它是上面那四行的落款，不是另一件可以
+                  单独搬走的信息。 */}
               {selfcheckVerdict ? (
                 <p
                   className={cn(

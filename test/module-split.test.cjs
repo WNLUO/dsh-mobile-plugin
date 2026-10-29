@@ -349,7 +349,7 @@ test('网关直连只许出现在 host-bridge/transport.js', () => {
 // sessions.js 1964 → 393 行后，剩下的只是会话列表 + 新建 + 排队动作。按域拆出去的九个子
 // 模块必须各守自己的行数区间：只要有人把某个域又搬回 sessions.js，这条就红。
 // 钉「谁住在哪」比钉行数更耐改，所以这里两样都查，但行数区间给得宽，防的是膨胀不是搬回。
-test('sessions.js 只剩会话列表，九个子模块各守一个领域', () => {
+test('sessions.js 只剩会话列表，每个子模块各守一个领域', () => {
   const sessions = read(SESSIONS);
   const lines = lineCount(SESSIONS);
   assert.ok(lines < 500, `sessions.js 应保持在 500 行以内，实际 ${lines}（拆分前是 1964）`);
@@ -361,7 +361,8 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
     'session-models.js': ['buildModelsSnapshot', 'handleModels', 'handleSelectModel', 'safeModelsValue'],
     'session-search.js': ['sanitizeSearchQuery', 'handleSessionSearch'],
     'session-send.js': ['promptOnce', 'handleSend', 'handleCommands', 'handleFork', 'handleSessionAttachment'],
-    'session-snapshot.js': ['eventSeqOf', 'buildMessagesSnapshot', 'statsProjections', 'handleMessages'],
+    'session-snapshot.js': ['eventSeqOf', 'buildMessagesSnapshot', 'handleMessages'],
+    'session-stats.js': ['buildStatsSnapshot', 'statsProjections'],
     'session-mirror.js': ['buildSingleSessionMirror', 'buildMirrorWarmSnapshots'],
     'session-goal.js': ['callGoals', 'handleGoalAction'],
     'session-presets.js': ['handleAgentPresets'],
@@ -369,6 +370,7 @@ test('sessions.js 只剩会话列表，九个子模块各守一个领域', () =>
   const CEILING = {
     'attachments.js': 160, 'completion.js': 150, 'session-last-turn.js': 130, 'session-models.js': 220,
     'session-search.js': 120, 'session-send.js': 330, 'session-snapshot.js': 200,
+    'session-stats.js': 80,
     'session-mirror.js': 200, 'session-goal.js': 90, 'session-presets.js': 100,
   };
   for (const [file, names] of Object.entries(HOME)) {

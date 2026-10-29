@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
 import { LanDialog } from './components/LanDialog.tsx'
+import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { SelfCheckDialog } from './components/SelfCheckDialog.tsx'
@@ -305,13 +306,18 @@ export function App() {
         </div>
 
         {/*
-          右栏是「这台电脑现在怎么样」的一列：连接状态在上，收件目录紧挨着它下面。
-          两块都不跟随滚动、也不套内滚动 —— 挂 `lg:sticky` 会让页面「还得滑到底部才可以」，
+          右栏是「这台电脑现在怎么样」的一列：公告在最上（公用中转的版本门槛），
+          连接状态其次，收件目录紧挨着它下面。
+          三块都不跟随滚动、也不套内滚动 —— 挂 `lg:sticky` 会让页面「还得滑到底部才可以」，
           加 `max-h` + `overflow-y-auto` 会在这一列里长出第二条滚动条，看着像两个独立小窗。
 
           窄屏放不下两列时它排到最前 —— 先看状态，再做事。
         */}
         <aside className="flex flex-col gap-4 max-lg:order-first lg:w-[340px] lg:shrink-0">
+          {/* 公用中转的插件版本门槛（2026-10-30 从屏幕边上那块悬浮件挪进来，见
+              components/NoticeBoard.tsx 文件头）。 */}
+          <NoticeBoard />
+
           <ConnectionCard
             status={status}
             busy={busy}
