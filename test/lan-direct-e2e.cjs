@@ -43,13 +43,19 @@ function startUpstream() {
     req.on('data', (chunk) => { body += chunk })
     req.on('end', () => {
       seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization || '' })
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({
+      // 定长响应（显式给 content-length）：代理必须把它原样转出去。显式 writeHead 之后
+      // Node 不会再自己补长度，正好用来验这条转发。
+      const payload = JSON.stringify({
         ok: true,
         upstream: true,
         path: req.url,
         sawAuthorization: req.headers.authorization || '',
-      }))
+      })
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'content-length': String(Buffer.byteLength(payload)),
+      })
+      res.end(payload)
     })
   })
   return new Promise((resolve) => {
@@ -245,6 +251,15 @@ const isApiUnauthorized = (res) => {
     const viaApp = await call(LAN_PORT, { path: '/api/mobile/v1/status', headers: appHeaders })
     assert.ok(isProxied(viaApp), 'App 契约应打通到宿主')
     assert.equal(JSON.parse(viaApp.body).path, '/api/mobile/v1/status')
+    // 上游声明的长度必须原样转给手机：`content-length` 不是逐跳头（中转那边同样保留，见
+    // `headers.rs` 的 `forwardable_response_header`）。代理把它丢掉的话，每一发响应都退化成
+    // chunked —— 手机上「这份文件收完了没有」就无从判断，Android 那个原生下载器会把完整响应
+    // 判成 `Download interrupted.`（2026-10-30 的现场）。
+    assert.equal(
+      Number(viaApp.headers['content-length']),
+      Buffer.byteLength(viaApp.body),
+      '响应长度必须原样转出去',
+    )
 
     // 8. 只有 cookie（RN 可能丢弃 Authorization）也必须可用
     const viaCookie = await call(LAN_PORT, {

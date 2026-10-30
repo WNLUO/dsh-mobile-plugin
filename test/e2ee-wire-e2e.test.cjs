@@ -226,6 +226,10 @@ test('宿主写的分块文件 App 能整份解回来（含尾块）', { skip: S
 
   assert.equal(res.destroyed, false, '写完不该把连接掐掉');
   assert.equal(res.ended, true, '最后必须收尾：不收尾对端就永远等下去');
+  // 响应头里那个 `content-length` 就是按这个式子算的（见 `encryptedLengthOf`）：它必须与
+  // 真实写出来的字节数逐字节对上，算偏一个字节对端就「读不满」或「一直等」。
+  const { encryptedLengthOf } = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'mobile', 'session-file.js'));
+  assert.equal(res.body.length, encryptedLengthOf(64 * 1024 + Buffer.byteLength('尾巴')));
   const out = appFile.openFileChunk(context, { path: filePath, ts: 1, nonce: reqNonce }, new Uint8Array(res.body));
   assert.equal(out.length, blocks[0].length + blocks[1].length);
   assert.equal(Buffer.from(out).subarray(64 * 1024).toString('utf8'), '尾巴');

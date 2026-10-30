@@ -277,11 +277,15 @@ test('协议 v2：与 /session/file 同一个分块信封，块能用请求路�
   await withHost({ workspaces: [ws], e2ee: true }, async (host) => {
     const res = await host.post({ path: path.join(ws, 'big.md') });
     assert.equal(res.status, 200);
-    // 信封外壳：这份字节不是原文，长度改成 chunked，明文类型单独给一份。
+    // 信封外壳：这份字节不是原文，明文类型单独给一份，长度按分块开销算出来（见
+    // `encryptedLengthOf`）—— 不给长度的话，Android 那个原生下载器会把完整响应判成
+    // `Download interrupted.`（同一份口径钉在 `session-file.test.cjs`）。
     assert.equal(res.type, 'application/x-dsh-e2ee-chunks');
     assert.equal(res.headers.get('x-dsh-proto'), '2');
     assert.equal(res.headers.get('x-dsh-content-type'), 'text/plain; charset=utf-8');
-    assert.equal(res.headers.get('content-length'), null);
+    const blocks = Math.floor(content.length / (64 * 1024)) + 1;
+    assert.equal(Number(res.headers.get('content-length')), content.length + blocks * (4 + 12 + 16));
+    assert.equal(res.bytes.length, Number(res.headers.get('content-length')));
 
     const plain = decodeChunks(host.opened.keys, host.opened.req.nonce, res.bytes);
     assert.deepEqual(plain, content);

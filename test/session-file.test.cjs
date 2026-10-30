@@ -24,9 +24,13 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 
-const { handleSessionFile } = require('../lib/mobile/session-file.js');
+const { handleSessionFile, FILE_CHUNK_BYTES } = require('../lib/mobile/session-file.js');
+const e2ee = require('../lib/shared/e2ee.js');
 
 const BASE = '/api/mobile/v1/session/file';
+
+/** 一条会话的上下行密钥（写块只用 `down`）。 */
+const TEST_KEYS = e2ee.deriveSessionKeys(Buffer.alloc(32, 0x22));
 
 /** 一条交付声明事件（形状与宿主 dsh-tool-present 追加的那条一致）。 */
 function presented(turn, paths) {
@@ -62,6 +66,9 @@ async function serve(options = {}) {
     },
   };
   const server = http.createServer((req, res) => {
+    // 加密会话那一档：真机上这一格由 `guarded` 解完信封之后挂上（见 `shared/e2ee-request`），
+    // 这里按同一个形状直接给，路由拿到的还是普通 req / res。
+    if (options.e2ee) req.__dshE2ee = { keys: TEST_KEYS, req: { ts: 1, nonce: options.e2ee.nonce } };
     Promise.resolve(handleSessionFile(ctx, req, res)).catch((error) => {
       if (res.headersSent || res.writableEnded) return;
       res.writeHead(500, { 'content-type': 'application/json' });
@@ -81,11 +88,12 @@ async function serve(options = {}) {
       const type = response.headers.get('content-type') || '';
       const length = response.headers.get('content-length');
       const disposition = response.headers.get('content-disposition');
+      const fileSize = response.headers.get('x-dsh-file-size');
       if (type.startsWith('application/json')) {
-        return { status: response.status, body: await response.json(), type, length, disposition };
+        return { status: response.status, body: await response.json(), type, length, disposition, fileSize };
       }
       const buf = Buffer.from(await response.arrayBuffer());
-      return { status: response.status, bytes: buf, type, length, disposition };
+      return { status: response.status, bytes: buf, type, length, disposition, fileSize };
     },
     close: () => new Promise((resolve) => {
       // fetch 的 keep-alive 连接会让 close 干等：先断掉空闲连接再收服务器。
@@ -215,5 +223,46 @@ test('读历史失败：502，不当成空清单', async () => {
     assert.equal(res.status, 502);
     assert.equal(res.body.error.code, 'history-failed');
     assert.match(res.body.error.message, /宿主炸了/);
+  });
+});
+
+/**
+ * 加密会话那一档的**长度契约**（2026-10-30）。
+ *
+ * 分块信封在线上是定长的：`size + 32 × 块数`。这个数以前不给（发 chunked），代价是客户端
+ * 只能「流到哪儿算哪儿」地判收没收完 —— Android 那个原生下载器按「实收字节数 ==
+ * content-length」判，分块响应一律被判成 `Download interrupted.`，用户看到的是「点开文件说
+ * 网络断了」（而那会儿它连一个 HTTP 请求都没发出去过，因为原生那层先拦下了）。
+ *
+ * 所以这里钉三件事，一个长度都不能错：① 头里有 `content-length`、没有 `transfer-encoding`；
+ * ② 实收字节数与它相等；③ 它等于按块数与固定开销独立算出来的那个数（算少了对端读不满、
+ * 算多了对端一直等）。取几个**跨块边界**的长度，尾块与空文件都在里面。
+ */
+test('加密会话：响应给出准确长度，实收字节数与它相等（含尾块与空文件）', async (t) => {
+  const dir = await workspace(t);
+  // 0 = 空文件也要发一块；65535 / 65536 / 65537 分别落在「差一块、正好一块、多一字节尾块」。
+  const sizes = [0, 1, FILE_CHUNK_BYTES - 1, FILE_CHUNK_BYTES, FILE_CHUNK_BYTES + 1, FILE_CHUNK_BYTES * 2];
+  const cases = [];
+  for (const size of sizes) {
+    const name = `blob-${size}.bin`;
+    await fs.writeFile(path.join(dir, name), Buffer.alloc(size, 0x41));
+    cases.push({ name, size });
+  }
+  const nonce = e2ee.b64url(Buffer.alloc(12, 0x44));
+
+  await withHost({ cwd: dir, e2ee: { nonce } }, async (host) => {
+    for (const { name, size } of cases) {
+      const res = await host.post({ sessionId: 's1', path: name });
+      assert.equal(res.status, 200, `${name} 应当 200`);
+      assert.equal(res.type, 'application/x-dsh-e2ee-chunks');
+      // 独立算一遍：块数 = floor(size / CHUNK) + 1，每块多 4 + 12 + 16 字节。
+      // （这一条同时钉住「不许再发分块」：发分块时头里根本没有 content-length。）
+      const expected = size + (Math.floor(size / FILE_CHUNK_BYTES) + 1) * (4 + 12 + 16);
+      assert.equal(Number(res.length), expected, `${name} 的 content-length 与块数算出来的不一致`);
+      // 原文件大小单独给一份：中转有时会把 `content-length` 吞掉（改成分块），客户端要靠它
+      // 判「到底收全没有」—— 分块信封自己的认证判不出「正好在块边界被截断」那种。
+      assert.equal(Number(res.fileSize), size, `${name} 的 x-dsh-file-size 不对`);
+      assert.equal(res.bytes.length, expected, `${name} 实收字节数与 content-length 不一致`);
+    }
   });
 });
