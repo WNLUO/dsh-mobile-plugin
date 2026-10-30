@@ -270,3 +270,16 @@ test('二维码路由只认可信本机界面：转发来的请求一律 423，�
   assert.match(route, /code: 'pairing_local_only'/, '要让面板认得出该显示哪句提示');
   assert.ok(!WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '二维码不能随两小时窗口对网页开放');
 });
+
+test('只有面板页放开「人点开的一页」，别的控制面路由不放开跨站', () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const allowed = registrations(source)
+    .filter((route) => route.path.startsWith('/api/relay/'))
+    .filter((route) => route.handler.includes('allowDocumentNavigation'))
+    .map((route) => route.path)
+    .sort();
+  // 社区桌面壳会把自己接住的链接原地打开，从自定义协议页跳到面板地址时必带
+  // `sec-fetch-site: cross-site`。这一种形态只对只读面板页放开；放开第二条就得先
+  // 想清楚它是不是也能被别人的网页点开。
+  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/settings', '/api/relay/panel/setup']);
+});

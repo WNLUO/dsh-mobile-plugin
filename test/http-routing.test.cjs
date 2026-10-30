@@ -111,6 +111,32 @@ test('控制面：sec-fetch-site: cross-site 一律拒', async () => {
   assert.equal(res.body.error.code, 'cross_site');
 });
 
+test('控制面：只读面板页放行「人点开的一页」，页面里的 fetch 照旧拒', async () => {
+  // 社区桌面壳把设置页里的链接原地打开：从自定义协议页跳到 http 面板地址，Chromium
+  // 一定标 `sec-fetch-site: cross-site`。不放开这一种，用户看到的就是整屏一句 403 JSON。
+  const navigation = fakeReq({ 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' });
+  let reached = false;
+  await routing.localOnly('GET', async () => { reached = true; }, { allowDocumentNavigation: true })(navigation, fakeRes());
+  assert.equal(reached, true, '人点开的面板页必须能显示');
+
+  // 同一页里偷偷发的 fetch / 被嵌进 iframe 都不是「人点开的一页」，照旧拒。
+  for (const headers of [
+    { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' },
+    { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'iframe' },
+    { 'sec-fetch-site': 'cross-site' },
+  ]) {
+    const res = fakeRes();
+    await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); }, { allowDocumentNavigation: true })(fakeReq(headers), res);
+    assert.equal(res.status, 403, `${JSON.stringify(headers)} 不是整页打开`);
+    assert.equal(res.body.error.code, 'cross_site');
+  }
+
+  // 没显式放开的路由，整页打开也一样拒。
+  const other = fakeRes();
+  await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(navigation, other);
+  assert.equal(other.body.error.code, 'cross_site');
+});
+
 test('控制面：origin 与 host 不同源即拒', async () => {
   const res = fakeRes();
   await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(fakeReq({ origin: 'http://evil.test', host: '127.0.0.1:18787' }), res);

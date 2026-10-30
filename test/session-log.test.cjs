@@ -25,7 +25,7 @@ const http = require('node:http');
 const { handleSessionLog, sessionLogZipFilename } = require('../lib/mobile/session-log.js');
 
 /** 起一个只挂 handleSessionLog 的真 http 服务。 */
-async function serve(downloadsImpl) {
+async function serve(downloadsImpl, options = {}) {
   const calls = [];
   const ctx = {
     apiProxy: {
@@ -38,6 +38,9 @@ async function serve(downloadsImpl) {
     },
   };
   const server = http.createServer((req, res) => {
+    // 守卫解封请求时挂的那一格：给了就等于「这条请求封过包」（真机上只有带
+    // `X-Dsh-Proto: 2` 的才有），分支判据就是它。
+    if (options.open) req.__dshE2ee = options.open;
     void handleSessionLog(ctx, req, res);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -160,4 +163,85 @@ test('路由已注册在插件上（apiProxy 的 exports 由真源码读取）',
   const source = readWiring();
   assert.match(source, /require\('\.\.\/mobile\/session-log\.js'\)/);
   assert.match(source, /route\('\/api\/mobile\/v1\/session-log', sessionLog\.handleSessionLog\)/);
+});
+
+// ── 封过包的请求：分块信封 ────────────────────────────────────────────────────
+//
+// 判据是守卫挂上来的 `req.__dshE2ee`。这条分支存在的理由见 session-log.js 的文件头：
+// 守卫对「v2 凭据 + 明文请求」一律回 e2ee-required，而会话树里是整段对话与附件 ——
+// 请求封了，响应也必须封。块格式与 `session-file.js` 共用一套，所以这里按那份的解法定。
+
+const e2ee = require('../lib/shared/e2ee');
+
+/** 这一趟的会话密钥与请求 nonce（真机上分别来自凭据库与那条请求的信封头）。 */
+const DOWN_KEY = Buffer.alloc(32, 7);
+const REQUEST_NONCE = e2ee.b64url(Buffer.alloc(12, 3));
+const opened = { keys: { down: DOWN_KEY }, req: { nonce: REQUEST_NONCE } };
+
+/** 按块解开：`[4 字节长度][12 字节 nonce][密文+tag]`，AAD 绑路径 / 请求 nonce / 块序号。 */
+function decryptChunks(payload, path) {
+  const parts = [];
+  let cursor = 0;
+  let seq = 0;
+  while (cursor + 4 <= payload.length) {
+    const cipherLen = payload.readUInt32BE(cursor);
+    cursor += 4;
+    const blockLen = e2ee.NONCE_BYTES + cipherLen;
+    assert.ok(cursor + blockLen <= payload.length, '块长度越界（被截断）');
+    const block = payload.subarray(cursor, cursor + blockLen);
+    cursor += blockLen;
+    seq += 1;
+    parts.push(e2ee.open(DOWN_KEY, block, e2ee.fileAad(path, REQUEST_NONCE, seq)));
+  }
+  assert.equal(cursor, payload.length, '尾部有多余字节');
+  return Buffer.concat(parts);
+}
+
+test('封过包的请求回分块信封：多块能逐字节解回原 ZIP，明文不在线上', async () => {
+  // 跨一块（64KB）的载荷：块边界、序号 AAD、尾块一起验。头部放 `PK\x03\x04`，这样
+  // 「明文没漏出去」这条断言能对着真 magic 判。
+  const zip = Buffer.alloc(70_000);
+  Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff, 0x7f]).copy(zip, 0);
+  for (let i = 6; i < zip.length; i += 1) zip[i] = (i * 131 + 7) & 0xff;
+  const s = await serve(() => zipResponse(zip), { open: opened });
+  try {
+    const res = await fetch(`${s.base}?sessionId=session-a`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'application/x-dsh-e2ee-chunks');
+    assert.equal(res.headers.get('x-dsh-content-type'), 'application/zip');
+    assert.equal(res.headers.get('x-dsh-proto'), '2');
+    assert.equal(res.headers.get('content-length'), null, '不知道总长就不给长度');
+    const payload = Buffer.from(await res.arrayBuffer());
+    assert.notDeepEqual(payload.subarray(0, 4), Buffer.from([0x50, 0x4b, 0x03, 0x04]), '明文 ZIP magic 不许出现在线上');
+    assert.ok(payload.length > zip.length, '信封要带每块的 nonce 与 tag');
+    assert.deepEqual(decryptChunks(payload, '/session-log'), zip);
+  } finally {
+    await s.close();
+  }
+});
+
+test('空导出也给一块：解出 0 字节，App 才分得清「空的」与「一个字节没收到」', async () => {
+  const s = await serve(() => zipResponse(new Uint8Array([])), { open: opened });
+  try {
+    const res = await fetch(`${s.base}?sessionId=session-a`);
+    assert.equal(res.headers.get('content-type'), 'application/x-dsh-e2ee-chunks');
+    const payload = Buffer.from(await res.arrayBuffer());
+    assert.ok(payload.length >= 4, '至少要有一块');
+    assert.equal(decryptChunks(payload, '/session-log').length, 0);
+  } finally {
+    await s.close();
+  }
+});
+
+test('宿主失败体在封过包的请求上仍是明文 JSON（App 要先读懂它）', async () => {
+  const s = await serve(() => new Response('session not found', { status: 404 }), { open: opened });
+  try {
+    const res = await fetch(`${s.base}?sessionId=session-gone`);
+    assert.equal(res.status, 404);
+    assert.match(res.headers.get('content-type') || '', /application\/json/);
+    const body = await res.json();
+    assert.equal(body.error.message, 'session not found');
+  } finally {
+    await s.close();
+  }
 });
