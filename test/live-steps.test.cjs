@@ -163,3 +163,24 @@ test('空事件 / 没有位置的事件不会凭空造步', () => {
   feed([null, {}, { type: 'assistant/chunk', data: {} }, chunk('reasoning-delta', { text: '没有 index' })]);
   assert.equal(liveStepsOf(CTX, SESSION).length, 0);
 });
+
+// 模型推理里带的签名块（`<signature>…</signature>`）：宿主数据里存着，桌面在渲染层剥掉。
+// 直播这一侧摘要与详情都要跟着剥，否则清单行是一串 base64、点开整段噪声。
+const SIG = `<signature>${'QkJC'.repeat(40)}</signature>`;
+
+test('签名块：只剩签名时不答详情，接上正文后从签名之后开始', () => {
+  fresh();
+  feed([reasoning(0, SIG)]);
+  assert.equal(liveStepOf(CTX, SESSION, { kind: 'think', index: 0 }), null, '只剩签名时没有正文可给');
+  feed([reasoning(0, '\n先看目录')]);
+  const think = liveStepOf(CTX, SESSION, { kind: 'think', index: 0 });
+  assert.equal(think.text, '先看目录');
+});
+
+test('签名块：落定后的摘要在签名之后', () => {
+  fresh();
+  feed([reasoning(0, SIG), reasoning(0, '\n**先看这个文件**\n第二行不该进摘要'), blockEnd(0)]);
+  const step = liveStepsOf(CTX, SESSION)[0].step;
+  assert.equal(step.state, 'ok');
+  assert.equal(step.summary, '先看这个文件');
+});

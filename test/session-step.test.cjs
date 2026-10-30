@@ -185,3 +185,37 @@ test('详情端点优先用直播副本：宿主那一头一次都不用问', as
   assert.equal(parsed.body.step.argsRaw, '{"file_path":"/tmp/b.md"}');
   assert.equal(parsed.body.step.live, true);
 });
+
+// ── 签名块（模型推理里的 `<signature>…</signature>`）─────────────────────────
+// 宿主数据里存着这段签名，桌面从 0.2.1-rc.5 起在渲染层剥掉；手机不跟一遍就是摘要一串
+// base64、点开整段噪声，而且这种块还会被当成有效的一步占掉清单里一格。
+const SIG = `<signature>${'QkJC'.repeat(60)}</signature>`;
+
+function signedConversation() {
+  return [
+    user(1, '看看这个文件'),
+    assistant(2, 1, 1, [
+      { type: 'reasoning', text: `${SIG}\n先读一下这个文件\n第二行` },
+      { type: 'reasoning', text: SIG },
+      { type: 'tool-call', id: 'call_1', name: 'read', arguments: '{"file_path":"/tmp/a.md"}' },
+    ]),
+    result(3, 1, 1, 'call_1', '文件正文'),
+    ev('turn/end', { turn: 1, reason: { kind: 'completed' } }, 4),
+  ];
+}
+
+test('签名块：摘要在签名之后，只剩签名的那一段不算一步', () => {
+  const opener = openerOf(deriveMessages(signedConversation()));
+  const steps = opener.turnProcess.steps;
+  assert.deepEqual(steps.map((step) => step.kind), ['think', 'tool'], '只剩签名的推理块不算一步');
+  assert.equal(steps[0].summary, '先读一下这个文件');
+  assert.equal(JSON.stringify(opener.turnProcess).includes('signature'), false, '签名一个字都不进清单');
+});
+
+test('签名块：思考详情从签名之后开始，只有签名时回 404', async () => {
+  const whole = await call(fakeCtx(signedConversation()), { sessionId: 's1', kind: 'think', seq: '2', index: '0' });
+  assert.equal(whole.status, 200);
+  assert.equal(whole.body.step.text, '先读一下这个文件\n第二行');
+  const empty = await call(fakeCtx(signedConversation()), { sessionId: 's1', kind: 'think', seq: '2', index: '1' });
+  assert.equal(empty.status, 404, '只有签名的那一段没有正文可给');
+});
