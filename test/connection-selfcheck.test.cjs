@@ -117,6 +117,13 @@ test('Windows：报告解析收得下数组与单条两种形状', () => {
   assert.equal(single.profiles.length, 1);
   assert.equal(single.apps.length, 1);
   assert.deepEqual(single.activeProfiles, ['Public']);
+
+  // 条数用来区分「一条规则都没有」和「规则没读出来」；报里没有这两格就是 null，不是 0。
+  const counted = parseWindowsReport(JSON.stringify({ profiles: [], apps: [], filters: 3, rules: 0 }));
+  assert.equal(counted.filters, 3);
+  assert.equal(counted.rules, 0);
+  assert.equal(parseWindowsReport('{}').filters, null);
+  assert.equal(parseWindowsReport('{}').rules, null);
 });
 
 test('Windows：Any 与逗号串都按交集判，读不到当前类别时不冤枉人', () => {
@@ -188,13 +195,88 @@ test('Windows 探测：输出不是 JSON 就说解析不了，不说「正常」
   assert.equal(result.reason, 'parse-failed');
 });
 
+test('Windows 探测：PowerShell 自己失败了就没 JSON，如实报查不到', async () => {
+  const failedExec = async () => ({ code: 1, stdout: '', stderr: '', error: 'FAILED' });
+  const result = await probeFirewall({ platform: 'win32', execPath: 'C:\\node.exe', exec: failedExec });
+  assert.equal(result.supported, false);
+  assert.equal(result.enabled, null);
+  assert.equal(result.allowsApp, null);
+  assert.equal(result.reason, 'parse-failed');
+});
+
+test('Windows 探测：有 Allow 规则就放行（过滤器上 Name 为空也算数）', async () => {
+  const payload = {
+    profiles: { name: 'Public', enabled: true },
+    apps: { program: 'C:\\Program Files\\nodejs\\node.exe', action: 'Allow', enabled: true, profile: 'Any' },
+    filters: 1,
+    rules: 1,
+    activeProfiles: 'Public',
+  };
+  const { exec } = fakeExec({ 'powershell.exe': JSON.stringify(payload) });
+  const result = await probeFirewall({ platform: 'win32', execPath: 'C:\\Program Files\\nodejs\\node.exe', exec });
+  assert.equal(result.supported, true);
+  assert.equal(result.enabled, true);
+  assert.equal(result.allowsApp, true);
+});
+
+test('Windows 探测：过滤器在、规则一条没关联上，报查不到', async () => {
+  const payload = {
+    profiles: [{ name: 'Public', enabled: true }],
+    apps: [],
+    filters: 1,
+    rules: 0,
+    activeProfiles: ['Public'],
+  };
+  const { exec } = fakeExec({ 'powershell.exe': JSON.stringify(payload) });
+  const result = await probeFirewall({ platform: 'win32', execPath: 'C:\\node.exe', exec });
+  assert.equal(result.supported, false);
+  assert.equal(result.allowsApp, null);
+  assert.equal(result.reason, 'parse-failed');
+});
+
 test('Windows：开关与规则都查生效策略，不查本地静态库', () => {
   // 不写 `-PolicyStore` 时 PowerShell 读的是本地静态库（persistent store），而它不含
   // 组策略下发的开关与规则。组策略管着的机器上，系统界面显示防火墙开着，按本地库读
   // 出来三个 profile 全是「关」——「实际开着、自检说关着」就是这一条。
   assert.match(WINDOWS_SCRIPT, /Get-NetFirewallProfile -PolicyStore ActiveStore/);
   assert.match(WINDOWS_SCRIPT, /Get-NetFirewallApplicationFilter -PolicyStore ActiveStore -Program \$path/);
-  assert.match(WINDOWS_SCRIPT, /Get-NetFirewallRule -Name \$f\.Name -PolicyStore ActiveStore/);
+  assert.match(WINDOWS_SCRIPT, /Get-NetFirewallRule -PolicyStore ActiveStore/);
+});
+
+test('Windows：规则要从应用过滤器反查，不能拿过滤器上的 Name 当规则名', () => {
+  // 应用过滤器对象的 `Name` 恒为空（规则 ID 不在那儿）。拿它去 `Get-NetFirewallRule -Name`，
+  // 一条都查不到 —— 明明有 Allow 规则也会被读成「没有放行」，界面上就是「防火墙挡住了」，
+  // 而用户那边端口在听、手机就是连不上。这是 Windows 上误报的唯一来源。
+  assert.doesNotMatch(WINDOWS_SCRIPT, /-Name \$f\.Name/);
+  assert.match(WINDOWS_SCRIPT, /\$f \| Get-NetFirewallRule/);
+});
+
+test('Windows：查询本身失败就是查不到，不许当成「一条放行规则都没有」', () => {
+  // 默认的 ErrorActionPreference 只往错误流写一行、接着往下跑：循环一条不转，输出跟
+  // 「这台没有规则」一模一样。必须是整个脚本失败（非零退出），这边才报得出查不到。
+  assert.match(WINDOWS_SCRIPT, /\$ErrorActionPreference = "Stop"/);
+  // 出站规则跟「手机连进来」无关，混进来会把「没有入站放行」看成「有规则」。
+  assert.match(WINDOWS_SCRIPT, /\.Direction\)" -ne "Inbound"/);
+});
+
+test('Windows：查到了过滤器却关联不上规则，判「查不到」而不是「被挡」', () => {
+  assert.equal(decideWindowsAllows({
+    profiles: [{ name: 'Public', enabled: true }],
+    apps: [],
+    filters: 2,
+    rules: 0,
+    activeProfiles: ['Public'],
+    appPath: 'C:\\node.exe',
+  }), null, '规则没读出来 ≠ 这台没放行');
+  // 是真的没有这个程序的规则：还是默认拒绝（第一次弹框点了取消的样子）。
+  assert.equal(decideWindowsAllows({
+    profiles: [{ name: 'Public', enabled: true }],
+    apps: [],
+    filters: 0,
+    rules: 0,
+    activeProfiles: ['Public'],
+    appPath: 'C:\\node.exe',
+  }), false);
 });
 
 test('Linux：只读得到「开着没」，放行与否一律是查不到', async () => {

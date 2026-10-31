@@ -24,6 +24,7 @@
  */
 
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -33,7 +34,7 @@ const test = require('node:test');
 const PLUGIN = 'dsh-mobile-plugin';
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-install-'));
 
-const { installLatest, installLatestIfNeeded, declaredSource, toolSearchDirs, normalizeInvocation, runningAgentIds, profileRegistry, DEFAULT_NAME } = require('../lib/update-install.cjs');
+const { installLatest, installLatestIfNeeded, declaredSource, toolSearchDirs, normalizeInvocation, runningAgentIds, profileRegistry, cmdInvocation, runCommand, DEFAULT_NAME } = require('../lib/update-install.cjs');
 
 /** 造一个假 profile：`<tmp>/profiles/desktop/node_modules/<插件>` 里放一个版本号。 */
 function makeProfile(label, version) {
@@ -793,4 +794,69 @@ test('查更新走本机 pnpm 的源：镜像有这一版就查得到（官方�
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
+});
+
+/**
+ * 假的子进程：只够 `runCommand` 用 —— 吐出 stdout 之后按给定退出码关掉。
+ *
+ * Windows 那半边**没法在这台机器上真跑**（这里没有 Windows），所以测的是「交给谁跑、
+ * 命令行长什么样」：真 spawn 一个 `.cmd` 的结果只有一个，就是 `EINVAL`。
+ */
+function fakeChild({ code = 0, stdout = '' } = {}) {
+  const child = new EventEmitter();
+  child.pid = 4321;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = () => {};
+  setImmediate(() => {
+    if (stdout) child.stdout.emit('data', stdout);
+    child.emit('close', code);
+  });
+  return child;
+}
+
+test('Windows：包管理器是 .cmd，得让 cmd 去跑它（直接 spawn 必 EINVAL）', () => {
+  const invocation = cmdInvocation('C:\\Program Files\\nodejs\\pnpm.cmd', ['add', `${PLUGIN}@0.5.11`], {
+    env: { ComSpec: 'C:\\Windows\\system32\\cmd.exe' },
+  });
+  assert.equal(invocation.command, 'C:\\Windows\\system32\\cmd.exe');
+  assert.deepEqual(invocation.args.slice(0, 3), ['/d', '/s', '/c']);
+  // 每个参数各自一层引号、整行外面再套一层给 /s /c 剥：带空格的路径才认得出，
+  // 参数也不会被 cmd 再拆一次。多空一层或少空一层，pnpm 就收到半截参数。
+  assert.equal(invocation.args[3], '""C:\\Program Files\\nodejs\\pnpm.cmd" "add" "dsh-mobile-plugin@0.5.11""');
+  assert.equal(invocation.options.windowsVerbatimArguments, true);
+  // 读不到 ComSpec 也得拼得出来；参数里的引号要成对翻倍，不许漏出去。
+  assert.equal(cmdInvocation('pnpm.cmd', [], { env: {} }).command, 'cmd.exe');
+  assert.equal(cmdInvocation('pnpm.cmd', ['a"b'], { env: {} }).args[3], '""pnpm.cmd" "a""b""');
+});
+
+test('装的时候走哪条路：Windows 的 .cmd 包一层 cmd，别的照旧直接起', async () => {
+  const seen = [];
+  const fakeSpawn = (command, args, options) => {
+    seen.push({ command, args, options });
+    return fakeChild({ stdout: 'ok\n' });
+  };
+
+  const win = await runCommand('C:\\Users\\me\\AppData\\Local\\pnpm\\pnpm.cmd', ['add', 'x'], {
+    platform: 'win32',
+    env: {},
+    spawnImpl: fakeSpawn,
+  });
+  assert.equal(win.ok, true);
+  assert.equal(win.output, 'ok\n', 'stdout 照样收得回来');
+  assert.match(seen[0].command, /cmd(\.exe)?$/i);
+  assert.match(seen[0].args[3], /pnpm\.cmd/);
+  assert.equal(seen[0].options.windowsVerbatimArguments, true);
+  assert.equal(seen[0].options.windowsHide, true, '别弹出黑框');
+
+  // 已经是 .exe：不许再套一层，cmd 会把参数重新解释一遍。
+  await runCommand('C:\\tools\\pnpm.exe', ['--version'], { platform: 'win32', env: {}, spawnImpl: fakeSpawn });
+  assert.equal(seen[1].command, 'C:\\tools\\pnpm.exe');
+  assert.deepEqual(seen[1].args, ['--version']);
+  assert.equal(seen[1].options.windowsVerbatimArguments, undefined);
+
+  // 别的平台上一点不变：还是原来那个可执行文件。
+  await runCommand('/usr/local/bin/pnpm', ['--version'], { platform: 'darwin', env: {}, spawnImpl: fakeSpawn });
+  assert.equal(seen[2].command, '/usr/local/bin/pnpm');
+  assert.deepEqual(seen[2].args, ['--version']);
 });
