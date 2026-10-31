@@ -229,3 +229,41 @@ test('events.js 收尾必须注销折叠态订阅（源码契约）', () => {
   assert.ok(SOURCE.includes('unsubscribeDesktopView'), '订阅了却不出现在收尾里，句柄会一直挂在信号总线上');
   assert.ok(SOURCE.includes('unsubscribeDesktopView();'), '收尾没有调用注销');
 });
+
+// 开场补发是「每台被跟踪的会话各一帧」，会话多的机器一上来就是几十上百帧，必然撞上一条
+// 连接的写缓冲（Node 的高水位默认 16KB）。写满不是失败，**等一次 drain 再接着发**就是全部
+// 要求；把它当失败就会变成「连上→补完→自己掐掉→手机重连→再补」的死循环，实测真机上
+// 设备流的中位存活时间就是 0 秒，而每重连一次手机还要重拉一遍清单与正文。
+test('开场补发撞上写缓冲时等 drain，不许掐流', async () => {
+  for (let i = 0; i < 5; i += 1) sharedSessionSignal.bump(`s-drain-${i}`, i + 1);
+
+  // 写缓冲一直是满的：write 一律返回 false，下一拍才 drain（真实 socket 就是这样，只是它慢）。
+  const res = new EventEmitter();
+  res.chunks = [];
+  res.writeHead = () => {};
+  res.write = (chunk) => {
+    res.chunks.push(String(chunk));
+    process.nextTick(() => res.emit('drain'));
+    return false;
+  };
+  res.end = () => { res.ended = true; };
+  const ctx = {
+    apiProxy: {
+      events: {
+        mux: async function* () {
+          yield { rpcId: 'mux-rpc', payload: { type: 'host/ping' } };
+        },
+      },
+    },
+  };
+
+  await handleDeviceStream(ctx, request(), res);
+  const events = framesFrom(res);
+  const replayed = events
+    .map((event) => event.payload)
+    .filter((payload) => payload.type === 'device/session-activity' && String(payload.sessionId).startsWith('s-drain-'));
+  assert.equal(replayed.length, 5, '补发写到第几帧就被掐掉了：写缓冲满被当成了失败');
+  const fromMux = events.filter((event) => event.rpcId === 'mux-rpc');
+  assert.equal(fromMux.length, 1, '补发没等到 drain，实时循环的第一帧就丢了');
+  assert.equal(res.ended, true);
+});
