@@ -73,7 +73,11 @@ test('列表：宿主预设原样透出，且携带标准的 RPC 信封', async 
   try {
     const res = await fetch(host.listUrl);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), {
+    const listed = await res.json();
+    // 内容指纹随整份一起回：下一发手机带着它来问「还是那一份吗」。
+    assert.match(listed.revision, /^[0-9a-f]{16}$/, '整份响应要带内容指纹');
+    const { revision: _revision, ...body } = listed;
+    assert.deepEqual(body, {
       ok: true,
       presets: [
         { id: 'standard', trust: 'system', isDefault: true },
@@ -120,7 +124,9 @@ test('列表：宿主没有 roster 时是空列表，不是错误', async () => 
   try {
     const res = await fetch(host.listUrl);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true, presets: [], authorable: false, hasDocument: false });
+    const empty = await res.json();
+    const { revision: _emptyRevision, ...emptyBody } = empty;
+    assert.deepEqual(emptyBody, { ok: true, presets: [], authorable: false, hasDocument: false });
   } finally {
     await host.close();
   }

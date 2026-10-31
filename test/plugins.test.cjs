@@ -147,7 +147,9 @@ test('handlePlugins 用 pluginInventory/list + 空 args 调网关（不能多给
   const gateway = makeGateway({ 'pluginInventory/list': () => ({ entries: [ENTRY_ACTIVE, ENTRY_DISABLED] }) });
   const res = await call(handlePlugins, makeCtx(gateway), URL_PLUGINS);
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body, { ok: true, items: [ENTRY_ACTIVE, ENTRY_DISABLED] });
+  const { revision, ...body } = res.body;
+  assert.deepEqual(body, { ok: true, items: [ENTRY_ACTIVE, ENTRY_DISABLED] });
+  assert.match(revision, /^[0-9a-f]{16}$/, '整份响应要带内容指纹');
   assert.equal(gateway.calls.length, 1);
   assert.equal(gateway.calls[0].namespace, 'pluginInventory');
   assert.equal(gateway.calls[0].method, 'list');
