@@ -64,7 +64,8 @@ function fakeGateway() {
 }
 
 /** 按 cordis 的 waterfall 语义跑一遍 `user-questions/request`。 */
-function runHook(ctx, request, downstream) {  const chain = (ctx.listeners.get('user-questions/request') || []).map((entry) => entry.listener);
+function runHook(ctx, request, downstream) {
+  const chain = (ctx.listeners.get('user-questions/request') || []).map((entry) => entry.listener);
   const step = (index) => (index < chain.length
     ? chain[index](request, () => step(index + 1))
     : Promise.resolve(downstream()));

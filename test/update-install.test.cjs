@@ -69,6 +69,19 @@ function makeFakePnpm(label) {
       '    ;;',
       '  noop) : ;;',
       '  fail) echo "boom: 装不了" >&2; exit 7 ;;',
+      // pnpm 10.4 及以前在 workspace 根上跑 add 就是这么拒的（profile 自己带 pnpm-workspace.yaml）。
+      '  rootfail)',
+      '    case "$*" in',
+      '      *ignore-workspace-root-check=true*)',
+      `        mkdir -p node_modules/${PLUGIN}`,
+      `        printf '{"name":"${PLUGIN}","version":"%s"}\\n' "$FAKE_PNPM_VERSION" > node_modules/${PLUGIN}/package.json`,
+      '        ;;',
+      '      *)',
+      '        echo "ERR_PNPM_ADDING_TO_ROOT  Running this command will add the dependency to the workspace root, which might not be what you want" >&2',
+      '        exit 1',
+      '        ;;',
+      '    esac',
+      '    ;;',
       '  agefail)',
       '    case "$*" in',
       '      *minimum-release-age=0*)',
@@ -230,7 +243,33 @@ test('安装失败：如实带出退出码与输出，版本保持不变', async
   assert.equal(result.installedVersion, '0.1.60');
   assert.equal(result.failure.code, 'INSTALL_FAILED');
   assert.match(result.failure.message, /7/, '退出码要说出来');
+  assert.match(result.failure.message, /boom: 装不了/, '包管理器自己那句话要跟着结论一起出来：面板、手机与日志只显示这一句');
   assert.match(result.output, /boom/, '命令输出要能带出来给人看');
+});
+
+test('失败结论里挑的是 ERR_PNPM / ERROR 那几行，不是进度条', async () => {
+  const profile = makeProfile('reason', '0.1.60');
+  const binDir = path.join(TMP, 'bin-reason');
+  fs.mkdirSync(binDir, { recursive: true });
+  const file = path.join(binDir, 'pnpm');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    'if [ "$1" = "--version" ]; then echo "9.15.9"; exit 0; fi',
+    'echo "Progress: resolved 31, reused 30, downloaded 0, added 0" >&2',
+    'echo "ERR_PNPM_ADDING_TO_ROOT  Running this command will add the dependency to the workspace root" >&2',
+    'exit 1',
+    '',
+  ].join('\n'));
+  fs.chmodSync(file, 0o755);
+  const result = await installLatest({
+    profileNodeModules: profile.nodeModules,
+    version: '0.2.0',
+    dirs: [binDir],
+    env: isolatedEnv(binDir),
+  });
+  assert.equal(result.failure.code, 'INSTALL_FAILED');
+  assert.match(result.failure.message, /ERR_PNPM_ADDING_TO_ROOT/);
+  assert.doesNotMatch(result.failure.message, /Progress:/, '进度条那种噪声不该进结论：手机上只有这一句');
 });
 
 test('找不到包管理器：如实失败，绝不假装装好了', async () => {
@@ -290,13 +329,27 @@ test('来源那道门排在挑包管理器之前：没有包管理器的本机�
   assert.equal(result.failure.code, 'LOCAL_SOURCE', '「不该装」必须排在「装不了」前面');
 });
 
-test('所有安装都绕开「新发布先晾一会儿」：命令行与环境变量各带一份', async () => {
+test('所有安装都带齐那几个开关：命令行与环境变量各带一份', async () => {
   const profile = makeProfile('quiet', '0.1.60');
   const fake = makeFakePnpm('quiet');
   await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [fake.binDir], env: isolatedEnv(fake.binDir) });
   assert.match(fake.calls()[0], /auto-install-peers=false/, 'peer 里有一串 npm 上根本没有的 @deepseek-ai/*，必须显式关掉');
   assert.match(fake.calls()[0], /--config\.minimum-release-age=0/, '不再分哪一档才跳过晾置期：手动那一档同样要即时');
+  assert.match(fake.calls()[0], /--config\.ignore-workspace-root-check=true/, 'profile 自己是 workspace 根，老 pnpm 拿 ERR_PNPM_ADDING_TO_ROOT 拒掉这一句 add');
   assert.equal(fake.calls().length, 1, '开关一开始就带上，不许先失败一次再靠重试绕过去');
+});
+
+test('profile 是 workspace 根：老 pnpm 会被 ADDING_TO_ROOT 拒掉，带上根开关才装得上', async () => {
+  const profile = makeProfile('root-check', '0.1.60');
+  const fake = makeFakePnpm('root-check');
+  const result = await installLatest({
+    profileNodeModules: profile.nodeModules,
+    version: '0.2.0',
+    dirs: [fake.binDir],
+    env: isolatedEnv(fake.binDir, { FAKE_PNPM_MODE: 'rootfail' }),
+  });
+  assert.equal(result.installed, true, '假 pnpm 只在拿到根开关时才装：开关掉了这条立刻红');
+  assert.equal(result.failure, null);
 });
 
 test('策略开关走环境变量那一份：pnpm 12 只认它', async () => {
@@ -308,7 +361,7 @@ test('策略开关走环境变量那一份：pnpm 12 只认它', async () => {
   fs.writeFileSync(file, [
     '#!/bin/sh',
     'if [ "$1" = "--version" ]; then echo "12.3.0"; exit 0; fi',
-    `printf '%s|%s\\n' "$PNPM_CONFIG_AUTO_INSTALL_PEERS" "$PNPM_CONFIG_MINIMUM_RELEASE_AGE" >> "${log}"`,
+    `printf '%s|%s|%s\\n' "$PNPM_CONFIG_AUTO_INSTALL_PEERS" "$PNPM_CONFIG_MINIMUM_RELEASE_AGE" "$PNPM_CONFIG_IGNORE_WORKSPACE_ROOT_CHECK" >> "${log}"`,
     `mkdir -p node_modules/${PLUGIN}`,
     `printf '{"name":"${PLUGIN}","version":"0.2.0"}\\n' > node_modules/${PLUGIN}/package.json`,
     'exit 0',
@@ -317,7 +370,7 @@ test('策略开关走环境变量那一份：pnpm 12 只认它', async () => {
   fs.chmodSync(file, 0o755);
   const result = await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [binDir], env: isolatedEnv(binDir) });
   assert.equal(result.installed, true);
-  assert.equal(fs.readFileSync(log, 'utf8').trim(), 'false|0', '两个策略键都要以 PNPM_CONFIG_* 传给 pnpm');
+  assert.equal(fs.readFileSync(log, 'utf8').trim(), 'false|0|true', '几个开关都要以 PNPM_CONFIG_* 传给 pnpm');
 });
 
 test('来源判定：npm / file / link / workspace，读不到就说不知道', () => {
