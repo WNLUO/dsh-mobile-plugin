@@ -45,9 +45,26 @@ function fakeCtx() {
   };
 }
 
+/**
+ * 网关假体：宿主把提问转发给桌面窗口时，按「请求对象」在 `pendingRemoteEvents` 里登记一发；
+ * 撤回就是把它从表里摘掉并给窗口推 cancel 帧（真实现见 `@deepseek-ai/dsh-api-gateway`）。
+ */
+function fakeGateway() {
+  const cancelled = [];
+  const gateway = {
+    pendingRemoteEvents: new Map(),
+    cancelRemoteEvent(item, reason) {
+      cancelled.push({ item, reason });
+      for (const [id, value] of this.pendingRemoteEvents) {
+        if (value === item) this.pendingRemoteEvents.delete(id);
+      }
+    },
+  };
+  return { gateway, cancelled };
+}
+
 /** 按 cordis 的 waterfall 语义跑一遍 `user-questions/request`。 */
-function runHook(ctx, request, downstream) {
-  const chain = (ctx.listeners.get('user-questions/request') || []).map((entry) => entry.listener);
+function runHook(ctx, request, downstream) {  const chain = (ctx.listeners.get('user-questions/request') || []).map((entry) => entry.listener);
   const step = (index) => (index < chain.length
     ? chain[index](request, () => step(index + 1))
     : Promise.resolve(downstream()));
@@ -241,6 +258,49 @@ test('手机在看这个会话也照转：桌面照常出卡，手机先答就�
   assert.equal(res.status, 200);
   assert.deepEqual(await held, { answers: [{ id: 'q1', selected: ['9000'] }] }, '手机先答就用手机的');
   assert.equal(questions.pendingKind('s-1'), undefined);
+  watch();
+});
+
+test('手机答完之后把桌面那一发转发撤掉（桌面那张卡跟着消失）', async () => {
+  // 桌面那张卡挂在「宿主转发给桌面窗口的那一发」上，只有桌面自己答 / 本轮取消 / 宿主撤回
+  // 三种情况会消失。宿主只为「限时提问」做了落定后的收尾，阻塞式提问没人收 —— 手机先答
+  // 之后桌面那张卡就一直悬着。这里按请求对象找回网关里挂着的那一发，主动撤掉。
+  const { ctx, frames, watch } = setup();
+  watch('s-1');
+  const { gateway, cancelled } = fakeGateway();
+  ctx.get = (name) => (name === 'typertGateway' ? gateway : undefined);
+  const request = ask();
+  const forwarded = { source: { request }, frame: { event: 'user-questions/request' } };
+  const unrelated = { source: { request: ask() }, frame: { event: 'user-questions/request' } };
+  gateway.pendingRemoteEvents.set('fwd', forwarded);
+  gateway.pendingRemoteEvents.set('other', unrelated);
+  const held = runHook(ctx, request, HOLD);
+  await flush();
+  const card = frames.find((frame) => frame.type === 'question/requested');
+  const res = jsonResponse();
+  await questions.handleQuestionRespond(ctx, jsonRequest({
+    rpcId: card.rpcId,
+    sessionId: 's-1',
+    answer: { answers: [{ id: 'q1', selected: ['9000'] }] },
+  }), res);
+  assert.equal(res.status, 200);
+  assert.deepEqual(cancelled.map((entry) => entry.item), [forwarded], '只撤这一问那一发，别的挂起项不许动');
+  assert.ok(cancelled[0].reason instanceof Error, '撤回要带一个原因（窗口按 abort 处理）');
+  assert.equal(gateway.pendingRemoteEvents.has('fwd'), false, '撤掉的那发必须离开网关的挂起表');
+  assert.equal(gateway.pendingRemoteEvents.has('other'), true);
+  assert.deepEqual(await held, { answers: [{ id: 'q1', selected: ['9000'] }] }, '撤卡不影响回答交回宿主');
+  watch();
+});
+
+test('桌面先答时不碰网关：那一发本来就没了，撤无可撤', async () => {
+  const { ctx, watch } = setup();
+  const { gateway, cancelled } = fakeGateway();
+  ctx.get = (name) => (name === 'typertGateway' ? gateway : undefined);
+  const answer = { answers: [{ id: 'q1', selected: ['8787'] }] };
+  const held = runHook(ctx, ask(), () => Promise.resolve(answer));
+  await flush();
+  assert.deepEqual(await held, answer);
+  assert.deepEqual(cancelled, []);
   watch();
 });
 

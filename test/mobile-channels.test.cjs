@@ -12,7 +12,9 @@
  *  3. **插件提供的那批不出现写操作**：清单里标成 external，App 不给入口，插件侧也不接
  *     它们的删除（删除接口只认 `llm-pi-ai` 里真的存在的那一条）。
  *  4. **获取模型由宿主代问**：协议与 Key 原样交给宿主 `llm.discoverModels`，地址不带
- *     路径时按 `/v1` 回退一次，并把问通的那个地址带回去（保存要写它）。
+ *     路径时按 `/v1` 回退一次，并把问通的那个地址带回去（保存要写它）。编辑中的渠道还要
+ *     把路由名一起交给宿主（`provider`），否则表单里 Key 留空时宿主不知道该用库里哪一把；
+ *     失败原因在这一层换成中文（英文原话在 App 侧不上界面，整句会退成「电脑那边出了错」）。
  *
  * 本测试驱动真实 handler（起真 http 服务、真 req/res），不是转写实现。
  */
@@ -372,6 +374,94 @@ test('获取模型：宿主代问，地址不带路径时按 /v1 回退，并把
     assert.ok(seen.every((row) => row.input.api === 'openai-completions' && row.input.apiKey === 'sk-q'));
     assert.equal(body.baseUrl, 'https://api.example.com/v1');
     assert.deepEqual(body.models.map((row) => row.id), ['m-1', 'm-2']);
+  } finally {
+    await server.close();
+  }
+});
+
+test('获取模型：编辑中的渠道把路由名交给宿主，Key 留空时由宿主自己去取那一条的', async () => {
+  const seen = [];
+  const llm = { discoverModels: async (ns, input) => { seen.push(input); return [{ id: 'm-1', name: 'M1' }]; } };
+  const server = await serve({ llm });
+  try {
+    const editing = await server.post('/channels/discover', {
+      id: 'my-gateway',
+      protocol: 'openai-completions',
+      baseUrl: 'https://gw.example.com',
+    });
+    assert.equal(editing.status, 200);
+    assert.deepEqual(editing.body.models.map((row) => row.id), ['m-1']);
+    // 路由名照传：宿主据此在「请求没带 Key」时自己去凭据库取 OFM_MY_GATEWAY_KEY。
+    assert.equal(seen[0].provider, 'my-gateway');
+    assert.equal(seen[0].apiKey, undefined);
+    // 地址不带路径仍旧按 /v1 回退，与不带 id 时同一条规则。
+    assert.equal(seen[0].baseURL, 'https://gw.example.com');
+
+    // 新建没有 id：不传 provider，用当场填的那把 Key。
+    await server.post('/channels/discover', {
+      protocol: 'openai-completions',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-new',
+    });
+    assert.equal(seen[1].provider, undefined);
+    assert.equal(seen[1].apiKey, 'sk-new');
+
+    // id 形状不对直接拒，不把任意字符串当路由名交给宿主。
+    const bad = await server.post('/channels/discover', { id: 'Bad Id!', protocol: 'openai-completions', baseUrl: 'https://a.example.com' });
+    assert.equal(bad.status, 400);
+    assert.equal(seen.length, 2);
+  } finally {
+    await server.close();
+  }
+});
+
+test('获取模型失败：换成中文再说（英文原话留在 details），不把「电脑那边出了错」留给界面', async () => {
+  const cases = [
+    ['https://a.example.com/v1/models answered 401; check the API key', 'Key 不对或者没填'],
+    ['https://a.example.com/v1/models answered 404', 'HTTP 404'],
+    ['could not reach https://a.example.com/v1/models', '连不上这个地址'],
+    ['https://a.example.com/v1/models did not answer with JSON', '网页地址'],
+    ['llm-pi-ai: no credential for provider route "my-gateway"; its profile resolves OFM_MY_GATEWAY_KEY, which is not set', '没有可用的 Key'],
+    ['pi-ai protocol "x" has no model listing this build can read; enter this provider\'s models by hand', '手动填模型 id'],
+  ];
+  for (const [message, expect] of cases) {
+    const llm = {
+      discoverModels: async () => {
+        const error = new Error(message);
+        error.code = 'DISCOVERY_FAILED';
+        throw error;
+      },
+    };
+    const server = await serve({ llm });
+    try {
+      const { status, body } = await server.post('/channels/discover', { protocol: 'openai-completions', baseUrl: 'https://a.example.com' });
+      assert.equal(status, 422);
+      assert.equal(body.error.code, 'discover-failed');
+      assert.match(body.error.message, new RegExp(expect));
+      // App 那边「不是中文的原话不上界面」，所以这一句必须自己就是中文。
+      assert.match(body.error.message, /[\u4e00-\u9fff]/, `${message} → ${body.error.message}`);
+      assert.equal(body.error.details.hostMessage, message);
+      assert.equal(body.error.details.hostCode, 'DISCOVERY_FAILED');
+    } finally {
+      await server.close();
+    }
+  }
+});
+
+test('获取模型失败：认不出的报错也回中文（带宿主码），不把整句英文摆出来', async () => {
+  const llm = {
+    discoverModels: async () => {
+      const error = new Error('something odd happened upstream');
+      error.code = 'PROVIDER_BROKEN';
+      throw error;
+    },
+  };
+  const server = await serve({ llm });
+  try {
+    const { status, body } = await server.post('/channels/discover', { protocol: 'openai-completions', baseUrl: 'https://a.example.com' });
+    assert.equal(status, 422);
+    assert.equal(body.error.message, '取模型失败（PROVIDER_BROKEN）');
+    assert.equal(body.error.details.hostMessage, 'something odd happened upstream');
   } finally {
     await server.close();
   }
