@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { inlineTextImages, createTextImageBudget, localImagePathOf } = require('../lib/mobile/local-images.js');
+const { inlineTextImages, createTextImageBudget, localImagePathOf, imageSizeOf } = require('../lib/mobile/local-images.js');
 const { resolveEventAttachments } = require('../lib/mobile/attachments.js');
 const { deriveMessages } = require('../lib/mobile/sessions.js');
 
@@ -319,4 +319,63 @@ test('接线（引用模式）：图片只下发 attachmentId、不带 data，�
   assert.deepEqual(item.images, [{ mediaType: 'image/png', name: 'preview.png', attachmentId: 'missing-image' }]);
   assert.equal(Object.hasOwn(item.images[0], 'data'), false, '引用条目不许带 data');
   assert.equal(item.unavailableImages, undefined, '引用模式下取不到字节不是「失败」，是没取');
+});
+/**
+ * 拼一个最小的 JPEG：SOI +（可选）APP1/EXIF 的朝向条目 + SOF0 + EOI。
+ *
+ * 宽高只写在 SOF0 里；朝向只写在 EXIF 里 —— 正是手机竖拍照片的样子（像素横、靠 EXIF 转）。
+ */
+function jpegWithOrientation(width, height, orientation) {
+  const parts = [Buffer.from([0xff, 0xd8])];
+  if (orientation) {
+    const tiff = Buffer.alloc(26);
+    tiff.write('II', 0, 'latin1');
+    tiff.writeUInt16LE(42, 2);
+    tiff.writeUInt32LE(8, 4);
+    tiff.writeUInt16LE(1, 8);
+    tiff.writeUInt16LE(0x0112, 10);
+    tiff.writeUInt16LE(3, 12);
+    tiff.writeUInt32LE(1, 14);
+    tiff.writeUInt16LE(orientation, 18);
+    tiff.writeUInt32LE(0, 22);
+    const payload = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+    const app1 = Buffer.alloc(4);
+    app1[0] = 0xff;
+    app1[1] = 0xe1;
+    app1.writeUInt16BE(payload.length + 2, 2);
+    parts.push(app1, payload);
+  }
+  const sof = Buffer.alloc(21);
+  sof[0] = 0xff;
+  sof[1] = 0xc0;
+  sof.writeUInt16BE(sof.length - 2, 2);
+  sof[4] = 8;
+  sof.writeUInt16BE(height, 5);
+  sof.writeUInt16BE(width, 7);
+  parts.push(sof, Buffer.from([0xff, 0xd9]));
+  return Buffer.concat(parts);
+}
+
+// 竖拍照片（像素 1200×600、EXIF 朝向 6）在 App 里按 `contain` 画进盒子 —— 宽高还是横的话，
+// 那一格就是「中间一条小竖图 + 两侧大片空白」。对调之后盒子与画出来的图同一个比例。
+test('JPEG 的 EXIF 朝向 5–8 要把宽高对调（竖拍照片）', () => {
+  for (const orientation of [5, 6, 7, 8]) {
+    assert.deepEqual(
+      imageSizeOf(jpegWithOrientation(1200, 600, orientation)),
+      { width: 600, height: 1200 },
+      `朝向 ${orientation} 应当对调`,
+    );
+  }
+  for (const orientation of [1, 2, 3, 4]) {
+    assert.deepEqual(
+      imageSizeOf(jpegWithOrientation(1200, 600, orientation)),
+      { width: 1200, height: 600 },
+      `朝向 ${orientation} 不该对调`,
+    );
+  }
+  assert.deepEqual(
+    imageSizeOf(jpegWithOrientation(800, 600, 0)),
+    { width: 800, height: 600 },
+    '没有 EXIF 的 JPEG 照旧按像素读',
+  );
 });
