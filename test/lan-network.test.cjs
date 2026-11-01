@@ -38,6 +38,8 @@ const {
   orderCandidates,
   manualCandidate,
   phoneCandidates,
+  manualIpv6Candidate,
+  withManualIpv6Candidate,
 } = require('../lib/relay/lan-network.cjs')
 
 /** 把 {name: address} 简写展开成 os.networkInterfaces() 的形状。 */
@@ -354,6 +356,53 @@ test('手填的值不合法时原样退回网卡候选，绝不把整份候选�
   assert.deepEqual(
     phoneCandidates(nic, { manual: 'http://10.0.0.9:18787' }).map((item) => item.url),
     ['http://10.0.0.9:18787'],
+  )
+})
+
+/**
+ * 手机手填的 IPv6 直连地址（设置项 `manualIpv6Url`）。
+ *
+ * 与上面那条是同一件事的 IPv6 版：网卡枚举只报这台机器此刻真实挂着的地址，人可能想固定成
+ * 「运营商分给我、但网卡上暂时没挂」的那一条（临时地址轮换、换前缀、网卡拔了）。判据、排序
+ * 与去重口径必须跟 `ipv6Candidates` 一致 —— App 拿它开的是同一条独立通道，混进域名 / v4
+ * 等于让那条通道去拨一个不属于它的地址。
+ */
+test('手填的 IPv6 地址：解出裸地址、只收 v6 字面量、缀在网卡候选最后', () => {
+  // 值形如 `ipv6Candidates` 的 url：地址必须带方括号，`address` 字段反而不能带
+  // （面板按裸地址显示、按裸地址匹配）。
+  assert.deepEqual(manualIpv6Candidate('http://[240E::1]:18787/'), {
+    url: 'http://[240E::1]:18787',
+    address: '240e::1',
+    interface: 'manual',
+    family: 'IPv6',
+  })
+  const nic = [
+    { url: 'http://[240e:338:5213:6c11::998]:18787', address: '240e:338:5213:6c11::998', interface: 'en1', family: 'IPv6' },
+    { url: 'http://[240e:338:5213:6c11::1]:18787', address: '240e:338:5213:6c11::1', interface: 'en1', family: 'IPv6' },
+  ]
+  // 只追加、不替换：两条网卡候选照旧排在前面，手填那条缀在最后。
+  assert.deepEqual(
+    withManualIpv6Candidate(nic, 'http://[240e:1:2::998]:18787').map((item) => item.url),
+    [...nic.map((item) => item.url), 'http://[240e:1:2::998]:18787'],
+  )
+  assert.deepEqual(nic.map((item) => item.address), ['240e:338:5213:6c11::998', '240e:338:5213:6c11::1'], '原数组不许被就地改掉')
+})
+
+test('手填的 IPv6 值不合法时原样退回网卡候选；同一地址的不同写法按数值去重', () => {
+  const nic = [{ url: 'http://[240e::1]:18787', address: '240e::1', interface: 'en1', family: 'IPv6' }]
+  for (const bad of ['', '   ', '240e::1', 'home.example.com', 'http://home.example.com:8443', 'http://10.0.0.9:18787', 'ftp://[240e::1]', 'http://', null, undefined, 42]) {
+    assert.equal(manualIpv6Candidate(bad), null, String(bad))
+    assert.deepEqual(withManualIpv6Candidate(nic, bad), nic)
+  }
+  assert.deepEqual(withManualIpv6Candidate(null, 'http://[240e::1]:18787'), [
+    { url: 'http://[240e::1]:18787', address: '240e::1', interface: 'manual', family: 'IPv6' },
+  ])
+  // `[240e:0:0:0:0:0:0:1]` 与 `[240e::1]` 是同一个地址的两种写法：按解出来的数值去重，
+  // 逐字比 URL 会留下两条、让手机对同一个地址各探一次。
+  const expanded = [{ url: 'http://[240e:0:0:0:0:0:0:1]:18787', address: '240e:0:0:0:0:0:0:1', interface: 'en1', family: 'IPv6' }]
+  assert.deepEqual(
+    withManualIpv6Candidate(expanded, 'http://[240e::1]:18787').map((item) => item.interface),
+    ['manual'],
   )
 })
 

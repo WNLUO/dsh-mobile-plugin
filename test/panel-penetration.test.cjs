@@ -42,7 +42,7 @@ test('引导页把内网穿透当成直连的一条：写 manualLanUrl，不算�
   assert.match(onboarding, /relayUrl: target/, '直连那两支仍然要清掉中转地址');
 });
 
-test('宿主把穿透域名报给面板，引导页与直连弹窗都摆了这一格', () => {
+test('宿主把穿透域名报给面板，引导页与「网络配置」都摆了这一格', () => {
   const controlPlane = read('lib', 'routes', 'control-plane.js');
   const at = controlPlane.indexOf("'/api/relay/addresses'");
   assert.notEqual(at, -1, '找不到地址库那条路由');
@@ -55,9 +55,22 @@ test('宿主把穿透域名报给面板，引导页与直连弹窗都摆了这�
   assert.match(onboarding, /panel\.onboarding\.penetration\b/, '引导页要有这一条');
   assert.match(onboarding, /book\.manual/, '引导页要按宿主给的值预填');
 
+  // 进插件之后同一格搬到「网络配置」弹窗：四条地址在一起改，别在两扇窗里各改一半。
+  const networkDialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(networkDialog, /panel\.address\.direct\b/, '「网络配置」里要有直连地址这一栏');
+  assert.match(networkDialog, /panel\.address\.ipv6Url\b/, '「网络配置」里要有 IPv6 地址这一栏');
+  assert.match(networkDialog, /patch\.manualLanUrl\s*=/, '直连地址保存的是 manualLanUrl');
+  assert.match(networkDialog, /patch\.manualIpv6Url\s*=/, 'IPv6 地址保存的是 manualIpv6Url');
+  assert.match(
+    networkDialog,
+    /addressBook\?\.manualIpv6/,
+    '现值从地址库的 manualIpv6 预填（控制面只有 POST /api/relay/config，没有 GET）',
+  );
   const lanDialog = read('React', 'src', 'components', 'LanDialog.tsx');
-  assert.match(lanDialog, /panel\.lanDialog\.penetration/, '直连弹窗里是同一格（进插件之后改它就走这里）');
-  assert.match(lanDialog, /manualLanUrl:/, '直连弹窗保存的也是 manualLanUrl');
+  assert.ok(
+    !/manualLanUrl|AddressPicker/.test(lanDialog),
+    '局域网直连弹窗里不许再能改地址：地址只剩「网络配置」一个入口',
+  );
 });
 
 test('空串是穿透域名的合法值（清除），面板填的东西真的进了二维码', () => {

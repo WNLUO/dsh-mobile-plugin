@@ -128,6 +128,10 @@ test('配置投影：注册密钥只报设没设，不回值', () => {
   assert.equal(view.registerSecretSet, true);
   assert.equal(Object.prototype.hasOwnProperty.call(view, 'registerSecret'), false, '配置投影里不许出现 registerSecret 本身');
   assert.equal(configView(baseState({ registerSecret: '' })).registerSecretSet, false);
+  // 两个手填地址都要回显给手机（空串 = 没填），否则手机上的输入框只能每次开局都清空。
+  assert.equal(view.manualLanUrl, '');
+  assert.equal(view.manualIpv6Url, '');
+  assert.equal(configView(baseState({ manualIpv6Url: 'http://[240e::1]:18787' })).manualIpv6Url, 'http://[240e::1]:18787');
 });
 
 test('改配置：逐项校验，形状不对整次拒绝', () => {
@@ -149,10 +153,18 @@ test('改配置：逐项校验，形状不对整次拒绝', () => {
   assert.equal(configPatch({ manualLanUrl: 1 }).ok, false);
   assert.equal(configPatch({ manualLanUrl: '' }).patch.manualLanUrl, '');
   assert.equal(configPatch({ manualLanUrl: ' https://home.example.com:8443/ ' }).patch.manualLanUrl, 'https://home.example.com:8443');
+  // 手填的 IPv6 直连地址：同一套口径（空串 = 清掉，只挡类型与长度与 200 字上限）。
+  assert.equal(configPatch({ manualIpv6Url: 'a'.repeat(201) }).ok, false);
+  assert.equal(configPatch({ manualIpv6Url: 1 }).ok, false);
+  assert.equal(configPatch({ manualIpv6Url: '' }).patch.manualIpv6Url, '');
+  assert.equal(
+    configPatch({ manualIpv6Url: ' http://[240e::1]:18787/ ' }).patch.manualIpv6Url,
+    'http://[240e::1]:18787',
+  );
 });
 
 test('读配置：一次给全配置与地址候选', async () => {
-  const { deps, state } = makeDeps();
+  const { deps, state } = makeDeps({ state: baseState({ manualIpv6Url: 'http://[2001:4860:4860::8888]:18787' }) });
   const handlers = createRelayControlHandlers(deps);
   const res = fakeRes();
   await handlers.handleRelayConfig({}, {}, res);
@@ -163,6 +175,24 @@ test('读配置：一次给全配置与地址候选', async () => {
   assert.equal(body.addresses.port, state.lanPort);
   assert.ok(Array.isArray(body.addresses.lan), '局域网候选要有一份');
   assert.ok(Array.isArray(body.addresses.ipv6), 'IPv6 候选要有一份');
+  // 手填的 IPv6 直连地址单列一格回显，同时缀进同一份 `ipv6` 候选的最后（只追加、不删网卡候选）。
+  assert.equal(body.addresses.manualIpv6, 'http://[2001:4860:4860::8888]:18787');
+  const lastV6 = body.addresses.ipv6[body.addresses.ipv6.length - 1];
+  assert.equal(lastV6.interface, 'manual', '手填那条要排最后当兜底');
+  assert.equal(lastV6.url, 'http://[2001:4860:4860::8888]:18787');
+});
+
+test('保存配置：手填的 IPv6 地址写得进去，空串能清掉', async () => {
+  const { deps, state } = makeDeps();
+  const handlers = createRelayControlHandlers(deps);
+  const saved = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ manualIpv6Url: ' http://[240e::1]:18787/ ' }), saved);
+  assert.equal(saved.status, 200);
+  assert.equal(state.manualIpv6Url, 'http://[240e::1]:18787', '写进去的值要去掉空白与末尾斜杠');
+  const cleared = fakeRes();
+  await handlers.handleRelayConfigSave({}, reqWith({ manualIpv6Url: '' }), cleared);
+  assert.equal(cleared.body.config.manualIpv6Url, '', '空串 = 清掉这一条');
+  await wait(AFTER_RESPONSE_MS + 60);
 });
 
 test('保存配置：先回包、再推给旁路（副作用必须在响应之后）', async () => {

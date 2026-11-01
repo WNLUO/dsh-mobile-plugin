@@ -119,12 +119,13 @@ export function App() {
     void loadPairing()
   }, [status?.enabled, pairing, pairingError, loadPairing])
 
-  // 局域网地址靠打开「局域网直连」弹窗时补取一次。
+  // 局域网地址靠打开「局域网直连」弹窗时补取一次；「网络配置」那扇窗里的地址选择与
+  // 两条手填地址也读同一份地址库，所以两个弹窗谁开都补一次。
   useEffect(() => {
-    if (!lanOpen || !status?.enabled) return
+    if ((!lanOpen && !configOpen) || !status?.enabled) return
     void loadPairing()
     void loadAddresses()
-  }, [lanOpen, status?.enabled, loadPairing, loadAddresses])
+  }, [lanOpen, configOpen, status?.enabled, loadPairing, loadAddresses])
 
   // 配对卡上「手机该填的地址」那一行也要地址库（分类型 + 就地选优先）：它跟着配对信息一起走，
   // 重新生成配对码、改配置、重连之后地址可能就变了，所以挂在 pairing 上重取一次。
@@ -338,8 +339,11 @@ export function App() {
         open={configOpen}
         onOpenChange={setConfigOpen}
         status={status}
+        addressBook={addresses}
+        lanUrls={pairing?.lanUrls ?? []}
         busy={busy}
         onSave={(patch) => void saveConfig(patch)}
+        onSavePreferred={(address) => void savePreferredLanAddress(address)}
       />
 
       <SelfCheckDialog
@@ -353,11 +357,8 @@ export function App() {
         open={lanOpen}
         onOpenChange={setLanOpen}
         status={status}
-        lanUrls={pairing?.lanUrls ?? []}
-        addressBook={addresses}
         busy={busy}
         onSave={(patch) => void saveLanPort(patch)}
-        onSavePreferred={(address) => void savePreferredLanAddress(address)}
       />
 
     </main>

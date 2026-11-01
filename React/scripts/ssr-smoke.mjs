@@ -184,9 +184,10 @@ const cases = [
   // 收件文件卡：与 UpdateCard 同一个处境 —— 它先问 `/api/relay/inbox/status`，SSR 里
   // effect 不跑，所以这一遍只冒烟「标题 + 正在读收件目录」那一屏。
   ['InboxCard', h(Inbox.InboxCard), '收件文件'],
-  ['RelayConfigDialog', h(Dialog.RelayConfigDialog, { open: true, onOpenChange: noop, status, busy: '', onSave: noop })],
-  ['LanDialog', h(Lan.LanDialog, { open: true, onOpenChange: noop, status, lanUrls: pairing.lanUrls, addressBook, busy: '', onSave: noop, onSavePreferred: noop })],
-  ['LanDialog（没地址）', h(Lan.LanDialog, { open: true, onOpenChange: noop, status: { ...status, lan: { ...status.lan, enabled: false, state: 'off', port: 0 } }, lanUrls: [], addressBook: null, busy: 'lan', onSave: noop, onSavePreferred: noop })],
+  ['NetworkConfigDialog', h(Dialog.RelayConfigDialog, { open: true, onOpenChange: noop, status, addressBook, lanUrls: pairing.lanUrls, busy: '', onSave: noop, onSavePreferred: noop })],
+  ['NetworkConfigDialog（老宿主没有地址库）', h(Dialog.RelayConfigDialog, { open: true, onOpenChange: noop, status, addressBook: null, lanUrls: pairing.lanUrls, busy: 'lan', onSave: noop, onSavePreferred: noop })],
+  ['LanDialog', h(Lan.LanDialog, { open: true, onOpenChange: noop, status, busy: '', onSave: noop })],
+  ['LanDialog（没地址）', h(Lan.LanDialog, { open: true, onOpenChange: noop, status: { ...status, lan: { ...status.lan, enabled: false, state: 'off', port: 0 } }, busy: 'lan', onSave: noop })],
   // 地址选择器单独过一遍：配对卡里那处地址默认遮着（见上一条注释），SSR 看不到内容，
   // 所以第三份（IPv6）到底画没画出来只能直接渲染这个组件看。
   ['AddressPicker（有私网 + 公网 + IPv6）', h(Picker.AddressPicker, { book: addressBook, port: 51864, value: '172.16.5.5', onChange: noop }), 'IPv6 直连'],

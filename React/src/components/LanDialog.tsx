@@ -1,9 +1,12 @@
 /**
- * 「局域网直连」弹窗：地址与状态是重点，直连端口也归这里改。
+ * 「局域网直连」弹窗：只报运行状态 + 改直连端口。
  *
- * 地址那一行用共用的 `AddressPicker`：它按检测出来的那一份给标签（局域网 / 公网），并就地能选
- * 「手机优先用哪条」——一台机器好几块网卡时，选中的那条会被宿主排到候选最前（配对卡上是同一个
- * 选择器，两处共用一份口径，免得各写一遍迟早飘开）。
+ * 地址那一块（网卡候选、手填的直连 / IPv6 地址）已经搬到同页的「网络配置」弹窗：
+ * 四条地址在一起改才不会互相踩，两个入口各改一半迟早对不上。这里在状态下面留一句
+ * 指路，不再摆任何能写地址的控件。
+ *
+ * 端口那一行平时只报「当前端口」和一个「修改」文字按钮（用户要求）：这扇窗九成时间是拿来看
+ * 状态的，把输入框和保存按钮一直摊着，反而让人以为不改点东西就关不掉。
  */
 import { Button } from '@appica/ui-react/button'
 import { t } from '../lib/i18n/index.ts'
@@ -19,52 +22,31 @@ import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
 import { useEffect, useState } from 'react'
 
-import type { AddressBook, ConfigPatch, StatusView } from '../lib/api.ts'
+import type { ConfigPatch, StatusView } from '../lib/api.ts'
 import { lanText, lanTone } from '../lib/format.ts'
-import { AddressPicker } from './AddressPicker.tsx'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   status: StatusView
-  /** 宿主在二维码里给的那串地址：拿不到地址库（老宿主）时退回它，只显示不能选。 */
-  lanUrls: string[]
-  /** 宿主枚举的地址库（`/api/relay/addresses`，带网卡名和当前选中的那条），拿不到就是 null。 */
-  addressBook: AddressBook | null
   busy: string
   onSave: (patch: ConfigPatch) => void
-  /** 「手机优先用这条」：点了就存、不关窗，所以和上面那个带保存按钮的 `onSave` 分开。 */
-  onSavePreferred: (address: string) => void
 }
 
 const PORT_MIN = 1024
 const PORT_MAX = 65535
 
-/**
- * 局域网直连：地址是这次要看的重点，端口配置也归这里。
- *
- * 为什么把地址从「连接状态」那一行搬进弹窗（用户要求）：一台机器可能同时接了好几个网段，
- * 地址是一串、不是一个，塞进那一行只会把卡片撑变形；端口也一样，它是「直连这件事」的配置，
- * 跟中转地址、配对策略那些没有关系，所以从「中转配置」里挪过来，改完不用在两张窗之间跳。
- *
- * 端口那一行平时只报「当前端口」和一个「修改」文字按钮（用户要求）：这扇窗九成时间是拿来看
- * 地址的，把输入框和保存按钮一直摊着，反而让人以为不改点东西就关不掉。
- */
-export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, busy, onSave, onSavePreferred }: Props) {
+export function LanDialog({ open, onOpenChange, status, busy, onSave }: Props) {
   const [portText, setPortText] = useState(String(status.lan.requestedPort))
-  /** 内网穿透那一格的输入值。它不属于网卡地址（`AddressPicker` 管的是扫出来的那些），单独改。 */
-  const [penetrationText, setPenetrationText] = useState('')
-  /** 点了「修改」才进编辑态，端口与穿透地址共用这一格（一次只改一处）；关窗／取消都退回去。 */
-  const [editing, setEditing] = useState<'' | 'port' | 'penetration'>('')
-  /** 宿主上现在存的穿透域名（空串 = 没填）。 */
-  const manual = (addressBook?.manual ?? '').trim()
+  /** 点了「修改」才进编辑态；关窗／取消都退回去。 */
+  const [editing, setEditing] = useState(false)
 
   // 开窗那一刻灌一次当前值：status 每 3 秒换一个对象，把它当依赖会把正在敲的字冲掉。
   useEffect(() => {
     if (!open) return
     setPortText(String(status.lan.requestedPort))
-    setEditing('')
+    setEditing(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
 
@@ -74,19 +56,8 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
   const portValid = port === null || (Number.isInteger(port) && port >= PORT_MIN && port <= PORT_MAX)
   const canSave = portValid && busy === ''
 
-  function cancelEdit() {
-    setPortText(String(status.lan.requestedPort))
-    setPenetrationText(manual)
-    setEditing('')
-  }
-
   function submit() {
     if (!canSave) return
-    // 穿透域名留空 = 清掉这一条（宿主把空串当「没有这条候选」，与 `preferredLanAddress` 同口径）。
-    if (editing === 'penetration') {
-      onSave({ manualLanUrl: penetrationText.trim().replace(/\/+$/, '') })
-      return
-    }
     const patch: ConfigPatch = {}
     if (port !== null) patch.lanPort = port
     onSave(patch)
@@ -108,26 +79,6 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
                 {...(status.lan.error ? { detail: status.lan.error } : {})}
               />
             </InfoRow>
-            {/*
-              地址与「手机优先用哪条」合成一行（原来是一个只读列表 + 一个下拉）：它们本来就是
-              同一件事——选中的那条要能被认出来，选的动作也得落在同一条上。类型标签与可选范围
-              由 AddressPicker 给（局域网 / 公网，与宿主 advertisedCandidates 同口径）。
-              直连关着时不摆：那时的地址是残留，选它没有意义。
-            */}
-            <InfoRow label={t('panel.pairing.phoneAddress')}>
-              {status.lan.enabled ? (
-                <AddressPicker
-                  book={addressBook}
-                  port={status.lan.port}
-                  value={addressBook?.preferred ?? ''}
-                  busy={busy !== ''}
-                  onChange={onSavePreferred}
-                  fallbackUrls={lanUrls}
-                />
-              ) : (
-                <span className="font-sans text-foreground-muted">{t('panel.onboarding.lanOff')}</span>
-              )}
-            </InfoRow>
             <InfoRow label={t('panel.lanDialog.port')} mono>
               <span className="inline-flex flex-wrap items-center justify-end gap-2">
                 <span>{status.lan.enabled ? status.lan.port : '—'}</span>
@@ -135,28 +86,7 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
                   <span className="font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
                 ) : null}
                 {editing ? null : (
-                  <Button variant="ghost" size="sm" onClick={() => setEditing('port')}>
-                    {t('panel.common.edit')}
-                  </Button>
-                )}
-              </span>
-            </InfoRow>
-            {/*
-              内网穿透那一格：网卡扫不出域名，所以它单独一行。它与上一条并存 —— 多一条候选，
-              不是把局域网换掉（穿透域名拨不通时手机还得顺着网卡地址摸回来）。
-            */}
-            <InfoRow label={t('panel.lanDialog.penetration')}>
-              <span className="inline-flex flex-wrap items-center justify-end gap-2">
-                <span className="min-w-0 font-mono text-xs break-all">{manual || '—'}</span>
-                {editing ? null : (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setPenetrationText(manual)
-                      setEditing('penetration')
-                    }}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
                     {t('panel.common.edit')}
                   </Button>
                 )}
@@ -164,7 +94,10 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
             </InfoRow>
           </InfoList>
 
-          {editing === 'port' ? (
+          {/* 指路：地址归「网络配置」，这扇窗只留状态与端口，别两处都能改。 */}
+          <p className="text-xs text-foreground-muted">{t('panel.lanDialog.addressHint')}</p>
+
+          {editing ? (
             <Field>
               <FieldLabel htmlFor="relay-lan-port">{t('panel.connection.lanPort')}</FieldLabel>
               <Input
@@ -175,24 +108,19 @@ export function LanDialog({ open, onOpenChange, status, lanUrls, addressBook, bu
               />
             </Field>
           ) : null}
-
-          {editing === 'penetration' ? (
-            <Field>
-              <FieldLabel htmlFor="relay-penetration">{t('panel.lanDialog.penetration')}</FieldLabel>
-              <Input
-                inputProps={{ id: 'relay-penetration', className: 'font-mono' }}
-                value={penetrationText}
-                placeholder={t('panel.onboarding.penetrationPlaceholder')}
-                onChange={(event) => setPenetrationText(event.target.value)}
-              />
-            </Field>
-          ) : null}
         </DialogBody>
 
         {/* 用户要求：改端口这件事平时收起来，点了「修改」才出输入框和这两个按钮。 */}
         {editing ? (
           <DialogFooter className="flex justify-end gap-2">
-            <Button variant="outline" disabled={busy === 'lan'} onClick={cancelEdit}>
+            <Button
+              variant="outline"
+              disabled={busy === 'lan'}
+              onClick={() => {
+                setPortText(String(status.lan.requestedPort))
+                setEditing(false)
+              }}
+            >
               {t('panel.common.cancel')}
             </Button>
             <Button variant="primary" disabled={!canSave} onClick={submit}>

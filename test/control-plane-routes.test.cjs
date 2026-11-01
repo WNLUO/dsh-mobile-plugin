@@ -23,6 +23,7 @@ const {
   WEB_ACCESS_WINDOW_MS,
   createWebAccessWindow,
   createWebAccessLocalOnly,
+  registerControlPlaneRoutes,
 } = require(CONTROL_PLANE);
 
 /** 允许不挂 localOnly 的控制面路由：key → 为什么。 */
@@ -156,7 +157,7 @@ test('改配置的路由逐字段校验，不接受任意键', () => {
   assert.notEqual(at, -1);
   const end = source.indexOf('registerRoute', at + 1);
   const route = source.slice(at, end < 0 ? at + 1600 : end);
-  for (const field of ['relayUrl', 'lanEnabled', 'lanPort', 'name', 'pairingPolicy', 'registerSecret', 'preferredLanAddress', 'manualLanUrl']) {
+  for (const field of ['relayUrl', 'lanEnabled', 'lanPort', 'name', 'pairingPolicy', 'registerSecret', 'preferredLanAddress', 'manualLanUrl', 'manualIpv6Url']) {
     assert.ok(route.includes(`patch.${field}`), `config 路由必须逐字段校验并只写白名单字段，缺 ${field}`);
   }
   // 端口范围与注册密钥长度是防呆，别被"顺手清理"掉。
@@ -180,6 +181,79 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
   // 用户上次选的是哪条，只能每次都装作「默认第一条」，选择也就永远看不到。
   assert.match(route, /preferred/, '地址库要带上用户选的那条');
   assert.match(route, /state\.preferredLanAddress/, '取值来源是设置项 preferredLanAddress');
+});
+
+/**
+ * 行为：把控制面真挂一遍，只留「路径 → handler」。
+ *
+ * 依赖全给最小假体，真正会跑到的只有配置 / 地址库这两条；`settings.update` 是唯一的真值
+ * 落点 —— 这样才谈得上「写进去能读回」，只对着源码正则断言字段名是钉不住的。
+ */
+function controlRoutes({ state = {}, settingsCalls = [] } = {}) {
+  const table = new Map();
+  const settings = {
+    async update(patch) {
+      settingsCalls.push(patch);
+      Object.assign(state, patch);
+      return state;
+    },
+  };
+  registerControlPlaneRoutes({
+    registerRoute: (route) => table.set(route.path, route.handler),
+    localOnly: (_method, handler) => handler,
+    trustedLocalUi: () => true,
+    sendJson: (res, status, payload) => { res.status = status; res.body = payload; },
+    readJson: async (req) => req.body || {},
+    settings,
+    state,
+    status: () => ({}),
+    syncSidecar: async () => {},
+    lanPortInUse: () => 18787,
+  });
+  return table;
+}
+
+test('行为：手填的 IPv6 直连地址写得进、读得回，空串能清掉', async () => {
+  const state = { manualLanUrl: '', manualIpv6Url: '' };
+  const calls = [];
+  const table = controlRoutes({ state, settingsCalls: calls });
+  const saved = {};
+  await table.get('/api/relay/config')({ method: 'POST', body: { manualIpv6Url: ' http://[240e::1]:18787/ ' } }, saved);
+  assert.equal(saved.status, 200);
+  assert.equal(calls[0].manualIpv6Url, 'http://[240e::1]:18787', '空白与末尾斜杠要去掉');
+  assert.equal(state.manualIpv6Url, 'http://[240e::1]:18787', '写进的是同一份 settings');
+
+  const cleared = {};
+  await table.get('/api/relay/config')({ method: 'POST', body: { manualIpv6Url: '' } }, cleared);
+  assert.equal(state.manualIpv6Url, '', '空串 = 清掉这一条');
+});
+
+test('行为：手填的 IPv6 地址坏形状不写进去，也不连累同一发里的其余字段', async () => {
+  // 控制面这一条的老口径是逐字段忽略（与移动端「整次拒绝」不同），保持原样；
+  // 关键是坏形状**绝不能**写进 settings —— 那会让下一次产候选读到一个不是字符串的值。
+  for (const bad of ['a'.repeat(201), 42, ['x'], { url: 'http://[240e::1]:18787' }, null]) {
+    const state = { manualIpv6Url: '' };
+    const calls = [];
+    const table = controlRoutes({ state, settingsCalls: calls });
+    const res = {};
+    await table.get('/api/relay/config')({ method: 'POST', body: { manualIpv6Url: bad, name: 'ok' } }, res);
+    assert.equal(res.status, 200);
+    assert.equal(Object.prototype.hasOwnProperty.call(calls[0], 'manualIpv6Url'), false, `${JSON.stringify(bad)} 不该写进去`);
+    assert.equal(calls[0].name, 'ok', '其余合法字段照旧写入');
+  }
+});
+
+test('行为：地址库回显手填的 IPv6，并把它缀进 ipv6 候选最后', async () => {
+  const table = controlRoutes({
+    state: { preferredLanAddress: '', manualLanUrl: '', manualIpv6Url: 'http://[2001:4860:4860::8888]:18787' },
+  });
+  const res = {};
+  await table.get('/api/relay/addresses')({ method: 'GET' }, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.manualIpv6, 'http://[2001:4860:4860::8888]:18787');
+  const last = res.body.ipv6[res.body.ipv6.length - 1];
+  assert.equal(last.interface, 'manual', '手填那条排最后当兜底，网卡候选一条不删');
+  assert.equal(last.url, 'http://[2001:4860:4860::8888]:18787');
 });
 
 test('面板读不到时报的是能定位的诊断，不是一句「还没构建」', () => {

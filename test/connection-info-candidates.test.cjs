@@ -110,3 +110,21 @@ test('手填的地址跟着局域网开关走：关掉直连就不报它', async
   const body = await connectionInfo({ ...HOST, lanEnabled: false, manualLanUrl: 'https://home.example.com' });
   assert.deepEqual(body.lanCandidates, [], '直连监听没开，报一条拨不通的地址只会让手机白试');
 });
+
+test('手填的 IPv6 直连地址缀在 IPv6 候选最后，网卡那几条一条不少', async () => {
+  // 与直连那条同一个取舍：手填的是兜底，同一个 Wi-Fi 下网卡地址快一个数量级，排前面
+  // 就会按「先回话的赢」永远选中它。它也必须每轮跟着回来，否则手机重启一次就丢了。
+  const body = await connectionInfo({ ...HOST, manualIpv6Url: 'http://[2001:4860:4860::8888]:18787/' });
+  assert.deepEqual(body.ipv6Candidates.map((item) => item.url), [
+    IPV6.url,
+    'http://[2001:4860:4860::8888]:18787',
+  ]);
+  assert.equal(body.ipv6Candidates[body.ipv6Candidates.length - 1].interface, 'manual');
+  // 它是 IPv6 那条通道的候选，不许漏进局域网那份（两份在 App 侧是独立的退避账）。
+  assert.deepEqual(body.lanCandidates, [LAN]);
+});
+
+test('手填的 IPv6 地址同样跟着局域网开关走：关掉直连就不报它', async () => {
+  const body = await connectionInfo({ ...HOST, lanEnabled: false, manualIpv6Url: 'http://[2001:4860:4860::8888]:18787' });
+  assert.deepEqual(body.ipv6Candidates, [], '直连监听没开，IPv6 那条通道也不存在');
+});

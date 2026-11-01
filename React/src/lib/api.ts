@@ -100,6 +100,13 @@ export type AddressBook = {
    * 拨不通时手机还得能顺着局域网地址摸回来。老宿主没有这个字段。
    */
   manual?: string
+  /**
+   * 用户手填的 IPv6 直连地址（设置项 `manualIpv6Url`，空串 = 没填）。
+   *
+   * 与 `manual` 并列的一条候选：它是用户自己填的 IPv6 入口（手机在同一个 IPv6 网络里时用），
+   * 不参与 `preferred`。老宿主没有这个字段，读成空串。
+   */
+  manualIpv6?: string
   lan: AddressEntry[]
   public: AddressEntry[]
   /**
@@ -236,6 +243,10 @@ export type ConfigPatch = {
    * 理由与 `preferredLanAddress` 同。
    */
   manualLanUrl?: string
+  /**
+   * 手填的 IPv6 直连地址（公网 IPv6 域名或字面量）。空串同样合法，表示「清掉这一条」。
+   */
+  manualIpv6Url?: string
 }
 
 /**

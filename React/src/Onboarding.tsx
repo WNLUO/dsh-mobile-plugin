@@ -74,7 +74,7 @@ const PENETRATION = 'penetration'
 const RELAY_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-server'
 
 /**
- * 公用中转的候选入口。清单本身在 `lib/links.ts`（中转配置弹窗也要用同一份）。
+ * 公用中转的候选入口。清单本身在 `lib/links.ts`（网络配置弹窗也要用同一份）。
  *
  * 这些是**真的能用的**地址：用户选中哪条，就真的走那条配对、走那条转发。
  * 测速由宿主代测（`POST /api/relay/probe-relays`）—— 浏览器直连这些域名会被 CORS

@@ -55,6 +55,10 @@ type DemoState = {
   lanEnabled: boolean
   lanPort: number
   preferredLanAddress: string
+  /** 手填的直连地址（`manualLanUrl`），与宿主同名设置项。 */
+  manualLanUrl: string
+  /** 手填的 IPv6 直连地址（`manualIpv6Url`），与宿主同名设置项。 */
+  manualIpv6Url: string
   autoUpdate: boolean
   qrIndex: number
 }
@@ -80,6 +84,8 @@ function initial(): DemoState {
     lanEnabled: true,
     lanPort: DEMO_LAN_PORT,
     preferredLanAddress: '',
+    manualLanUrl: '',
+    manualIpv6Url: '',
     autoUpdate: false,
     qrIndex: 0,
   }
@@ -207,6 +213,9 @@ function addressBook(): AddressBook {
     ok: true,
     port: state.lanPort,
     preferred: state.preferredLanAddress,
+    // 两条手填地址与真宿主同一形状：空串 = 没填，弹窗据此预填。
+    manual: state.manualLanUrl,
+    manualIpv6: state.manualIpv6Url,
     lan: [{ address: DEMO_LAN_ADDRESS, url: `http://${DEMO_LAN_ADDRESS}:${state.lanPort}`, interface: 'en0', family: 'IPv4' }],
     public: [{ address: '203.0.113.9', url: `http://203.0.113.9:${state.lanPort}`, interface: 'en0', family: 'IPv4' }],
   }
@@ -296,6 +305,8 @@ function applyConfig(patch: ConfigPatch) {
   if (typeof patch.name === 'string' && patch.name.trim()) state.name = patch.name.trim()
   if (patch.pairingPolicy === 'code' || patch.pairingPolicy === 'deny') state.pairingPolicy = patch.pairingPolicy
   if (typeof patch.preferredLanAddress === 'string') state.preferredLanAddress = patch.preferredLanAddress.trim()
+  if (typeof patch.manualLanUrl === 'string') state.manualLanUrl = patch.manualLanUrl.trim().replace(/\/+$/, '')
+  if (typeof patch.manualIpv6Url === 'string') state.manualIpv6Url = patch.manualIpv6Url.trim().replace(/\/+$/, '')
   return statusView()
 }
 

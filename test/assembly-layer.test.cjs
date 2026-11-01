@@ -43,8 +43,10 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 行数只是兜底：真正的判据是下面那几条「具体函数 / 定时器不许回到装配层」。这个上限只随
   // 装配层里多出来的**声明**（取值器转交、schema 一项、config 字段、二维码候选）与必要注释
   // 往上抬，实现一行都没有搬回来。2026-10-30 +13：inject 只留 webServer、每块装配各自兜住
-  // （`mount` / `mountRoute` 的声明与说明），没有一行实现搬回来。
-  assert.ok(lines <= 536, `lib/impl.js 回到 ${lines} 行了；超过 536 说明实现又被搬回装配层`);
+  // （`mount` / `mountRoute` 的声明与说明），没有一行实现搬回来。2026-11-01 +7：手填的 IPv6
+  // 直连地址 —— schema 一项、configOf 一行、二维码与移动端候选各一行（多出来的那行是注释），
+  // 候选的合并逻辑在 `relay/lan-network.cjs` 的 `withManualIpv6Candidate`，没有搬回装配层。
+  assert.ok(lines <= 548, `lib/impl.js 回到 ${lines} 行了；超过 548 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {
