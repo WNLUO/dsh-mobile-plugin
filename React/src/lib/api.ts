@@ -15,7 +15,6 @@ export type TunnelSnapshot = {
   state: string
   error: string | null
   /** 命中中转的拒绝文案时才出现，见 ../lib/relay/status.js 的 TUNNEL_ADMISSION。 */
-  registerSecretRequired?: boolean
   instanceNotAllowed?: boolean
   admissionHint?: 'register-secret' | 'instance-allowlist'
 }
@@ -232,7 +231,6 @@ export type ConfigPatch = {
   lanPort?: number
   name?: string
   pairingPolicy?: PairingPolicy
-  registerSecret?: string
   /**
    * 手机优先用哪条地址（IPv4 字面量）。空串是合法值，表示「不指定，按宿主自己的排序」——
    * 所以它跟 `name` 不一样，不会被宿主当成「没填」丢掉。

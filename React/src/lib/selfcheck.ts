@@ -9,6 +9,11 @@
  *
  * 结论照宿主给的 `verdict` 说，**不自己另判一套**；`unknown` 就是查不到，界面不许把它写成正常。
  * 「手机三十分钟没来过」由 `status.lastMobileAt` 判，老宿主没有这个字段时不猜、也不自动请求。
+ *
+ * **连接状态变了要重查一次**（2026-11-01 修）：传进来的 `revision`（由页面按 `status` 的几个
+ * 关键字段拼）一变就补一发 `?force=1`。不补的话，引导页点完「打开直连」、或者刚把防火墙的
+ * 拦放掉，那一行 `verdict` 还停在上一发的「直连端口没在监听」上，红字与旁边全绿的清单自相
+ * 矛盾 —— 用户看到的就是「明明说正在监听，下面却报红」。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -85,8 +90,12 @@ export type SelfCheckView = {
  *
  * `mobileIdle` 由调用方按 `status.lastMobileAt` 算好（见 `mobileLooksIdle`）：
  * 它从 false 变 true 的那一次才值得在后台补一次 —— 手机刚来过就什么也不做。
+ *
+ * `revision` 是「这一页看到的连接状态」的指纹（页面自己拼，比如 `enabled + 直连状态 + 隧道
+ * 状态`）：只有它真的变了才补一发，且跳过宿主那 30 秒缓存 —— 那是「结论过期了」，不是「随便
+ * 多查一次」。第一次拿到非空指纹只记基线，不多打一发。
  */
-export function useSelfCheck(mobileIdle: boolean): SelfCheckView {
+export function useSelfCheck(mobileIdle: boolean, revision = ''): SelfCheckView {
   const [data, setData] = useState<SelfCheck | null>(cached)
   const [checking, setChecking] = useState(false)
   const [error, setError] = useState('')
@@ -129,6 +138,19 @@ export function useSelfCheck(mobileIdle: boolean): SelfCheckView {
     autoAt = Date.now()
     void run(false)
   }, [mobileIdle, run])
+
+  /** 上一次看到的连接状态指纹；`null` = 还没拿到 status（首屏那次不算变化）。 */
+  const revisionRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!revision) return
+    if (revisionRef.current === null) {
+      revisionRef.current = revision
+      return
+    }
+    if (revisionRef.current === revision) return
+    revisionRef.current = revision
+    void run(true)
+  }, [revision, run])
 
   return {
     data,

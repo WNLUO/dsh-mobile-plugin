@@ -76,3 +76,22 @@ test('演示二维码带的是文档网段，扫出来连不到任何机器', ()
   // 真实二维码是宿主按当前实例 ID 现算的，这里一份都不该有。
   assert.ok(!host.includes('dshpair://'), '演示页里不许出现真实二维码内容');
 });
+
+test('连接状态变了要重查自检：别让上一发的红字挂在没问题的页面上', () => {
+  // 2026-11-01 现场（演示页首屏）：引导页自动把直连打开之后，旁边那几行已经全绿，
+  // 下面那句 verdict 还停在「直连端口没在监听」——它是「还没打开那一发」的结论。
+  const selfcheck = read('src', 'lib', 'selfcheck.ts');
+  assert.match(selfcheck, /export function useSelfCheck\(\s*mobileIdle: boolean, revision = ''\s*\)/, '取数层要收一个连接状态指纹');
+  assert.match(selfcheck, /revisionRef/, '要记住上一次看到的指纹');
+  // 只有指纹真的变了才补发；首屏第一次拿到 status 只记基线（不多打一发 fork）。
+  assert.match(selfcheck, /if \(!revision\) return/, 'status 还没到时不算变化');
+  assert.match(selfcheck, /void run\(true\)/, '指纹变了要跳过宿主缓存重查一次');
+  for (const [name, file] of [['引导页', 'Onboarding.tsx'], ['主页', 'App.tsx']]) {
+    const src = read('src', file);
+    assert.match(
+      src,
+      /useSelfCheck\(\s*mobileLooksIdle\(status\?\.lastMobileAt\),[\s\S]{0,240}?status \? `/,
+      `${name}要把连接状态指纹传给 useSelfCheck`,
+    );
+  }
+});

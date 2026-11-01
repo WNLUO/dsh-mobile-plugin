@@ -66,9 +66,17 @@ type Props = {
   onChange: (address: string) => void
   /** 拿不到地址库（老宿主没有那条路由）时退回这一串：只显示、不能选。 */
   fallbackUrls?: string[]
+  /**
+   * 对齐方向：`end`（缺省）= 贴在行尾的值那一列（配对卡 / 局域网直连弹窗都是这种排版）；
+   * `start` = 放进独立弹窗里时靠左排，否则半张窗空着、地址吊在右边。
+   */
+  align?: 'start' | 'end'
 }
 
-export function AddressPicker({ book, port, value, busy = false, onChange, fallbackUrls = [] }: Props) {
+export function AddressPicker({ book, port, value, busy = false, onChange, fallbackUrls = [], align = 'end' }: Props) {
+  const side = align === 'start' ? 'items-start' : 'items-end'
+  const justify = align === 'start' ? 'justify-start' : 'justify-end'
+  const textSide = align === 'start' ? 'text-start' : 'text-end'
   const text = String(port ?? '')
   const pickable = pickableAddresses(book)
   const others = otherAddresses(book)
@@ -83,7 +91,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
     // 不能退成一句「还没取到地址」。
     if (ipv6.length === 0 && fallbackUrls.length > 0) {
       return (
-        <span className="flex flex-col items-end gap-0.5">
+        <span className={`flex flex-col gap-0.5 ${side}`}>
           {fallbackUrls.map((item) => (
             <span key={item}>{item}</span>
           ))}
@@ -92,9 +100,9 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
     }
     if (ipv6.length === 0) return <span className="font-sans text-foreground-muted">{t('panel.address.empty')}</span>
     return (
-      <span className="flex w-full flex-col items-end gap-1">
+      <span className={`flex w-full flex-col gap-1 ${side}`}>
         {ipv6.map((item) => (
-          <span key={item.address} className="inline-flex flex-wrap items-baseline justify-end gap-x-2">
+          <span key={item.address} className={`inline-flex flex-wrap items-baseline gap-x-2 ${justify}`}>
             <span className="font-mono text-xs text-foreground-muted">{urlOf(item.address, text)}</span>
             <span className="shrink-0 font-sans text-xs text-foreground-subtle">
               {`${addressKindLabel('ipv6', item.interface)}${t('panel.address.ipv6Hint')}`}
@@ -106,10 +114,10 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
   }
 
   return (
-    <span className="flex w-full flex-col items-end gap-1">
+    <span className={`flex w-full flex-col gap-1 ${side}`}>
       {pickable.length > 1 ? (
         <RadioGroup
-          className={cn('w-full items-end gap-1', busy && 'pointer-events-none opacity-60')}
+          className={cn('w-full gap-1', side, busy && 'pointer-events-none opacity-60')}
           value={chosen}
           onValueChange={(next) => {
             if (typeof next === 'string' && next !== chosen) onChange(next)
@@ -118,7 +126,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
           {pickable.map((item) => (
             <label
               key={item.address}
-              className="flex w-full cursor-pointer flex-wrap items-baseline justify-end gap-x-2"
+              className={`flex w-full cursor-pointer flex-wrap items-baseline gap-x-2 ${justify}`}
             >
               <Radio value={item.address} aria-label={urlOf(item.address, text)} />
               <span className="font-mono text-xs text-foreground">{urlOf(item.address, text)}</span>
@@ -129,7 +137,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
           ))}
         </RadioGroup>
       ) : (
-        <span className="inline-flex flex-wrap items-baseline justify-end gap-x-2">
+        <span className={`inline-flex flex-wrap items-baseline gap-x-2 ${justify}`}>
           <span className="font-mono">{urlOf(pickable[0].address, text)}</span>
           <span className="shrink-0 font-sans text-xs text-foreground-muted">
             {addressKindLabel(kind, pickable[0].interface)}
@@ -139,7 +147,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
 
       {/* 另一份只摆出来：它进不了二维码，手机不在同一个网络时得手填进 App。 */}
       {others.map((item) => (
-        <span key={item.address} className="inline-flex flex-wrap items-baseline justify-end gap-x-2">
+        <span key={item.address} className={`inline-flex flex-wrap items-baseline gap-x-2 ${justify}`}>
           <span className="font-mono text-xs text-foreground-muted">{urlOf(item.address, text)}</span>
           <span className="shrink-0 font-sans text-xs text-foreground-subtle">
             {`${addressKindLabel('public', item.interface)}${t('panel.address.publicHint')}`}
@@ -149,7 +157,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
 
       {/* 第三份同样只摆出来：这一条谁快由手机实测决定，宿主替它排只会撒谎。 */}
       {ipv6.map((item) => (
-        <span key={item.address} className="inline-flex flex-wrap items-baseline justify-end gap-x-2">
+        <span key={item.address} className={`inline-flex flex-wrap items-baseline gap-x-2 ${justify}`}>
           <span className="font-mono text-xs text-foreground-muted">{urlOf(item.address, text)}</span>
           <span className="shrink-0 font-sans text-xs text-foreground-subtle">
             {t('panel.address.ipv6Pick', { kind: addressKindLabel('ipv6', item.interface) })}
@@ -158,7 +166,7 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
       ))}
 
       {pickable.length > 1 ? (
-        <span className="text-end font-sans text-xs text-foreground-muted">
+        <span className={`font-sans text-xs text-foreground-muted ${textSide}`}>
           {t('panel.address.hint')}
         </span>
       ) : null}

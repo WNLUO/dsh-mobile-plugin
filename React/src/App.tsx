@@ -68,7 +68,11 @@ export function App() {
    * 只有两种时候发请求 —— 人点开弹窗（`SelfCheckDialog` 开窗时调 `ensure`），
    * 以及手机三十分钟没来过时的后台补一次（`useSelfCheck` 内部按 5 分钟节流）。
    */
-  const selfcheck = useSelfCheck(mobileLooksIdle(status?.lastMobileAt))
+  const selfcheck = useSelfCheck(
+    mobileLooksIdle(status?.lastMobileAt),
+    // 与引导页同一条：连接状态变了，上一发的自检结论就过期了。
+    status ? `${status.enabled ? 1 : 0}|${status.lan.enabled ? 1 : 0}|${status.lan.state}|${status.tunnel.state}|${(status.lastMobileAt ?? 0) > 0 ? 1 : 0}` : '',
+  )
 
   const loadStatus = useCallback(async () => {
     try {

@@ -118,3 +118,41 @@ test('宿主说没法就地换代时，更新卡不许把用户往插件市场�
   assert.ok(!/Alert/.test(branch), '别把这一支铺成警告框');
   assert.ok(!/没有可换代的外壳/.test(branch), '那句「这一版没有可换代的外壳」的标题别再回来');
 });
+
+test('网络配置弹窗：两列一屏、两条清单都收进弹窗、局域网开关撤掉、配对策略是开关', () => {
+  const dialog = read('RelayConfigDialog.tsx');
+  // 公用中转清单从主窗搬进弹窗（入口是「中转地址」标题右侧那颗按钮）：
+  // 清单以后会长，摊在主窗里会把版面撑长。
+  assert.match(dialog, /onClick=\{\(\) => setRelayPickerOpen\(true\)\}/, '中转地址右侧要有「公用中转」按钮');
+  assert.ok(
+    dialog.indexOf('setRelayPickerOpen(true)') < dialog.indexOf('PUBLIC_RELAYS.map'),
+    '公用中转的清单只能出现在弹窗里，不能又摊回主窗',
+  );
+  // 局域网地址同样收进弹窗：一台机器可能好几条网卡地址，条数不许影响主窗尺寸。
+  assert.match(dialog, /onClick=\{\(\) => setLanPickerOpen\(true\)\}/, '局域网地址要有「选择地址」按钮');
+  assert.ok(
+    dialog.indexOf('setLanPickerOpen(true)') < dialog.indexOf('<AddressPicker'),
+    '地址选择器只能在弹窗里，不能直接摊在主窗',
+  );
+  // 局域网直连开关已撤（基本能力，不该是开关）；host 那份 lanEnabled 配置不动。
+  assert.ok(!/setLanEnabled|checked=\{lanEnabled\}/.test(dialog), '网络配置弹窗里又出现了「局域网直连」开关');
+  // 配对策略改成开关：开 = 允许凭配对码配对，关 = 一律拒绝。
+  assert.match(dialog, /panel\.pairing\.allowPairing/, '配对策略要改成「允许新设备配对」开关');
+  assert.match(dialog, /checked=\{pairingPolicy === 'code'\}/, '开关状态要落在 pairingPolicy 上');
+  assert.ok(!/SelectTrigger/.test(dialog), '配对策略不该还是下拉框');
+});
+
+test('网络配置弹窗是一屏两列，注册密钥已下线', () => {
+  const dialog = read('RelayConfigDialog.tsx');
+  // 一屏两列（2026-11-01 用户要求）：宽到两列放得下，内容左右分栏，默认窗口不出滚动条。
+  assert.match(dialog, /w-\[min\(1100px,92vw\)\]/, '弹窗宽度要盖掉库默认的 600px（w-150）');
+  assert.match(dialog, /grid-cols-2/, '地址那几块要分两列排');
+  assert.ok(!/max-h-\[70vh\]/.test(dialog), '别再留原来那圈 70vh 内滚动：正常窗口要一屏排完');
+  // 注册密钥下线（用户口径：运营版中转不做了）：这扇窗里不许再有它的输入框。
+  assert.ok(!/registerSecret/.test(dialog), '网络配置弹窗里又出现了注册密钥');
+  const panel = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'lib', 'i18n', 'messages', 'panel.ts'), 'utf8');
+  assert.ok(!panel.includes('panel.connection.registerSecret'), '注册密钥那条文案键该跟着一起删');
+  // 但它描述的那种中转还在：警告正文不能把人指向一个已经不存在的位置。
+  const body = panel.match(/'panel\.connection\.relayNeedsSecretBody': '([^']*)'/);
+  assert.ok(body && !body[1].includes('注册密钥 →') && !body[1].includes('Registration secret above'), '警告正文还指着已经删掉的输入框');
+});

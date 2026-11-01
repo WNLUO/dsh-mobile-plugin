@@ -51,3 +51,50 @@ test('缺 turn 的 turn/end 不产行（老日志没这个字段）', () => {
   const bare = { type: 'turn/end', seq: 60, time: 60, data: { reason: { kind: 'aborted' } } };
   assert.equal(structural(deriveMessages([bare])).length, 0);
 });
+
+// ── 步骤边界：还停在「等待重试」的那条要作废 ─────────────────────────────────
+// 重试链在 step/start 处就换了身份（新的 retryId），只认 turn/end 的话，上一步那条会永远
+// 挂在「等待重试」上，与下一步新出现的那条并排（2026-11-01 App 侧现场）。桌面 `isClosed`
+// 判的也是「这一步或这一轮结束」。
+const retryRow = (retryId, turn, step, seq) => ({
+  type: 'llm/retry',
+  seq,
+  time: seq,
+  data: {
+    retryId,
+    turn,
+    step,
+    provider: 'deepseek',
+    mode: 'normal',
+    policyKey: 'k',
+    retry: 1,
+    maxRetries: 3,
+    delayMs: 5000,
+    failure: { code: 'QUOTA', message: '上游 429' },
+  },
+});
+const stepEnd = (turn, step, seq) => ({ type: 'step/end', seq, time: seq, data: { turn, step } });
+const retries = (items) => items.filter((item) => item.kind === 'retry');
+
+test('这一步结束：本步还停在等待重试的那条标成 cancelled', () => {
+  const rows = retries(deriveMessages([retryRow('r1', 3, 2, 10), stepEnd(3, 2, 12)]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, 'cancelled');
+  assert.equal(rows[0].turn, 3, '重试行要记着自己属于哪一步，App 侧靠它认');
+  assert.equal(rows[0].step, 2);
+});
+
+test('别的步结束不碰这条', () => {
+  const rows = retries(deriveMessages([retryRow('r1', 3, 2, 10), stepEnd(3, 3, 12)]));
+  assert.equal(rows[0].status, 'scheduled');
+});
+
+test('已经发出去的那次（retry-started）不会被步骤收口改写作废', () => {
+  const rows = retries(deriveMessages([
+    retryRow('r1', 3, 2, 10),
+    { type: 'llm/retry-started', seq: 11, time: 11, data: { retryId: 'r1', turn: 3, step: 2, retry: 1 } },
+    stepEnd(3, 2, 12),
+  ]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, 'started');
+});

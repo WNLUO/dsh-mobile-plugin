@@ -162,7 +162,11 @@ export function Onboarding({ onDone }: Props) {
    * 那一条：由 `status.lastMobileAt` 判，节流在 `useSelfCheck` 里面。既不跟轮询，也不每次
    * 渲染都发 —— 宿主查一次防火墙要开一个子进程。
    */
-  const selfcheck = useSelfCheck(mobileLooksIdle(status?.lastMobileAt))
+  const selfcheck = useSelfCheck(
+    mobileLooksIdle(status?.lastMobileAt),
+    // 连接状态一变（点完「打开直连」、隧道握上手）自检结论就过期了，见 `useSelfCheck` 的文件头。
+    status ? `${status.enabled ? 1 : 0}|${status.lan.enabled ? 1 : 0}|${status.lan.state}|${status.tunnel.state}|${(status.lastMobileAt ?? 0) > 0 ? 1 : 0}` : '',
+  )
   const firewallInfo = firewallRow(selfcheck.data)
   const mobileInfo = mobileRow(selfcheck.data, status?.lastMobileAt)
   const selfcheckVerdict = selfcheck.data?.verdict ?? ''
