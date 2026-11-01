@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const CONTROL_PLANE = path.join(__dirname, '..', 'lib', 'routes', 'control-plane.js');
+const { pairingPayload } = require(path.join(__dirname, '..', 'lib', 'relay', 'pairing-payload.cjs'));
 const {
   WEB_ACCESS_ROUTES,
   WEB_ACCESS_WINDOW_MS,
@@ -206,6 +207,11 @@ function controlRoutes({ state = {}, settingsCalls = [] } = {}) {
     status: () => ({}),
     syncSidecar: async () => {},
     lanPortInUse: () => 18787,
+    getLanPortAdjusted: () => false,
+    resolveLanPort: async () => 18787,
+    // 二维码载荷走真模块：这条测试要钉的是「路由怎么读请求、有没有把预览写进配置」，
+    // 载荷拼装本身由 `test/pair-cli.test.cjs` 与 App 侧那份契约钉着。
+    pairingPayload,
   });
   return table;
 }
@@ -238,6 +244,29 @@ test('行为：手填的 IPv6 地址坏形状不写进去，也不连累同一�
     assert.equal(Object.prototype.hasOwnProperty.call(calls[0], 'manualIpv6Url'), false, `${JSON.stringify(bad)} 不该写进去`);
     assert.equal(calls[0].name, 'ok', '其余合法字段照旧写入');
   }
+});
+
+test('行为：二维码按 ?relayUrl= 预览出码，且不把预览地址写进配置', async () => {
+  // 这条同时钉住「处理函数收的是 req」——它要读 `req.url` 才拿得到预览参数，把形参改名成
+  // `_req` 会在面板上静默变成 500（2026-11-01 改这条路由时踩过一次）。
+  const state = {
+    enabled: true, instanceId: 'i1', pairingCode: '123456', pairingTicket: 't'.repeat(43),
+    relayUrl: 'https://real.example.com', name: 'host', lanEnabled: false, lanPort: 18787,
+    preferredLanAddress: '', manualLanUrl: '', manualIpv6Url: '',
+  };
+  const table = controlRoutes({ state });
+  const res = {};
+  await table.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing?relayUrl=https://preview.example.com/' }, res);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.relayUrl, 'https://preview.example.com', '预览地址要去掉尾斜杠');
+  assert.equal(res.body.pairingCode, '123456');
+  assert.match(res.body.svg, /<svg/, '面板要的是那张 SVG');
+  assert.equal(state.relayUrl, 'https://real.example.com', '预览只看不写：配置一个字都不许动');
+
+  const off = controlRoutes({ state: { ...state, enabled: false } });
+  const blocked = {};
+  await off.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, blocked);
+  assert.equal(blocked.status, 409, '没启用远程控制时不出码，说清该先做什么');
 });
 
 test('行为：地址库回显手填的 IPv6，并把它缀进 ipv6 候选最后', async () => {
