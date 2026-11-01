@@ -550,11 +550,32 @@ test('宿主半边没加载（404）时说清怎么处理，不甩一句 HTTP 40
   assert.match(text, /插件宿主侧没有加载/);
   assert.match(text, /完整退出再打开|插件市场重装/);
   assert.equal(text.includes('HTTP 404'), false);
+  // 连自检口都没回应时，得把这个事实说出来：否则「重启/重装都试过了」的用户没有下一步
+  // 可走（2026-11-01 用户截图现场）。它是一句提示，不是报错。
+  assert.match(text, /自检口也没有回应/);
+});
+
+test('自检口说没事、控制面路由却不在：把自检版本报出来', async () => {
+  const env = materialize({
+    fetch: async (url) => {
+      if (String(url).endsWith('/status')) return { ok: false, status: 404, json: async () => ({}) };
+      if (String(url).endsWith('/host-half')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: '0.5.11', lastError: null, retrying: false } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.render();
+  await env.hooks.flush();
+  const text = texts(env.render()).join('');
+  assert.match(text, /自检没报错/);
+  assert.match(text, /0\.5\.11/);
+  assert.equal(text.includes('自检口也没有回应'), false, '问到了就不许说问不到');
 });
 
 test('404 时问外壳要原因：贴出宿主自己的说法，并给一颗「重新装载」', async () => {
-  // 老宿主没有 `/api/relay/host-half`（也 404），这条口问不到就当没有 —— 上面那条用例
-  // 钉的就是这个回退：只剩 loadMissing，不许多出一句报错。
+  // 这条路由问得到的话，界面贴宿主原话；问不到那一支见上面两条用例（会把「问不到」
+  // 本身说出来，不再是一片空白）。
   const calls = [];
   let reloaded = 0;
   const env = materialize({
@@ -674,7 +695,8 @@ test('字典注册在启动时一次性完成，且中英键一一对应', () =>
   // 键集**逐个钉死**：客户端 UI 只保留网页入口、本机临时访问开关，以及 404 时那条
   // 「宿主为什么没起来」的自检口，不长成第二个管理面板。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
-    'cardPanel', 'heading', 'hostHalfReason', 'hostHalfReload', 'hostHalfReloadFailed', 'hostHalfRetrying',
+    'cardPanel', 'heading', 'hostHalfNoError', 'hostHalfReason', 'hostHalfReload', 'hostHalfReloadFailed', 'hostHalfRetrying',
+    'hostHalfUnreachable', 'hostHalfVersion',
     'loadFailed', 'loadMissing', 'nav', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
     'webAccessClose', 'webAccessError', 'webAccessHint', 'webAccessOff', 'webAccessOn', 'webAccessOpen', 'webAccessUnavailable',
   ]);

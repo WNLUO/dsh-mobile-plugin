@@ -36,9 +36,6 @@ const NO_LOCAL_ONLY = new Map([
 /** 不随网页管理窗口关闭的控制面通道：必须逐条说明用途。 */
 const NO_WEB_ACCESS = new Map([
   ['/api/relay/internal/approval', '中转与 sidecar 的内部审批通道，依赖 sidecarToken，不由网页面板调用'],
-  // 二维码里装的是能派生整条链路密钥的一次性票据，所以它**不进**两小时窗口：那条路由
-  // 自己用 trustedLocalUi 判（比 localOnly 更强），窗口开不开都不给网页看。
-  ['/api/relay/pairing', '二维码里是整条链路的密钥材料；这条路由自己用 trustedLocalUi 判「可信本机界面」，不靠两小时窗口'],
   ['/api/relay/internal/issue-credential', 'sidecar 签发凭据的内部通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/internal/rotate-pairing', 'sidecar 换码换票据的内部通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/desktop-view', '桌面客户端自身的工作区状态同步，不能随网页管理窗口停止'],
@@ -331,18 +328,20 @@ test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；�
   assert.deepEqual(sent, [423]);
 });
 
-test('二维码路由只认可信本机界面：转发来的请求一律 423，且不进两小时窗口', async () => {
+test('二维码路由跟别的管理动作同一套规矩：窗口关着远程拿不到，开窗后能拿到', async () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
   const at = source.indexOf("'/api/relay/pairing'");
   assert.notEqual(at, -1);
   const end = source.indexOf('registerRoute', at + 1);
   const route = source.slice(at, end < 0 ? at + 1200 : end);
-  // 二维码里是能派生整条链路密钥的票据，所以判据必须是 `trustedLocalUi`（socket 回环 +
-  // Host 回环 + 没有代理来源头），不能只靠 localOnly —— 经代理转发来的请求在 localOnly
-  // 眼里长得像本机，这条已经被实测证实过。
-  assert.match(route, /trustedLocalUi\(req\)/, '必须用可信本机界面判，不能只靠 localOnly');
-  assert.match(route, /code: 'pairing_local_only'/, '要让面板认得出该显示哪句提示');
-  assert.ok(!WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '二维码不能随两小时窗口对网页开放');
+  // 2026-11-01 用户拍板：二维码不再自己造第二套判据，改由两小时窗口统一管。理由是
+  // **服务器部署没有「本机屏幕」**——那台机器只有 SSH，人永远够不到那个判据，配一次都
+  // 配不上；而窗口由本机设置页亲手开，开着的时候远程本来就能踢设备、改地址、重启 sidecar，
+  // 单独把码拦在外面既不自洽，也让那颗按钮名不副实。终端命令（lib/cli/pair.cjs）是另一条
+  // 「能登机器的人」的路，两条都不新开对外口子。
+  assert.ok(WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '二维码要随两小时窗口对网页开放');
+  assert.ok(!/trustedLocalUi\(req\)/.test(route), '别再在路由里自己造一套更严的判据');
+  assert.ok(!/pairing_local_only/.test(route), '那条 423 已经由窗口那层的 web_access_closed 取代');
 });
 
 test('只有面板页放开「人点开的一页」，别的控制面路由不放开跨站', () => {
