@@ -4,13 +4,18 @@
  * 会话正文水位探针 `GET /api/mobile/v1/session/head`。
  *
  * 用途：App 进对话前先问一句「这条会话的正文到哪个水位了」，跟本地缓存水位一比就知道
- * 要不要重新拉全量历史。几十字节换几兆。
+ * 要不要重新拉历史。答案必须来自**宿主日志**：答「一致」等于告诉手机「你手上那份就是最新，
+ * 一条正文请求都别发」，所以这个答案错一次，用户就停在一份缺尾巴的正文上。
  *
- * 这里钉三件事：
- *   - 信号里有水位 → 如实回 seq 与 known:true；
- *   - **信号里没有 → 如实回 known:false**（插件刚重启、还没轮到推这个会话），
- *     绝不能为了「看起来有值」现读一次历史 —— 那样探针本身就变成了它要省掉的那次请求；
- *   - 子代理（带 parentSessionId）直接回 seq:0 / known:false：镜像里刻意不存子会话正文。
+ * 这里钉六件事：
+ *   - 宿主日志尾巴里有消息 → 回那几行里最大的**消息** seq，且 `known:true`；
+ *   - 不拿镜像信号当答案（正是 2026-11-01 改掉的那条路：镜像落后于日志，答「一致」时可能
+ *     宿主上还有新内容）；
+ *   - 不拿**事件** seq 冒充消息 seq（`turn/end` / `usage` 也推高它，冒充会让手机每进一次
+ *     对话都白拉一发）；
+ *   - 读失败 / 尾巴里一条消息都没有 → 如实 `known:false`（让 App 退回整份拉取），不抛 500；
+ *   - 子代理（带 parentSessionId）直接回 seq:0 / known:false，且一次宿主 RPC 都不发；
+ *   - 缺 sessionId → 400。
  */
 
 const test = require('node:test');
@@ -21,16 +26,30 @@ const { handleSessionHead } = require('../lib/mobile/sessions.js');
 const { sessionSignal } = require('../lib/shared/session-signal.js');
 
 const ROUTE = '/api/mobile/v1/session/head';
+const okValue = (value) => ({ result: { ok: true, value } });
+const errValue = (error) => ({ result: { ok: false, error } });
+
+/** 一条 user / assistant 消息事件（宿主日志里折叠成一行正文的那种）。 */
+function messageEvent(seq, role = 'user') {
+  return {
+    type: `${role}/message`,
+    seq,
+    time: seq,
+    data: { turn: 1, step: 1, message: { id: `m-${seq}`, role, source: { kind: 'user' }, content: [{ type: 'text', text: `第 ${seq} 条` }] } },
+  };
+}
 
 /** 起一条真实的 HTTP 服务（handler 直接挂上去），返回请求用的地址。 */
-async function serve() {
+async function serve({ sessionsHistory } = {}) {
   const calls = [];
-  // 任何宿主 RPC 都记下来：探针不许为了凑水位去读历史。
   const ctx = {
     apiProxy: {
       sessions: {
-        history: async (request) => { calls.push({ method: 'history', request }); return { result: { ok: true, value: { events: [] } } }; },
-        attachment: async (request) => { calls.push({ method: 'attachment', request }); return { result: { ok: true, value: { data: 'x' } } }; },
+        history: async (request) => {
+          calls.push({ method: 'history', request });
+          if (sessionsHistory) return sessionsHistory(request);
+          return okValue({ events: [], hasMore: false });
+        },
       },
     },
   };
@@ -50,39 +69,76 @@ async function serve() {
   };
 }
 
-test('信号里有水位：回 seq 与 known:true', async () => {
-  const host = await serve();
+test('宿主日志里有消息：回最后一行的 seq / known:true，且不读镜像信号', async () => {
+  const host = await serve({
+    sessionsHistory: () => okValue({
+      events: [messageEvent(40, 'user'), messageEvent(42, 'assistant'), { type: 'turn/end', seq: 43, time: 43, data: { turn: 1, reason: 'completed' } }],
+      hasMore: true,
+    }),
+  });
   try {
-    sessionSignal.bump('head-known', 42);
-    const body = await (await fetch(host.url('?sessionId=head-known'))).json();
+    // 镜像里故意报一个更高的水位：答案必须仍是日志那个（镜像落后就是这条探针要修的事）。
+    sessionSignal.bump('head-log', 999);
+    const body = await (await fetch(host.url('?sessionId=head-log'))).json();
     assert.deepEqual(body, { ok: true, seq: 42, known: true });
-    assert.deepEqual(host.calls, [], '探针不许发任何宿主 RPC');
+    assert.equal(host.calls.length, 1);
+    assert.equal(host.calls[0].method, 'history');
+    assert.equal(host.calls[0].request.payload.sessionId, 'head-log');
+    assert.ok(host.calls[0].request.payload.maxMessages > 0, '只读一小段日志尾巴，不读整份');
   } finally {
     sessionSignal.reset();
     await host.close();
   }
 });
 
-test('信号里没有水位：如实回 known:false，且绝不现读历史', async () => {
-  const host = await serve();
+test('尾巴里只有非消息事件：不拿事件 seq 冒充，如实回 known:false', async () => {
+  const host = await serve({
+    sessionsHistory: () => okValue({
+      events: [
+        { type: 'step/end', seq: 50, time: 50, data: { turn: 1, step: 1 } },
+        { type: 'usage', seq: 51, time: 51, data: { turn: 1 } },
+        { type: 'turn/end', seq: 52, time: 52, data: { turn: 1, reason: 'completed' } },
+      ],
+      hasMore: true,
+    }),
+  });
   try {
-    sessionSignal.reset();
-    const body = await (await fetch(host.url('?sessionId=head-unknown'))).json();
+    const body = await (await fetch(host.url('?sessionId=head-events-only'))).json();
     assert.deepEqual(body, { ok: true, seq: 0, known: false });
-    assert.deepEqual(host.calls, [], 'known:false 必须来自「信号里没有」，不许为了凑值去读一次历史');
   } finally {
     await host.close();
   }
 });
 
-test('子代理（带 parentSessionId）：直接回 seq:0 / known:false', async () => {
+test('宿主读历史抛错：如实回 known:false，不让探针 500', async () => {
+  const host = await serve({ sessionsHistory: () => { throw new Error('boom'); } });
+  try {
+    const response = await fetch(host.url('?sessionId=head-throw'));
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, seq: 0, known: false });
+  } finally {
+    await host.close();
+  }
+});
+
+test('宿主回错误信封：如实回 known:false', async () => {
+  const host = await serve({ sessionsHistory: () => errValue({ code: 'session-not-found', message: '没了' }) });
+  try {
+    const body = await (await fetch(host.url('?sessionId=head-error'))).json();
+    assert.deepEqual(body, { ok: true, seq: 0, known: false });
+  } finally {
+    await host.close();
+  }
+});
+
+test('子代理（带 parentSessionId）：直接回 seq:0 / known:false，且不读宿主', async () => {
   const host = await serve();
   try {
     // 即便镜像里真有这个 child 的水位（不该有），子代理也要按「没有水位」回答。
     sessionSignal.bump('head-child', 99);
     const body = await (await fetch(host.url('?sessionId=head-child&parentSessionId=parent-1&mode=continuable'))).json();
     assert.deepEqual(body, { ok: true, seq: 0, known: false });
-    assert.deepEqual(host.calls, []);
+    assert.deepEqual(host.calls, [], '子会话正文刻意不进镜像，也没有可言的水位');
   } finally {
     sessionSignal.reset();
     await host.close();
@@ -97,6 +153,7 @@ test('缺 sessionId：400 bad-request', async () => {
     const body = await response.json();
     assert.equal(body.ok, false);
     assert.equal(body.error.code, 'bad-request');
+    assert.deepEqual(host.calls, []);
   } finally {
     await host.close();
   }

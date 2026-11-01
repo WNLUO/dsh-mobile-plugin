@@ -362,6 +362,7 @@ test('sessions.js 只剩会话列表，每个子模块各守一个领域', () =>
     'session-search.js': ['sanitizeSearchQuery', 'handleSessionSearch'],
     'session-send.js': ['promptOnce', 'handleSend', 'handleCommands', 'handleFork', 'handleSessionAttachment'],
     'session-snapshot.js': ['eventSeqOf', 'buildMessagesSnapshot', 'handleMessages'],
+    'session-head.js': ['sessionMessageHead', 'handleSessionHead'],
     'session-stats.js': ['buildStatsSnapshot', 'statsProjections'],
     'session-mirror.js': ['buildSingleSessionMirror', 'buildMirrorWarmSnapshots'],
     'session-goal.js': ['callGoals', 'handleGoalAction'],
@@ -370,6 +371,7 @@ test('sessions.js 只剩会话列表，每个子模块各守一个领域', () =>
   const CEILING = {
     'attachments.js': 160, 'completion.js': 150, 'session-last-turn.js': 130, 'session-models.js': 220,
     'session-search.js': 120, 'session-send.js': 330, 'session-snapshot.js': 200,
+    'session-head.js': 100,
     'session-stats.js': 80,
     'session-mirror.js': 200, 'session-goal.js': 90, 'session-presets.js': 100,
   };
@@ -403,7 +405,7 @@ test('sessions.js 只剩会话列表，每个子模块各守一个领域', () =>
     'handleSessionAttachment',
     'handleStop', 'handleRename', 'handleFork', 'handleModels', 'handleSelectModel', 'handleStats',
     'handleSessionSearch', 'handleAgentPresets', 'handleNew', 'handleGoalAction', 'handleQueueUpdate',
-    // 正文水位探针（App 进对话前问「正文到哪了」）：只读 sessionSignal 快照，不发 RPC。
+    // 正文水位探针（App 进对话前问「正文到哪了」）：现读一小段宿主日志尾巴算消息水位。
     'handleSessionHead',
   ];
   const table = sessions.slice(sessions.indexOf('module.exports = {'));

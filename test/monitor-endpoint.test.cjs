@@ -8,7 +8,8 @@
  * 后台每 8 秒白读 20 次日志。这条视图只回状态位，且带 `?rev=`：稳态几十字节。
  *
  * 钉住的四件事：
- *   1. 回的形状里**没有**预览与排序用的字段（有就说明又走回了完整清单那条路）；
+ *   1. 回的形状里**没有**侧栏预览与排序用的字段（有就说明又走回了完整清单那条路）；
+ *      只有「可能提醒」的那几条带一句可选的 `lastMessage`；
  *   2. 状态位变 → revision 变；没变 → `unchanged` 且不带 items；
  *   3. 稳态下**一次 history 都不读**；只有「刚跑完、结局还没定」的那条读一次；
  *   4. 归档的会话不进监控视图（否则会被为一条侧栏里根本没有的会话叫醒）。
@@ -44,6 +45,10 @@ function makeCtx(items) {
     items,
     archivedSessionIds: [],
     historyCalls: 0,
+    // 预览正文可改：用于钉「正文变了 revision 也要变」。
+    historyRole: 'assistant',
+    historyText: '这一轮跑完了，结果在这里。',
+    historyFails: false,
   };
   const ctx = {
     state,
@@ -52,13 +57,29 @@ function makeCtx(items) {
         list: async () => ({ result: { ok: true, value: { items: state.items } } }),
         history: async () => {
           state.historyCalls += 1;
+          if (state.historyFails) {
+            return { result: { ok: false, error: { code: 'history-failed', message: '读不到历史' } } };
+          }
           return {
             result: {
               ok: true,
               value: {
                 events: [
                   { type: 'turn/start', seq: 1, time: 5_000, data: { turn: 1 } },
-                  { type: 'assistant/message', seq: 2, time: 5_100, data: { turn: 1, interrupted: false } },
+                  {
+                    type: 'assistant/message',
+                    seq: 2,
+                    time: 5_100,
+                    data: {
+                      turn: 1,
+                      interrupted: false,
+                      message: {
+                        id: 'm1',
+                        role: state.historyRole,
+                        content: [{ type: 'text', text: state.historyText }],
+                      },
+                    },
+                  },
                   { type: 'turn/end', seq: 3, time: 5_200, data: { turn: 1, reason: { kind: 'completed' } } },
                 ],
               },
@@ -169,6 +190,69 @@ test('把上一轮事实透给原生（按轮次判完成用）', async () => {
   const body = await get(ctx, URL_);
   assert.equal(body.items[0].lastTurn.turn, 3);
   assert.equal(body.items[0].lastTurn.status, 'completed');
+});
+
+test('可能提醒的那几条带 lastMessage，且形状只有 role/text', async () => {
+  const ctx = makeCtx([
+    session('done', { updatedAt: 2_000 }),
+    session('failed', { updatedAt: 2_100 }),
+    session('waiting', { updatedAt: 2_200, pendingInteraction: 'question' }),
+  ]);
+  recordLastTurn(ctx, 'done', { turn: 1, endedAt: 5_000, status: 'completed' });
+  recordLastTurn(ctx, 'failed', { turn: 1, endedAt: 5_000, status: 'failed', code: 'turn-failed', message: '崩了' });
+  const body = await get(ctx, URL_);
+  const byId = new Map(body.items.map((item) => [item.sessionId, item]));
+  assert.equal(byId.get('done').completed, true);
+  assert.equal(byId.get('failed').lastTurnError.code, 'turn-failed');
+  assert.equal(byId.get('waiting').pendingInteraction, 'question');
+  for (const id of ['done', 'failed', 'waiting']) {
+    assert.deepEqual(byId.get(id).lastMessage, {
+      role: 'assistant',
+      text: '这一轮跑完了，结果在这里。',
+    });
+    assert.equal(byId.get(id).lastMessage.at, undefined, '与 /sessions 的 lastMessage 不同：不带 at');
+  }
+});
+
+test('普通在跑的条目不带 lastMessage，也不读 history', async () => {
+  const ctx = makeCtx([session('s1', { running: true, updatedAt: 2_000 })]);
+  const body = await get(ctx, URL_);
+  assert.equal(body.items[0].running, true);
+  assert.equal('lastMessage' in body.items[0], false);
+  assert.equal(ctx.state.historyCalls, 0);
+});
+
+test('lastMessage 进 revision：状态位没变但正文变了，rev 也要变', async () => {
+  const ctx = makeCtx([session('s1', { updatedAt: 2_000 })]);
+  recordLastTurn(ctx, 's1', { turn: 1, endedAt: 5_000, status: 'completed' });
+  const first = await get(ctx, URL_);
+  assert.equal(first.items[0].lastMessage.text, '这一轮跑完了，结果在这里。');
+
+  ctx.state.historyText = '换了一句新结果。';
+  ctx.state.items = [session('s1', { updatedAt: 3_000 })];
+  const second = await get(ctx, `${URL_}?rev=${encodeURIComponent(first.revision)}`);
+  assert.notEqual(second.unchanged, true);
+  assert.equal(second.items[0].lastMessage.text, '换了一句新结果。');
+  assert.notEqual(second.revision, first.revision, '正文变了却没进指纹，手机不会被唤醒');
+});
+
+test('拿不到预览时整个 lastMessage 字段不出现', async () => {
+  const ctx = makeCtx([session('s1', { updatedAt: 2_000 })]);
+  recordLastTurn(ctx, 's1', { turn: 1, endedAt: 5_000, status: 'completed' });
+  ctx.state.historyFails = true;
+  const body = await get(ctx, URL_);
+  assert.equal(body.items[0].completed, true);
+  assert.equal('lastMessage' in body.items[0], false);
+  assert.equal(ctx.state.historyCalls, 1);
+});
+
+test('最后一句是用户说的就不带 lastMessage', async () => {
+  const ctx = makeCtx([session('s1', { updatedAt: 2_000 })]);
+  recordLastTurn(ctx, 's1', { turn: 1, endedAt: 5_000, status: 'completed' });
+  ctx.state.historyRole = 'user';
+  const body = await get(ctx, URL_);
+  assert.equal(body.items[0].completed, true);
+  assert.equal('lastMessage' in body.items[0], false);
 });
 
 test('读过之后结束的那一轮不再算提醒（已读水位仍然生效）', async () => {

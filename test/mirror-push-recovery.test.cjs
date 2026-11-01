@@ -277,7 +277,9 @@ test('失败的会话只按退避到期重试（冷轮转不许绕过）', async
         sidecar.fail = false;
         Date.now = () => realNow() + 60_000;
         h.tick(500);
-        await flush();
+        // 重试那一趟是异步的（建快照 + 推送都要等），固定等几轮微任务在慢机器上会抢跑：
+        // 等到「真的推出去」为止，判据仍然只看结果，不看等了几拍。
+        await waitFor(() => pushed.length >= 1);
       } finally {
         Date.now = realNow;
       }
