@@ -16,6 +16,7 @@
  *  5. 路由表必须真的挂上这四条，且 handler 模块被引入（接线漏了 App 必然 404）。
  *  6. 带 `destPath` 时落点跟着它走（右栏的「传到这里」）：越界 403 且不留暂存残片、不是
  *     目录 400、重名照样加后缀；不带时行为与从前逐字相同 —— 仍进收件箱。
+ *  7. 内联图片不按体积拒：超过 10MB 的图也得换成 base64 交出去，单张上限归桌面端管。
  *
  * 本测试驱动真实 handler（起真 http 服务、走真 req/res），只有收件根目录是临时目录。
  */
@@ -34,6 +35,8 @@ const {
   handleUploadAbort,
   sanitizeName,
   sweepExpiredUploads,
+  STAGING_TTL_MS,
+  inlineUploadedImageBlocks,
   CHUNK_BYTES,
 } = require('../lib/mobile/uploads.js');
 const { readWiring } = require('./lib/wiring.cjs');
@@ -274,14 +277,48 @@ test('放弃的上传过期后清除内存记录和暂存文件', async () => {
     const staging = path.join(inbox, '.staging', `${uploadId}.part`);
     assert.equal(fs.existsSync(staging), true);
 
-    // 模拟超过 24 小时，避免测试实际等待 TTL。
-    await sweepExpiredUploads(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    // 模拟 TTL 已过，避免测试实际等待。
+    await sweepExpiredUploads(Date.now() + STAGING_TTL_MS + 1000);
     assert.equal(fs.existsSync(staging), false);
     assert.equal((await api.post('/upload/chunk', {
       uploadId,
       index: 0,
       data: Buffer.from('x').toString('base64'),
     })).status, 404);
+  } finally {
+    await api.close();
+    fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+test('内联图片不按体积拒：超过旧 10MB 门槛的图照样换成 base64 交给宿主', async () => {
+  const inbox = tempInbox();
+  const api = await serve(inbox);
+  try {
+    // 11MB：手机侧照着桌面端的 20MB 附件上限放行，插件这边不该再拦一道。
+    const image = Buffer.alloc(11 * 1024 * 1024);
+    for (let i = 0; i < image.length; i += 1) image[i] = (i * 31 + 7) & 0xff;
+
+    const begin = await api.post('/upload/begin', { name: 'big.png' });
+    const step = 6 * 1024 * 1024;
+    let index = 0;
+    for (let offset = 0; offset < image.length; offset += step) {
+      const chunk = await api.post('/upload/chunk', {
+        uploadId: begin.body.uploadId,
+        index,
+        data: image.subarray(offset, offset + step).toString('base64'),
+      });
+      assert.equal(chunk.status, 200);
+      index += 1;
+    }
+    const finish = await api.post('/upload/finish', { uploadId: begin.body.uploadId });
+    assert.equal(finish.body.bytes, image.length);
+
+    const content = [{ type: 'image', mediaType: 'image/png', uploadId: begin.body.uploadId }];
+    assert.equal(await inlineUploadedImageBlocks(content), null);
+    assert.equal(content[0].data, image.toString('base64'));
+    assert.equal(content[0].name, 'big.png');
   } finally {
     await api.close();
     fs.rmSync(inbox, { recursive: true, force: true });
@@ -362,7 +399,7 @@ test('destPath 越界：403 outside-allowed，且连暂存都不建', async (t) 
     assert.equal(begin.status, 403);
     assert.equal(begin.body.error.code, 'outside-allowed');
     assert.equal(api.calls.workspace, 1, '越界判定要问过宿主的工作区清单');
-    // 拒得早：一个暂存残片都不该留下（残片要躺满 24 小时才清）。
+    // 拒得早：一个暂存残片都不该留下（残片要躺满 7 天才清）。
     assert.equal(fs.existsSync(path.join(inbox, '.staging')), false);
 
     // 名字只是**以工作区路径为前缀**的隔壁目录也不认。

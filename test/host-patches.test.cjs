@@ -137,18 +137,25 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
   );
   assert.match(IMPL, /function runtimeProvidesApiProxy\(\)/);
   // 光不 provide 还不够：旧运行时上读宿主的 apiProxy **必须声明 inject**，否则 cordis 的
-  // get trap 抛 "cannot get property ... without inject"。所以 inject 是二选一的。
+  // get trap 抛 "cannot get property ... without inject"。
   //
-  // 但**只有 `webServer` 是硬依赖**：cordis 的 inject 缺一个就整行 pending —— 网关由后装载
-  // 的另一行提供、`sessions` 来自别的 bundle，任何一条被别人关掉 / 换掉，代价都是路由、
-  // sidecar、配对一起不出现（日志只有一行 pending，手机上就是「装了但连不上」）。
-  // 所以 0.2.0 那一支只等 `webServer`，其余一律 `ctx.get` 现取。
+  // 但**解析得到那个包不等于宿主一定会提供这个服务**（2026-11-02 反馈 #11）：新版宿主上
+  // 包名还在、服务已经没了，把 apiProxy 写进 inject 就是「整行永远 pending」—— apply 不跑、
+  // 一条路由都没注册，手机上连「装了但连不上」都看不到。所以 inject 只剩 `webServer`，
+  // 旧宿主那条路由改成「等宽限期、等不到就自己兜兼容桥」。
   assert.match(
     IMPL,
-    /export const inject = runtimeProvidesApiProxy\(\)\s*\?\s*\['webServer', 'apiProxy'\]\s*:\s*\['webServer'\]/,
-    'inject 必须按运行时二选一：旧运行时要 apiProxy，0.2.0 只等 webServer（其余服务现取，不许把整行挂在别人身上）',
+    /export const inject = \['webServer'\]/,
+    'inject 只许等 webServer：解析得到包不代表服务会出现，挂上去就是整行 pending',
   );
+  assert.ok(!/export const inject = [^\n]*'apiProxy'/.test(IMPL), 'apiProxy 不许再写进 inject');
   assert.ok(!/typertGateway'\]/.test(IMPL), '0.2.0 那一支不许再把 typertGateway 写进 inject');
+  // 宽限期之后仍没有真服务 → 按新版宿主装配（兼容桥 + 审批桥 + 提问桥一起）。
+  assert.match(
+    IMPL,
+    /ctx\.get\('apiProxy'\)\) return\s*\n\s*warn\('等不到宿主的 apiProxy[\s\S]{0,120}installCompatBridges\(\)/,
+    '解析到包但服务一直不来的那支必须自己兜桥，否则这一代静默空转',
+  );
 });
 
 test('解析不动就是「没有」：不能把插件带崩', () => {

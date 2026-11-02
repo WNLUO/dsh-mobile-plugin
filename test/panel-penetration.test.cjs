@@ -66,10 +66,10 @@ test('宿主把穿透域名报给面板，引导页与「网络配置」都摆�
     /addressBook\?\.manualIpv6/,
     '现值从地址库的 manualIpv6 预填（控制面只有 POST /api/relay/config，没有 GET）',
   );
-  const lanDialog = read('React', 'src', 'components', 'LanDialog.tsx');
+  const lanDialog = read('React', 'src', 'components', 'PortDialog.tsx');
   assert.ok(
     !/manualLanUrl|AddressPicker/.test(lanDialog),
-    '局域网直连弹窗里不许再能改地址：地址只剩「网络配置」一个入口',
+    '端口弹窗里不许再能改地址：地址只剩「网络配置」一个入口',
   );
 });
 

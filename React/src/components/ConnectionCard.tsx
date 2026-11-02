@@ -6,7 +6,6 @@
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
-import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
 
@@ -18,7 +17,6 @@ type Props = {
   status: StatusView
   busy: string
   onToggle: (enabled: boolean) => void
-  onOpenLan: () => void
 }
 
 /**
@@ -32,10 +30,9 @@ type Props = {
  * 下一步做什么」摆在同一张卡里 —— 那句英文原文（`1008 bad registration secret`）不指向
  * 任何可执行动作。
  *
- * 局域网那一行按用户要求退成一个「查看」按钮：地址可能有好几个（多网段），端口又是直连
- * 自己的配置，都塞进这一行的右半边只会把卡片挤变形，所以详情与配置一起放进
- * 「局域网直连」弹窗。这一行也不带状态点（用户要求）：点绿了点红了都只是告诉一半的话，
- * 通没通、为什么没通，都在弹窗里说。
+ * 「插件版本」与「局域网直连」两行**不在这张卡里**（2026-11-02 用户要求删）：版本号在上面的
+ * 「插件更新」卡里已经有，「局域网直连」那行原本只是开弹窗的按钮，端口现在直接在「配对与
+ * 二维码」里改（见 components/PortDialog.tsx），状态想看得去「连接自检」。
  *
  * 连接自检**不在这张卡里**（2026-11-02 用户要求）：那一行和配对卡右上角的「检查网络」是
  * 同一件事，一屏摆两处入口只会让人猜哪个才是真的。
@@ -44,7 +41,7 @@ type Props = {
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
+export function ConnectionCard({ status, busy, onToggle }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
 
@@ -66,9 +63,6 @@ export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
       </label>
 
       <InfoList>
-        <InfoRow label={t('panel.connection.pluginVersion')} mono>
-          {status.appVersion || '—'}
-        </InfoRow>
         <InfoRow label={t('panel.connection.deviceName')}>{status.name || '—'}</InfoRow>
         <InfoRow label={t('panel.connection.instanceId')} mono>
           {status.instanceId || '—'}
@@ -86,18 +80,6 @@ export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
             text={tunnelText(tunnel.state)}
             {...(tunnel.error ? { detail: tunnel.error } : {})}
           />
-        </InfoRow>
-        <InfoRow label={t('panel.connection.lan')}>
-          {/* 用户要求：这一行不再带状态点，只看那个「查看」按钮；通没通在弹窗里看。 */}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={busy !== ''}
-            onClick={onOpenLan}
-            aria-label={t('panel.connection.viewLan')}
-          >
-            {t('panel.common.view')}
-          </Button>
         </InfoRow>
         <InfoRow label={t('panel.connection.sidecar')}>
           <ToneValue

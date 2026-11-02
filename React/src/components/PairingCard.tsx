@@ -9,7 +9,7 @@
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
-import { Button, buttonVariants } from '@appica/ui-react/button'
+import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import {
   Dialog,
@@ -24,7 +24,6 @@ import { Switch } from '@appica/ui-react/switch'
 import * as React from 'react'
 
 import type { AddressBook, PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
-import { RELAY_REPO_URL } from '../lib/links.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { DownloadAppButton } from './DownloadAppButton.tsx'
 import { InfoList, InfoRow } from './InfoRow.tsx'
@@ -46,6 +45,8 @@ type Props = {
   onOpenSelfCheck: () => void
   onReconnect: () => void
   onSavePreferred: (address: string) => void
+  /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
+  onEditPort: () => void
 }
 
 /**
@@ -75,6 +76,7 @@ export function PairingCard({
   onOpenSelfCheck,
   onReconnect,
   onSavePreferred,
+  onEditPort,
 }: Props) {
   const idle = busy !== ''
   const pairingAllowed = status.pairingPolicy === 'code'
@@ -194,10 +196,25 @@ export function PairingCard({
               </span>
             </InfoRow>
             <InfoRow label={t('panel.pairing.port')} mono>
-              {pairing?.lanPort ?? status.lan.port}
-              {pairing?.lanPortAdjusted ? (
-                <span className="ml-2 font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
-              ) : null}
+              <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+                <span>
+                  {pairing?.lanPort ?? status.lan.port}
+                  {pairing?.lanPortAdjusted ? (
+                    <span className="ml-2 font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
+                  ) : null}
+                </span>
+                {/* 用户要求：文字按钮，不要胶囊 —— 形状与旁边行里的「显示」一致（ghost + sm），
+                    手搓一颗会让字号、行高与同一张卡里别的按钮对不齐。 */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={t('panel.pairing.portTitle')}
+                  disabled={idle}
+                  onClick={onEditPort}
+                >
+                  {t('panel.common.edit')}
+                </Button>
+              </span>
             </InfoRow>
             {/*
               地址按**检测出来的那一份**分类型给标签（局域网 / 公网），并在原地就能选「手机优先用
@@ -243,15 +260,6 @@ export function PairingCard({
         <Button variant="outline" size="md" disabled={idle} onClick={onOpenConfig}>
           {t('panel.pairing.openConfig')}
         </Button>
-        {/* 想自己搭一台中转的人要走的那条路：与引导页「GitHub 仓库」同一个地址。 */}
-        <a
-          className={buttonVariants({ variant: 'outline', size: 'md' })}
-          href={RELAY_REPO_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {t('panel.pairing.selfHosted')}
-        </a>
         {/* 下载入口点开是渠道弹窗（安卓两条 / 苹果两条），尺寸走默认的 md，
             与旁边两颗 h-10 对齐。 */}
         <DownloadAppButton />

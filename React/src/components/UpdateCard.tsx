@@ -40,7 +40,6 @@ import {
 } from '../lib/market.ts'
 import {
   DEFAULT_AUTO_INTERVAL_MS,
-  busyTextOf,
   updateApply,
   updateAuto,
   updateCheck,
@@ -322,10 +321,7 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
    */
   const localSource = marketSource === 'linked' || marketSource === 'file' || marketSource === 'workspace'
   const hasUpdate = update?.updateAvailable ?? host?.marketResult?.updateAvailable ?? false
-  const installedOnDisk = host?.installedVersion ?? null
   const summary = host?.lastApply ? applyText(host.lastApply) : null
-  // 宿主自己报的「此刻在忙什么」：换代 / 在飞请求收尾。
-  const hostBusy = busyTextOf(host)
   const panelVersion = version || '—'
   const shellVersion = host?.version ?? null
   // 面板报的是进程启动时读进内存的版本，外壳报的是它实际装载的那一代。
@@ -407,19 +403,8 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
             </InfoRow>
-            <InfoRow label={t('panel.update.diskVersion')} mono>
-              {installedOnDisk ?? '—'}
-            </InfoRow>
             <InfoRow label={t('panel.update.latestOnline')} mono>
               {latestOnline ?? t('panel.update.notChecked')}
-            </InfoRow>
-            <InfoRow label={t('panel.update.source')}>{marketSource ?? '—'}</InfoRow>
-            <InfoRow label={t('panel.update.action')}>
-              {hostBusy === 'swapping'
-                ? t('panel.update.switching')
-                : hostBusy === 'in-flight'
-                  ? t('panel.update.finishingInFlight', { count: host.inFlight })
-                  : t('panel.update.idle')}
             </InfoRow>
             <InfoRow label={t('panel.update.lastCheck')}>
               {timeText(update?.checkedAt ?? host.marketLastCheckedAt, t('panel.update.notChecked'))}
@@ -505,7 +490,6 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             <InfoRow label={t('panel.update.latestOnline')} mono>
               {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
-            <InfoRow label={t('panel.update.source')}>{marketSource ?? '—'}</InfoRow>
             <InfoRow label={t('panel.update.checkResult')}>
               {hasUpdate ? t('panel.update.resultHasNew') : t('panel.update.resultUpToDate')}
             </InfoRow>

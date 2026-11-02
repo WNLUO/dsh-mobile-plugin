@@ -362,6 +362,9 @@ function createEnv(options = {}) {
   const sandbox = {
     window: {
       __ModuleLoader__: { load: (descriptor) => { loaded = descriptor; } },
+      // 页面自己挂在哪种协议下：普通网页（http/https）与桌面壳的 `dsh-app:` 走的不是同一条
+      // 交接路——壳里 `window.open` 一定被拒，只能交给页面导航。
+      location: { protocol: options.pageProtocol || 'http:', href: 'http://127.0.0.1:56495/' },
       // 公网地址那一下确认：文案原样记下来，返回调用方给的结果（缺省 = 确认）。
       confirm: (text) => {
         confirms.push(String(text));
@@ -1031,10 +1034,11 @@ test('地址问不到时会自己再问，问到了就停（不再打宿主）',
  */
 
 /** 只给一颗图标用的环境：`panelScope` 与窗口状态由调用方定。 */
-function clickEnv({ panelScope = 'loopback', webAccess = { enabled: false, expiresAt: 0 }, confirm = true } = {}) {
+function clickEnv({ panelScope = 'loopback', webAccess = { enabled: false, expiresAt: 0 }, confirm = true, pageProtocol = 'http:' } = {}) {
   const posts = [];
   const env = materialize({
     confirm,
+    pageProtocol,
     fetch: async (url, init = {}) => {
       if (String(url).endsWith('/status')) {
         return { ok: true, status: 200, json: async () => readyStatus({ panelScope, webAccess }) };
@@ -1140,6 +1144,19 @@ test('浏览器把新窗口拦了：也要说清楚，不许「接口成了但�
   assert.ok(dialog, '被拦了要有反应');
   assert.match(texts(dialog).join(' '), /拦掉|弹窗/);
   assert.ok(dialogButton(env, '复制诊断信息'), '照样能复制读数');
+});
+
+test('桌面壳里的页面（dsh-app:）：不开空窗口、也不当成被拦，把地址交给页面导航', async () => {
+  const { env, posts } = clickEnv({ panelScope: 'private', pageProtocol: 'dsh-app:' });
+  const icon = await railIcon(env);
+  let prevented = false;
+  await icon.props.onClick({ preventDefault() { prevented = true; } });
+  await settle();
+  assert.equal(prevented, true, '还是先把默认跳转拦下来，等窗口开好再交出去');
+  assert.deepEqual(posts, [{ enabled: true }], '两小时窗口照开：从别的机器打开这一页要用它');
+  assert.equal(env.openedWindows.length, 0, '壳里 `window.open` 一定被拒，先开一个空窗口只会盖一屏黑的出来');
+  assert.equal(diagnosisNode(env), undefined, '壳回的 null 是正常答复，不是「浏览器拦了新窗口」');
+  assert.equal(env.sandbox.window.location.href, readyStatus().panelUrl, '地址交给导航，壳把它转给系统浏览器');
 });
 
 test('插进那一行的那颗也走同一套点击逻辑', async () => {

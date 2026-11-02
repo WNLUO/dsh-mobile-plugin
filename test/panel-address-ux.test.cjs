@@ -35,10 +35,10 @@ test('地址按检测出来的那份给标签，配对卡与「网络配置」�
   for (const name of ['PairingCard.tsx', 'RelayConfigDialog.tsx']) {
     assert.match(read(name), /AddressPicker/, `${name} 必须用共用的地址选择器，别各写一份口径`);
   }
-  // 地址只剩「网络配置」一个入口：局域网直连弹窗不再摆选择器，两处都能改迟早对不上。
+  // 地址只剩「网络配置」一个入口：端口弹窗只管一个数字，不许再摆选择器。
   assert.ok(
-    !read('LanDialog.tsx').includes('AddressPicker'),
-    '局域网直连弹窗里又出现了地址选择器：地址归「网络配置」一处改',
+    !read('PortDialog.tsx').includes('AddressPicker'),
+    '端口弹窗里又出现了地址选择器：地址归「网络配置」一处改',
   );
   assert.ok(
     !/label="局域网地址"/.test(read('PairingCard.tsx')),

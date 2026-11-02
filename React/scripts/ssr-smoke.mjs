@@ -61,7 +61,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
   server.ssrLoadModule('/src/components/RelayConfigDialog.tsx'),
-  server.ssrLoadModule('/src/components/LanDialog.tsx'),
+  server.ssrLoadModule('/src/components/PortDialog.tsx'),
   server.ssrLoadModule('/src/App.tsx'),
   server.ssrLoadModule('/src/Onboarding.tsx'),
   server.ssrLoadModule('/src/components/JoinGroupButton.tsx'),
@@ -183,8 +183,8 @@ const cases = [
   ['InboxCard', h(Inbox.InboxCard), '收件文件'],
   ['NetworkConfigDialog', h(Dialog.RelayConfigDialog, { open: true, onOpenChange: noop, status, addressBook, lanUrls: pairing.lanUrls, busy: '', onSave: noop, onSavePreferred: noop })],
   ['NetworkConfigDialog（老宿主没有地址库）', h(Dialog.RelayConfigDialog, { open: true, onOpenChange: noop, status, addressBook: null, lanUrls: pairing.lanUrls, busy: 'lan', onSave: noop, onSavePreferred: noop })],
-  ['LanDialog', h(Lan.LanDialog, { open: true, onOpenChange: noop, status, busy: '', onSave: noop })],
-  ['LanDialog（没地址）', h(Lan.LanDialog, { open: true, onOpenChange: noop, status: { ...status, lan: { ...status.lan, enabled: false, state: 'off', port: 0 } }, busy: 'lan', onSave: noop })],
+  ['PortDialog', h(Lan.PortDialog, { open: true, onOpenChange: noop, port: 18787, busy: '', onSave: noop })],
+  ['PortDialog（正在提交）', h(Lan.PortDialog, { open: true, onOpenChange: noop, port: 51864, busy: 'lan', onSave: noop })],
   // 地址选择器单独过一遍：配对卡里那处地址默认遮着（见上一条注释），SSR 看不到内容，
   // 所以第三份（IPv6）到底画没画出来只能直接渲染这个组件看。
   ['AddressPicker（有私网 + 公网 + IPv6）', h(Picker.AddressPicker, { book: addressBook, port: 51864, value: '172.16.5.5', onChange: noop }), 'IPv6 直连'],
@@ -209,7 +209,9 @@ const cases = [
   // 所以这一遍只冒烟按钮；四条链接有没有齐要看真浏览器点开（和上面几颗弹窗同一种处境）。
   ['DownloadAppButton', h(Dl.DownloadAppButton, {}), '下载 APP'],
   // 公告板：标题与那条号都得在 —— 号是常量、正文从它拼，缺了就是占位符没接上。
-  ['NoticeBoard', h(Notice.NoticeBoard, {}), '关于公用中转限制插件版本的公告'],
+  // 公告卡里两条：版本门槛 + 「自己搭一台中转」，后者带一个指向仓库的链接。
+  ['NoticeBoard', h(Notice.NoticeBoard, {}), '搭建自己的网络'],
+  ['NoticeBoard（版本门槛还在）', h(Notice.NoticeBoard, {}), '最低插件版本'],
 ]
 
 let failed = 0

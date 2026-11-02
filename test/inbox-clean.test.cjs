@@ -31,6 +31,7 @@ const {
   setAutoClear,
   INBOX_KEEP_MS,
 } = require('../lib/mobile/inbox-clean.js');
+const { STAGING_TTL_MS } = require('../lib/mobile/uploads.js');
 const { readRouteTable } = require('./lib/wiring.cjs');
 
 /** 一个临时收件根；测试结束顺手删掉。每个用例都把自动清理关掉、DSH_HOME 指到临时目录。 */
@@ -101,7 +102,7 @@ test('清空的日期目录收掉，还有文件的留着', async () => {
 
 test('.staging 里够龄的残片要清（它只在 begin 时扫，没人上传就一直躺着）', async () => {
   const root = makeInbox();
-  writeFile(root, '.staging', 'stale.part', 12 * 1024 * 1024, 50 * HOUR);
+  writeFile(root, '.staging', 'stale.part', 12 * 1024 * 1024, STAGING_TTL_MS + HOUR);
   writeFile(root, '.staging', 'fresh.part', 4000, 1 * HOUR);
   const scan = await scanInbox();
   assert.equal(scan.stagingFiles, 2, '残片要并进同一份读数');
@@ -134,7 +135,7 @@ test('收件根不存在时什么都不做、也不抛', async () => {
 
 test('残片的读数与清理也是同一套判据：报「可清理 N」就真的删掉那 N 个', async () => {
   const root = makeInbox();
-  writeFile(root, '.staging', 'old.part', 3000, 30 * HOUR);
+  writeFile(root, '.staging', 'old.part', 3000, STAGING_TTL_MS + HOUR);
   writeFile(root, '.staging', 'new.part', 3000, 2 * HOUR);
   const before = await scanInbox();
   assert.equal(before.stagingFiles, 2);

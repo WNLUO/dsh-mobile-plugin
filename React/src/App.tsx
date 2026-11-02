@@ -13,8 +13,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
-import { LanDialog } from './components/LanDialog.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
+import { PortDialog } from './components/PortDialog.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { SelfCheckDialog } from './components/SelfCheckDialog.tsx'
@@ -57,7 +57,8 @@ export function App() {
   const [pairing, setPairing] = useState<PairingInfo | null>(null)
   const [pairingError, setPairingError] = useState('')
   const [configOpen, setConfigOpen] = useState(false)
-  const [lanOpen, setLanOpen] = useState(false)
+  /** 「修改局域网端口」那个弹窗：入口是配对卡端口行右边的「修改」。 */
+  const [portOpen, setPortOpen] = useState(false)
   /**
    * 宿主枚举的地址库：局域网直连弹窗里那个「手机优先用」要它（带网卡名与当前选中的那条）。
    * 只在开窗时取一次，和老宿主兼容（那条路由不存在就保持 null，选择器不摆）。
@@ -134,13 +135,12 @@ export function App() {
     if (status.pairingCode && pairing.pairingCode !== status.pairingCode) void loadPairing()
   }, [status?.pairingCode, status?.enabled, pairing, loadPairing])
 
-  // 局域网地址靠打开「局域网直连」弹窗时补取一次；「网络配置」那扇窗里的地址选择与
-  // 两条手填地址也读同一份地址库，所以两个弹窗谁开都补一次。
+  // 地址库在打开「网络配置」时补取一次（地址选择与两条手填地址都读它）。
   useEffect(() => {
-    if ((!lanOpen && !configOpen) || !status?.enabled) return
+    if (!configOpen || !status?.enabled) return
     void loadPairing()
     void loadAddresses()
-  }, [lanOpen, configOpen, status?.enabled, loadPairing, loadAddresses])
+  }, [configOpen, status?.enabled, loadPairing, loadAddresses])
 
   // 配对卡上「手机该填的地址」那一行也要地址库（分类型 + 就地选优先）：它跟着配对信息一起走，
   // 重新生成配对码、改配置、重连之后地址可能就变了，所以挂在 pairing 上重取一次。
@@ -232,12 +232,12 @@ export function App() {
       notify('soft', t(pairingPolicy === 'code' ? 'panel.shell.deviceAllowed' : 'panel.shell.deviceDenied'))
     })
 
-  // 局域网端口走同一个 /api/relay/config，只是从它自己的弹窗提交：改完端口地址可能就变了，
-  // 所以顺手把配对信息重取一次，别让弹窗里留着一串过期的地址。
-  const saveLanPort = (patch: ConfigPatch) =>
+  // 局域网端口走同一个 /api/relay/config，只是从它自己的弹窗提交：改完端口、监听会重绑，
+  // 手机那边的地址跟着变，所以顺手把配对信息重取一次。
+  const saveLanPort = (port: number) =>
     act('lan', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/config', patch))
-      setLanOpen(false)
+      setStatus(await apiPost<StatusView>('/api/relay/config', { lanPort: port }))
+      setPortOpen(false)
       await loadPairing()
       notify('soft', t('panel.shell.lanSaved'))
     })
@@ -310,6 +310,7 @@ export function App() {
             onOpenSelfCheck={() => setSelfCheckOpen(true)}
             onReconnect={() => void reconnect()}
             onSavePreferred={(address) => void savePreferredLanAddress(address)}
+            onEditPort={() => setPortOpen(true)}
           />
 
           {/* 「谁被这台机器放进来过」：设备清单自己轮询（`/api/relay/devices`），
@@ -335,18 +336,17 @@ export function App() {
         <aside className="flex flex-col gap-4 max-lg:order-first lg:w-[340px] lg:shrink-0">
           {/* 公用中转的插件版本门槛（2026-10-30 从屏幕边上那块悬浮件挪进来，见
               components/NoticeBoard.tsx 文件头）。 */}
-          <NoticeBoard />
+          <NoticeBoard lanPort={status.lan.port} />
 
-          <ConnectionCard
-            status={status}
-            busy={busy}
-            onToggle={toggle}
-            onOpenLan={() => setLanOpen(true)}
-          />
+          <ConnectionCard status={status} busy={busy} onToggle={toggle} />
 
           {/* 网页管理那两小时窗口的到期时间与「立即关闭」。
-              窗口关着时宿主不给远程读管理接口，这张卡也就跟着不出现。 */}
-          {status.webAccess?.enabled ? (
+              窗口关着时宿主不给远程读管理接口，这张卡也就跟着不出现。
+              **从本机回环地址打开这一页时不摆**：这个窗口是给「别人从公网 / 局域网打开这
+              一页」用的，回环地址本来就是自己这台机器，摆着它只多一条看得见却用不上的读数
+              （用户 2026-11-02）。关掉它的出口留在需要它的那一页上——那一页的地址就是当初
+              开窗的理由。宿主不上报 `panelScope` 的老版本按「照旧摆」处理。 */}
+          {status.webAccess?.enabled && status.panelScope !== 'loopback' ? (
             <WebAccessCard webAccess={status.webAccess} busy={busy} onToggle={(on) => void toggleWebAccess(on)} />
           ) : null}
 
@@ -374,12 +374,12 @@ export function App() {
         lastMobileAt={status.lastMobileAt}
       />
 
-      <LanDialog
-        open={lanOpen}
-        onOpenChange={setLanOpen}
-        status={status}
+      <PortDialog
+        open={portOpen}
+        onOpenChange={setPortOpen}
+        port={pairing?.lanPort ?? status.lan.requestedPort ?? status.lan.port}
         busy={busy}
-        onSave={(patch) => void saveLanPort(patch)}
+        onSave={(port) => void saveLanPort(port)}
       />
 
     </main>
