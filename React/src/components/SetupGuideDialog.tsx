@@ -9,7 +9,10 @@
  *     Tailscale：本机的直连端口是明文 HTTP，iOS 的 ATS 不认 100.x 的明文地址，
  *     所以让它 serve 成一个 https 的 ts.net 域名，再把那个域名填进直连地址。
  *
- * 版式：所有方案默认收起，展开才占地方；内容多也不在框里滚（不设 `max-h`/`overflow`）。
+ * 版式：所有方案默认收起，展开才占地方；两条都展开时正文比手机屏高，所以在正文区里滚
+ * （弹窗卡在视口高度内，遮罩挡住了页面本身的滚动），滚动条不画出来 —— 手机上一根灰条
+ * 比「这块能滑」更碍事。别把 `max-h` 写死成 `vh - 某个魔数`：卡片高度由弹窗的 `max-h-full`
+ * 约束，再来一个死值在矮屏上会多出一截空白。
  * 关窗沿用弹窗自己的规矩：右上角那颗 × 与点遮罩都能关，底部不摆「我知道了」。
  */
 import { Button } from '@appica/ui-react/button'
@@ -108,7 +111,7 @@ export function SetupGuideDialog({ open, onOpenChange, port }: Props) {
           <DialogTitle>{t('panel.notice.setupGuideTitle')}</DialogTitle>
         </DialogHeader>
         <div ref={dialogRef} tabIndex={-1} className="flex min-h-0 flex-col outline-none">
-          <DialogBody className="flex flex-col gap-3">
+          <DialogBody className="flex flex-col gap-3 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <Section title={t('panel.notice.guideRelayTitle')} summary={t('panel.notice.guideRelaySummary')}>
               <p className="text-sm leading-6 text-foreground">{t('panel.notice.guideRelayReady')}</p>
               <p className="text-sm leading-6 text-foreground-muted">{t('panel.notice.guideRelayCopyHint')}</p>
