@@ -20,10 +20,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { handleMonitor } = require('../lib/mobile/monitor.js');
-const { recordLastTurn } = require('../lib/mobile/session-last-turn.js');
+const { recordLastTurn, recordSessionRead } = require('../lib/mobile/session-last-turn.js');
 const { completionStateOf } = require('../lib/mobile/session-cache.js');
 const { listSignal } = require('../lib/shared/list-signal.js');
 const { sessionSignal } = require('../lib/shared/session-signal.js');
+const questions = require('../lib/mobile/questions.js');
 
 function makeReq(url) {
   const req = Readable.from([Buffer.from('{}')]);
@@ -121,7 +122,9 @@ test('只回状态位：没有预览、没有 updatedAt、没有 cwd', async () 
   assert.equal(body.ok, true);
   assert.equal(body.items.length, 1);
   const item = body.items[0];
-  assert.deepEqual(Object.keys(item).sort(), ['completed', 'running', 'sessionId', 'title']);
+  // `pendingCard` 恒在：原生靠这一格判「这台宿主认不认识待处理卡片」（见 monitor.js）。
+  assert.deepEqual(Object.keys(item).sort(), ['completed', 'pendingCard', 'running', 'sessionId', 'title']);
+  assert.equal(item.pendingCard, null, '没有挂起时显式 null，不是「不知道」');
   assert.equal(item.running, false);
   assert.equal(item.completed, false);
   // 完整清单那条路会为它读一次 history 补预览；监控视图常态下一次都不读。
@@ -190,6 +193,21 @@ test('把上一轮事实透给原生（按轮次判完成用）', async () => {
   const body = await get(ctx, URL_);
   assert.equal(body.items[0].lastTurn.turn, 3);
   assert.equal(body.items[0].lastTurn.status, 'completed');
+});
+
+test('把「这一轮读没读过」透给原生：桌面点开之后手机上的提醒要能自己消失', async () => {
+  // 用户口径：在电脑上把那条对话点开看过了，手机上那条推送也该跟着消失。
+  // 桌面点开只推进**与设备无关**的已读水位（`recordSessionRead`），不动这台设备的
+  // `clearedAt` —— 所以后台提醒要撤掉「别人已经看过的这一轮」时，只能看这一格。
+  const ctx = makeCtx([session('s1', { updatedAt: 2_000 })]);
+  recordLastTurn(ctx, 's1', { turn: 3, endedAt: 5_000, status: 'completed' });
+  const before = await get(ctx, URL_);
+  assert.equal(before.items[0].lastTurn.readAt, undefined, '没人读过时这一格不出现');
+  recordSessionRead(ctx, 's1', 6_000);
+  // 水位进指纹：不进去的话手机那边条件刷新永远拿到 unchanged，这个变化永远送不到。
+  const after = await get(ctx, `${URL_}?rev=${encodeURIComponent(before.revision)}`);
+  assert.notEqual(after.unchanged, true);
+  assert.equal(after.items[0].lastTurn.readAt, 6_000);
 });
 
 test('可能提醒的那几条带 lastMessage，且形状只有 role/text', async () => {
@@ -365,4 +383,50 @@ test('变化已经发生过的这一发不挂（rev 对不上就直接回新状�
   assert.equal(body.unchanged, undefined);
   assert.equal(body.items[0].running, true);
   assert.ok(Date.now() - started < 1_000);
+});
+
+/**
+ * 回前台那张卡：`pendingCard` 必须跟着待处理的那条一起回。
+ *
+ * 真机现场：从后台滑回前台，侧栏已经显示「需要人工介入」，对话页里那张卡却没出来，
+ * 得切一次会话才出现 —— 因为卡片在手机上只有一条来路：实时流重新接上时插件的补发。
+ * 那次重连一旦落空（退避中、宿主把流收了、网络还没被采纳），卡就缺到下次重进对话。
+ * 现在后台轮询顺手把卡本身带回去，回前台问原生取，纯本地、不必等网络。
+ */
+function installPendingQuestion(sessionId) {
+  questions.resetForTest();
+  const listeners = [];
+  const ctx = {
+    apiProxy: { respond: async () => ({ accepted: false }) },
+    on(name, listener) { listeners.push({ name, listener }); return () => {}; },
+  };
+  questions.installQuestionBridge(ctx);
+  const hook = listeners.find((entry) => entry.name === 'user-questions/request');
+  // 阻塞式提问：钩子会一直等答案，这里刻意不 await 它。
+  void hook.listener({
+    questions: [{ id: 'q1', question: '用哪个端口？', options: [{ label: '8787' }] }],
+    agent: { session: { id: sessionId } },
+  }, () => new Promise(() => {}));
+  return () => questions.resetForTest();
+}
+
+test('待处理的那条把卡片本身也带上（回前台不必等流重连）', async () => {
+  const ctx = makeCtx([session('waiting', { updatedAt: 2_200 }), session('idle', { updatedAt: 2_100 })]);
+  const cleanup = installPendingQuestion('waiting');
+  try {
+    const body = await get(ctx, URL_);
+    const byId = new Map(body.items.map((item) => [item.sessionId, item]));
+    assert.equal(byId.get('waiting').pendingInteraction, 'question');
+    const card = byId.get('waiting').pendingCard;
+    assert.equal(card.type, 'question/requested');
+    assert.match(card.rpcId, /^m-/, '没有帧级 rpcId 的卡点了必然是 409');
+    assert.equal(card.questions[0].id, 'q1');
+    assert.equal(byId.get('idle').pendingCard, null, '没挂起的条目写 null：那是「看过了、没有」');
+
+    // 卡进不进指纹：同一份内容必须仍算「没变」，否则原生每拍都被唤醒重推。
+    const again = await get(ctx, `${URL_}?rev=${encodeURIComponent(body.revision)}`);
+    assert.equal(again.unchanged, true);
+  } finally {
+    cleanup();
+  }
 });
