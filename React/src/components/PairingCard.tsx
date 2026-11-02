@@ -1,13 +1,16 @@
 /**
- * 「配对与二维码」卡片：宿主的二维码 SVG、配对码，以及手机该拨的地址与端口。
+ * 「配对与二维码」卡片：宿主的二维码 SVG、准入开关，以及手机该拨的地址与端口。
  *
  * 地址那串是宿主给的候选顺序（用户选过的排最前），手机也是按这个顺序挨个试的。
+ *
+ * 卡片上**不摆配对码**：普通用户拿 APP 扫一下码就配上了，码值在这儿只是多一处会被旁边的人
+ * 看走眼的东西。「重新生成」那颗也一并去了 —— 宿主在配对成功那一刻就会换码换票据
+ * （`rotatePairing`），二维码自己会变，不需要人来按。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
-import { Button } from '@appica/ui-react/button'
+import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
-import { CopyButton } from '@appica/ui-react/copy-button'
 import {
   Dialog,
   DialogBody,
@@ -17,9 +20,11 @@ import {
   DialogTitle,
 } from '@appica/ui-react/dialog'
 import { Spinner } from '@appica/ui-react/spinner'
+import { Switch } from '@appica/ui-react/switch'
 import * as React from 'react'
 
-import type { AddressBook, PairingInfo, StatusView } from '../lib/api.ts'
+import type { AddressBook, PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
+import { RELAY_REPO_URL } from '../lib/links.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { DownloadAppButton } from './DownloadAppButton.tsx'
 import { InfoList, InfoRow } from './InfoRow.tsx'
@@ -35,9 +40,11 @@ type Props = {
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
   restartError: string | null
   onOpenConfig: () => void
-  onRegenerate: () => void
+  /** 准入总闸（`status.pairingPolicy`）：`'code'` 收新设备、`'deny'` 一律拒。 */
+  onChangePolicy: (policy: PairingPolicy) => void
+  /** 「检查网络」：开的是「连接自检」那个弹窗（与卡片里那行「自检」是同一件事）。 */
+  onOpenSelfCheck: () => void
   onReconnect: () => void
-  onRevokeAll: () => void
   onSavePreferred: (address: string) => void
 }
 
@@ -48,13 +55,13 @@ type Props = {
  * 要多带一个依赖，而且会和手机端拿到的图不一致。未启用远程控制时宿主回 409 并给一句中文，
  * 这里照原样显示。
  *
- * 二维码与地址默认遮着，揭开之后不再给「隐藏」（状态不落盘，刷新即回到遮着）；地址那行的
+ * 二维码与中转地址默认遮着，揭开之后不再给「隐藏」（状态不落盘，刷新即回到遮着）；地址那行的
  * 「显示」点开是弹窗，内容多，摊在卡片里会把下面的东西顶下去。
  *
- * 维护动作（重新连接 / 吊销全部设备授权 / 重新生成配对码 / 网络配置）都挂这张卡：它们属于
- * 「连不上时怎么办」。吊销不可逆，走一次 window.confirm，这类确认不该藏在拖拽或长按里。
+ * 维护动作（重新连接 / 吊销全部设备授权 / 网络配置）都挂这张卡：它们属于「连不上时怎么办」。
+ * 吊销不可逆，走一次 window.confirm，这类确认不该藏在拖拽或长按里。
  * 「重启 sidecar」在「插件更新」卡（它跟更新是同一件事），这里只留「上次重启失败」的红字。
- * 「刷新」不设：配对信息在进页面、改配置、重新生成时刷新。
+ * 「刷新」不设：配对信息在进页面、改配置、换码（配对成功）时刷新。
  */
 export function PairingCard({
   status,
@@ -64,13 +71,13 @@ export function PairingCard({
   error,
   restartError,
   onOpenConfig,
-  onRegenerate,
+  onChangePolicy,
+  onOpenSelfCheck,
   onReconnect,
-  onRevokeAll,
   onSavePreferred,
 }: Props) {
   const idle = busy !== ''
-  const policyText = status.pairingPolicy === 'deny' ? t('panel.pairing.policyDeny') : t('panel.pairing.policyCode')
+  const pairingAllowed = status.pairingPolicy === 'code'
   /** 「中转地址」那行的明文：默认遮上。 */
   const relayUrl = pairing?.relayUrl || status.relayUrl || '—'
   /**
@@ -91,24 +98,19 @@ export function PairingCard({
   return (
     <Card frame="solid">
       <CardHeader>
-        <CardTitle>{t('panel.pairing.cardTitle')}</CardTitle>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+          <span>{t('panel.pairing.cardTitle')}</span>
+          {/* 连不上时先看自检结论：它就是「连接自检」那个弹窗（与「自检」是同一件事，
+              只是入口换了地方）。做成文字按钮，别再多一颗胶囊抢标题那一行。 */}
+          <button
+            type="button"
+            className="cursor-pointer text-sm text-foreground-intense underline underline-offset-2 hover:text-foreground-strong"
+            onClick={onOpenSelfCheck}
+          >
+            {t('panel.pairing.checkNetwork')}
+          </button>
+        </CardTitle>
       </CardHeader>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-background-muted px-3 py-2">
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm text-foreground-muted">{t('panel.pairing.code')}</span>
-          <span className="font-mono text-xl tracking-[0.2em] text-foreground-intense">
-            {pairing?.pairingCode || status.pairingCode || '—'}
-          </span>
-        </div>
-        <CopyButton
-          value={pairing?.pairingCode || status.pairingCode || ''}
-          variant="secondary"
-          size="sm"
-          label={t('panel.pairing.copyCode')}
-          copiedLabel={t('panel.pairing.copied')}
-        />
-      </div>
 
       {error ? (
         <Alert variant="warning" className="mt-3">
@@ -119,10 +121,11 @@ export function PairingCard({
       ) : null}
 
       <div className="mt-3 flex flex-col gap-4 sm:flex-row">
-        {/* 二维码这一列下面挂「重新生成配对码」：它换的就是这张图，按用户要求贴着二维码、
-            以二维码为参照居中，而不是跟别的按钮挤在卡片右下。 */}
-        <div className="flex shrink-0 flex-col items-center gap-3">
-          <div className="relative">
+        {/* 二维码这一格**尺寸固定**：遮着是 280 的占位、揭开是同一块白底，两种状态上下都不动。
+            白底用 `size-full` + `p-2` 撑满这一格，里面再 `size-full` 缩放 —— 别给内层写死
+            256px，那样白底会比占位高出边框加内边距那一圈，整张卡跟着长两像素。 */}
+        <div className="flex shrink-0 flex-col items-center">
+          <div className="relative size-[280px]">
             {/*
               白底是必须的：二维码是黑白的，暗色主题下要保证扫得出来。
               遮上时**整块换成一个占位**，不是把里面的 SVG 用样式盖住：隐藏态的页面里
@@ -133,47 +136,48 @@ export function PairingCard({
                 <span className="text-xs">{t('panel.pairing.qrHidden')}</span>
                 <RevealButton what={t('panel.pairing.qr')} label={t('panel.common.show')} onClick={() => toggle('qr')} />
               </div>
-            ) : (<div className="flex items-start justify-center overflow-hidden rounded-md border border-border-muted bg-white p-3">
+            ) : (<div className="flex size-[280px] items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2">
                 {pairing?.svg ? (
-                  // 点码本身也能放大：手指落在图上的人不会先去找下面那颗按钮。
+                  // 点码本身就能放大：手指落在图上的人不会先去找一颗按钮。
                   <button
                     type="button"
-                    className="cursor-zoom-in rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    className="size-full cursor-zoom-in rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                     onClick={() => setQrZoom(true)}
                     aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
                   >
                     {/* 宿主生成的 SVG（带 280px 固定宽高），内嵌后必须被这里压到方框大小；
                         不是用户输入，没有注入面。 */}
                     <div
-                      className="size-[256px] [&_svg]:h-full [&_svg]:w-full"
+                      className="size-full [&_svg]:h-full [&_svg]:w-full"
                       dangerouslySetInnerHTML={{ __html: pairing.svg }}
                     />
                   </button>
                 ) : (
-                  <div className="flex size-[256px] items-center justify-center text-foreground-subtle">
+                  <div className="flex size-full items-center justify-center text-foreground-subtle">
                     {busy === 'pairing' ? <Spinner /> : t('panel.pairing.noQr')}
                   </div>
                 )}
               </div>
             )}
-
           </div>
-
-          {/* 放大那颗只在码真的摆出来之后才有一件事可做：遮着的时候点开只会看见一片白。 */}
-          {shown.qr && pairing?.svg ? (
-            <Button variant="ghost" size="md" onClick={() => setQrZoom(true)}>
-              {t('panel.pairing.qrZoom')}
-            </Button>
-          ) : null}
-
-          <Button variant="outline" size="md" disabled={idle} onClick={onRegenerate}>
-            {t('panel.pairing.regenerate')}
-          </Button>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <InfoList>
-            <InfoRow label={t('panel.pairing.policy')}>{policyText}</InfoRow>
+            {/*
+              配对策略就是一个开关：开 = 允许新设备凭配对码绑定，关 = 一律拒绝。
+              它以前在「连接状态」和「网络配置」里各有一颗，同一件事一屏两颗开关只会让人猜
+              「改哪颗才算」—— 现在只留这一处。
+            */}
+            <InfoRow label={t('panel.pairing.policy')}>
+              <Switch
+                size="md"
+                checked={pairingAllowed}
+                disabled={idle}
+                onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
+                aria-label={t('panel.devices.allowTitle')}
+              />
+            </InfoRow>
             <InfoRow label={t('panel.connection.relayUrl')}>
               <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 {shown.relay ? (
@@ -220,12 +224,6 @@ export function PairingCard({
             </InfoRow>
           </InfoList>
 
-          {/* 用户要求：网络配置紧贴在「本地识别地址」那行值下面，跟二维码下面那颗同样的样式。 */}
-          <div className="mt-3 flex justify-end">
-            <Button variant="outline" size="md" disabled={idle} onClick={onOpenConfig}>
-              {t('panel.pairing.openConfig')}
-            </Button>
-          </div>
         </div>
       </div>
 
@@ -240,15 +238,25 @@ export function PairingCard({
       {/* 「下载 APP」跟维护那两颗一起靠右收齐：一排放三颗，都是「接下来要做的动作」。
           「重启 sidecar」按用户要求搬到「插件更新」卡片里 —— 它和更新讲的是同一件事：
           让磁盘上的新代码立刻生效（sidecar 层不用重启宿主，宿主层才需要）。 */}
+      {/* 这一排都是「接下来要做的动作」，网络配置也算一颗，跟它们排在一起更顺。 */}
       <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" size="md" disabled={idle} onClick={onOpenConfig}>
+          {t('panel.pairing.openConfig')}
+        </Button>
+        {/* 想自己搭一台中转的人要走的那条路：与引导页「GitHub 仓库」同一个地址。 */}
+        <a
+          className={buttonVariants({ variant: 'outline', size: 'md' })}
+          href={RELAY_REPO_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          {t('panel.pairing.selfHosted')}
+        </a>
         {/* 下载入口点开是渠道弹窗（安卓两条 / 苹果两条），尺寸走默认的 md，
             与旁边两颗 h-10 对齐。 */}
         <DownloadAppButton />
         <Button variant="secondary" size="md" disabled={idle} onClick={onReconnect}>
           {t('panel.pairing.reconnect')}
-        </Button>
-        <Button variant="outline" size="md" disabled={idle} onClick={onRevokeAll}>
-          {t('panel.pairing.revokeAll')}
         </Button>
       </div>
 
@@ -262,28 +270,15 @@ export function PairingCard({
             <DialogTitle>{t('panel.pairing.qr')}</DialogTitle>
           </DialogHeader>
           <DialogBody>
-            <div className="flex flex-col items-center gap-3">
-              <div className="flex items-center justify-center rounded-md bg-white p-4">
-                {pairing?.svg ? (
-                  <div
-                    className="size-[min(70vh,440px)] [&_svg]:h-full [&_svg]:w-full"
-                    dangerouslySetInnerHTML={{ __html: pairing.svg }}
-                  />
-                ) : null}
-              </div>
-              <div className="flex items-baseline gap-2">
-                <span className="text-sm text-foreground-muted">{t('panel.pairing.code')}</span>
-                <span className="font-mono text-xl tracking-[0.2em] text-foreground-intense">
-                  {pairing?.pairingCode || status.pairingCode || '—'}
-                </span>
-              </div>
+            <div className="flex items-center justify-center rounded-md bg-white p-4">
+              {pairing?.svg ? (
+                <div
+                  className="size-[min(70vh,440px)] [&_svg]:h-full [&_svg]:w-full"
+                  dangerouslySetInnerHTML={{ __html: pairing.svg }}
+                />
+              ) : null}
             </div>
           </DialogBody>
-          <DialogFooter className="flex justify-end">
-            <Button variant="outline" onClick={() => setQrZoom(false)}>
-              {t('panel.common.close')}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 

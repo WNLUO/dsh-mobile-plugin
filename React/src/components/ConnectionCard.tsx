@@ -1,45 +1,32 @@
 /**
- * 主页右栏「连接状态」卡：两颗开关（准入、远程控制）+ 只读事实 + 最后一行连接自检结论。
+ * 主页右栏「连接状态」卡：远程控制一颗开关 + 只读事实。
  *
  * 这一页的所有数字都来自宿主（`/api/relay/*`），界面不改写；自检那一行刻意不跟 3 秒轮询，
  * 见文件末尾组件注释与 `lib/selfcheck.ts`。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
-import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
 
-import type { PairingPolicy, StatusView } from '../lib/api.ts'
-import { cn, sidecarText, timeText, toneText, tunnelText, tunnelTone } from '../lib/format.ts'
-import { selfCheckRow, type SelfCheckView } from '../lib/selfcheck.ts'
+import type { StatusView } from '../lib/api.ts'
+import { sidecarText, timeText, tunnelText, tunnelTone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 
 type Props = {
   status: StatusView
   busy: string
   onToggle: (enabled: boolean) => void
-  /** 准入总闸（`status.pairingPolicy`）：`'code'` 收新设备、`'deny'` 一律拒。 */
-  onChangePolicy: (policy: PairingPolicy) => void
   onOpenLan: () => void
-  /**
-   * 连接自检（`GET /api/relay/selfcheck`）：卡片最后那一行读它。
-   *
-   * 这一行的数据**不跟着上面那 3 秒轮询走**（查一次防火墙要在宿主上开一个子进程）——
-   * 只在开弹窗、或手机三十分钟没来过时后台补一次，见 `lib/selfcheck.ts`。
-   */
-  selfcheck: SelfCheckView
-  onOpenSelfCheck: () => void
 }
 
 /**
- * 连接状态：把「准入开关」「远程控制」「概览」「连接状态」合成一张卡。
+ * 连接状态：把「远程控制」「概览」「连接状态」合成一张卡。
  *
- * 最上面两行是两颗开关：**允许新设备绑定**（这台电脑还收不收新手机）与**远程控制**
- * （这段隧道开不开）。准入那颗 2026-10-26 从「配对与二维码」上面搬进来（用户要求），
- * 形态与远程控制那颗一致 —— 一行标签 + 一颗开关，不带状态徽标、不带说明句：它读的就是
- * `status.pairingPolicy`，旁边再挂一句解释只会把面板撑长。
+ * 最上面那颗是**远程控制**（这段隧道开不开）：一行标签 + 一颗开关，不带状态徽标、不带说明句。
+ * 「允许新设备绑定」（`status.pairingPolicy`）不在这儿 —— 它现在只留在「配对与二维码」的
+ * 「配对策略」那行，同一件事一屏两颗开关只会让人猜该按哪颗。
  *
  * 后面全是此刻的只读事实（宿主给的字段，界面不改写）。隧道被中转拒绝时，把「为什么被拒、
  * 下一步做什么」摆在同一张卡里 —— 那句英文原文（`1008 bad registration secret`）不指向
@@ -50,42 +37,22 @@ type Props = {
  * 「局域网直连」弹窗。这一行也不带状态点（用户要求）：点绿了点红了都只是告诉一半的话，
  * 通没通、为什么没通，都在弹窗里说。
  *
- * 卡片最后一行是**连接自检的结论**（`GET /api/relay/selfcheck`）：正常一行灰字、查不到黄、
- * 异常红，点开是四行明细与「重新自检」。它刻意不跟着上面那 3 秒轮询 —— 宿主查一次防火墙
- * 要开一个子进程，请求只在开弹窗或手机三十分钟没来过时发（见 `lib/selfcheck.ts`）。
+ * 连接自检**不在这张卡里**（2026-11-02 用户要求）：那一行和配对卡右上角的「检查网络」是
+ * 同一件事，一屏摆两处入口只会让人猜哪个才是真的。
  *
  * **中转地址不在这张卡里**（2026-10-26 用户要求删）：域名长的时候那一行会把「隐藏」那颗
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, busy, onToggle, onChangePolicy, onOpenLan, selfcheck, onOpenSelfCheck }: Props) {
+export function ConnectionCard({ status, busy, onToggle, onOpenLan }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
-  const pairingAllowed = status.pairingPolicy === 'code'
-  const selfcheckRow = selfCheckRow(selfcheck)
 
   return (
     <Card frame="solid">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <span>{t('panel.connection.state')}</span>
-          <Badge variant={enabled ? 'success' : 'secondary'} size="sm">
-            {enabled ? t('panel.connection.enabled') : t('panel.connection.disabled')}
-          </Badge>
-        </CardTitle>
+        <CardTitle>{t('panel.connection.state')}</CardTitle>
       </CardHeader>
-
-      {/* 准入总闸：与下面那颗远程控制同形（一行标签 + 一颗开关），只是文案与取值不同。 */}
-      <label className="flex items-center justify-between gap-4 border-b border-border-muted py-3">
-        <span className="text-sm text-foreground-muted">{t('panel.devices.allowTitle')}</span>
-        <Switch
-          size="md"
-          checked={pairingAllowed}
-          disabled={busy !== ''}
-          onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
-          aria-label={t('panel.devices.allowTitle')}
-        />
-      </label>
 
       <label className="flex items-center justify-between gap-4 border-b border-border-muted py-3">
         <span className="text-sm text-foreground-muted">{t('panel.connection.remoteControl')}</span>
@@ -145,20 +112,6 @@ export function ConnectionCard({ status, busy, onToggle, onChangePolicy, onOpenL
             text={status.mirror.ok ? t('panel.connection.mirrorOk') : t('panel.connection.mirrorOff')}
             detail={timeText(status.mirror.pushedAt)}
           />
-        </InfoRow>
-        {/* 最后一行就是「为什么连不上」的结论：正常一行灰字、查不到黄、异常红；
-            点它看四行明细与重查。正常时也不藏起来 —— 连不上的人第一眼要能看见这一行。 */}
-        <InfoRow label={t('panel.selfcheck.short')}>
-          <button
-            type="button"
-            className={cn(
-              'cursor-pointer text-xs underline-offset-2 hover:underline',
-              toneText[selfcheckRow.tone],
-            )}
-            onClick={onOpenSelfCheck}
-          >
-            {selfcheckRow.text}
-          </button>
         </InfoRow>
       </InfoList>
 

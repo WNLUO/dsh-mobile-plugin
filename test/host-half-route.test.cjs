@@ -8,7 +8,7 @@
  * 宿主 stderr 里，桌面端不落盘 —— 用户看不见，我们也查不出来。这条口就是为了让原因出来。
  *
  * 所以这里钉三件事：①响应体只挑该给的格子、脏值不抛（纯函数测）；②这两条确实挂在外壳上
- * 并走控制面守卫；③客户端那两个常量与宿主路径逐字对齐（两边漂开就是「点了没反应」）。
+ * 并走控制面守卫；③客户端那两个常量与宿主路径逐字对齐（两边漂开就是「重新装载点了没反应」）。
  */
 
 const test = require('node:test');
@@ -82,9 +82,15 @@ test('两条路由挂在外壳的 webServer 上，并走控制面守卫', () => 
 });
 
 test('客户端的两个常量与宿主路径逐字对齐，且仍是文档相对地址', () => {
+  // 2026-11-02：设置项下线、进网页的唯一入口换成侧边栏那颗图标，诊断从「设置页里那一屏」
+  // 搬进图标点出来的**诊断弹窗**。于是客户端半边又去问这两条了（弹窗里贴宿主原话、版本、
+  // 后台重试，并给「重新装载」按钮）—— 这条守卫恢复成两边对表，别再删掉。
   const client = fs.readFileSync(CLIENT, 'utf8');
   assert.match(client, /HOST_HALF_ENDPOINT = '\/api\/relay\/host-half'/);
   assert.match(client, /HOST_HALF_RELOAD_ENDPOINT = '\/api\/relay\/host-half\/reload'/);
+  const shell = fs.readFileSync(path.join(__dirname, '..', 'lib', 'shell', 'half-route.js'), 'utf8');
+  assert.match(shell, /'\/api\/relay\/host-half'/);
+  assert.match(shell, /'\/api\/relay\/host-half\/reload'/);
   // 站点根绝对地址在反代子路径下会 404（2026-10-25 那条现场），别再写回去。
   assert.equal(/fetch\(\s*['"]\//.test(client), false);
 });

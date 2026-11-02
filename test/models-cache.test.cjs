@@ -21,7 +21,7 @@ function response() {
   };
 }
 
-test('model catalog cache coalesces requests and keeps reasoning metadata safe', async () => {
+test('model catalog cache coalesces requests and keeps reasoning/vendor metadata safe', async () => {
   let calls = 0;
   let release;
   const pending = new Promise((resolve) => { release = resolve; });
@@ -36,13 +36,16 @@ test('model catalog cache coalesces requests and keeps reasoning metadata safe',
       name: 'Provider',
       models: [{
         id: 'm',
-        name: 'Model',
+        name: 'DeepSeek V4.1 Flash',
         description: 'safe description',
         reasoning: {
           defaultEffort: 'medium',
           efforts: [{ id: 'low', name: 'Low', description: 'fast' }, { id: 'high', name: 'High' }],
         },
         apiKey: 'must not escape',
+      }, {
+        id: 'route-model-a',
+        name: 'Private alias',
       }],
     }],
     failures: [{ id: 'q', name: 'Other', message: 'unavailable', secret: 'must not escape' }],
@@ -60,6 +63,11 @@ test('model catalog cache coalesces requests and keeps reasoning metadata safe',
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
   assert.deepEqual(first.body.groups[0].models[0].reasoning, value.groups[0].models[0].reasoning);
+  assert.equal(first.body.groups[0].models[0].vendor, 'deepseek');
+  assert.equal(first.body.groups[0].models[1].vendor, undefined);
+  assert.deepEqual(Object.keys(first.body.vendors), ['deepseek']);
+  assert.equal(first.body.vendors.deepseek.name, 'DeepSeek');
+  assert.match(first.body.vendors.deepseek.icon, /^<svg /);
   assert.equal(first.body.providerSecret, undefined);
   assert.equal(first.body.groups[0].models[0].apiKey, undefined);
   assert.equal(first.body.failures[0].secret, undefined);
@@ -72,7 +80,9 @@ test('model catalog cache coalesces requests and keeps reasoning metadata safe',
   const cached = response();
   await handleModels(ctx, request(), cached);
   assert.equal(calls, 1);
-  assert.equal(cached.body.groups[0].models[0].name, 'Model');
+  assert.equal(cached.body.groups[0].models[0].name, 'DeepSeek V4.1 Flash');
+  assert.equal(cached.body.groups[0].models[0].vendor, 'deepseek');
+  assert.equal(cached.body.vendors.deepseek.icon, first.body.vendors.deepseek.icon);
   assert.deepEqual(cached.body.defaultModel, { provider: 'q', model: 'global-default', reasoningEffort: 'low' });
 });
 

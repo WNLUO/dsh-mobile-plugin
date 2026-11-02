@@ -12,6 +12,7 @@ import { createRoot } from 'react-dom/client'
 import '../index.css'
 import { Shell } from '../Shell.tsx'
 import { installDemoHost } from './host.ts'
+import { StatusPreview } from './StatusPreview.tsx'
 
 installDemoHost()
 
@@ -25,11 +26,17 @@ const bootTheme = document.createElement('script')
 bootTheme.textContent = getThemeScript({ storageKey: THEME_KEY })
 document.head.appendChild(bootTheme)
 
+/**
+ * `?scene=status` 是「这块怎么留」的对照稿（见 `StatusPreview.tsx`）：它不画引导页，
+ * 只把同一块内容的几种留法并排摆出来，数据也是本地写死的，所以跟 `Shell` 二选一。
+ */
+const scene = new URLSearchParams(window.location.search).get('scene')
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ToastProvider>
       <ThemeProvider storageKey={THEME_KEY}>
-        <Shell />
+        {scene === 'status' ? <StatusPreview /> : <Shell />}
         <Toaster position="top-right" />
       </ThemeProvider>
     </ToastProvider>

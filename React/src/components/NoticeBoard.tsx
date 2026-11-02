@@ -11,6 +11,12 @@
  * 引导页不再有这块公告（同一天用户的决定）：这类公告是「进了插件页才需要看」的东西，
  * 配对那一步只需要看得懂二维码。
  *
+ * ## 版式
+ *
+ * 这一栏只有 340px，卡里每一行都得自己挣位置：版本号那一行不占分隔线、生效条件紧贴在它下面、
+ * 正文用同一档 `text-sm` 收尾。正文外面那层 `px-4` 不是随便加的 —— 卡片内容区只自带 `p-2`，
+ * 标题在 header 里还有一层 `px-4`，不补这一层，下面几段字会比标题往左错出去一截。
+ *
  * ## 号从哪来
  *
  * `MIN_PLUGIN_VERSION` 是这条公告**唯一**可变的部分，十门语言的正文都从它取
@@ -25,7 +31,7 @@ import { Badge } from '@appica/ui-react/badge'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 
 import { t } from '../lib/i18n/index.ts'
-import { Dot, InfoList, InfoRow } from './InfoRow.tsx'
+import { Dot } from './InfoRow.tsx'
 
 /** 公用中转要求的最低插件版本。改它 = 改整条公告。 */
 const MIN_PLUGIN_VERSION = '0.4.9'
@@ -33,28 +39,33 @@ const MIN_PLUGIN_VERSION = '0.4.9'
 export function NoticeBoard() {
   return (
     <Card frame="solid">
-      <CardHeader>
+      {/* 标题下面那段空白由 header 的 p-6 撑着；这一卡内容本来就短，用行内值把底部收回来，
+          `className` 压不动同属性的 p-6（同属性谁在样式表里靠后谁赢）。 */}
+      <CardHeader style={{ paddingBottom: '0.5rem' }}>
         <CardTitle>{t('panel.notice.title')}</CardTitle>
       </CardHeader>
 
-      <InfoList>
-        <InfoRow label={t('panel.notice.versionLabel')}>
+      <div className="flex flex-col gap-2 px-4 pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <span className="text-sm text-foreground-muted">{t('panel.notice.versionLabel')}</span>
           <Badge variant="warning" size="sm">
             {`≥ ${MIN_PLUGIN_VERSION}`}
           </Badge>
-        </InfoRow>
-      </InfoList>
+        </div>
 
-      <p className="mt-3 flex items-start gap-1.5 text-sm text-foreground-muted">
-        <span className="mt-2">
-          <Dot tone="warn" />
-        </span>
-        <span className="min-w-0">{t('panel.notice.effective')}</span>
-      </p>
+        {/* 生效条件：那枚点装在跟行高一样高的格子里居中摆，才会真的压在**这一行的字**上。
+            别改回给点加 `mt-*` —— 行内元素自带行盒，估出来的偏移总差几像素。 */}
+        <p className="flex items-start gap-2 text-sm leading-5 text-foreground-muted">
+          <span className="flex h-5 shrink-0 items-center">
+            <Dot tone="warn" />
+          </span>
+          <span className="min-w-0">{t('panel.notice.effective')}</span>
+        </p>
 
-      <p className="mt-2 text-sm leading-relaxed text-foreground-muted">
-        {t('panel.notice.body', { version: MIN_PLUGIN_VERSION })}
-      </p>
+        <p className="text-sm leading-6 text-foreground-muted">
+          {t('panel.notice.body', { version: MIN_PLUGIN_VERSION })}
+        </p>
+      </div>
     </Card>
   )
 }

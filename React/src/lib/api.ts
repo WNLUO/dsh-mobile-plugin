@@ -53,16 +53,37 @@ export type StatusView = {
   onboarded?: boolean
   /**
    * 面板页自己的绝对地址，宿主在 `/api/relay/status` 上补的（只有这条本机路由带它）。
-   * 客户端半边拿它渲染「打开配置页面」的链接：必须是绝对 http(s)，相对地址在桌面版里
-   * 会被解析成 `dsh-app://` 而点不开。
+   * 侧边栏那颗手机图标拿它当入口：必须是绝对 http(s)，相对地址在桌面版里会被解析成
+   * `dsh-app://` 而点不开。
    */
   panelUrl?: string
+  /**
+   * 面板地址落在哪类网络上（宿主按请求的 Host 算的）：本机回环 / 局域网 / 公网。
+   *
+   * 客户端半边据此决定点下去要不要先开那两小时窗口：回环不用开（控制面本来就认它），
+   * 局域网静默开，公网先弹一句确认。老宿主没有这个字段。
+   */
+  panelScope?: 'loopback' | 'private' | 'public'
+  /**
+   * 网页管理那两小时的临时窗口（进程内，DSH 重启即关）。只有 `/api/relay/status` 带它。
+   */
+  webAccess?: WebAccessState
   /**
    * 最近一次「手机上真的来过」的时刻（毫秒，0 = 从来没来过）。宿主在移动端守卫里记的，
    * 也只有本机这条状态路由带它。引导最后一页靠它把「等手机扫码」变成真结论。
    * **老宿主没有这个字段**：那时它是 `undefined`，界面不能假装自己在等一个永远等不到的信号。
    */
   lastMobileAt?: number
+}
+
+/**
+ * `POST /api/relay/web-access` 与 `/api/relay/status` 里那份窗口状态。
+ *
+ * `expiresAt` 是墙钟毫秒（0 = 没开）；窗口到点自己关，访问不会延长它。
+ */
+export type WebAccessState = {
+  enabled: boolean
+  expiresAt: number
 }
 
 /** `/api/relay/addresses` 里一条地址。 */

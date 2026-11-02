@@ -214,8 +214,12 @@ export function firewallRow(check: SelfCheck | null): { tone: Tone; text: string
     return { tone: 'warn', text: t('panel.selfcheck.unknown') }
   }
   // 防火墙开着才谈「放没放行」；关着的时候 `allowsApp` 有没有值都不影响结论。
+  //
+  // **没开要判「好」，不是判「不知道」**（2026-11-02）：这张卡回答的是「手机能不能连进来」，
+  // 防火墙上没有规则就等于什么都不挡 —— 那件事本身就是通的。原来这里给的是 `off` 一档灰点，
+  // 用户看到灰点 +「防火墙没开」以为哪里坏了。文案也一并说清「不会拦」。
   if (firewall.enabled === false) {
-    return { tone: 'off', text: t('panel.selfcheck.firewallOff'), ...(name ? { detail: name } : {}) }
+    return { tone: 'ok', text: t('panel.selfcheck.firewallOff'), ...(name ? { detail: name } : {}) }
   }
   if (firewall.allowsApp === false) {
     return { tone: 'error', text: t('panel.selfcheck.blocked'), ...(name ? { detail: name } : {}) }

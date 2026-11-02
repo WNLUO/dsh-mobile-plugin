@@ -217,7 +217,7 @@ export function InboxCard() {
             </span>
           </label>
 
-          <div className="mt-3 flex justify-end">
+          <div className="mt-3 flex justify-center">
             <Button variant={deletable > 0 ? 'primary' : 'outline'} size="md" disabled={busy} onClick={() => void clear()}>
               {busy ? t('panel.inbox.clearing') : t('panel.inbox.clear')}
             </Button>

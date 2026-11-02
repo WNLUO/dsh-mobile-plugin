@@ -22,6 +22,7 @@ const { pairingPayload } = require(path.join(__dirname, '..', 'lib', 'relay', 'p
 const {
   WEB_ACCESS_ROUTES,
   WEB_ACCESS_WINDOW_MS,
+  panelScopeOf,
   createWebAccessWindow,
   createWebAccessLocalOnly,
   registerControlPlaneRoutes,
@@ -43,7 +44,7 @@ const NO_WEB_ACCESS = new Map([
   ['/api/relay/read-receipt', '桌面端轮询上报回执以同步本地已读状态，属于客户端功能，不是网页管理面板。'],
   ['/api/relay/client-half', '桌面客户端每 10 秒上报存活与故障自检状态，不能随网页管理窗口停止。'],
   ['/api/relay/desktop-read', '桌面客户端轮询同步已读会话，属于手机与桌面协同通道，不是网页管理接口。'],
-  ['/api/relay/web-access', '开关路由本身必须始终可达，但 handler 只接受可信本机设置入口'],
+  ['/api/relay/web-access', '开关路由本身必须始终可达：侧边栏那颗手机图标要在窗口关着时把它打开'],
 ]);
 
 /**
@@ -326,6 +327,55 @@ test('网页管理窗口默认关闭、固定两小时且访问不续期', () =>
   assert.deepEqual(window.status(), { enabled: false, expiresAt: 0 });
   assert.deepEqual(window.enable(), { enabled: true, expiresAt: wall + WEB_ACCESS_WINDOW_MS });
   assert.deepEqual(window.disable(), { enabled: false, expiresAt: 0 });
+});
+
+test('面板地址分三类：本机回环 / 局域网 / 公网（域名一律算公网）', () => {
+  const scope = (host) => panelScopeOf({ headers: { host } });
+  assert.equal(scope('127.0.0.1:19387'), 'loopback');
+  assert.equal(scope('localhost:19387'), 'loopback');
+  assert.equal(scope('[::1]:19387'), 'loopback');
+  assert.equal(scope('192.168.1.20:19387'), 'private');
+  assert.equal(scope('10.0.0.5'), 'private');
+  assert.equal(scope('172.16.4.4:19387'), 'private');
+  assert.equal(scope('[fd00::1]:19387'), 'private');
+  assert.equal(scope('203.0.113.9:19387'), 'public');
+  assert.equal(scope('[240e::1]:19387'), 'public');
+  // 域名分不出内网穿透还是公网：一律按公网走（多弹一次确认，比悄悄开放安全）。
+  assert.equal(scope('dsh.example.com'), 'public');
+  // 拿不到 Host 就别说它是本机。
+  assert.equal(panelScopeOf({ headers: {} }), 'public');
+  assert.equal(panelScopeOf({}), 'public');
+});
+
+test('行为：/status 把面板地址的分类一起报出去（那颗图标据此决定点下去做什么）', async () => {
+  const table = controlRoutes({ state: {} });
+  const res = {};
+  await table.get('/api/relay/status')({ method: 'GET', headers: { host: '192.168.1.20:19387' } }, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.panelScope, 'private');
+  assert.equal(res.body.panelUrl, 'http://192.168.1.20:19387/api/relay/panel');
+});
+
+test('行为：那颗图标能从同源界面把两小时窗口打开 —— 不再要求请求来自本机回环', async () => {
+  // 2026-11-02 用户拍板放宽：公网 / 局域网部署的人就是在自己的浏览器里点那颗图标，
+  // 按老判据（trustedLocalUi）会 403，于是谁都开不了窗口、面板永远 423。
+  // 跨站与经代理转发的请求仍在 localOnly 那一层挡着，这里只钉 handler 不再要求回环。
+  const table = controlRoutes({ state: {} });
+  const opened = {};
+  await table.get('/api/relay/web-access')(
+    { method: 'POST', headers: { host: '203.0.113.9:19387' }, body: { enabled: true } },
+    opened,
+  );
+  assert.equal(opened.status, 200, JSON.stringify(opened.body));
+  assert.equal(opened.body.webAccess.enabled, true);
+
+  const closed = {};
+  await table.get('/api/relay/web-access')({ method: 'POST', body: { enabled: false } }, closed);
+  assert.equal(closed.body.webAccess.enabled, false, '关掉也要走同一条路');
+
+  const bad = {};
+  await table.get('/api/relay/web-access')({ method: 'POST', body: { enabled: 'yes' } }, bad);
+  assert.equal(bad.status, 400, 'enabled 必须是布尔值，别把字符串当开');
 });
 
 test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；开窗后放行管理 API', async () => {

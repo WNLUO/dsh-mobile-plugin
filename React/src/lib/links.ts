@@ -5,6 +5,14 @@
  * 「一处点了能下、另一处点了 404」正是这么来的。
  */
 
+/**
+ * 自建中转那套东西的仓库（中转本体 + 部署说明）。
+ *
+ * 引导页的「GitHub 仓库」与配对卡底部的「自建网络」指向的是同一个地方：两处都是
+ * 「想自己搭一台中转？东西在这儿」。改地址只改这一行。
+ */
+export const RELAY_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-server'
+
 /** 一个下载渠道：名字 + 一句话说明它是什么，`url` 是直链。 */
 export type DownloadChannel = {
   /** 品牌名，原样显示（GitHub / App Store / TestFlight 这类商标不翻）。 */

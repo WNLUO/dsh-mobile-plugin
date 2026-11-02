@@ -29,9 +29,9 @@ const SRC = path.join(__dirname, '..', 'React', 'src');
 const read = (...parts) => fs.readFileSync(path.join(SRC, ...parts), 'utf8');
 
 const devices = read('components', 'DevicesCard.tsx');
-// 准入开关住在「连接状态」卡里（摆在远程控制上方），不再是单独一张卡 —— 所以这条守卫读的是
-// ConnectionCard。
-const policy = read('components', 'ConnectionCard.tsx');
+// 准入开关住在「配对与二维码」卡的「配对策略」那一行（2026-11-02 从「连接状态」与「网络配置」
+// 两处合并过来）—— 所以这条守卫读的是 PairingCard。
+const policy = read('components', 'PairingCard.tsx');
 const app = read('App.tsx');
 const api = read('lib', 'api.ts');
 const dict = read('lib', 'i18n', 'messages', 'devices.ts');
@@ -131,9 +131,8 @@ test('「允许新设备绑定」开关：读 status.pairingPolicy，写 /api/re
   assert.ok(!/useState<boolean>\(.*[Aa]llow/.test(app), '面板上不许再存一份「允许新设备绑定」');
 });
 
-test('开关摆在「连接状态」卡里、远程控制上面，且只有一行标签 + 一颗开关', () => {
-  // 从「配对卡上面那张独立的卡」搬进右栏「连接状态」，摆在远程控制上方，样式与远程控制那颗
-  // 一致 —— 去掉「已允许」徽标，也去掉那两句说明。
+test('准入开关只留在配对卡的「配对策略」那行，一行标签 + 一颗开关', () => {
+  // 原来它一屏有两颗（连接状态里一颗、网络配置弹窗里一颗），改哪颗才算得猜；现在只留一处。
   const aside = app.slice(app.indexOf('<aside'), app.indexOf('</aside>'));
   assert.ok(aside.includes('<ConnectionCard'), '连接状态卡必须在右栏里');
   assert.ok(aside.includes('<InboxCard />'), '收件文件卡要挂在连接状态下面（同一栏）');
@@ -146,15 +145,16 @@ test('开关摆在「连接状态」卡里、远程控制上面，且只有一�
   assert.ok(!/PairingPolicyCard/.test(app), '那张独立的准入卡已经删了，别再加回来');
 
   // 左栏顺序：配对 → 插件更新 → 已绑定的设备。
-  const order = ['<PairingCard', '<UpdateCard', '<DevicesCard />'].map((tag) => app.indexOf(tag));
+  const order = ['<PairingCard', '<UpdateCard', '<DevicesCard'].map((tag) => app.indexOf(tag));
   assert.ok(order.every((at) => at > 0), '左栏三块都得渲染出来');
   assert.deepEqual(order, [...order].sort((a, b) => a - b), '左栏顺序必须是 配对 → 更新 → 设备');
 
-  // 卡里：准入那颗在远程控制那颗**前面**。
-  const allowAt = policy.indexOf('panel.devices.allowTitle');
-  const remoteAt = policy.indexOf('panel.connection.remoteControl');
-  assert.ok(allowAt > 0 && remoteAt > 0, '两颗开关都要在连接状态卡里');
-  assert.ok(allowAt < remoteAt, '准入开关要摆在远程控制上面');
+  // 连接状态卡里只剩「远程控制」一颗：准入开关别在两处各摆一份。
+  const connection = read('components', 'ConnectionCard.tsx');
+  assert.match(connection, /panel\.connection\.remoteControl/, '远程控制那颗还在连接状态卡里');
+  assert.ok(!connection.includes('panel.devices.allowTitle'), '连接状态卡里不许再摆准入开关：它只在配对卡那一处');
+  // 配对卡里：它挂在「配对策略」那一行的值上。
+  assert.match(policy, /label=\{t\('panel\.pairing\.policy'\)\}/, '准入开关要挂在「配对策略」这一行');
 
   // 形态只有「一行标签 + 一颗开关」：不许状态徽标、不许说明句。
   for (const gone of [
@@ -173,9 +173,9 @@ test('开关摆在「连接状态」卡里、远程控制上面，且只有一�
   );
   assert.ok(!/<Badge/.test(allowRow), '准入那一行不许挂 Badge');
 
-  // 「中转配置」弹窗里那对单选项留着（写同一份配置），别顺手删掉。
+  // 网络配置弹窗里那颗撤了（同一份配置，写它等于同一个开关摆两处）。
   const dialog = read('components', 'RelayConfigDialog.tsx');
-  assert.match(dialog, /pairingPolicy/, '中转配置弹窗里的配对策略还在，写的是同一份配置');
+  assert.ok(!dialog.includes('pairingPolicy'), '网络配置弹窗里又出现配对策略了：它只在配对卡那一处');
 });
 
 test('设备类型与接口路径跟宿主契约对齐', () => {

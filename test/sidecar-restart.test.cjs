@@ -99,13 +99,19 @@ test('重启按钮在网页版设置页里，失败时在界面上显式标红',
   // 只是页面不再把它写出来 —— 别顺手把那段文案加回来。
   const src = read(CLIENT)
   assert.equal(/restartScopeBody:/.test(src), false, '设置页不再写「可重启范围」那段说明')
-  // CSS 类不能只写不定义——没有定义的 className 在设置项上会静默退化成无样式的行。
-  // 逐个数更结实：列死两个类名的话，加了新类却忘了写样式这种情况照样漏过去。
+  // CSS 类不能只写不定义——没有定义的类名在界面上会静默退化成无样式的行。
+  // 现在这一半只有两样东西：侧边栏那颗图标（宽条 / 窄条）与它点出来的诊断弹窗。
+  // 图标是 react 元素（`className: '…'`），弹窗是命令式 DOM（`className = '…'` 与
+  // `make(tag, '…')`），三种写法都要收进来，否则漏掉一个类名不会有任何测试红。
   const used = new Set()
-  for (const m of src.matchAll(/className:\s*'([^']+)'/g)) {
-    for (const token of m[1].split(/\s+/)) if (token.startsWith('dshm_')) used.add(token)
+  const addTokens = (value) => {
+    for (const token of String(value).split(/\s+/)) if (token.startsWith('dshm_')) used.add(token)
   }
-  assert.ok(used.size >= 4, `设置项至少用到几个类名，实得 ${[...used].join(',')}`)
+  for (const m of src.matchAll(/className:\s*'([^']+)'/g)) addTokens(m[1])
+  for (const m of src.matchAll(/className = '([^']+)'/g)) addTokens(m[1])
+  for (const m of src.matchAll(/make\('[a-z]+', '([^']+)'/g)) addTokens(m[1])
+  assert.ok(used.has('dshm_footAction'), '图标的类名要在')
+  assert.ok(used.has('dshm_overlay') && used.has('dshm_dialog'), '诊断弹窗的类名要在')
   for (const token of used) {
     assert.ok(new RegExp(`\\.${token}\\{`).test(src), `${token} 被用了却没有样式`)
   }
@@ -139,7 +145,7 @@ test('中英文案键完全对齐', () => {
   // 键配平是兜底；再点几个这一半**真的在用**的键，防止有人把字典清空后配平照样通过。
   // （restartSidecar/restartFailed 随重启按钮搬去网页版了，网页版的文案是直接写死的中文，
   // 不走这套字典 —— 所以那两个键不再要求出现在这里。）
-  for (const k of ['nav', 'cardPanel', 'openPanel', 'openHint', 'panelPending', 'loadFailed']) {
+  for (const k of ['footerOpen', 'footerPending', 'footerPublicConfirm', 'footerLoadMissing', 'diagTitleLoad', 'diagCopy']) {
     assert.ok(zh.has(k) && en.has(k), `${k} 应中英都有`)
   }
 })

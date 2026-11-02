@@ -9,10 +9,9 @@ import {
 } from '@appica/ui-react/dialog'
 import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
-import { Switch } from '@appica/ui-react/switch'
 import { useEffect, useRef, useState } from 'react'
 
-import type { AddressBook, ConfigPatch, PairingPolicy, StatusView } from '../lib/api.ts'
+import type { AddressBook, ConfigPatch, StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
@@ -67,13 +66,18 @@ export function RelayConfigDialog({
   onSave,
   onSavePreferred,
 }: Props) {
-  const [name, setName] = useState(status.name)
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
-  const [pairingPolicy, setPairingPolicy] = useState<PairingPolicy>(status.pairingPolicy)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
   const [manualLanUrl, setManualLanUrl] = useState('')
   /** IPv6 直连地址（`manualIpv6Url`）：用户手填的公网 IPv6 入口。 */
   const [manualIpv6Url, setManualIpv6Url] = useState('')
+  /**
+   * 局域网地址（`preferredLanAddress`）：**可手填**，不再只让用户从检测到的那几条里挑。
+   * 机器有好几块网卡、想直接敲一条地址时用得上；填错了拦在保存那儿（见 `unknownLan`）。
+   */
+  const [preferredLan, setPreferredLan] = useState('')
+  /** 这一次开窗里用户动过局域网地址那一栏没有：动过就不再拿地址库去盖。 */
+  const [lanHint, setLanHint] = useState('')
   /** 「公用中转」清单弹窗开着没有。 */
   const [relayPickerOpen, setRelayPickerOpen] = useState(false)
   /** 「选择局域网地址」弹窗开着没有。 */
@@ -86,14 +90,16 @@ export function RelayConfigDialog({
   /** 这一次开窗里用户动过手填那两栏没有：动过就不再拿地址库去盖。 */
   const editedLanRef = useRef(false)
   const editedIpv6Ref = useRef(false)
+  const editedPreferredRef = useRef(false)
+
+  /** 能用的局域网地址（与宿主 `advertisedCandidates` 同口径：有私网就只带私网）。 */
+  const pickableAddresses = addressBook ? (addressBook.lan.length > 0 ? addressBook.lan : addressBook.public) : []
 
   // 只在开窗那一刻灌一次当前值：status 每 3 秒换一个对象，
   // 把它当依赖会让正在敲的字被轮询覆盖掉。
   useEffect(() => {
     if (!open) return
-    setName(status.name)
     setRelayUrl(status.relayUrl)
-    setPairingPolicy(status.pairingPolicy)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
 
@@ -111,37 +117,43 @@ export function RelayConfigDialog({
     if (!open) {
       editedLanRef.current = false
       editedIpv6Ref.current = false
+      editedPreferredRef.current = false
+      setLanHint('')
       return
     }
     if (!editedLanRef.current) setManualLanUrl(addressBook?.manual ?? '')
     if (!editedIpv6Ref.current) setManualIpv6Url(addressBook?.manualIpv6 ?? '')
+    if (!editedPreferredRef.current) {
+      const candidates = addressBook ? (addressBook.lan.length > 0 ? addressBook.lan : addressBook.public) : []
+      setPreferredLan((addressBook?.preferred || '').trim() || (candidates[0]?.address ?? ''))
+    }
+    // 只认 open 与地址库：`pickableAddresses` 每次渲染都是新数组，拿它当依赖会让这个 effect 每帧跑。
   }, [open, addressBook])
 
-  const canSave = name.trim() !== '' && busy === ''
-  /** 能选的局域网地址（与宿主 `advertisedCandidates` 同口径：有私网就只带私网）。 */
-  const pickable = addressBook ? (addressBook.lan.length > 0 ? addressBook.lan : addressBook.public) : []
-  /** 这一行只报「现在选的是哪条」：清单本身在弹窗里，地址有几条都不影响主窗尺寸。 */
-  const lanCurrentAddress = (addressBook?.preferred || '').trim() || (pickable[0]?.address ?? '')
-  // 与选择器里同一副写法：裸地址拼成 URL，IPv6 字面量要套方括号。
-  const lanCurrent = lanCurrentAddress
-    ? `http://${lanCurrentAddress.includes(':') ? `[${lanCurrentAddress}]` : lanCurrentAddress}:${status.lan.port}`
-    : ''
-
+  const canSave = busy === ''
   /** 直连那两条按宿主口径去掉尾部斜杠：它拼出来的是一条候选 URL，多一个 `/` 就多一条重复项。 */
   const trimUrl = (value: string) => value.trim().replace(/\/+$/, '')
 
   function submit() {
     if (!canSave) return
     const patch: ConfigPatch = {}
-    if (name.trim() !== status.name) patch.name = name.trim()
     if (relayUrl.trim() !== status.relayUrl) patch.relayUrl = relayUrl.trim()
-    if (pairingPolicy !== status.pairingPolicy) patch.pairingPolicy = pairingPolicy
     // 手填地址：空串是合法值（= 清掉这一条），所以这里跟 `name` 不一样，只在**真的变了**时带上，
     // 而不是「非空才带」。
     const direct = trimUrl(manualLanUrl)
     if (direct !== trimUrl(addressBook?.manual ?? '')) patch.manualLanUrl = direct
     const ipv6 = trimUrl(manualIpv6Url)
     if (ipv6 !== trimUrl(addressBook?.manualIpv6 ?? '')) patch.manualIpv6Url = ipv6
+    // 局域网地址：空串是合法值（= 不指定优先哪条）。填了一个本机根本没有的地址就当场拦下 ——
+    // 宿主只按「候选里有没有这条」排序，敲错等于白填，界面不能装作存上了。
+    const wantedLan = preferredLan.trim()
+    if (editedPreferredRef.current && wantedLan !== (addressBook?.preferred ?? '').trim()) {
+      if (wantedLan && !pickableAddresses.some((item) => item.address === wantedLan)) {
+        setLanHint(t('panel.address.lanUnknown'))
+        return
+      }
+      patch.preferredLanAddress = wantedLan
+    }
     onSave(patch)
   }
 
@@ -164,21 +176,12 @@ export function RelayConfigDialog({
               {/* 左列：经公网的那几条 */}
               <div className="flex flex-col gap-4">
                 <Field>
-                  <FieldLabel htmlFor="relay-name">{t('panel.connection.deviceName')}</FieldLabel>
-                  <Input
-                    inputProps={{ id: 'relay-name' }}
-                    value={name}
-                    placeholder={t('panel.relay.namePlaceholder')}
-                    onChange={(event) => setName(event.target.value)}
-                  />
-                </Field>
-
-                <Field>
                   {/* 清单收进弹窗：公用中转以后会变多，摊在主窗里会把整页撑长。 */}
                   <div className="flex items-center justify-between gap-3">
                     <FieldLabel htmlFor="relay-url">{t('panel.connection.relayUrl')}</FieldLabel>
+                    {/* 光写「公用中转」看着像标题；带上动词才知道它是颗按钮。 */}
                     <Button variant="ghost" size="sm" onClick={() => setRelayPickerOpen(true)}>
-                      {t('panel.onboarding.publicRelay')}
+                      {t('panel.relay.choosePublicRelay')}
                     </Button>
                   </div>
                   <Input
@@ -206,16 +209,32 @@ export function RelayConfigDialog({
               {/* 右列：局域网这一侧 */}
               <div className="flex flex-col gap-4">
                 <Field>
-                  {/* 地址可能好几条，只报「现在选的是哪条」，换哪条去弹窗里挑。 */}
+                  {/* 地址可能好几条：可以从清单里挑，也可以直接敲一条（机器多网卡时用得上）。 */}
                   <div className="flex items-center justify-between gap-3">
-                    <FieldLabel>{t('panel.address.lan')}</FieldLabel>
+                    <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
                     <Button variant="ghost" size="sm" onClick={() => setLanPickerOpen(true)}>
                       {t('panel.onboarding.chooseAddress')}
                     </Button>
                   </div>
-                  <p className="font-mono text-xs leading-5 text-foreground-muted break-all">
-                    {lanCurrent || t('panel.pairing.noAddress')}
-                  </p>
+                  <Input
+                    inputProps={{ id: 'relay-preferred-lan', className: 'font-mono', list: 'relay-lan-candidates' }}
+                    value={preferredLan}
+                    placeholder={t('panel.address.lanPlaceholder')}
+                    onChange={(event) => {
+                      editedPreferredRef.current = true
+                      setLanHint('')
+                      setPreferredLan(event.target.value)
+                    }}
+                  />
+                  {/* 检测到的那几条挂成候选：想挑就在这儿挑，不必再开一次弹窗。 */}
+                  <datalist id="relay-lan-candidates">
+                    {pickableAddresses.map((item) => (
+                      <option key={item.address} value={item.address}>
+                        {item.url}
+                      </option>
+                    ))}
+                  </datalist>
+                  {lanHint ? <p className="text-xs text-error">{lanHint}</p> : null}
                 </Field>
 
                 <Field>
@@ -230,17 +249,6 @@ export function RelayConfigDialog({
                     }}
                   />
                 </Field>
-
-                {/* 「配对策略」改成一个开关：开 = 允许新设备凭配对码绑定，关 = 一律拒绝。 */}
-                <div className="flex items-center justify-between gap-4 rounded-md bg-background-muted px-3 py-2">
-                  <div className="text-sm text-foreground">{t('panel.pairing.allowPairing')}</div>
-                  <Switch
-                    size="md"
-                    checked={pairingPolicy === 'code'}
-                    onCheckedChange={(next) => setPairingPolicy(next ? 'code' : 'deny')}
-                    aria-label={t('panel.pairing.allowPairing')}
-                  />
-                </div>
               </div>
             </DialogBody>
           </div>

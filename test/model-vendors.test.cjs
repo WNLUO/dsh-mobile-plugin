@@ -15,7 +15,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { VENDOR_LOGOS } = require('../lib/mobile/vendor-logos.cjs');
-const { foldText, vendorOfText, identifyVendor, vendorLogoOf } = require('../lib/mobile/model-vendors.js');
+const { foldText, vendorOfText, identifyVendor, vendorLogoOf, decorateModelGroups } = require('../lib/mobile/model-vendors.js');
 const ledger = require('../lib/mobile/stats-ledger.cjs');
 
 test('规范化：大小写与分隔符不影响识别', () => {
@@ -94,6 +94,22 @@ test('认不出就空着：不许兜一个默认厂商', () => {
   // 不许接着拿渠道名再认一遍，那会把 Grok 摆上 OpenAI 的标。
   assert.equal(identifyVendor({ model: 'grok-4', provider: 'openai' }), 'xai');
   assert.equal(vendorLogoOf(identifyVendor({ model: 'grok-4', provider: 'openai' })), null);
+});
+
+test('模型目录用同一套识别规则标厂商，并只下发用到的图标', () => {
+  const groups = [{
+    id: 'auto',
+    name: '自动',
+    models: [
+      { id: 'deepseek-v4-1-flash-1017', name: 'DeepSeek-V4.1-Flash' },
+      { id: 'route-model-a', name: 'Private alias' },
+    ],
+  }];
+  const vendors = decorateModelGroups(groups);
+  assert.equal(groups[0].models[0].vendor, 'deepseek');
+  assert.equal(groups[0].models[1].vendor, undefined);
+  assert.deepEqual(Object.keys(vendors), ['deepseek']);
+  assert.equal(vendors.deepseek.name, 'DeepSeek');
 });
 
 test('图标表本身能被 SvgXml 直接渲染', () => {

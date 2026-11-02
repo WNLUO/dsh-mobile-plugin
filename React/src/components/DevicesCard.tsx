@@ -18,7 +18,7 @@
  *
  * `legacy` 为真的设备名下还有不带设备密钥的旧记录：那种凭据里没有设备身份，单台吊销
  * 只清掉本机这一份，**旧通行证在到期前仍然能用来连**。所以那一行的确认框不能说
- * 「立即失效」—— 说了就是骗人。要立即失效只有「吊销全部设备授权」（配对卡右下角那颗），
+ * 「立即失效」—— 说了就是骗人。要立即失效只有「吊销全部设备授权」（卡片标题行右侧那颗），
  * 它连中转侧一起清。这条文案是硬要求，别为了统一样式合并成一句。
  */
 import {
@@ -92,7 +92,18 @@ function channelText(channel: string): string {
   return t('panel.devices.channelUnknown')
 }
 
-export function DevicesCard() {
+type Props = {
+  /**
+   * 「吊销全部设备授权」：连中转侧一起清，是 `legacy` 那些旧通行证唯一能立刻作废的入口。
+   * 它本来挂在配对卡右下角，2026-11-02 用户要求挪到这张卡的标题行右侧 —— 它作用的对象
+   * 就是这张卡里这些人。
+   */
+  onRevokeAll: () => void
+  /** 有动作在飞（与页面其他地方共用同一份 busy）。 */
+  busy: string
+}
+
+export function DevicesCard({ onRevokeAll, busy }: Props) {
   const notify = useNotify()
   const [list, setList] = useState<DeviceList | null>(null)
   /** 正在等确认的那台设备：null = 确认框关着。 */
@@ -169,11 +180,16 @@ export function DevicesCard() {
   return (
     <Card frame="solid">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <span>{t('panel.devices.title')}</span>
-          <Badge variant="secondary" size="sm">
-            {devices.length}
-          </Badge>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+          <span className="flex items-center gap-2">
+            {t('panel.devices.title')}
+            <Badge variant="secondary" size="sm">
+              {devices.length}
+            </Badge>
+          </span>
+          <Button variant="outline" size="sm" disabled={busy !== ''} onClick={onRevokeAll}>
+            {t('panel.pairing.revokeAll')}
+          </Button>
         </CardTitle>
       </CardHeader>
 

@@ -20,6 +20,7 @@ import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { SelfCheckDialog } from './components/SelfCheckDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
+import { WebAccessCard } from './components/WebAccessCard.tsx'
 import {
   apiGet,
   apiPost,
@@ -30,6 +31,7 @@ import {
   type PairingPolicy,
   type RevokeResult,
   type StatusView,
+  type WebAccessState,
 } from './lib/api.ts'
 import { useNotify } from './lib/notify.ts'
 import { mobileLooksIdle, useSelfCheck } from './lib/selfcheck.ts'
@@ -123,6 +125,15 @@ export function App() {
     void loadPairing()
   }, [status?.enabled, pairing, pairingError, loadPairing])
 
+  /**
+   * 配对成功那一刻宿主会把码与票据一起换掉（`rotatePairing`），状态里那个 `pairingCode`
+   * 一变就把这一版配对信息（含二维码 SVG）重取一次 —— 用户不用再按「重新生成」。
+   */
+  useEffect(() => {
+    if (!status?.enabled || !pairing) return
+    if (status.pairingCode && pairing.pairingCode !== status.pairingCode) void loadPairing()
+  }, [status?.pairingCode, status?.enabled, pairing, loadPairing])
+
   // 局域网地址靠打开「局域网直连」弹窗时补取一次；「网络配置」那扇窗里的地址选择与
   // 两条手填地址也读同一份地址库，所以两个弹窗谁开都补一次。
   useEffect(() => {
@@ -162,13 +173,6 @@ export function App() {
       notify('soft', enabled ? t('panel.shell.remoteEnabled') : t('panel.shell.remoteDisabled'))
     })
 
-  const regenerate = () =>
-    act('pairing', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/regenerate'))
-      await loadPairing()
-      notify('soft', t('panel.shell.pairingRegenerated'))
-    })
-
   const reconnect = () =>
     act('reconnect', async () => {
       setStatus(await apiPost<StatusView>('/api/relay/reconnect'))
@@ -193,6 +197,19 @@ export function App() {
       )
     })
   }
+
+  /**
+   * 「网页管理」那两小时的窗口。
+   *
+   * 侧边栏那颗手机图标是开它的入口（公网地址先确认），这张卡是**关它**的出口：开过之后
+   * 人还得能看见到期时间、随时收回去，否则一开就只能等它自己到点。
+   */
+  const toggleWebAccess = (enabled: boolean) =>
+    act('webAccess', async () => {
+      const payload = await apiPost<{ ok: boolean; webAccess: WebAccessState }>('/api/relay/web-access', { enabled })
+      setStatus((current) => (current ? { ...current, webAccess: payload.webAccess } : current))
+      notify('soft', t(enabled ? 'panel.webAccess.opened' : 'panel.webAccess.closedNotice'))
+    })
 
   const saveConfig = (patch: ConfigPatch) =>
     act('config', async () => {
@@ -281,9 +298,6 @@ export function App() {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          {/* 准入总闸摆在右边「连接状态」里：它和远程控制是同一种东西 —— 两颗决定
-              「收不收」的开关，同一张卡里才不用来回找。 */}
-
           <PairingCard
             status={status}
             pairing={pairing}
@@ -292,9 +306,9 @@ export function App() {
             error={pairingError}
             restartError={status.sidecar.restartError}
             onOpenConfig={() => setConfigOpen(true)}
-            onRegenerate={() => void regenerate()}
+            onChangePolicy={(policy) => void savePolicy(policy)}
+            onOpenSelfCheck={() => setSelfCheckOpen(true)}
             onReconnect={() => void reconnect()}
-            onRevokeAll={revokeAll}
             onSavePreferred={(address) => void savePreferredLanAddress(address)}
           />
 
@@ -307,7 +321,7 @@ export function App() {
             onRestartSidecar={() => void restartSidecar()}
           />
 
-          <DevicesCard />
+          <DevicesCard onRevokeAll={revokeAll} busy={busy} />
         </div>
 
         {/*
@@ -327,11 +341,14 @@ export function App() {
             status={status}
             busy={busy}
             onToggle={toggle}
-            onChangePolicy={(policy) => void savePolicy(policy)}
             onOpenLan={() => setLanOpen(true)}
-            selfcheck={selfcheck}
-            onOpenSelfCheck={() => setSelfCheckOpen(true)}
           />
+
+          {/* 网页管理那两小时窗口的到期时间与「立即关闭」。
+              窗口关着时宿主不给远程读管理接口，这张卡也就跟着不出现。 */}
+          {status.webAccess?.enabled ? (
+            <WebAccessCard webAccess={status.webAccess} busy={busy} onToggle={(on) => void toggleWebAccess(on)} />
+          ) : null}
 
           {/* 手机传上来的文件落在宿主的收件目录里，只在「删掉对话」时带不走它们 ——
               这张卡是那个目录唯一的出口（见 components/InboxCard.tsx）。 */}

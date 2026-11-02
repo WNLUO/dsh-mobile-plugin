@@ -136,10 +136,12 @@ test('网络配置弹窗：两列一屏、两条清单都收进弹窗、局域�
   );
   // 局域网直连开关已撤（基本能力，不该是开关）；host 那份 lanEnabled 配置不动。
   assert.ok(!/setLanEnabled|checked=\{lanEnabled\}/.test(dialog), '网络配置弹窗里又出现了「局域网直连」开关');
-  // 配对策略改成开关：开 = 允许凭配对码配对，关 = 一律拒绝。
-  assert.match(dialog, /panel\.pairing\.allowPairing/, '配对策略要改成「允许新设备配对」开关');
-  assert.match(dialog, /checked=\{pairingPolicy === 'code'\}/, '开关状态要落在 pairingPolicy 上');
-  assert.ok(!/SelectTrigger/.test(dialog), '配对策略不该还是下拉框');
+  // 配对策略这颗开关已经搬到「配对与二维码」的「配对策略」那行（2026-11-02）：
+  // 同一份配置在两处各摆一颗，用户只会猜「改哪颗才算」。
+  assert.ok(!/pairingPolicy/.test(dialog), '网络配置弹窗里又出现配对策略了：它只在配对卡那一处');
+  const pairingCard = read('PairingCard.tsx');
+  assert.match(pairingCard, /panel\.devices\.allowTitle/, '配对卡的「配对策略」那行要有一颗开关');
+  assert.match(pairingCard, /onChangePolicy\(next \? 'code' : 'deny'\)/, '开关要接回同一份 pairingPolicy');
 });
 
 test('网络配置弹窗是一屏两列，注册密钥已下线', () => {

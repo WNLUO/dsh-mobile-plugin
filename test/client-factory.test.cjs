@@ -111,13 +111,14 @@ function classNames(node, out = []) {
   return out;
 }
 
-/** 元素树里的所有字符串叶子。 */
+/** 元素树里的所有字符串叶子（含 `textContent`：诊断弹窗是命令式 DOM，文字写在属性上）。 */
 function texts(node, out = []) {
   if (typeof node === 'string' || typeof node === 'number') {
     out.push(String(node));
     return out;
   }
   if (node == null || typeof node !== 'object') return out;
+  if (typeof node.textContent === 'string' && node.textContent) out.push(node.textContent);
   for (const child of node.children || []) texts(child, out);
   return out;
 }
@@ -195,12 +196,114 @@ function routedFetch(routes = {}, fallback = { ok: true, status: 200, body: { ok
 }
 
 /**
+ * 一件假 DOM 元素：够 `lib/client.js` 里那颗手机图标用（属性、孩子、插在谁前后）。
+ *
+ * 真外壳把 `settings.launcher` 那个出口渲染成 `display:contents` 的盒子，头像那颗
+ * 设置按钮是它的孩子、`flex:1` 铺满整行——这里照这个形状搭。
+ */
+function fakeElement(tag) {
+  const element = {
+    tag,
+    dataset: {},
+    attrs: {},
+    children: [],
+    parentElement: null,
+    setAttribute(name, value) {
+      element.attrs[name] = String(value);
+    },
+    getAttribute(name) {
+      return name in element.attrs ? element.attrs[name] : null;
+    },
+    textContent: '',
+    /** 弹窗要挂点击 / 键盘监听：记下来，测试需要时可以直接触发。 */
+    listeners: {},
+    addEventListener(type, fn) {
+      if (!element.listeners[type]) element.listeners[type] = [];
+      element.listeners[type].push(fn);
+    },
+    removeEventListener(type, fn) {
+      const list = element.listeners[type];
+      if (list) element.listeners[type] = list.filter((entry) => entry !== fn);
+    },
+    click() {
+      for (const fn of element.listeners.click || []) fn({ target: element });
+    },
+    removeAttribute(name) {
+      delete element.attrs[name];
+    },
+    appendChild(child) {
+      return element.insertBefore(child, null);
+    },
+    insertBefore(child, reference) {
+      if (child.parentElement) child.remove();
+      const at = reference ? element.children.indexOf(reference) : element.children.length;
+      element.children.splice(at < 0 ? element.children.length : at, 0, child);
+      child.parentElement = element;
+      return child;
+    },
+    remove() {
+      const parent = element.parentElement;
+      if (!parent) return;
+      const at = parent.children.indexOf(element);
+      if (at >= 0) parent.children.splice(at, 1);
+      element.parentElement = null;
+    },
+    get previousSibling() {
+      const parent = element.parentElement;
+      if (!parent) return null;
+      const at = parent.children.indexOf(element);
+      return at > 0 ? parent.children[at - 1] : null;
+    },
+    get nextSibling() {
+      const parent = element.parentElement;
+      if (!parent) return null;
+      const at = parent.children.indexOf(element);
+      return at >= 0 && at + 1 < parent.children.length ? parent.children[at + 1] : null;
+    },
+    /** 只认 `[data-slot="…"]` 这一种选择器：源码用它确认出口真的在座位上。 */
+    closest(selector) {
+      const match = /^\[data-slot="([^"]+)"\]$/.exec(selector);
+      if (!match) return null;
+      let node = element;
+      while (node) {
+        if (node.attrs && node.attrs['data-slot'] === match[1]) return node;
+        node = node.parentElement;
+      }
+      return null;
+    },
+  };
+  return element;
+}
+
+/**
+ * 搭「侧栏底部那一行」：出口（`settings.launcher`）里是头像那颗设置按钮，后面跟着
+ * 连接状态与桌面更新两枚提示。
+ */
+function fakeSidebarRow() {
+  // 真外壳的层级：座位（`sidebar.settings`，display:contents）里是头像那一行，
+  // 行里第一个孩子是 launcher 出口（`settings.launcher`，也是 display:contents）。
+  const seat = fakeElement('div');
+  seat.setAttribute('data-slot', 'sidebar.settings');
+  const row = fakeElement('div');
+  const outlet = fakeElement('div');
+  outlet.setAttribute('data-slot', 'settings.launcher');
+  outlet.appendChild(fakeElement('button'));
+  row.appendChild(outlet);
+  row.appendChild(fakeElement('div'));
+  row.appendChild(fakeElement('div'));
+  seat.appendChild(row);
+  return { seat, row, outlet };
+}
+
+/**
  * 建一个沙箱。`createEnv().run()` 可以在同一个沙箱里反复物化工厂——用来验证
  * 「样式只注入一次」这类跨次行为。
  *
  * `options.services` 是**可选**的桌面端服务表，对应运行时的 `ctx.get(name)`。
  * 不给就没有 `ctx.get`：两条绿点同步会整条不启动（它们依赖桌面端的 uiSession /
  * sessions 服务，拿不到就是空转），于是所有既有断言维持原样。
+ * `options.sidebar` 给一份 `fakeSidebarRow()` 就能验「插进设置那一行」这件事；
+ * 不给就是「认不出那一行」，走退回自己一行的分支。
  */
 function createEnv(options = {}) {
   const storage = options.storage || createStorage();
@@ -213,27 +316,76 @@ function createEnv(options = {}) {
   const clipboardWrites = [];
   const fetchImpl = options.fetch || routedFetch().impl;
   const services = options.services || null;
+  const sidebar = options.sidebar || null;
+  const created = [];
+  const confirms = [];
+  const alerts = [];
+  const openedWindows = [];
   let loaded = null;
 
   const document = {
     head: { appendChild: (node) => styles.push(node) },
     hidden: false,
+    body: fakeElement('body'),
     querySelector(selector) {
       const match = /data-plugin-css="([^"]+)"/.exec(selector);
-      if (!match) return null;
-      return styles.find((tag) => tag.dataset.pluginCss === match[1]) || null;
+      if (match) return styles.find((tag) => tag.dataset.pluginCss === match[1]) || null;
+      // 侧栏底部那颗图标靠这个标记认设置那一行（见源码里的 FOOTER_ANCHOR）。
+      if (selector === '[data-slot="settings.launcher"]') return sidebar ? sidebar.outlet : null;
+      return null;
     },
-    createElement: (tag) => ({ tag, dataset: {} }),
+    querySelectorAll(selector) {
+      if (selector !== '[data-dshm-mobile-web]') return [];
+      return created.filter((node) => node.attrs['data-dshm-mobile-web'] !== undefined && node.parentElement !== null);
+    },
+    listeners: {},
+    addEventListener(type, fn) {
+      if (!document.listeners[type]) document.listeners[type] = [];
+      document.listeners[type].push(fn);
+    },
+    removeEventListener(type, fn) {
+      const list = document.listeners[type];
+      if (list) document.listeners[type] = list.filter((entry) => entry !== fn);
+    },
+    createElement: (tag) => {
+      const node = fakeElement(tag);
+      created.push(node);
+      return node;
+    },
+    createElementNS: (_ns, tag) => {
+      const node = fakeElement(tag);
+      created.push(node);
+      return node;
+    },
   };
 
   const sandbox = {
     window: {
       __ModuleLoader__: { load: (descriptor) => { loaded = descriptor; } },
-      confirm: () => true,
+      // 公网地址那一下确认：文案原样记下来，返回调用方给的结果（缺省 = 确认）。
+      confirm: (text) => {
+        confirms.push(String(text));
+        return options.confirm === undefined ? true : options.confirm;
+      },
+      alert: (text) => { alerts.push(String(text)); },
+      // 新窗口必须在点击那一帧就开出来（否则会被弹窗拦截器吃掉），这里是那个空窗口。
+      open: (url) => {
+        const win = {
+          location: { href: url === undefined ? '' : String(url) },
+          closed: false,
+          close() { this.closed = true; },
+        };
+        openedWindows.push(win);
+        return win;
+      },
+      MutationObserver: undefined,
     },
     document,
     localStorage: storage,
-    navigator: { clipboard: { writeText: async (text) => clipboardWrites.push(text) } },
+    navigator: {
+      userAgent: 'DSH-test/1.0',
+      clipboard: { writeText: async (text) => clipboardWrites.push(text) },
+    },
     setInterval: timers.setInterval,
     clearInterval: timers.clearInterval,
     setTimeout: () => 0,
@@ -308,20 +460,36 @@ function createEnv(options = {}) {
       ...(services ? { get: (name) => services[name] } : {}),
     };
     plugin.apply(ctx);
-    assert.equal(registrations.length, 1, 'apply 必须注册且只注册一个设置项');
+    assert.equal(registrations.length, 1, 'apply 只注册侧边栏那颗图标（设置项已经按用户要求去掉）');
     return plugin;
   }
 
-  /** 渲染设置页签；`preset` 按 useState 顺序预置槽位。 */
-  function render(preset) {
-    const { t } = registrations[0].inject();
+  const byPathname = (pathname) => {
+    const found = registrations.find((entry) => entry.pathname === pathname);
+    assert.ok(found, `没有注册到 ${pathname}`);
+    return found;
+  };
+
+
+  /**
+   * 渲染侧边栏底部那颗图标；`preset` 按 useState 顺序预置槽位
+   * （0 url / 1 webAccess / 2 panelScope / 3 failure / 4 anchored），`props` 覆盖 owner 给的 `wide`。
+   */
+  function renderFooter(preset, props = {}) {
+    const registration = byPathname('sidebar.footer.action');
+    const { t } = registration.inject();
     hooks.begin(preset);
-    return registrations[0].component({ t });
+    return registration.component({ wide: true, ...props, t });
   }
 
   return {
     run,
-    render,
+    renderFooter,
+    byPathname,
+    registrations,
+    confirms,
+    alerts,
+    openedWindows,
     sandbox,
     hooks,
     required,
@@ -332,9 +500,6 @@ function createEnv(options = {}) {
     dictionaries,
     clipboardWrites,
     fetchCalls: allCalls,
-    get registration() {
-      return registrations[0];
-    },
   };
 }
 
@@ -345,7 +510,7 @@ function materialize(options = {}) {
   return env;
 }
 
-/** 一份够用的宿主状态，让设置项进入「已就绪」分支。 */
+/** 一份够用的宿主状态，让那颗图标拿到地址并进入「可用」分支。 */
 function readyStatus(overrides = {}) {
   return {
     ok: true,
@@ -357,6 +522,8 @@ function readyStatus(overrides = {}) {
     // 宿主在 `/api/relay/status` 上补的绝对地址（只有这条本机路由带它）。设置项拿它
     // 渲染「打开配置页面」的链接——必须是绝对 http(s)，相对地址在桌面端点不开。
     panelUrl: 'http://127.0.0.1:19387/api/relay/panel',
+    // 宿主按请求的 Host 算出来的：面板地址落在哪类网络上。回环 = 本机设置页。
+    panelScope: 'loopback',
     webAccess: { enabled: false, expiresAt: 0 },
     lan: { state: 'listening', enabled: true, port: 18787, requestedPort: 18788 },
     tunnel: { state: 'connected' },
@@ -388,8 +555,8 @@ test('样式只注入一次：同一页面里重复物化不会堆出第二份 <
   const env = createEnv();
   env.run();
   assert.equal(env.styles.length, 1);
-  assert.equal(env.styles[0].dataset.pluginCss, 'dsh-mobile-plugin/settings-tab.css');
-  assert.match(env.styles[0].textContent, /\.dshm_root\{/);
+  assert.equal(env.styles[0].dataset.pluginCss, 'dsh-mobile-plugin/footer-icon.css');
+  assert.match(env.styles[0].textContent, /\.dshm_footAction\{/);
   env.run();
   env.run();
   assert.equal(env.styles.length, 1, '重复物化必须复用同一份样式');
@@ -513,10 +680,10 @@ test('控制面地址不许把 /api/relay 拼两遍（真机故障：两条绿�
 
 /* ── 3. 控制面调用与错误正文拍平 ──────────────────────────────────────── */
 
-test('页签的取状态请求走文档相对的 api/relay/status 且同源', async () => {
+test('那颗图标取状态走文档相对的 api/relay/status 且同源', async () => {
   const { impl, calls } = routedFetch({ '/status': { body: readyStatus() } });
   const env = materialize({ fetch: impl });
-  env.render();
+  env.renderFooter();
   await env.hooks.flush();
   const call = calls.find((c) => String(c.url).endsWith('/status'));
   assert.ok(call);
@@ -528,8 +695,7 @@ test('页签的取状态请求走文档相对的 api/relay/status 且同源', as
 
 test('控制面请求不许写成站点根绝对地址（DSH 挂在子路径下会 404）', async () => {
   // 宿主给 index 注入 `<base href="./">`，DSH 自己的前端一律用 `PATH.slice(1)`。
-  // 写成 `/api/...` 时，DSH 被反代挂到 `/dsh/` 下就会打到站点根，设置页现场是
-  // 「读取宿主状态失败: HTTP 404」。
+  // 写成 `/api/...` 时，DSH 被反代挂到 `/dsh/` 下就会打到站点根。
   const env = materialize();
   await settle();
   await env.timers.tick(2000);
@@ -540,312 +706,693 @@ test('控制面请求不许写成站点根绝对地址（DSH 挂在子路径下�
   assert.deepEqual(absolute, [], `这些请求仍是站点根绝对地址：${absolute.join(' | ')}`);
 });
 
-test('宿主半边没加载（404）时说清怎么处理，不甩一句 HTTP 404', async () => {
-  const env = materialize({
-    fetch: async () => ({ ok: false, status: 404, json: async () => ({}) }),
-  });
-  env.render();
-  await env.hooks.flush();
-  const text = texts(env.render()).join('');
-  assert.match(text, /插件宿主侧没有加载/);
-  assert.match(text, /完整退出再打开|插件市场重装/);
-  // 原始状态码现在**要**露出来（2026-11-01 用户要求：截图发过来得能拿去排查），但它只是
-  // 诊断读数里的一格，不许成为这一屏唯一的话。
-  assert.match(text, /宿主返回：/);
-  assert.match(text, /自检：没有回应/);
-  // 连自检口都没回应时，得把这个事实说出来：否则「重启/重装都试过了」的用户没有下一步
-  // 可走（2026-11-01 用户截图现场）。它是一句提示，不是报错。
-  assert.match(text, /自检口也没有回应/);
-});
-
-test('自检口说没事、控制面路由却不在：把自检版本报出来', async () => {
-  const env = materialize({
-    fetch: async (url) => {
-      if (String(url).endsWith('/status')) return { ok: false, status: 404, json: async () => ({}) };
-      if (String(url).endsWith('/host-half')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            ok: true,
-            half: {
-              version: '0.5.11',
-              source: 'npm',
-              activatedAt: '2026-11-01T12:00:00.000Z',
-              lastError: null,
-              retrying: true,
-              retryAttempts: 3,
-              nextRetryAt: '2026-11-01T12:05:00.000Z',
-              installedVersion: '0.5.12',
-              shellChanged: true,
-            },
-          }),
-        };
-      }
-      return { ok: true, status: 200, json: async () => ({ ok: true }) };
-    },
-  });
-  env.render();
-  await env.hooks.flush();
-  const text = texts(env.render()).join('');
-  assert.match(text, /自检没报错/);
-  assert.match(text, /0\.5\.11/);
-  assert.equal(text.includes('自检口也没有回应'), false, '问到了就不许说问不到');
-  // 诊断行要能直接拿去排查：版本、来源、装载时刻、后台重试、碟上那份、要不要重启。
-  assert.match(text, /version=0\.5\.11/);
-  assert.match(text, /source=npm/);
-  assert.match(text, /at=2026-11-01T12:00:00\.000Z/);
-  assert.match(text, /后台重试 3→2026-11-01T12:05:00\.000Z/);
-  assert.match(text, /碟上版本 0\.5\.12/);
-  assert.match(text, /要重启一次 DSH/);
-});
-
-test('404 时问外壳要原因：贴出宿主自己的说法，并给一颗「重新装载」', async () => {
-  // 这条路由问得到的话，界面贴宿主原话；问不到那一支见上面两条用例（会把「问不到」
-  // 本身说出来，不再是一片空白）。
-  const calls = [];
-  let reloaded = 0;
-  const env = materialize({
-    fetch: async (url, init = {}) => {
-      calls.push({ url: String(url), init });
-      if (String(url).endsWith('/status')) return { ok: false, status: 404, json: async () => ({}) };
-      if (String(url).endsWith('/host-half/reload')) {
-        reloaded += 1;
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ ok: true, half: { lastError: null, retrying: false } }),
-        };
-      }
-      if (String(url).endsWith('/host-half')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            ok: true,
-            half: { lastError: '装载 0.5.0 超时：它可能卡在等一个永远不来的依赖服务上', retrying: true },
-          }),
-        };
-      }
-      return { ok: true, status: 200, json: async () => ({ ok: true }) };
-    },
-  });
-  env.render();
-  await env.hooks.flush();
-
-  const tree = env.render();
-  const text = texts(tree).join('');
-  assert.match(text, /插件宿主侧没有加载/);
-  assert.match(text, /装载 0\.5\.0 超时/);
-  assert.match(text, /还在后台自己重试/);
-
-  const button = elements(tree)
-    .find((node) => node.type === 'button' && texts(node).join('') === '重新装载');
-  assert.ok(button, '装载失败时要有「重新装载」，否则用户只能重启整个 DSH');
-  assert.equal(button.props.disabled, false);
-  await button.props.onClick();
-  // 这里刻意用 settle 而不是 hooks.flush：flush 会再跑一遍挂载 effect（3 秒轮询那条），
-  // 于是刚拿回来的「已装好」又被下一次 404 自检覆盖掉，测的就不是这一次重装了。
-  await settle();
-
-  assert.equal(reloaded, 1);
-  const post = calls.find((call) => call.url.endsWith('/host-half/reload'));
-  assert.equal(post.init.method, 'POST');
-  assert.equal(post.init.credentials, 'same-origin');
-  // 重装成功之后原因就不该再挂在界面上。
-  assert.equal(texts(env.render()).join('').includes('装载 0.5.0 超时'), false, texts(env.render()).join(' | '));
-});
-
-test('errorText 把三种错误形状拍平成一句话', async () => {
+test('开窗口失败不留空白页，而是弹诊断窗并把宿主的原话拍平写进去', async () => {
   const cases = [
     [{ error: '直接一句' }, 500, '直接一句'],
     [{ error: { code: 'busy', message: '有任务在跑' } }, 409, 'busy: 有任务在跑'],
-    [{ error: { message: '只有消息' } }, 400, '只有消息'],
-    [{ error: { code: 'only-code' } }, 400, 'only-code'],
-    [{ error: { code: '', message: '' } }, 503, 'HTTP 503'],
     [{}, 503, 'HTTP 503'],
   ];
   for (const [body, status, expected] of cases) {
     const env = materialize({
-      fetch: async () => ({ ok: false, status, json: async () => body }),
+      fetch: async (url) => {
+        if (String(url).endsWith('/status')) {
+          return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
+        }
+        if (String(url).endsWith('/host-half')) {
+          return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: '0.6.0', source: 'npm' } }) };
+        }
+        return { ok: false, status, json: async () => body };
+      },
     });
-    env.render();
+    env.renderFooter({}, { wide: false });
     await env.hooks.flush();
-    const tree = env.render();
-    const classes = classNames(tree);
-    assert.ok(classes.includes('dshm_error'), `body=${JSON.stringify(body)} 应走错误分支`);
-    assert.ok(
-      texts(tree).includes(`读取宿主状态失败: ${expected}`),
-      `body=${JSON.stringify(body)} status=${status} → 期望 ${expected}，实际 ${texts(tree).join('|')}`,
-    );
+    const icon = env.renderFooter({}, { wide: false });
+    await icon.props.onClick({ preventDefault() {} });
+    await settle();
+    assert.equal(env.openedWindows.length, 1, '新窗口必须在点击那一帧就开出来');
+    assert.equal(env.openedWindows[0].closed, true, '开窗口失败就把那个空白页关掉，别晾着');
+    const dialog = diagnosisNode(env);
+    assert.ok(dialog, '失败必须弹诊断窗：不许点了没反应');
+    const text = texts(dialog).join('');
+    assert.match(text, /开放网页管理失败/);
+    assert.equal(text.includes(expected), true, `body=${JSON.stringify(body)} status=${status} → ${text}`);
+    assert.match(text, new RegExp(`HTTP 状态.*${status}`, 's'));
+    assert.match(text, /重新读取状态/);
+    assert.match(text, /复制诊断信息/);
   }
 });
 
-test('正文不是 JSON 时按空对象处理，仍然拍出 HTTP 状态码', async () => {
-  const env = materialize({
-    fetch: async () => ({ ok: false, status: 502, json: async () => { throw new Error('bad json'); } }),
-  });
-  env.render();
-  await env.hooks.flush();
-  assert.ok(texts(env.render()).includes('读取宿主状态失败: HTTP 502'));
-});
+/* ── 4. 唯一入口：设置菜单里那一项已经去掉 ───────────────────────────────
+ * 2026-11-02 用户要求：进网页的唯一入口就是侧边栏那颗手机图标。设置菜单里那张薄卡
+ * （网页入口 + 本机开关 + 404 诊断屏）整块下线，这一半只剩一颗图标。
+ */
 
-test('网络异常（fetch 直接 reject）也变成可读的一行', async () => {
-  const env = materialize({
-    fetch: async () => { throw new Error('connection refused'); },
-  });
-  env.render();
-  await env.hooks.flush();
-  assert.ok(texts(env.render()).includes('读取宿主状态失败: connection refused'));
-});
-
-/* ── 4. 设置项（设置菜单里的顶层一项） ─────────────────────────────────── */
-
-test('设置项注册信息：id=mobile、order=20、槽名走 settings.section、标签走字典', () => {
+test('这一半只注册那颗图标：设置菜单里那一项已经不存在', () => {
   const env = materialize();
-  const registration = env.registration;
-  assert.equal(registration.id, 'mobile');
-  assert.equal(registration.order, 20);
-  // 槽名是设置菜单顶层一项（settings.section），不是内置插件页里的页签
-  // （settings.plugins.tab）——搬错了这一页会静默不出现。
-  assert.equal(registration.pathname, 'settings.section');
-  assert.equal(registration.locale, NS);
-  assert.equal(registration.label(), '移动端');
-  assert.equal(typeof registration.component, 'function');
+  assert.equal(env.registrations.length, 1, 'apply 现在只注册侧边栏那颗图标');
+  assert.equal(SOURCE.includes('settings.section'), false, '设置菜单那一项已经按用户要求去掉');
+  assert.equal(SOURCE.includes('MobileSettingsSection'), false, '那一整块组件跟着一起下线');
+  // 那颗图标仍然注册在原来的动作位上：入口的座位没变，只是它成了唯一的入口。
+  assert.equal(env.byPathname('sidebar.footer.action').id, 'mobile-web');
 });
 
-test('字典注册在启动时一次性完成，且中英键一一对应', () => {
+test('字典只有图标与诊断窗那几条，中英一一对应', () => {
   const env = materialize();
   const dict = env.dictionaries.get(NS);
   assert.ok(dict, `${NS} 字典必须注册`);
   assert.deepEqual(Object.keys(dict.zh).sort(), Object.keys(dict.en).sort());
-  // 键集**逐个钉死**：客户端 UI 只保留网页入口、本机临时访问开关，以及 404 时那条
-  // 「宿主为什么没起来」的自检口，不长成第二个管理面板。
+  // 键集逐个钉死：这一半只有「一颗图标 + 它打开的诊断窗」，不长成第二个管理面板。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
-    'cardPanel', 'diagHostReturned', 'diagOnDisk', 'diagSelfCheck', 'diagSelfCheckNoAnswer',
-    'diagSelfCheckNoError', 'diagSelfCheckRetry', 'diagShellRestartAtStartup',
-    'heading', 'hostHalfNoError', 'hostHalfReason', 'hostHalfReload', 'hostHalfReloadFailed', 'hostHalfRetrying',
-    'hostHalfUnreachable', 'hostHalfVersion',
-    'loadFailed', 'loadMissing', 'nav', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
-    'webAccessClose', 'webAccessError', 'webAccessHint', 'webAccessOff', 'webAccessOn', 'webAccessOpen', 'webAccessUnavailable',
+    'diagBusy', 'diagChecking', 'diagClose', 'diagCopied', 'diagCopy', 'diagCopyFailed',
+    'diagFactActivated', 'diagFactOnDisk', 'diagFactPanelUrl', 'diagFactPlugin', 'diagFactReason',
+    'diagFactRetry', 'diagFactReturned', 'diagFactScope', 'diagFactSelfcheck', 'diagFactShell',
+    'diagFactSource', 'diagFactStatus', 'diagFactUnavailable', 'diagFactWindow',
+    'diagHeadingFacts', 'diagHeadingSteps', 'diagOpenPanel', 'diagPopupBlocked', 'diagReload', 'diagReloadBusy',
+    'diagReloadFailed', 'diagReloadOk', 'diagRetry', 'diagStepDuplicate', 'diagStepProxy',
+    'diagStepReinstall', 'diagStepRestart', 'diagStepRetryOpen', 'diagStepRetrying',
+    'diagSummaryLoadFailed', 'diagSummaryLoadMissing', 'diagSummaryNoError',
+    'diagSummaryOpenFailed', 'diagSummaryRestored', 'diagSummaryUnreachable', 'diagTitleLoad',
+    'diagTitleOpen', 'footerLoadMissing', 'footerOpen', 'footerPending', 'footerPublicConfirm'
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
 });
 
-/* ── 5. 设置页保留一个薄卡片：网页入口 + 本机临时访问开关 ────────────────
- * 界面本体（连接状态、配对、中转配置、维护）仍在宿主吐出的网页；这里的开关只限时开放网页管理，
- * 必须由可信本机设置入口操作。插件更新仍交给 DSH 市场，避免再长出第二个管理面板。
+test('旧界面没有长回来：设置项卡片与它的字段都不再渲染', () => {
+  for (const gone of [
+    'MobileSettingsSection', 'settings.section', 'dshm_root', 'dshm_card', 'dshm_cardTitle',
+    'dshm_heading', 'dshm_actions', 'dshm_note', 'dshm_error',
+    '开放网页管理 2 小时', 'webAccessHint', 'hostHalfReloadFailed',
+  ]) {
+    assert.equal(SOURCE.includes(gone), false, `「${gone}」已经随设置项下线，不许再长回来`);
+  }
+  assert.equal(SOURCE.includes('/update/status'), false, '插件自更新那套早已拆掉，更新只走 npm');
+  // 现在这一半的界面只有两颗东西：那颗图标 + 它弹出来的诊断窗。
+  assert.match(SOURCE, /\.dshm_footAction\{/);
+  assert.match(SOURCE, /\.dshm_overlay\{/);
+  assert.match(SOURCE, /\.dshm_dialog\{/);
+});
+
+/* ── 5. 侧边栏底部那颗手机图标（唯一的入口）─────────────────────────────
+ * 用户要的是「侧边栏最底下、头像那一行里加一颗手机图标，点一下进网页」。外壳那一行
+ * 没有给插件留座位，所以这一颗是自己插进去的：认位置只认插槽出口的 `data-slot` 标记，
+ * 插进去之后那一行的设置按钮自己让出宽度；认不出来就退回 `sidebar.footer.action`
+ * 自己那一行，入口不能消失。
  *
- * 下面反向钉住：单卡、绝对地址新标签链接、默认关、窗口固定到期、请求不续期，移动 API 不变。
+ * 点下去做什么，取决于宿主在 `/status` 上报的 `panelScope`（面板地址落在哪类网络上）：
+ * 本机回环直接跳转；局域网静默把那两小时窗口打开；公网先弹一句确认。
  */
 
-test('设置项仍只有一张卡：网页入口与本机开关', () => {
+const FOOTER_MARK = 'data-dshm-mobile-web';
+const DIAG_MARK = 'data-dshm-mobile-diag';
+
+/** 已经打开的诊断弹窗（没开就是 undefined）。 */
+function diagnosisNode(env) {
+  return env.sandbox.document.body.children.find((node) => node.attrs[DIAG_MARK] !== undefined);
+}
+
+/** 点弹窗里那颗按钮（弹窗是命令式 DOM，按钮上是 `onclick`）。 */
+async function clickDialogButton(env, label) {
+  const button = dialogButton(env, label);
+  assert.ok(button, `弹窗里少了「${label}」`);
+  if (typeof button.onclick === 'function') await button.onclick();
+  else await button.props.onClick();
+  await settle();
+  return button;
+}
+
+/** 弹窗里那颗按钮（按文案找）。 */
+function dialogButton(env, label) {
+  const dialog = diagnosisNode(env);
+  if (!dialog) return undefined;
+  // 弹窗是命令式 DOM，元素的 tag 在 `node.tag`；react 元素才用 `node.type`。
+  return elements(dialog).find((node) => (node.tag === 'button' || node.type === 'button') && texts(node).join('') === label);
+}
+
+/** 那一行里被我们插进去的那颗（没有返回 undefined）。 */
+function footerDomNode(sidebar) {
+  return sidebar.row.children.find((node) => node.attrs[FOOTER_MARK] !== undefined);
+}
+
+test('图标注册信息：槽名走 sidebar.footer.action、id 是自己的、标签走字典', () => {
   const env = materialize();
-  const cards = elements(env.render({ 0: readyStatus().panelUrl }))
-    .filter((node) => node.type === 'section');
-  assert.deepEqual(cards.map((node) => node.props.key), ['panel']);
+  const registration = env.byPathname('sidebar.footer.action');
+  assert.equal(registration.name, 'sidebar.footer.action');
+  // 自己的一格：复用外壳已占的 id 会顶掉那一格（settings.launcher 那种替换会连
+  // 头像那颗设置按钮一起换掉），所以 id 必须是新的。
+  assert.equal(registration.id, 'mobile-web');
+  assert.equal(typeof registration.order, 'number');
+  assert.equal(registration.locale, NS);
+  assert.equal(registration.label(), '打开移动端插件配置网页');
+  assert.equal(typeof registration.component, 'function');
 });
 
-test('网页入口是绝对地址的新标签页链接，不是同页跳转', () => {
-  const env = materialize();
-  const link = elements(env.render({ 0: readyStatus().panelUrl })).find((node) => node.type === 'a');
-  assert.ok(link, '拿得到 panelUrl 就该渲染成 <a>');
-  assert.equal(link.props.href, readyStatus().panelUrl);
-  assert.equal(link.props.target, '_blank');
-  assert.equal(link.props.rel, 'noreferrer');
-  assert.equal(texts(link).join(''), '打开配置页面');
-  // 相对地址在桌面端会被解析成 `dsh-app://`，而 Electron 只把 http(s) 交给浏览器，
-  // 其它协议静默丢弃（点了没反应）—— 所以宿主必须给绝对地址，这里钉住。
-  assert.match(link.props.href, /^https?:\/\//);
-});
-
-test('本机设置入口通过同源 POST 开关网页窗口，开放固定两小时文案且可关闭', async () => {
-  const calls = [];
-  let enabled = false;
-  const fetch = async (url, init = {}) => {
-    calls.push({ url, init });
-    if (String(url).endsWith('/status')) {
-      return { ok: true, status: 200, json: async () => readyStatus({ webAccess: { enabled, expiresAt: enabled ? 7_200_000 : 0 } }) };
-    }
-    if (String(url).endsWith('/web-access')) {
-      enabled = JSON.parse(init.body).enabled;
-      return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled, expiresAt: enabled ? 7_200_000 : 0 } }) };
-    }
-    return { ok: true, status: 200, json: async () => ({ ok: true }) };
-  };
-  const env = materialize({ fetch });
-  env.render();
+test('展开态：图标插进设置那一行、紧跟头像出口，不遮住任何东西', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status') ? readyStatus() : { ok: true }),
+    }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  // 地址是 effect 里异步问回来的：拿真实 React 会因此重渲染、effect 再同步一次；
+  // 这里手动再渲染一遍，等价于那一帧。
+  env.renderFooter();
   await env.hooks.flush();
 
-  let button = elements(env.render()).find((node) => node.type === 'button' && node.props.onClick);
-  assert.ok(button);
-  assert.equal(texts(button).join(''), '开放网页管理 2 小时');
-  const hint = elements(env.render()).find((node) => node.type === 'p' && texts(node).join('').includes('默认关闭'));
-  assert.ok(hint);
-  assert.match(texts(hint).join(''), /关闭后公网不可访问，本机和局域网仍可访问/);
-  await button.props.onClick();
-  button = elements(env.render()).find((node) => node.type === 'button' && node.props.onClick);
-  assert.equal(texts(button).join(''), '立即关闭网页管理');
-  await button.props.onClick();
+  const node = footerDomNode(sidebar);
+  assert.ok(node, '必须插进设置那一行（否则就退回自己那一行了）');
+  assert.equal(node.tag, 'a');
+  assert.equal(node.className, 'dshm_footAction');
+  // 紧跟在头像出口后面、在连接状态/更新提示前面：那一行里设置按钮是 flex:1，
+  // 它自己让出宽度，所以谁都不会被盖住。
+  assert.equal(node.previousSibling, sidebar.outlet);
+  assert.equal(node.children[0].tag, 'svg', '图标本体要挂上');
+  // 用户 2026-11-02 拍的尺寸：展开那一行 20（先 18、嫌小又抬一档）。别再调回 16/18 ——
+  // 手机图形窄，按名义尺寸画出来比同行那几颗 16 的方形图标显小。
+  assert.equal(node.children[0].attrs.width, '20');
+  assert.equal(node.children[0].attrs.height, '20');
+  // 挑中的那一款是「刘海 + 底条」：三道路径（机身 / 刘海 / 家条），机身从 6.2 画到 17.8。
+  assert.equal(node.children[0].children.length, 3);
+  assert.match(node.children[0].children[0].attrs.d, /^M9 2\.6h6A2\.8/);
+  assert.equal(node.attrs.href, readyStatus().panelUrl);
+  assert.equal(node.attrs.target, '_blank');
+  assert.equal(node.attrs['aria-disabled'], 'false');
+  assert.equal(node.attrs['aria-label'], '打开移动端插件配置网页');
 
-  const posts = calls.filter((call) => String(call.url).endsWith('/web-access'));
-  assert.deepEqual(posts.map((call) => JSON.parse(call.init.body).enabled), [true, false]);
-  assert.ok(posts.every((call) => call.init.method === 'POST' && call.init.credentials === 'same-origin'));
-  assert.ok(calls.some((call) => String(call.url).endsWith('/status')));
+  // 展开态下它不该同时在自己那一行里画第二颗。
+  assert.equal(env.renderFooter(), null);
 });
 
-test('还没问到地址、或宿主没给地址时，入口是禁用的按钮而不是死链', () => {
+test('重复渲染不会插出第二颗', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({ sidebar });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const ours = sidebar.row.children.filter((node) => node.attrs[FOOTER_MARK] !== undefined);
+  assert.equal(ours.length, 1);
+});
+
+test('窄条（56 点）那一行塞不下第二颗：改为自己占一行', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({ sidebar });
+  const tree = env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  assert.equal(typeof tree.type, 'string');
+  assert.equal(tree.type, 'a');
+  assert.match(tree.props.className, /dshm_footActionRail/);
+  // 窄条那颗放进 36 的圆钮里，用 22 才撑得起来（展开那一行是 20）。
+  const svg = elements(tree).find((node) => node.type === 'svg');
+  assert.equal(svg.props.width, 22);
+  assert.equal(svg.props.height, 22);
+  assert.equal(footerDomNode(sidebar), undefined, '窄条时不该硬插进那一行');
+});
+
+test('认不出那一行（外壳换了版式）：退回自己一行，入口不消失也不抛错', async () => {
   const env = materialize();
-  const pending = env.render();
-  assert.equal(elements(pending).some((node) => node.type === 'a'), false, '不知道地址时不该有链接');
-  const placeholder = elements(pending)
-    .find((node) => node.type === 'button' && node.props.disabled === true);
-  assert.ok(placeholder, '要有一个禁用的占位按钮');
-  assert.equal(texts(placeholder).join(''), '正在读取页面地址…');
-
-  const noUrl = env.render({ 0: '' });
-  assert.equal(elements(noUrl).some((node) => node.type === 'a'), false, '宿主没给地址时也不能给链接');
-  assert.ok(texts(noUrl).includes('宿主还没给出页面地址，稍后再打开这一页试试。'));
+  assert.equal(env.renderFooter(), null, '第一帧先不画，等 effect 找位置');
+  await env.hooks.flush();
+  const tree = env.renderFooter();
+  assert.equal(tree.type, 'a');
+  assert.match(tree.props.className, /dshm_footActionRail/);
+  assert.equal(tree.props.href, undefined, '没问到地址就不给链接');
+  assert.equal(tree.props['aria-disabled'], 'true');
 });
 
-test('旧界面没有长回来：连接状态 / 配对 / 中转配置 / 维护 / 故障台账都不再渲染', () => {
-  const env = materialize();
-  const tree = env.render({ 0: readyStatus().panelUrl });
-  const joined = texts(tree).join(' ');
-  for (const gone of [
-    '连接状态', '配对与二维码', '中转配置', '维护', '故障台账', '概览',
-    '重新生成配对码', '吊销全部设备授权', '注册密钥', '局域网端口',
-  ]) {
-    assert.equal(joined.includes(gone), false, `「${gone}」已经搬进网页版，不该还留在这里`);
-  }
-  // 版式整理时按用户要求删掉的三处描述文字，跟着整块界面一起走了，别回来。
-  assert.equal(/都在这里管理|插件能自己换实现|可重启范围/.test(joined), false);
-  assert.equal(
-    classNames(tree).some((name) => name.startsWith('dshm_modal')),
-    false,
-    '配置弹窗也搬去网页版了',
-  );
+test('宿主没给地址：不挂死链，只说自己还没就绪', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  const node = footerDomNode(sidebar);
+  assert.equal(node.attrs.href, undefined, '没有地址时锚点不该有 href（点不动，比死链诚实）');
+  assert.equal(node.attrs['aria-disabled'], 'true');
+  assert.equal(node.attrs.title, '网页地址还没就绪');
 });
 
-test('插件自己不再更新：这一半里没有自更新残留（路由、状态点、旧卡片样式）', () => {
-  // 自更新（`/api/relay/update/*`、`.live` 代机制、绿点状态点、dl 信息行）整套已经拆掉，
-  // 更新改走 npm（DSH 插件市场）。这里按源码反查，免得哪天又悄悄长回来。
-  for (const gone of ['/update/status', '/update/check', '/update/apply', '/update/reload']) {
-    assert.equal(SOURCE.includes(gone), false, `${gone} 已经不存在了：插件不再自己更新`);
-  }
-  for (const cls of ['dshm_dot', 'dshm_row', 'dshm_mono', 'dshm_noteBad', 'dshm_cardTitle']) {
-    const expected = cls === 'dshm_cardTitle';
-    assert.equal(
-      new RegExp(`\\.${cls}\\{`).test(SOURCE),
-      expected,
-      expected ? '卡片标题还在用，样式要在' : `.${cls} 只属于拆掉的更新卡片 / 信息行，样式该一起删`,
-    );
-  }
-  assert.equal(/\bimplVersion\b|\bupdateNeedsRestart\b|\bcardUpdate\b/.test(SOURCE), false, '旧更新卡片的字典键不许回来');
+test('宿主那一半没装载（404）：标题说清该怎么处理，不甩一句 HTTP 404', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async () => ({ ok: false, status: 404, json: async () => ({}) }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const node = footerDomNode(sidebar);
+  // 设置项那张卡下线之后，这一屏没有别的地方能说话：把那句该做的话写进标题
+  // （截图发过来照样看得见），而不是留一个永远「还没就绪」的灰图标。
+  assert.match(node.attrs.title, /插件宿主侧没有加载/);
+  assert.match(node.attrs.title, /完整退出再打开|插件市场重装/);
+  assert.equal(node.attrs.href, undefined);
+});
+
+test('头像出口不在侧栏底部那个座位里时，宁可退回自己一行也不乱插', async () => {
+  // 出口被渲染到别处（设置面板里、未来的新位置）：按出口插进去就是插到错的地方。
+  const row = fakeElement('div');
+  const outlet = fakeElement('div');
+  outlet.setAttribute('data-slot', 'settings.launcher');
+  row.appendChild(outlet);
+  const env = materialize({ sidebar: { row, outlet } });
+  env.renderFooter();
+  await env.hooks.flush();
+  assert.equal(row.children.length, 1, '座位对不上就不许插');
+  assert.match(env.renderFooter().props.className, /dshm_footActionRail/);
+});
+
+test('切语言之后标题跟着换（插进那一行的按钮不吃旧文案）', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status') ? readyStatus() : { ok: true }),
+    }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const node = footerDomNode(sidebar);
+  assert.equal(node.attrs['aria-label'], '打开移动端插件配置网页');
+
+  const dict = env.dictionaries.get(NS);
+  dict.zh.footerOpen = '打开手机网页';
+  dict.zh.footerPending = '网页地址还没好';
+  env.renderFooter();
+  await env.hooks.flush();
+  assert.equal(node.attrs['aria-label'], '打开手机网页', '切语言后插进去的那颗要换标题');
+  // 依赖数组里必须是**文案本身**：`t` 是 bind 出来的稳定函数，只依赖它 effect 不会重跑。
+  assert.match(SOURCE, /\}, \[wide, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess\]\);/);
+});
+
+test('地址问不到时会自己再问，问到了就停（不再打宿主）', async () => {
+  const sidebar = fakeSidebarRow();
+  let statusCalls = 0;
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => {
+      if (!String(url).endsWith('/status')) return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      statusCalls += 1;
+      if (statusCalls === 1) {
+        return { ok: false, status: 404, json: async () => ({ error: { code: 'not_found', message: 'x' } }) };
+      }
+      return { ok: true, status: 200, json: async () => readyStatus() };
+    },
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  assert.equal(footerDomNode(sidebar).attrs.href, undefined);
+
+  await env.timers.tick(20000);
+  env.renderFooter();
+  await env.hooks.flush();
+  assert.equal(footerDomNode(sidebar).attrs.href, readyStatus().panelUrl);
+
+  // 取到地址之后定时器要收掉：再走一轮不该多打一次宿主。
+  const after = statusCalls;
+  await env.timers.tick(20000);
+  assert.equal(statusCalls, after, '地址取到之后不该再轮询');
+});
+
+/* ── 6. 点下去做什么：本机直接开、局域网静默开窗、公网先确认 ─────────────
+ * 面板页的远程可用性由宿主那两小时的窗口决定（关着时管理接口回 423）。所以「从别的
+ * 机器打开的页面」点这颗图标，必须先把窗口打开再跳转；本机设置页不需要。
+ */
+
+/** 只给一颗图标用的环境：`panelScope` 与窗口状态由调用方定。 */
+function clickEnv({ panelScope = 'loopback', webAccess = { enabled: false, expiresAt: 0 }, confirm = true } = {}) {
+  const posts = [];
+  const env = materialize({
+    confirm,
+    fetch: async (url, init = {}) => {
+      if (String(url).endsWith('/status')) {
+        return { ok: true, status: 200, json: async () => readyStatus({ panelScope, webAccess }) };
+      }
+      if (String(url).endsWith('/web-access')) {
+        posts.push(JSON.parse(init.body));
+        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  return { env, posts };
+}
+
+/** 渲染窄条那颗（自己占一行，点击处理器直接挂在元素上，最好驱动）。 */
+async function railIcon(env) {
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  return env.renderFooter({}, { wide: false });
+}
+
+test('本机回环：不拦点击，也不去开窗口（控制面本来就认它）', async () => {
+  const { env, posts } = clickEnv({ panelScope: 'loopback' });
+  const icon = await railIcon(env);
+  assert.equal(icon.props.href, readyStatus().panelUrl);
+  let prevented = false;
+  await icon.props.onClick({ preventDefault() { prevented = true; } });
+  await settle();
+  assert.equal(prevented, false, '回环地址就交给浏览器照常跳转');
+  assert.equal(env.openedWindows.length, 0);
+  assert.deepEqual(posts, []);
+});
+
+test('局域网地址：点下去先把两小时窗口开了，再跳过去（不多弹确认）', async () => {
+  const { env, posts } = clickEnv({ panelScope: 'private' });
+  const icon = await railIcon(env);
+  let prevented = false;
+  await icon.props.onClick({ preventDefault() { prevented = true; } });
+  await settle();
+  assert.equal(prevented, true, '要先把默认跳转拦下来，等窗口开好再导航');
+  assert.equal(env.confirms.length, 0, '局域网不再问第二遍');
+  assert.deepEqual(posts, [{ enabled: true }]);
+  assert.equal(env.openedWindows.length, 1);
+  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl);
+});
+
+test('公网地址：先弹一句确认，取消就什么都不做', async () => {
+  const { env, posts } = clickEnv({ panelScope: 'public', confirm: false });
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  assert.equal(env.confirms.length, 1, '公网地址必须先问一句');
+  assert.match(env.confirms[0], /位于公网[\s\S]*2 小时/);
+  assert.deepEqual(posts, [], '取消之后一个写请求都不许发');
+  assert.equal(env.openedWindows.length, 0, '也不许先开一个空白窗口晾着');
+});
+
+test('公网地址：确认之后开窗口再跳过去', async () => {
+  const { env, posts } = clickEnv({ panelScope: 'public', confirm: true });
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  assert.equal(env.confirms.length, 1);
+  assert.deepEqual(posts, [{ enabled: true }]);
+  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl);
+});
+
+test('窗口已经开着：不再确认也不再重复开（不续期）', async () => {
+  const { env, posts } = clickEnv({
+    panelScope: 'public',
+    webAccess: { enabled: true, expiresAt: 7_000_000 },
+  });
+  const icon = await railIcon(env);
+  let prevented = false;
+  await icon.props.onClick({ preventDefault() { prevented = true; } });
+  await settle();
+  assert.equal(prevented, false);
+  assert.equal(env.confirms.length, 0);
+  assert.deepEqual(posts, [], '开着就直接进，别又续一次两小时');
+  assert.equal(env.openedWindows.length, 0);
+});
+
+test('浏览器把新窗口拦了：也要说清楚，不许「接口成了但什么都没发生」', async () => {
+  const env = materialize({
+    // 第一次 window.open 返回 null = 弹窗被拦。这里把 open 换成「永远被拦」。
+    fetch: async (url) => {
+      if (String(url).endsWith('/status')) {
+        return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
+      }
+      if (String(url).endsWith('/host-half')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: '0.5.12' } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
+    },
+  });
+  env.sandbox.window.open = () => null;
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const dialog = diagnosisNode(env);
+  assert.ok(dialog, '被拦了要有反应');
+  assert.match(texts(dialog).join(' '), /拦掉|弹窗/);
+  assert.ok(dialogButton(env, '复制诊断信息'), '照样能复制读数');
+});
+
+test('插进那一行的那颗也走同一套点击逻辑', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url, init = {}) => {
+      if (String(url).endsWith('/status')) {
+        return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) };
+      }
+      if (String(url).endsWith('/web-access')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const node = footerDomNode(sidebar);
+  assert.equal(typeof node.onclick, 'function', '插进 DOM 的那颗要有自己的点击处理');
+  await node.onclick({ preventDefault() {} });
+  await settle();
+  assert.equal(env.confirms.length, 1);
+  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl);
 });
 
 
-/* ── 6. 侧边栏未读绿点的双向同步 ─────────────────────────────────────────
+/* ── 6. 诊断弹窗：点不动 / 开不起来时的自查与自修 ──────────────────────
+ * 用户 2026-11-02 的要求：报错不能只是「弹个窗让人截图」——凡是用户自己能做到的检查与
+ * 修复都要摆在上面（重启、重装、确认没装两份、反代前缀），能一键试的给按钮（重新装载、
+ * 重读状态），最后给一段可复制的 ASCII 读数。
+ */
+
+/** 一份「实现没装载」的宿主：/status 404，外壳自检带原因。 */
+function brokenHost(overrides = {}) {
+  const half = {
+    version: '0.5.11',
+    source: 'npm',
+    activatedAt: '2026-11-01T12:00:00.000Z',
+    lastError: '装载 0.5.0 超时：它可能卡在等一个永远不来的依赖服务上',
+    retrying: true,
+    retryAttempts: 3,
+    nextRetryAt: '2026-11-01T12:05:00.000Z',
+    installedVersion: '0.5.12',
+    shellChanged: true,
+    ...overrides,
+  };
+  return async (url) => {
+    if (String(url).endsWith('/status')) return { ok: false, status: 404, json: async () => ({}) };
+    if (String(url).endsWith('/host-half')) return { ok: true, status: 200, json: async () => ({ ok: true, half }) };
+    return { ok: true, status: 200, json: async () => ({ ok: true }) };
+  };
+}
+
+test('点一颗没地址的图标会弹诊断窗：原因、读数、自查步骤、按钮都在', async () => {
+  const env = materialize({ fetch: brokenHost() });
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderFooter({}, { wide: false });
+  assert.equal(icon.props.href, undefined, '没地址时不该有链接');
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+
+  const dialog = diagnosisNode(env);
+  assert.ok(dialog, '点了必须有反应：不许一颗灰图标什么都不做');
+  assert.equal(dialog.attrs.role, 'dialog');
+  assert.equal(dialog.attrs['aria-modal'], 'true');
+  const text = texts(dialog).join(' ');
+  // ① 谁说了什么
+  assert.match(text, /打不开移动端配置页/);
+  assert.match(text, /插件宿主侧没有加载/);
+  assert.match(text, /装载 0\.5\.0 超时/, '宿主原话要原样贴出来');
+  assert.match(text, /HTTP 状态/);
+  for (const reading of ['0.5.11', 'npm', '2026-11-01T12:00:00.000Z', '0.5.12']) {
+    assert.equal(text.includes(reading), true, `读数字段少了 ${reading}`);
+  }
+  assert.match(text, /3 → 2026-11-01T12:05:00\.000Z/, '后台重试那两格要能看出来');
+  // ② 用户自己能做的
+  assert.match(text, /把 DSH 完整退出/);
+  assert.match(text, /重装一遍/);
+  assert.match(text, /装两份/);
+  assert.match(text, /反向代理/);
+  // ③ 能一键试的
+  for (const label of ['重新装载插件', '重新读取状态', '复制诊断信息', '关闭']) {
+    assert.ok(dialogButton(env, label), `少了「${label}」`);
+  }
+});
+
+test('复制诊断信息：剪贴板拿到的是 ASCII 记号，贴出来就能对日志', async () => {
+  const env = materialize({ fetch: brokenHost() });
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+
+  await clickDialogButton(env, '复制诊断信息');
+  await settle();
+  assert.equal(env.clipboardWrites.length, 1);
+  const copied = env.clipboardWrites[0];
+  assert.match(copied, /^dsh-mobile-plugin diagnosis/);
+  assert.match(copied, /plugin_version=0\.5\.11/);
+  assert.match(copied, /host_last_error=装载 0\.5\.0 超时/);
+  assert.match(copied, /http_status=404/);
+  assert.match(copied, /on_disk=0\.5\.12/);
+  assert.match(copied, /user_agent=DSH-test/);
+  // 记号一律 ASCII：值里的中文是宿主原话（要原样保留），键不许翻译。
+  assert.equal(/[^ -~]/.test(copied.split('\n').filter((line) => /^[a-z_]+=/.test(line)).map((line) => line.split('=')[0]).join('')), false);
+  assert.match(texts(diagnosisNode(env)).join(' '), /诊断信息已复制/);
+});
+
+test('「重新装载插件」打外壳那条口；装好之后这一屏当场变成「可以打开了」', async () => {
+  let healthy = false;
+  const env = materialize({
+    fetch: async (url) => {
+      if (String(url).endsWith('/host-half/reload')) {
+        healthy = true;
+        return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: '0.5.12', source: 'npm' } }) };
+      }
+      if (String(url).endsWith('/host-half')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: healthy ? '0.5.12' : '0.5.11', source: 'npm', lastError: healthy ? null : '装载 0.5.0 超时' } }) };
+      }
+      if (String(url).endsWith('/status')) {
+        if (!healthy) return { ok: false, status: 404, json: async () => ({}) };
+        return { ok: true, status: 200, json: async () => readyStatus() };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+
+  await clickDialogButton(env, '重新装载插件');
+  await settle();
+  assert.ok(env.fetchCalls.some((call) => String(call.url).endsWith('/host-half/reload')), '要打到外壳那条重新装载口');
+  const reload = env.fetchCalls.find((call) => String(call.url).endsWith('/host-half/reload'));
+  assert.equal(reload.init.method, 'POST');
+  assert.equal(reload.init.credentials, 'same-origin');
+
+  const text = texts(diagnosisNode(env)).join(' ');
+  assert.match(text, /重新装载成功/);
+  assert.match(text, /状态已经读到了|重新装载成功/);
+  // 装好之后当场就能打开，不必让用户自己再找一遍图标。
+  assert.ok(dialogButton(env, '打开配置页面'), '装载成功后要直接给「打开配置页面」');
+});
+
+test('「重新读取状态」能自愈：宿主回魂之后这一屏自己说「再点一次图标」', async () => {
+  let alive = false;
+  const env = materialize({
+    fetch: async (url) => {
+      if (String(url).endsWith('/host-half')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: '0.5.12', source: 'npm', retrying: !alive, lastError: alive ? null : '装载超时：等一个永远不来的服务' } }) };
+      }
+      if (String(url).endsWith('/status')) {
+        if (!alive) return { ok: false, status: 404, json: async () => ({}) };
+        return { ok: true, status: 200, json: async () => readyStatus() };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  assert.match(texts(diagnosisNode(env)).join(' '), /插件宿主侧没有加载/);
+
+  alive = true;
+  await clickDialogButton(env, '重新读取状态');
+  await settle();
+  const text = texts(diagnosisNode(env)).join(' ');
+  assert.match(text, /状态已经读到了/);
+  assert.equal(text.includes('宿主返回'), false, '读到了就不该再挂着上一条失败');
+});
+
+test('外壳自检口没回应时照实说，而不是让人继续瞎重启', async () => {
+  const env = materialize({
+    fetch: async (url) => {
+      if (String(url).endsWith('/host-half')) return { ok: false, status: 404, json: async () => ({}) };
+      if (String(url).endsWith('/status')) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const text = texts(diagnosisNode(env)).join(' ');
+  assert.match(text, /自检口|没有回应/);
+  assert.match(text, /可能还没带/);
+});
+
+test('自检说没事、路由却不在：点名「两份插件」那种现场', async () => {
+  const env = materialize({
+    fetch: async (url) => {
+      if (String(url).endsWith('/host-half')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: '0.5.12', source: 'npm', lastError: null, retrying: false } }) };
+      }
+      if (String(url).endsWith('/status')) return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const text = texts(diagnosisNode(env)).join(' ');
+  assert.match(text, /两份插件/);
+  assert.equal(text.includes('没有回应'), false, '问到了就不许说问不到');
+});
+
+test('同一时刻只留一个诊断窗；再点一次是就地重画', async () => {
+  const env = materialize({ fetch: brokenHost() });
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  let icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const dialogs = env.sandbox.document.body.children.filter((node) => node.attrs[DIAG_MARK] !== undefined);
+  assert.equal(dialogs.length, 1, '叠出两摞窗比没反应更糟');
+});
+
+test('点遮罩或按 Esc 能收起，收起之后不留残留', async () => {
+  const env = materialize({ fetch: brokenHost() });
+  env.renderFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderFooter({}, { wide: false });
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const dialog = diagnosisNode(env);
+  dialog.click();
+  assert.equal(diagnosisNode(env), undefined, '点遮罩要收起');
+
+  const icon2 = env.renderFooter({}, { wide: false });
+  await icon2.props.onClick({ preventDefault() {} });
+  await settle();
+  const escapes = env.sandbox.document.listeners.keydown || [];
+  assert.ok(escapes.length > 0, '要挂 Esc');
+  escapes[0]({ key: 'Escape' });
+  assert.equal(diagnosisNode(env), undefined, 'Esc 要收起');
+});
+
+/* ── 7. 侧边栏未读绿点的双向同步 ─────────────────────────────────────────
  * 两端的绿点是两份互不相干的状态：手机端那份在宿主里（按设备维度的完成提醒），
  * 桌面端那份只在渲染进程内存里（`UiSession.completionUnread`）。这一半是唯一的桥。
  * 下面钉住三件事：拿不到桌面服务时一条请求都不发（别留空转的定时器）；桌面端
