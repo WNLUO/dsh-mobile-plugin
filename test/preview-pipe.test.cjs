@@ -417,6 +417,54 @@ test('失败页写的是实际拨过的目标（含 https）', async () => {
 })
 
 /**
+ * 网页版那一档（`?mode=webapp`）：用户显式要求手机打开这台电脑上的网页版，所以这条管道
+ * 放行宿主自己的 web 端口——但只放行它，别的端口、别的主机照旧拒。
+ *
+ * 两个取值器在这里指同一个端口，这正是真实宿主的形状（`ctx.webServer.port` 既在
+ * `protectedPorts()` 里、也是 `ownWebPort()`）。于是这条用例同时钉住两件事：带 mode 时
+ * 那个端口能进，不带 mode 时**同一格**仍然 403 —— 原有边界一个字都没松。
+ */
+test('mode=webapp：只放行宿主自己的 web 端口，其它端口与主机照旧 403', async () => {
+  const dev = startDevServer()
+  const devPort = await listen(dev.server)
+  // 只用来断言 403：拒绝发生在拨号之前，所以这个号有没有人在听都无所谓。
+  const otherPort = devPort === 65535 ? devPort - 1 : devPort + 1
+
+  const service = createPreviewService({
+    authorized: () => true,
+    protectedPorts: () => new Set([devPort]),
+    ownWebPort: () => devPort,
+    onLog: () => {},
+  })
+  const front = await startFront(service)
+  const frontPort = front.port
+
+  try {
+    const webapp = await pipe(frontPort, devPort, { request: httpGet(`localhost:${devPort}`), query: 'mode=webapp', settleMs: 2000 })
+    assert.ok(webapp.text.includes('<h1>dev ok</h1>'),
+      `mode=webapp 连宿主自己的 web 端口被拒了（回程：${JSON.stringify(webapp.text.slice(0, 80))}）`)
+
+    // 端口不对：网页版只能是宿主自己那一个。
+    const wrongPort = await pipe(frontPort, otherPort, { request: null, query: 'mode=webapp', settleMs: 800 })
+    assert.match(String(wrongPort.handshakeError), /403/, 'mode=webapp 拨别的端口必须 403')
+    assert.equal(wrongPort.text, '', '拒绝必须发生在握手之前：管道里不该有任何回程字节')
+
+    // 主机不对：网页版只能连电脑自己，私网地址上的同一台机器也不能借这一档进来。
+    const wrongHost = await pipe(frontPort, devPort, { request: null, query: 'mode=webapp&host=10.1.2.3', settleMs: 800 })
+    assert.match(String(wrongHost.handshakeError), /403/, 'mode=webapp 拨非环回主机必须 403')
+
+    // 原有边界不变：不带 mode 时同一个端口仍然按「DSH 自身端口」拒掉。
+    const noMode = await pipe(frontPort, devPort, { request: null, settleMs: 800 })
+    assert.match(String(noMode.handshakeError), /403/, '不带 mode 时宿主自身端口必须仍 403')
+    assert.equal(dev.seen.length, 1, '被拒的那三条不该被拨到（只有带 mode 的那一条真的连上了）')
+  } finally {
+    await front.close()
+    await new Promise((resolve) => dev.server.close(resolve))
+    service.close()
+  }
+})
+
+/**
  * 白名单与拨号计划是这条管道的能力边界，写成纯函数直接钉边界值——走真握手只能挑两三个
  * 地址验，段边界（100.63 / 100.128、172.15 / 172.32、fe80 / fec0）得靠这张表。
  */

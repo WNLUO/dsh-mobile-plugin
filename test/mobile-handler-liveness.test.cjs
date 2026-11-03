@@ -147,6 +147,8 @@ function fakeReq(url) {
 }
 
 /** 真装配一次路由表，`guarded` 原样放行（鉴权边界归 mobile-route-dispatch.test.cjs 管）。 */
+const hostWeb = require('../lib/mobile/host-web.js');
+
 function mountRoutes() {
   const routes = [];
   registerMobileRoutes({
@@ -160,6 +162,7 @@ function mountRoutes() {
     safeIpv6Candidates: () => [],
     lanPortInUse: () => 0,
     preview: { handleUpgrade() {} },
+    hostWeb: hostWeb.handleHostWeb,
     core: {},
     pairingApproval: null,
   });
