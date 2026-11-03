@@ -504,3 +504,45 @@ test('host-settings：字段控件形状从宿主 schema 推出来（开关 / �
     assert.equal('fields' in shaped, false, JSON.stringify(bad));
   }
 });
+
+test('host-settings：键值映射推成 map 字段（权限档的 presets 那种）', () => {
+  const schema = {
+    uid: 30,
+    refs: {
+      1: { type: 'const', value: 'read-only' },
+      2: { type: 'const', value: 'workspace-write' },
+      3: { type: 'union', list: [1, 2], meta: { required: true } },
+      4: { type: 'const', value: 'ask' },
+      5: { type: 'const', value: 'never' },
+      6: { type: 'union', list: [4, 5], meta: { required: true } },
+      7: { type: 'string', meta: {} },
+      20: { type: 'object', dict: { sandbox: 3, approval: 6, name: 7 } },
+      21: { type: 'dict', inner: 20 },
+      22: { type: 'string', meta: { volatile: true } },
+      30: { type: 'object', dict: { presets: 21, defaultPreset: 22 } },
+    },
+  };
+  const out = normalizeNamespace({ ns: 'permission', value: { presets: {} }, applies: 'live', revision: 1, secrets: [], schema });
+  assert.deepEqual(out.fields, [
+    {
+      key: 'presets',
+      type: 'map',
+      fields: [
+        { key: 'sandbox', type: 'enum', options: ['read-only', 'workspace-write'], required: true },
+        { key: 'approval', type: 'enum', options: ['ask', 'never'], required: true },
+        { key: 'name', type: 'string' },
+      ],
+    },
+    { key: 'defaultPreset', type: 'string' },
+  ]);
+  // 空 dict / 里面一层不是对象：认不出来就当普通字段处理（App 那边退回文本框），不是整份崩掉。
+  const shallow = normalizeNamespace({
+    ns: 'x',
+    value: {},
+    applies: 'live',
+    revision: 1,
+    secrets: [],
+    schema: { uid: 3, refs: { 1: { type: 'dict', inner: 2 }, 2: { type: 'string' }, 3: { type: 'object', dict: { m: 1 } } } },
+  });
+  assert.equal(shallow.fields, undefined);
+});
