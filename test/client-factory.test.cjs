@@ -821,8 +821,36 @@ test('设置项：还没读到地址时不挂死链，卡上说清在等什么',
   ], '这张卡上只有标题 / 说明 / 那一颗按钮');
   const button = findByClass(tree, 'dshm_btnPrimary');
   assert.equal(button.props.href, undefined);
-  assert.equal(button.props['aria-disabled'], 'true');
+  assert.equal(button.props['aria-disabled'], 'false', '没地址也照样能点：点了会自己去开窗再取地址');
   assert.equal(texts(tree).includes('正在读取页面地址…'), true);
+});
+
+test('设置项：读状态被窗口门挡住（423）时，点它先开窗再取地址', async () => {
+  const posts = [];
+  let accessOpen = false;
+  const env = materialize({
+    fetch: async (url, init = {}) => {
+      const path = String(url);
+      if (path.endsWith('/status')) {
+        if (!accessOpen) return { ok: false, status: 423, json: async () => ({ ok: false, error: { code: 'web_access_closed', message: '暂未开放' } }) };
+        return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
+      }
+      if (path.endsWith('/web-access')) {
+        posts.push(JSON.parse(init.body));
+        accessOpen = true;
+        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderSettings();
+  await env.hooks.flush();
+  const button = findByClass(env.renderSettings(), 'dshm_btnPrimary');
+  assert.equal(button.props.href, undefined, '宿主没给地址：不挂死链');
+  await button.props.onClick({ preventDefault() {} });
+  await settle(12);
+  assert.deepEqual(posts, [{ enabled: true }]);
+  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl);
 });
 
 test('设置项：读到地址后按钮指向配置页，本机点击不拦也不开窗口', async () => {
@@ -993,21 +1021,48 @@ test('认不出那一行（外壳换了版式）：退回自己一行，入口�
   assert.equal(tree.type, 'a');
   assert.match(tree.props.className, /dshm_footActionRail/);
   assert.equal(tree.props.href, undefined, '没问到地址就不给链接');
-  assert.equal(tree.props['aria-disabled'], 'true');
+  assert.equal(tree.props['aria-disabled'], 'false', '没地址也照样能点：点了会自己去开窗再取地址');
 });
 
-test('宿主没给地址：不挂死链，只说自己还没就绪', async () => {
+test('宿主没给地址：不挂死链，但点它自己开窗再取地址（不再是死图标）', async () => {
   const sidebar = fakeSidebarRow();
+  const posts = [];
+  let accessOpen = false;
   const env = materialize({
     sidebar,
-    fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }),
+    fetch: async (url, init = {}) => {
+      const path = String(url);
+      if (path.endsWith('/status')) {
+        // 窗口关着时，非本机浏览器读到的是 423（`/status` 自己也在窗口门后面）。
+        if (!accessOpen) {
+          return { ok: false, status: 423, json: async () => ({ ok: false, error: { code: 'web_access_closed', message: '网页管理暂未开放' } }) };
+        }
+        return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
+      }
+      if (path.endsWith('/web-access')) {
+        posts.push(JSON.parse(init.body));
+        accessOpen = true;
+        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
   });
   env.renderFooter();
   await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
   const node = footerDomNode(sidebar);
-  assert.equal(node.attrs.href, undefined, '没有地址时锚点不该有 href（点不动，比死链诚实）');
-  assert.equal(node.attrs['aria-disabled'], 'true');
+  assert.equal(node.attrs.href, undefined, '没有地址时锚点不该有 href（不挂死链）');
+  assert.equal(node.attrs['aria-disabled'], 'false', '点了有事可做，不是一颗灰掉的死图标');
   assert.equal(node.attrs.title, '网页地址还没就绪');
+  assert.equal(typeof node.onclick, 'function', '没有地址时也必须挂点击处理');
+
+  await node.onclick({ preventDefault() {} });
+  await settle(12);
+  assert.deepEqual(posts, [{ enabled: true }], '先开两小时窗口——这是远程用户唯一能走通的顺序');
+  assert.equal(env.openedWindows.length, 1, '新窗口在点击那一帧就开出来了');
+  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl, '开完窗再读一次状态，地址就拿到了');
+  assert.equal(diagnosisNode(env), undefined, '自救成功就不该再弹诊断窗');
 });
 
 test('宿主那一半没装载（404）：标题说清该怎么处理，不甩一句 HTTP 404', async () => {
