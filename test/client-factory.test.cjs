@@ -463,7 +463,7 @@ function createEnv(options = {}) {
       ...(services ? { get: (name) => services[name] } : {}),
     };
     plugin.apply(ctx);
-    assert.equal(registrations.length, 1, 'apply 只注册侧边栏那颗图标（设置项已经按用户要求去掉）');
+    assert.equal(registrations.length, 2, 'apply 注册设置那一项与侧边栏那颗图标');
     return plugin;
   }
 
@@ -485,9 +485,18 @@ function createEnv(options = {}) {
     return registration.component({ wide: true, ...props, t });
   }
 
+  /** 渲染「设置 → 移动端」那张薄卡；`preset` 按 useState 顺序（0 url / 1 scope / 2 access / 3 failure）。 */
+  function renderSettings(preset) {
+    const registration = byPathname('settings.section');
+    const { t } = registration.inject();
+    hooks.begin(preset);
+    return registration.component({ t });
+  }
+
   return {
     run,
     renderFooter,
+    renderSettings,
     byPathname,
     registrations,
     confirms,
@@ -745,28 +754,39 @@ test('开窗口失败不留空白页，而是弹诊断窗并把宿主的原话�
   }
 });
 
-/* ── 4. 唯一入口：设置菜单里那一项已经去掉 ───────────────────────────────
- * 2026-11-02 用户要求：进网页的唯一入口就是侧边栏那颗手机图标。设置菜单里那张薄卡
- * （网页入口 + 本机开关 + 404 诊断屏）整块下线，这一半只剩一颗图标。
+/* ── 4. 两个入口：设置里那一项与侧边栏那颗图标 ──────────────────────────
+ * 2026-11-03 用户要求把「设置 → 移动端」加回来：介绍产品时说的入口就是它；2026-11-02
+ * 那一版把它整块下线、只留那颗图标，于是从网页版进来的人不知道配置在哪。两项进的是
+ * 同一个页面（图标是快捷方式，卡片是设置里的正规入口），卡片刻意只有一张薄卡。
  */
 
-test('这一半只注册那颗图标：设置菜单里那一项已经不存在', () => {
+/** 在元素树里按 className 找第一个元素。 */
+function findByClass(node, wanted) {
+  if (node == null || typeof node !== 'object') return null;
+  const name = node.props && node.props.className;
+  if (typeof name === 'string' && name.split(/\s+/).includes(wanted)) return node;
+  for (const child of node.children || []) {
+    const found = findByClass(child, wanted);
+    if (found) return found;
+  }
+  return null;
+}
+
+test('两个入口都注册着：设置里那一项与侧边栏那颗图标', () => {
   const env = materialize();
-  assert.equal(env.registrations.length, 1, 'apply 现在只注册侧边栏那颗图标');
-  assert.equal(SOURCE.includes('settings.section'), false, '设置菜单那一项已经按用户要求去掉');
-  assert.equal(SOURCE.includes('MobileSettingsSection'), false, '那一整块组件跟着一起下线');
-  // 那颗图标仍然注册在原来的动作位上：入口的座位没变，只是它成了唯一的入口。
+  assert.equal(env.registrations.length, 2, 'apply 注册设置项与侧边栏那颗图标');
+  assert.equal(env.byPathname('settings.section').id, 'mobile');
   assert.equal(env.byPathname('sidebar.footer.action').id, 'mobile-web');
 });
 
-test('字典只有图标与诊断窗那几条，中英一一对应', () => {
+test('字典覆盖两张界面，中英一一对应', () => {
   const env = materialize();
   const dict = env.dictionaries.get(NS);
   assert.ok(dict, `${NS} 字典必须注册`);
   assert.deepEqual(Object.keys(dict.zh).sort(), Object.keys(dict.en).sort());
-  // 键集逐个钉死：这一半只有「一颗图标 + 它打开的诊断窗」，不长成第二个管理面板。
+  // 键集逐个钉死：一张薄卡 + 一颗图标 + 那张诊断窗，不长成第二个管理面板。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
-    'diagBusy', 'diagChecking', 'diagClose', 'diagCopied', 'diagCopy', 'diagCopyFailed',
+    'cardPanel', 'diagBusy', 'diagChecking', 'diagClose', 'diagCopied', 'diagCopy', 'diagCopyFailed',
     'diagFactActivated', 'diagFactOnDisk', 'diagFactPanelUrl', 'diagFactPlugin', 'diagFactReason',
     'diagFactRetry', 'diagFactReturned', 'diagFactScope', 'diagFactSelfcheck', 'diagFactShell',
     'diagFactSource', 'diagFactStatus', 'diagFactUnavailable', 'diagFactWindow',
@@ -775,24 +795,73 @@ test('字典只有图标与诊断窗那几条，中英一一对应', () => {
     'diagStepReinstall', 'diagStepRestart', 'diagStepRetryOpen', 'diagStepRetrying',
     'diagSummaryLoadFailed', 'diagSummaryLoadMissing', 'diagSummaryNoError',
     'diagSummaryOpenFailed', 'diagSummaryRestored', 'diagSummaryUnreachable', 'diagTitleLoad',
-    'diagTitleOpen', 'footerLoadMissing', 'footerOpen', 'footerPending', 'footerPublicConfirm'
+    'diagTitleOpen', 'footerLoadMissing', 'footerOpen', 'footerPending', 'footerPublicConfirm',
+    'heading', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending'
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
 });
 
-test('旧界面没有长回来：设置项卡片与它的字段都不再渲染', () => {
-  for (const gone of [
-    'MobileSettingsSection', 'settings.section', 'dshm_root', 'dshm_card', 'dshm_cardTitle',
-    'dshm_heading', 'dshm_actions', 'dshm_note', 'dshm_error',
-    '开放网页管理 2 小时', 'webAccessHint', 'hostHalfReloadFailed',
-  ]) {
-    assert.equal(SOURCE.includes(gone), false, `「${gone}」已经随设置项下线，不许再长回来`);
+test('设置项只是一张薄卡：旧的整块设置界面没有跟着回来', () => {
+  for (const gone of ['开放网页管理 2 小时', 'webAccessHint', 'hostHalfReloadFailed', 'restartScopeBody']) {
+    assert.equal(SOURCE.includes(gone), false, `「${gone}」不许跟着设置项一起长回来`);
   }
   assert.equal(SOURCE.includes('/update/status'), false, '插件自更新那套早已拆掉，更新只走 npm');
-  // 现在这一半的界面只有两颗东西：那颗图标 + 它弹出来的诊断窗。
-  assert.match(SOURCE, /\.dshm_footAction\{/);
-  assert.match(SOURCE, /\.dshm_overlay\{/);
-  assert.match(SOURCE, /\.dshm_dialog\{/);
+  // 卡片三件套 + 图标 + 诊断窗：这一半的界面就这几样。
+  for (const kept of ['.dshm_footAction{', '.dshm_overlay{', '.dshm_dialog{', '.dshm_card{', '.dshm_heading{']) {
+    assert.equal(SOURCE.includes(kept), true, `「${kept}」的样式要在`);
+  }
+});
+
+test('设置项：还没读到地址时不挂死链，卡上说清在等什么', () => {
+  const env = materialize();
+  const tree = env.renderSettings();
+  assert.deepEqual(classNames(tree).filter((name) => name.startsWith('dshm_')), [
+    'dshm_root', 'dshm_heading', 'dshm_card', 'dshm_cardTitle', 'dshm_note', 'dshm_actions',
+    'dshm_btn dshm_btnPrimary',
+  ], '这张卡上只有标题 / 说明 / 那一颗按钮');
+  const button = findByClass(tree, 'dshm_btnPrimary');
+  assert.equal(button.props.href, undefined);
+  assert.equal(button.props['aria-disabled'], 'true');
+  assert.equal(texts(tree).includes('正在读取页面地址…'), true);
+});
+
+test('设置项：读到地址后按钮指向配置页，本机点击不拦也不开窗口', async () => {
+  const env = materialize({ fetch: async () => ({ ok: true, status: 200, json: async () => readyStatus() }) });
+  env.renderSettings();
+  await env.hooks.flush();
+  const button = findByClass(env.renderSettings(), 'dshm_btnPrimary');
+  assert.equal(button.props.href, readyStatus().panelUrl);
+  assert.equal(button.props['aria-disabled'], 'false');
+  let prevented = false;
+  await button.props.onClick({ preventDefault() { prevented = true; } });
+  await settle();
+  assert.equal(prevented, false, '回环地址就交给浏览器照常跳转');
+  assert.equal(env.openedWindows.length, 0);
+});
+
+test('设置项：从别的机器打开的浏览器也先把两小时窗口开出来再跳', async () => {
+  const posts = [];
+  const env = materialize({
+    fetch: async (url, init = {}) => {
+      if (String(url).endsWith('/status')) {
+        return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
+      }
+      if (String(url).endsWith('/web-access')) {
+        posts.push(JSON.parse(init.body));
+        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderSettings();
+  await env.hooks.flush();
+  const button = findByClass(env.renderSettings(), 'dshm_btnPrimary');
+  let prevented = false;
+  await button.props.onClick({ preventDefault() { prevented = true; } });
+  await settle();
+  assert.equal(prevented, true, '要先把默认跳转拦下来，等窗口开好再导航');
+  assert.deepEqual(posts, [{ enabled: true }]);
+  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl);
 });
 
 /* ── 5. 侧边栏底部那颗手机图标（唯一的入口）─────────────────────────────
