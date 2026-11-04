@@ -369,7 +369,7 @@ test('模型那组工具里没有任何一条能自己指定手机', () => {
   // 动作名与宿主服务那张表对得上（名字里 phone_ 前缀去掉之后是 action 的驼峰写法）
   const names = registered.map((tool) => tool.name).sort();
   assert.deepEqual(names, [
-    'phone_apps', 'phone_key', 'phone_open_app', 'phone_screen',
+    'phone_apps', 'phone_key', 'phone_open_app', 'phone_screen', 'phone_screenshot',
     'phone_scroll', 'phone_tap', 'phone_target', 'phone_type',
   ]);
 });

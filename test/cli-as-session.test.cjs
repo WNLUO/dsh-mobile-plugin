@@ -258,6 +258,32 @@ test('停止 / 改名：stop 转 ACP cancel，rename 改得了标题', async () 
   assert.equal(renameRes.out.body.title, '新名字')
 })
 
+test('投递去重：同一 clientMessageId 再发不喂第二遍，delivery 照实回「收下了」', async () => {
+  const session = makeSession({ blocks: makeBlockLog([]) })
+  const { bridge, calls } = makeBridge({ session })
+  const send = bridge.route('/api/mobile/v1/session/send', () => { throw new Error('不该走宿主') })
+  const delivery = bridge.route('/api/mobile/v1/session/delivery', () => { throw new Error('不该走宿主') })
+
+  const first = fakeRes(fakeReq({ method: 'POST', body: { sessionId: 'cli-1', text: '你好', clientMessageId: 'm-1' } }))
+  await send({}, first.req, first)
+  assert.equal(first.out.body.accepted, true)
+  assert.deepEqual(calls.prompts, ['你好'])
+
+  const probe = async (cid) => {
+    const res = fakeRes(fakeReq({ method: 'GET', url: `/api/mobile/v1/session/delivery?sessionId=cli-1&clientMessageId=${cid}` }))
+    await delivery({}, res.req, res)
+    return res.out.body.delivered
+  }
+  assert.equal(await probe('m-1'), true)
+  assert.equal(await probe('m-2'), false)
+
+  // 同一个投递 id 再来一次：按成功收，但**不再发第二轮**（超时重发不能把同一句喂两遍）。
+  const again = fakeRes(fakeReq({ method: 'POST', body: { sessionId: 'cli-1', text: '你好', clientMessageId: 'm-1' } }))
+  await send({}, again.req, again)
+  assert.equal(again.out.body.accepted, true)
+  assert.deepEqual(calls.prompts, ['你好'])
+})
+
 test('SSE：块变化翻成 App 认的帧，序门靠单调 seq', () => {
   const session = makeSession({
     status: 'running',
