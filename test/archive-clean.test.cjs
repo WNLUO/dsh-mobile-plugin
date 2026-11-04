@@ -381,9 +381,10 @@ test('启动收尾先删队里的日志、再擦归档集合', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'session-cleanup.cjs'), 'utf8');
   const once = source.slice(source.indexOf('async function pruneOrphanedArchivedSessionsOnce'));
   const sweepAt = once.indexOf('deleteQueuedArchivedSessions(log, ctx)');
-  const pruneAt = once.indexOf('pruneOrphanedArchivedSessions(ctx)');
+  const pruneAt = once.indexOf('await pruneOrphanedArchivedSessions(');
   assert.ok(sweepAt > 0, '启动收尾必须删掉队里排着的日志');
   assert.ok(pruneAt > sweepAt, '删日志要在擦归档集合之前');
+  assert.match(once, /skip\s*=\s*deleted\.filter/, '本次刚删掉的 id 要带成 skip，这一轮不擦归档集合');
   const install = source.slice(source.indexOf('function installSessionCleanup'));
   assert.match(install, /restoreQueuedArchivedClearIds\(ctx\)/, '装载时必须把队列补进删除集，否则插件一重载它们就复活');
 });

@@ -20,15 +20,19 @@ import { Root } from './Root.tsx'
 export function Shell() {
   // 订阅语言状态：换语言时这一层重渲，下面的页面跟着整棵重绘。
   usePanelLanguage()
+  // 调试页是嵌在 DSH 那个弹窗里的一窗（宽约一千），右上角那组「日夜 / 语言」与右下角
+  // 「加入交流群」都会压到读数或那排操作按钮上；它们是给「人从浏览器打开这一页」准备的，
+  // 调试图不挂。主题跟随系统，够用。
+  const debugPage = window.location.pathname.replace(/\/+$/, '').endsWith('/debug')
 
   return (
     <>
       <Root />
-      <TopRightActions />
+      {debugPage ? null : <TopRightActions />}
       {/* 右下角那颗「加入交流群」：与右上角那组同理，**不属于任何一屏** ——
           2026-10-26 用户要求引导页也放一颗，与其在两页各挂一次（各写一个坐标、
           迟早错开），不如跟着外壳渲染一次。 */}
-      <JoinGroupButton />
+      {debugPage ? null : <JoinGroupButton />}
     </>
   )
 }

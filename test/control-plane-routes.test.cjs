@@ -78,6 +78,8 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/panel',
     '/api/relay/panel/setup',
     '/api/relay/panel/settings',
+    // 调试页：桌面端那颗手机图标点开的就是它（同一份 HTML，分流在 React 侧）。
+    '/api/relay/panel/debug',
     '/api/relay/onboarded',
     '/api/relay/desktop-view',
     '/api/relay/read-receipt',
@@ -434,5 +436,5 @@ test('只有面板页放开「人点开的一页」，别的控制面路由不�
   // 社区桌面壳会把自己接住的链接原地打开，从自定义协议页跳到面板地址时必带
   // `sec-fetch-site: cross-site`。这一种形态只对「只读的一页」放开（面板页、桌面画布页）；
   // 放开别的就得先想清楚它是不是也能被别人的网页点开。
-  assert.deepEqual(allowed, ['/api/relay/canvas', '/api/relay/panel', '/api/relay/panel/settings', '/api/relay/panel/setup']);
+  assert.deepEqual(allowed, ['/api/relay/canvas', '/api/relay/panel', '/api/relay/panel/debug', '/api/relay/panel/settings', '/api/relay/panel/setup']);
 });

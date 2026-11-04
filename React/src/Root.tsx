@@ -1,7 +1,16 @@
+/**
+ * 面板这一页的**分流**：按地址后缀决定渲染哪一屏。
+ *
+ * 四条地址由宿主吐同一份 HTML（`lib/routes/control-plane.js` 那几条 `/api/relay/panel*`），
+ * 差别全在这里：`/panel` 自己问宿主配过没有、`/panel/setup` 强制引导、`/panel/settings`
+ * 强制主页、`/panel/debug` 强制调试页（桌面端那颗手机图标点开的就是它，见 `Debug.tsx`）。
+ * 认后缀用 `endsWith`：这一页可能挂在反代给的子路径下，前缀变了不该把几条路弄丢。
+ */
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
 
 import { App } from './App.tsx'
+import { Debug } from './Debug.tsx'
 import { Onboarding } from './Onboarding.tsx'
 import { apiGet, type StatusView } from './lib/api.ts'
 import { t } from './lib/i18n/index.ts'
@@ -9,26 +18,30 @@ import { t } from './lib/i18n/index.ts'
 /**
  * 分流：走引导还是进插件主页。
  *
- * 三条地址都由宿主同一份 HTML 承载，差别只在这里认的后缀：
+ * 四条地址都由宿主同一份 HTML 承载，差别只在这里认的后缀：
  * - `.../api/relay/panel`           什么都不强制：问宿主，`status.onboarded` 或
  *   `status.enabled` 为真就进主页。宿主说了算（标志落在 relay.json 里），不用
  *   localStorage——换个浏览器、清一次缓存都不该让引导重来一遍。`enabled` 也算
  *   「配过了」：老机器升级上来时 relay.json 里没有那个键，它们本来就在正常用。
  * - `.../api/relay/panel/setup`     强制先走引导，走完才进主页（想再看一遍流程时用）。
  * - `.../api/relay/panel/settings`  强制进主页，跳过引导（演示 / 排查时用）。
+ * - `.../api/relay/panel/debug`     强制进调试页，什么都不问（那块屏本来就是给排障看的，
+ *   状态读不到时更得进得去）。
  *
- * 用 `endsWith` 而不是全等：这一页挂在中转/宿主给的某个前缀下面，前缀变了不该把两条路弄丢。
+ * 用 `endsWith` 而不是全等：这一页挂在中转/宿主给的某个前缀下面，前缀变了不该把几条路弄丢。
  */
 export function Root() {
   const path = window.location.pathname.replace(/\/+$/, '')
   const forcedSetup = path.endsWith('/setup')
   const forcedSettings = path.endsWith('/settings')
+  /** `/api/relay/panel/debug`：调试页（桌面端点那颗手机图标弹的就是它）。 */
+  const forcedDebug = path.endsWith('/debug')
   /** null = 还没问到宿主。读不到状态就当「配过了」，把错误交给主页去说，别卡在加载上。 */
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [entered, setEntered] = useState(false)
 
   useEffect(() => {
-    if (forcedSetup || forcedSettings) return undefined
+    if (forcedSetup || forcedSettings || forcedDebug) return undefined
     let alive = true
     void (async () => {
       try {
@@ -41,9 +54,11 @@ export function Root() {
     return () => {
       alive = false
     }
-  }, [forcedSetup, forcedSettings])
+  }, [forcedSetup, forcedSettings, forcedDebug])
 
   if (forcedSettings) return <App />
+
+  if (forcedDebug) return <Debug />
 
   if (forcedSetup) return entered ? <App /> : <Onboarding onDone={() => setEntered(true)} />
 

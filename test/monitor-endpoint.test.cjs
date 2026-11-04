@@ -20,6 +20,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { handleMonitor } = require('../lib/mobile/monitor.js');
+const { resetArchivedSessionIdsForTest } = require('../lib/mobile/session-flags.js');
 const { recordLastTurn, recordSessionRead } = require('../lib/mobile/session-last-turn.js');
 const { completionStateOf } = require('../lib/mobile/session-cache.js');
 const { listSignal } = require('../lib/shared/list-signal.js');
@@ -298,6 +299,55 @@ test('归档会话不进监控视图', async () => {
   ctx.state.archivedSessionIds = ['s2'];
   const body = await get(ctx, URL_);
   assert.deepEqual(body.items.map((i) => i.sessionId), ['s1']);
+});
+
+/**
+ * 读不到归档集合时**不能**当成「什么都没归档」。
+ *
+ * 这条视图的判据是「会话还在不在清单里」。按空集合画，已归档的会话会重新进清单 —— 原生
+ * 刚因为它消失而清了基线，于是它成了「第一次见到」，只要那一轮结束在十分钟内就再响一遍。
+ * 所以沿用上一次真正读到的归档集合。别改成回 5xx：那条 RPC 在 0.2.0 宿主要现开
+ * `workspace.follow` 取首帧，失败率不低，每失败一拍就让后台提醒整条哑掉更糟。
+ */
+test('读不到归档集合时沿用上一次读到的那份（别让已归档会话重新进清单）', async () => {
+  resetArchivedSessionIdsForTest();
+  const ctx = makeCtx([session('s1'), session('s2')]);
+  ctx.state.archivedSessionIds = ['s2'];
+  const first = await get(ctx, URL_);
+  assert.deepEqual(first.items.map((i) => i.sessionId), ['s1']);
+
+  // 宿主那条 RPC 抖一下：集合读不到了。
+  ctx.apiProxy.workspace.list = async () => { throw new Error('workspace.list exploded'); };
+  const second = await get(ctx, URL_);
+  assert.deepEqual(second.items.map((i) => i.sessionId), ['s1'],
+    '读不到归档集合时把已归档的会话放回清单 = 后台再为它响一声');
+
+  // 读回来之后跟着新的账走：取消归档的那条要重新出现。
+  ctx.apiProxy.workspace.list = async () => ({ result: { ok: true, value: { items: [], archivedSessionIds: [] } } });
+  const third = await get(ctx, URL_);
+  assert.deepEqual(third.items.map((i) => i.sessionId).sort(), ['s1', 's2']);
+  resetArchivedSessionIdsForTest();
+});
+
+test('一本归档账都没有（进程刚起来就问不到）时退回空集合，不凭空造提醒', async () => {
+  resetArchivedSessionIdsForTest();
+  const ctx = makeCtx([session('s1')]);
+  ctx.apiProxy.workspace.list = async () => { throw new Error('workspace.list exploded'); };
+  const body = await get(ctx, URL_);
+  // 空集合只是「不知道」；首拍原生还没有基线，见到什么也只建基线、不提醒。
+  assert.deepEqual(body.items.map((i) => i.sessionId), ['s1']);
+  resetArchivedSessionIdsForTest();
+});
+
+test('归档集合以 Set 形态给过来也要认（否则那类宿主上归档过滤恒失效）', async () => {
+  resetArchivedSessionIdsForTest();
+  const ctx = makeCtx([session('s1'), session('s2')]);
+  ctx.apiProxy.workspace.list = async () => ({
+    result: { ok: true, value: { items: [], archivedSessionIds: new Set(['s2']), pinnedSessionIds: [] } },
+  });
+  const body = await get(ctx, URL_);
+  assert.deepEqual(body.items.map((i) => i.sessionId), ['s1']);
+  resetArchivedSessionIdsForTest();
 });
 
 test('清单顺序换过不算变化（指纹按 id 排过）', async () => {

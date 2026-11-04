@@ -261,6 +261,63 @@ test('启动修剪：擦不动的不算修剪成功', withHome(async () => {
   assert.equal(await pruneOrphanedArchivedSessions(ctx), 0);
 }));
 
+test('启动修剪：本次刚删掉日志的 id 这一轮不擦，留到下一次启动', withHome(async (home) => {
+  // 桌面端的会话列表是「启动快照 + 增量」，宿主启动和删日志是并发的：快照可能先把这些行
+  // 带走。这一轮就擦集合的话，宿主一广播「归档变了」，它们又会被放回正常列表。
+  const doomed = writeSession(home, 'session-doomed');
+  queueArchivedClearIds(['session-doomed']);
+  const unarchived = [];
+  const ctx = {
+    apiProxy: {
+      workspace: {
+        list: async () => envelope({ archivedSessionIds: ['session-doomed', 'session-old-orphan'] }),
+        unarchiveSession: async (request) => {
+          unarchived.push(request.payload.sessionId);
+          return envelope({});
+        },
+      },
+    },
+  };
+
+  const sweep = await deleteQueuedArchivedSessions(undefined, ctx);
+  assert.deepEqual(sweep.deleted, ['session-doomed'], '这次启动先把日志删掉');
+  assert.equal(fs.existsSync(doomed), false);
+
+  assert.equal(await pruneOrphanedArchivedSessions(ctx, sweep.deleted), 1, '这一轮只擦启动前就已经没有日志的 id');
+  assert.deepEqual(unarchived, ['session-old-orphan'], '刚删掉的那条这次不许放出来');
+
+  // 下一次启动：它已经「启动前就没有日志」，这时才擦，任何新快照里都不会再有这一行。
+  await pruneOrphanedArchivedSessions(ctx);
+  assert.ok(unarchived.includes('session-doomed'), '下一次启动才擦掉这次刚删的那条');
+}));
+
+test('启动收尾：本次删掉的 id 不在同一次启动里擦归档集合', withHome(async (home) => {
+  delete globalThis[Symbol.for('dsh-mobile-plugin.archived-prune')];
+  const doomed = writeSession(home, 'session-doomed');
+  queueArchivedClearIds(['session-doomed']);
+  const unarchived = [];
+  const logs = [];
+  const ctx = {
+    apiProxy: {
+      workspace: {
+        list: async () => envelope({ archivedSessionIds: ['session-doomed'] }),
+        unarchiveSession: async (request) => {
+          unarchived.push(request.payload.sessionId);
+          return envelope({});
+        },
+      },
+    },
+  };
+  try {
+    await pruneOrphanedArchivedSessionsOnce(ctx, (message) => logs.push(message));
+    assert.equal(fs.existsSync(doomed), false, '日志这次就删掉');
+    assert.deepEqual(unarchived, [], '刚删掉的 id 这一轮不许擦归档集合');
+    assert.ok(logs.some((line) => /deleted 1 session logs/.test(line)));
+  } finally {
+    delete globalThis[Symbol.for('dsh-mobile-plugin.archived-prune')];
+  }
+}));
+
 test('启动收尾：队里的日志先删掉，宿主的 workspace 还没就绪就重试，整轮只跑一次', withHome(async (home) => {
   // 代际热替换会重跑 apply，但桌面端那份会话列表快照挂在同一个宿主进程上：这份「进程里
   // 不许动磁盘、不许擦归档集合」的约束必须按进程而不是按代来守。

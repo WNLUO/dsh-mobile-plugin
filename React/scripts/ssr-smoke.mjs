@@ -56,7 +56,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice, Dbg] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -72,6 +72,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl
   server.ssrLoadModule('/src/components/LanguageMenu.tsx'),
   server.ssrLoadModule('/src/components/TopRightActions.tsx'),
   server.ssrLoadModule('/src/components/NoticeBoard.tsx'),
+  server.ssrLoadModule('/src/Debug.tsx'),
 ])
 
 const noop = () => {}
@@ -210,6 +211,11 @@ const cases = [
   ['DownloadAppButton', h(Dl.DownloadAppButton, {}), '下载 APP'],
   // 公告板：标题与那条号都得在 —— 号是常量、正文从它拼，缺了就是占位符没接上。
   // 公告卡里两条：版本门槛 + 「自己搭一台中转」，后者带一个指向仓库的链接。
+  // 调试页（桌面端那颗手机图标弹的就是它）：首屏还没读回宿主，只有标题与引导句，
+  // 但「加载、链路、故障账本」这几段的骨架得先立着，所以四段标题都该在。
+  ['Debug', h(Dbg.Debug, {}), '插件调试'],
+  ['Debug（装载段在）', h(Dbg.Debug, {}), '盘上版本'],
+  ['Debug（故障账本段在）', h(Dbg.Debug, {}), '故障账本'],
   ['NoticeBoard', h(Notice.NoticeBoard, {}), '搭建自己的网络'],
   ['NoticeBoard（版本门槛还在）', h(Notice.NoticeBoard, {}), '最低插件版本'],
 ]
