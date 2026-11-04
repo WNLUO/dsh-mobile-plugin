@@ -31,9 +31,13 @@ const ID = 'sha256:' + HEX;
 const BYTES = Buffer.alloc(4096);
 BYTES[0] = 0x89;
 BYTES.write('PNG', 1, 'latin1');
+// 一张「PNG 头」：`imageSizeOf` 从偏移 16 / 20 读宽高，这里写 12 × 7，好让现量元数据有真值。
+BYTES.writeUInt32BE(12, 16);
+BYTES.writeUInt32BE(7, 20);
 const OBJECT_DIR = path.join(HOME, 'attachments', 'v1', 'objects', HEX.slice(0, 2));
 fs.mkdirSync(OBJECT_DIR, { recursive: true });
-fs.writeFileSync(path.join(OBJECT_DIR, HEX.slice(2)), BYTES);
+// 宿主落盘是 `objects/<前两位>/<完整哈希>`（文件名是完整 64 位，不是去掉前两位的那段）。
+fs.writeFileSync(path.join(OBJECT_DIR, HEX), BYTES);
 const MISSING_ID = 'sha256:c0' + 'd'.repeat(62);
 
 const rpc = require('../lib/mobile/rpc.js');
@@ -82,7 +86,7 @@ function sealedRequest(extra = {}) {
 const call = (ctx, extra, res) => handleSessionAttachment(ctx, sealedRequest(extra), res);
 
 test('id 形状不对连路径都不拼（路径穿越 / 大写 / 长度不对 / 缺 sha256: 前缀）', () => {
-  assert.equal(store.objectPathOf(ID), path.join(OBJECT_DIR, HEX.slice(2)));
+  assert.equal(store.objectPathOf(ID), path.join(OBJECT_DIR, HEX));
   for (const bad of ['../../etc/passwd', 'A1'.repeat(32), 'a1b2', '', 'a'.repeat(63), 'a'.repeat(65), HEX, 'sha256:' + 'A'.repeat(64), null, 42]) {
     assert.equal(store.objectPathOf(bad), null, `不该接受 ${String(bad)}`);
   }
@@ -151,6 +155,21 @@ test('回退问宿主时递的是整份引用（宿主新版要这个形状）',
   assert.equal(hostCalls, 1);
   assert.deepEqual(hostArgs.attachment, { attachmentId: ID, ...ref });
   assert.equal(hostArgs.attachmentId, undefined, '编号不许留在顶层，要包进 attachment');
+  store.reset();
+});
+
+test('没记账时按盘上对象现量真实元数据（不能拿占位 0 去碰宿主的逐字段比对）', async () => {
+  // 宿主 `readImageFile` 会读盘上这份对象、探一遍再跟引用逐字段比对：类型 / 字节数 / 宽高
+  // 任一不符就回 `Stored attachment metadata does not match its reference.`（400）。所以没
+  // 记账时也要现量出与盘上字节一致的引用，不能填 0。
+  store.reset();
+  hostCalls = 0;
+  hostArgs = null;
+  hostPayload = { data: BYTES.toString('base64'), attachment: { mediaType: 'image/png' } };
+  const res = response();
+  await call({}, { raw: false }, res);
+  assert.equal(hostCalls, 1);
+  assert.deepEqual(hostArgs.attachment, { attachmentId: ID, mediaType: 'image/png', bytes: BYTES.length, width: 12, height: 7 });
   store.reset();
 });
 
