@@ -115,6 +115,7 @@ test('列表摘要：字段与普通会话一致，带 cliAgent / workspaceId', 
   assert.equal(summary.cwd, '/tmp/proj')
   assert.equal(summary.workspaceId, 'ws-1')
   assert.equal(summary.cliAgent, 'codex')
+  assert.equal(summary.cliAgentLabel, 'Codex')
   assert.equal(summary.blank, false)
   assert.deepEqual(summary.lastMessage, { role: 'assistant', text: '好的，先看代码', at: 20 })
 })
