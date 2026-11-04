@@ -9,7 +9,8 @@
  *      （`app/src/hooks/streamFrame.ts`，缺 rpcId 整帧丢弃），0.2.x 的宿主不再提供任何
  *      帧级 id，本桥铸的那个必须真进到帧里。
  *   2. **谁先答谁算数**：下游（桌面窗口）照旧拿到请求，手机答得早就用手机的；
- *      落定后另一边那张卡由 `question/resolved` 收掉。
+ *      落定后另一边那张卡由 `question/resolved` 收掉。「这一趟没人能答」（`NO_PROVIDER`）
+ *      **不是**结论 —— 手机可能马上就回来（通知、侧栏的待处理标记就是为这一下准备的）。
  *   3. **注册姿势**：`prepend` 是功能前提（宿主的转发器在桌面开着时不调用 `next()`），
  *      且只许在 0.2.x 那一侧装。
  *
@@ -325,6 +326,34 @@ test('桌面没开着（NO_PROVIDER）且手机在看：不把「没人答」当
   assert.equal(res.status, 200);
   assert.deepEqual(await held, { answers: [{ id: 'q1', selected: ['8787'] }] });
   watch();
+});
+
+test('桌面没开着、手机此刻也没在看：不判失败，等手机回来答（通知/侧栏把人带回来）', async () => {
+  // 现场（2026-11-04 用户报「从通知点进来 / 从另一个会话切过来，等待回答的问题自动跳过了」）：
+  // 手机停在别的会话或在后台时这条会话没有观众，桌面那边又没开，转发直接 NO_PROVIDER。
+  // 此前只在「有观众」时才不认这句失败，于是这条本来还能答的提问当场结算成「没人能答」，
+  // 模型收到工具报错、当作被跳过继续跑 —— 而通知本来就是把用户带回这张卡的那根线。
+  const { ctx, frames, watch } = setup();
+  const noProvider = Object.assign(new Error('no answerer'), { code: 'NO_PROVIDER' });
+  const held = runHook(ctx, ask(), () => Promise.reject(noProvider));
+  let outcome = null;
+  void held.then(() => { outcome = 'resolved'; }, () => { outcome = 'rejected'; });
+  await flush();
+  assert.equal(outcome, null, '没人看不是结论：这条提问不许当场结算');
+  assert.equal(questions.pendingKind('s-1'), 'question', '挂起项要留着，否则手机回来也没卡可答');
+
+  // 手机后来接上（点通知 / 切过来）：卡必须补发，并且答得动。
+  watch('s-1');
+  const card = frames.find((frame) => frame.type === 'question/requested');
+  assert.ok(card, '接上时没有补发那张卡');
+  const res = jsonResponse();
+  await questions.handleQuestionRespond(ctx, jsonRequest({
+    rpcId: card.rpcId,
+    sessionId: 's-1',
+    answer: { answers: [{ id: 'q1', selected: ['8787'] }] },
+  }), res);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await held, { answers: [{ id: 'q1', selected: ['8787'] }] });
 });
 
 test('手机没在看这个会话时照旧转发：纯桌面的竞速一字不改', async () => {
