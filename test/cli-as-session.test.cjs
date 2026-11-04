@@ -82,7 +82,7 @@ function makeBridge({ session, runPrompt, answerPermission, cancelTurn, setTitle
     },
     forget: (sessionId) => {
       calls.forgotten.push(sessionId)
-      sessions.delete(sessionId)
+      return sessions.delete(sessionId)
     },
   })
   return { bridge, sessions, calls }
@@ -188,6 +188,15 @@ test('模型目录：ACP 的 configOptions[category=model] 映射成宿主形状
   assert.deepEqual(body.current, { provider: 'codex', model: 'gpt-5' })
   assert.deepEqual(body.groups[0].models.map((model) => model.id), ['gpt-5', 'o4'])
 
+  // 进程还没握手完（`starting`）：**不能**回一份带 default 的假目录 —— App 会把它当真话
+  // 写进缓存，那个会话之后 20 秒都只显示 default（2026-11-04 用户报「模型一直出不来」）。
+  const starting = makeSession({ status: 'starting', configOptions: [], blocks: makeBlockLog([]) })
+  const pending = bridge.modelsBodyOf(starting)
+  assert.equal(pending.pending, true)
+  assert.equal(pending.routable, false)
+  assert.deepEqual(pending.groups, [])
+
+  // 握手成功、这家 CLI 确实没声明模型项：这时给一枚占位才是真话。
   const bare = makeSession({ configOptions: [], blocks: makeBlockLog([]) })
   const degraded = bridge.modelsBodyOf(bare)
   assert.equal(degraded.groups[0].models.length, 1)
@@ -329,6 +338,76 @@ test('收口顺序：状态帧先到、块落定帧后到，正文照样落成�
   assert.equal(frames.filter((frame) => frame.type === 'assistant/message' && frame.data.message.id === 't1').length, 1)
 })
 
+test('晚接上的连接也要收尾：发送之后才连流，turn/end 照样发得出去', () => {
+  // 现场（2026-11-04）：发送 → 进页面晚 / 断线重连 / 熄屏回来 → 这条流挂上时这一轮已经在跑。
+  // 早先 status 只记在会话上、收尾却只认这条连接的 turnOpen，于是这个连接一句 turn/end 都不发，
+  // 页面上的「深度求索中」永久挂着（正文早就到了）。
+  const session = makeSession({ status: 'running', blocks: makeBlockLog([]) })
+  const { bridge } = makeBridge({ session })
+  const writes = []
+  const res = fakeRes(fakeReq({ url: '/api/mobile/v1/session/stream?sessionId=cli-1' }))
+  res.socket = null
+  res.on = () => {}
+  res.write = (text) => { writes.push(text); return true }
+  bridge.handleStream({}, fakeReq({ url: '/api/mobile/v1/session/stream?sessionId=cli-1' }), res)
+
+  // 会话级观察者先看到了 running（真实顺序：块帧和状态帧都在连接挂上之前就广播过）。
+  push(session, { t: 'status', status: 'running' })
+  session.blocks = makeBlockLog([
+    { id: 'u1', kind: 'user', text: '做个事', at: 10 },
+    { id: 't1', kind: 'text', text: '做完了', at: 20, streaming: false },
+  ])
+  // 收尾帧到达这条**没有经历过 running** 的连接。
+  push(session, { t: 'status', status: 'idle' })
+
+  const frames = writes
+    .map((chunk) => chunk.split('\n').find((line) => line.startsWith('data: ')))
+    .filter(Boolean)
+    .map((line) => JSON.parse(line.slice(6)))
+    .filter((frame) => frame && frame.type && frame.type !== 'session/heartbeat')
+  assert.ok(frames.some((frame) => frame.type === 'turn/end'), '晚接上的连接也必须收到 turn/end');
+  assert.ok(frames.some((frame) => frame.type === 'assistant/message' && frame.data.message.id === 't1'));
+})
+
+test('收口之后到的增量只补消息、不再发草稿（否则 App 会把这一轮重新认成在跑）', () => {
+  // 现场（2026-11-04「AI 已经回复了，这边还在深度求索中」）：状态帧立即广播、块帧走 60ms 攒批，
+  // 于是 idle 先到、turn/end 当场发出去，紧接着攒批里最后一段正文的块帧才到。它要是当
+  // assistant/chunk 发出去，App 会按带回合号的增量把这一轮重新认成在跑，而这一轮再也不会
+  // 有第二次 turn/end。
+  const session = makeSession({ status: 'running', blocks: makeBlockLog([]) })
+  const { bridge } = makeBridge({ session })
+  const writes = []
+  const res = fakeRes(fakeReq({ url: '/api/mobile/v1/session/stream?sessionId=cli-1' }))
+  res.socket = null
+  res.on = () => {}
+  res.write = (text) => { writes.push(text); return true }
+  bridge.handleStream({}, fakeReq({ url: '/api/mobile/v1/session/stream?sessionId=cli-1' }), res)
+
+  const userBlock = { id: 'u1', kind: 'user', text: '做个事', at: 10 }
+  session.blocks = makeBlockLog([userBlock])
+  push(session, { t: 'block', block: userBlock })
+  push(session, { t: 'status', status: 'running' })
+  // 收口：正文先落定、状态变 idle
+  const textBlock = { id: 't1', kind: 'text', text: '做完了', at: 20, streaming: false }
+  session.blocks = makeBlockLog([userBlock, textBlock])
+  push(session, { t: 'status', status: 'idle' })
+  // 收尾那一刻正文已经按消息补出去了（turn/end 之后补发，见 settleTurn）。
+  assert.ok(writes.join('').includes('"id":"t1"'), '这一轮的正文必须落成 assistant/message');
+
+  const before = writes.length
+  // 攒批里最后那段正文的块帧现在才到（顺序与 service 里一致：块可能是先 mark 后 flush 的）
+  push(session, { t: 'block', block: textBlock })
+
+  const after = writes.slice(before)
+    .map((chunk) => chunk.split('\n').find((line) => line.startsWith('data: ')))
+    .filter(Boolean)
+    .map((line) => JSON.parse(line.slice(6)))
+    .filter((frame) => frame && frame.type)
+  assert.equal(after.filter((frame) => frame.type === 'assistant/chunk').length, 0, '收口之后不许再发草稿帧');
+  // 同一块也不许补第二遍消息（App 按 id 合并，但重复发只是白花流量）。
+  assert.equal(after.filter((frame) => frame.type === 'assistant/message').length, 0, '同一块只补一次');
+})
+
 /** 把一次 `/sessions` 合并跑完，返回回包。 */
 async function listVia(bridge, url, hostItems = []) {
   const req = fakeReq({ url })
@@ -347,18 +426,26 @@ async function flagVia(bridge, kind, sessionId) {
   return res.out.body
 }
 
-test('归档：默认视图里不出现，只出现在 ?archived=1；取消归档就回来', async () => {
+test('归档：等于关掉这条 CLI —— 进程收了、列表里消失、不进已归档视图', async () => {
   const session = makeSession({ blocks: makeBlockLog([{ id: 'u1', kind: 'user', text: 'hi', at: 1 }]) })
-  const { bridge } = makeBridge({ session })
+  const { bridge, sessions, calls } = makeBridge({ session })
   assert.equal((await listVia(bridge, '/api/mobile/v1/sessions')).items.length, 1)
 
-  assert.equal((await flagVia(bridge, 'archive', 'cli-1')).ok, true)
-  assert.equal((await listVia(bridge, '/api/mobile/v1/sessions')).items.length, 0, '归档后默认视图不该再有它')
-  assert.equal((await listVia(bridge, '/api/mobile/v1/sessions?archived=1')).items.length, 1, '已归档视图里要有它')
-
-  assert.equal((await flagVia(bridge, 'unarchive', 'cli-1')).ok, true)
-  assert.equal((await listVia(bridge, '/api/mobile/v1/sessions')).items.length, 1)
+  const body = await flagVia(bridge, 'archive', 'cli-1')
+  assert.equal(body.ok, true)
+  assert.equal(body.closed, true)
+  assert.deepEqual(calls.forgotten, ['cli-1'], '归档必须真的收掉那条会话（进程跟着走）')
+  assert.equal(sessions.size, 0)
+  assert.equal((await listVia(bridge, '/api/mobile/v1/sessions')).items.length, 0)
+  // 关掉的 CLI 不该在「已归档」那一页露头：那边归档的是宿主的会话文件，CLI 没有东西可回来。
   assert.equal((await listVia(bridge, '/api/mobile/v1/sessions?archived=1')).items.length, 0)
+})
+
+test('归档一条已经关掉的 CLI：按成功回，不弹错（幂等）', async () => {
+  const { bridge, calls } = makeBridge({})
+  const body = await flagVia(bridge, 'archive', 'cli-gone')
+  assert.equal(body.ok, true)
+  assert.deepEqual(calls.forgotten, [])
 })
 
 test('置顶：排在最前，且带上 pinned 字段（App 画图钉）', async () => {
@@ -380,21 +467,19 @@ test('置顶：排在最前，且带上 pinned 字段（App 画图钉）', async
   assert.ok(!after.items.some((item) => item.pinned === true))
 })
 
-test('会话收掉之后归档 / 置顶那两份账一起清掉', async () => {
+test('会话收掉之后置顶那本账跟着清掉（账挂在会话上，不单独存活）', async () => {
   const session = makeSession({ blocks: makeBlockLog([{ id: 'u1', kind: 'user', text: 'hi', at: 1 }]) })
   const { bridge, sessions, calls } = makeBridge({ session })
-  await flagVia(bridge, 'archive', 'cli-1')
   await flagVia(bridge, 'pin', 'cli-1')
   sessions.delete('cli-1') // 相当于 service 的 forget
   assert.deepEqual(calls.forgotten, [])
-  assert.equal((await listVia(bridge, '/api/mobile/v1/sessions?archived=1')).items.length, 0)
+  assert.equal((await listVia(bridge, '/api/mobile/v1/sessions')).items.length, 0)
   assert.equal(bridge.monitorItems().length, 0)
 })
 
-test('清空归档：把 CLI 的归档会话一起收掉，deleted 数字两头加总', async () => {
+test('清空归档不掺和 CLI 那半：归档就是关掉，这里没有可清的', async () => {
   const session = makeSession({ blocks: makeBlockLog([{ id: 'u1', kind: 'user', text: 'hi', at: 1 }]) })
   const { bridge, sessions, calls } = makeBridge({ session })
-  await flagVia(bridge, 'archive', 'cli-1')
   const req = fakeReq({ method: 'POST', body: { confirm: true } })
   const res = fakeRes(req)
   const host = async (_ctx, _req, target) => {
@@ -402,9 +487,9 @@ test('清空归档：把 CLI 的归档会话一起收掉，deleted 数字两头�
     target.end(JSON.stringify({ ok: true, deleted: 2 }))
   }
   await bridge.wrapClearArchived(host)({}, req, res)
-  assert.deepEqual(calls.forgotten, ['cli-1'])
-  assert.equal(sessions.size, 0)
-  assert.equal(res.out.body.deleted, 3)
+  assert.deepEqual(calls.forgotten, [], '清空归档不该顺手关掉还活着的 CLI')
+  assert.equal(sessions.size, 1)
+  assert.equal(res.out.body.deleted, 2)
 })
 
 test('monitor：CLI 会话的在跑 / 待回话 / 刚完成都进得来（形状与宿主逐字一致）', async () => {
@@ -561,4 +646,75 @@ test('审批：卡片帧照宿主形状（帧级 rpcId），回答按 ACP option
   const hostRes = fakeRes(fakeReq({ method: 'POST', body: { sessionId: 'host-1', rpcId: 'm-xxx', approvalId: 'x', outcome: 'rejected' } }))
   await respond({}, hostRes.req, hostRes)
   assert.equal(fellBack, 1)
+})
+
+test('档位与其它会话级下拉：ACP 的 thought_level 摊到每个模型上，其余变成附加选项行', () => {
+  const session = makeSession({
+    configOptions: [
+      {
+        id: 'model', name: 'Model', category: 'model', currentValue: 'gpt-6-luna',
+        options: [{ value: 'gpt-6-luna', name: '6 Luna' }, { value: 'gpt-6-astra', name: '6 Astra' }],
+      },
+      {
+        id: 'reasoning_effort', name: 'Reasoning effort', category: 'thought_level', currentValue: 'low',
+        options: [
+          { value: 'low', name: 'Low' },
+          { value: 'medium', name: 'Medium' },
+          { value: 'high', name: 'High' },
+        ],
+      },
+      {
+        id: 'fast-mode', name: 'Fast mode', category: 'model_config', currentValue: 'off',
+        options: [{ value: 'off', name: 'Off' }, { value: 'on', name: 'On' }],
+      },
+    ],
+    blocks: makeBlockLog([]),
+  })
+  const { bridge } = makeBridge({ session })
+  const body = bridge.modelsBodyOf(session)
+
+  // 档位挂在每个模型上（App 的滑轨只认 model.reasoning.efforts）。
+  for (const model of body.groups[0].models) {
+    assert.deepEqual(model.reasoning.efforts.map((effort) => effort.id), ['low', 'medium', 'high'])
+  }
+  // 当前选的那一档要能读出来，否则滑轨每次打开都停在第一档。
+  assert.equal(body.current.reasoningEffort, 'low')
+  // 快速档这类（`model_config`）走附加选项行，App 早就会画。
+  assert.deepEqual(body.options.map((row) => row.id), ['fast-mode'])
+  assert.equal(body.options[0].value, 'off')
+  assert.deepEqual(body.options[0].choices.map((choice) => choice.id), ['off', 'on'])
+
+  // 这家 CLI 不给档位时，`reasoning` 与 `reasoningEffort` 都不出现 —— 滑轨整个不画。
+  const plain = makeSession({
+    configOptions: [{
+      id: 'model', name: 'Model', category: 'model', currentValue: 'x',
+      options: [{ value: 'x', name: 'X' }],
+    }],
+    blocks: makeBlockLog([]),
+  })
+  const plainBody = makeBridge({ session: plain }).bridge.modelsBodyOf(plain)
+  assert.equal(plainBody.groups[0].models[0].reasoning, undefined)
+  assert.equal(plainBody.current.reasoningEffort, undefined)
+  assert.equal(plainBody.options, undefined)
+})
+
+test('列表变更信号：标题 / 状态 / 置顶一改就报一次，同样的内容不重复报', async () => {
+  const { listSignal } = require('../lib/shared/list-signal.js');
+  const session = makeSession({ blocks: makeBlockLog([]) })
+  const { bridge } = makeBridge({ session })
+  bridge.summaryOf(session) // 建立会话级观察者（`observe`）
+
+  const seen = []
+  const release = listSignal.onBump((event) => seen.push(event.revision))
+  const before = seen.length
+
+  push(session, { t: 'title', title: '重构一下侧栏' })
+  assert.ok(seen.length > before, '标题变了却没报清单变更（侧栏会停在 CLI 的名字上）')
+  const afterTitle = seen.length
+
+  // 同一份内容再报一次不该再广播（`bump` 幂等）。
+  push(session, { t: 'title', title: '重构一下侧栏' })
+  assert.equal(seen.length, afterTitle)
+
+  release()
 })

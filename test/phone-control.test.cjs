@@ -326,9 +326,33 @@ test('凭据不对一律拒', async () => {
 
 // ── 三、工具的参数表 ─────────────────────────────────────────────────────────
 
+/**
+ * 宿主那一侧 `tools` 是子代理作用域提供的服务：插件只能在 `ctx.inject(['tools'], …)` 的
+ * 回调里拿到它，直接读 `ctx.tools` 是 undefined。假体照这个形状给，别图省事写成
+ * `{ tools: { register } }` —— 那会让「注册路径写错了」这件事在测试里照样绿。
+ */
+function fakeCtx(register) {
+  const calls = [];
+  return {
+    calls,
+    inject(names, callback) {
+      calls.push(names);
+      callback({ tools: { register } });
+    },
+  };
+}
+
+test('工具走 ctx.inject([tools]) 注册，不是直接读 ctx.tools', () => {
+  const registered = [];
+  const ctx = fakeCtx((tool) => registered.push(tool));
+  installPhoneTools(ctx, { getService: () => null, listDevices: () => [], describeDevice: (id) => id });
+  assert.deepEqual(ctx.calls, [['tools']], '没走 tools 注入，宿主里这条注册会静默丢掉');
+  assert.ok(registered.length >= 8, `工具没注册全（${registered.length} 条）`);
+});
+
 test('模型那组工具里没有任何一条能自己指定手机', () => {
   const registered = [];
-  const ctx = { tools: { register: (tool) => registered.push(tool) } };
+  const ctx = fakeCtx((tool) => registered.push(tool));
   installPhoneTools(ctx, {
     getService: () => null,
     listDevices: () => [],
@@ -353,15 +377,16 @@ test('模型那组工具里没有任何一条能自己指定手机', () => {
 test('没有目标手机时工具报一句能照做的话，而不是默默挑一台', async () => {
   freshBinding();
   const registered = new Map();
-  const ctx = { tools: { register: (tool) => registered.set(tool.name, tool) } };
+  const ctx = fakeCtx((tool) => registered.set(tool.name, tool));
   installPhoneTools(ctx, {
     getService: () => ({ isOnline: () => true }),
     listDevices: () => [],
     describeDevice: (id) => id,
   });
   const tool = registered.get('phone_screen');
+  // 会话 id 在 `exec.agent.id`：写成 `agent.session.id` 的话这里恒为空串，绑定永远读不到。
   await assert.rejects(
-    () => tool.execute({}, { agent: { session: { id: 'no-binding' } }, signal: undefined }),
+    () => tool.execute({}, { agent: { id: 'no-binding' }, signal: undefined }),
     /还没有指定要操作哪台手机/,
   );
 });
