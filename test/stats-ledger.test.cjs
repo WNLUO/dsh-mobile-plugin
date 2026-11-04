@@ -158,6 +158,38 @@ test('范围折算：7d 固定七列、补零、KPI 与活跃天数只算窗口�
   assert.ok(all.days.length >= 40, 'all 从账本最早那天开始铺');
 });
 
+test('范围折算：今天 / 昨天 / 近 3 天各自只看自己的窗口', () => {
+  const now = Date.UTC(2026, 10, 5, 6, 0);
+  const book = bookWith([
+    { sessionId: 'today', at: now, delta: usage({ uncachedInputTokens: 100, turns: 1 }) },
+    { sessionId: 'yesterday', at: now - 86400000, delta: usage({ uncachedInputTokens: 200, turns: 1 }) },
+    { sessionId: 'before', at: now - 2 * 86400000, delta: usage({ uncachedInputTokens: 400, turns: 1 }) },
+  ]);
+
+  const today = ledger.summarize(book, 'today', now);
+  assert.equal(today.days.length, 1);
+  assert.equal(today.days[0].day, ledger.dayKeyOf(now));
+  assert.equal(today.kpi.uncachedInputTokens, 100, '今天只看今天');
+  assert.equal(today.kpi.sessions, 1, '昨天与前天那两条不上卡片');
+
+  const yesterday = ledger.summarize(book, 'yesterday', now);
+  assert.equal(yesterday.days.length, 1, '昨天是单天窗口，不是「最近两天」');
+  assert.equal(yesterday.days[0].day, ledger.dayKeyOf(now - 86400000));
+  assert.equal(yesterday.kpi.uncachedInputTokens, 200, '今天那一段不许算进昨天');
+  assert.equal(yesterday.sessions.length, 1);
+
+  const three = ledger.summarize(book, '3d', now);
+  assert.equal(three.days.length, 3);
+  assert.equal(three.days[0].day, ledger.dayKeyOf(now - 2 * 86400000), '窗口从三天前起');
+  assert.equal(three.kpi.uncachedInputTokens, 700, '近 3 天含今天');
+  assert.equal(three.kpi.sessions, 3);
+  assert.equal(
+    three.sessions.reduce((sum, row) => sum + row.billedTokens, 0),
+    three.kpi.uncachedInputTokens,
+    '卡片与 KPI 是同一个窗口',
+  );
+});
+
 test('会话消失（归档后清理）之后历史数字还在，只标成已清理', () => {
   const now = Date.UTC(2026, 9, 22, 6, 0);
   const book = bookWith([{ sessionId: 's1', at: now, delta: usage({ uncachedInputTokens: 80 }), title: '要删的那条' }]);
@@ -462,6 +494,9 @@ test('路由：range 归一化，返回 { ok, overview }', async () => {
   });
   assert.equal(normalizeRange('999d'), '7d', '认不出来的范围退回七天');
   assert.equal(normalizeRange(undefined), '7d');
+  assert.equal(normalizeRange('today'), 'today');
+  assert.equal(normalizeRange('yesterday'), 'yesterday');
+  assert.equal(normalizeRange('3d'), '3d');
 });
 
 test('采集失败不影响出数：账本还在就照常回', async () => {

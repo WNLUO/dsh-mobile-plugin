@@ -45,6 +45,7 @@ const NO_WEB_ACCESS = new Map([
   ['/api/relay/client-half', '桌面客户端每 10 秒上报存活与故障自检状态，不能随网页管理窗口停止。'],
   ['/api/relay/desktop-read', '桌面客户端轮询同步已读会话，属于手机与桌面协同通道，不是网页管理接口。'],
   ['/api/relay/web-access', '开关路由本身必须始终可达：侧边栏那颗手机图标要在窗口关着时把它打开'],
+  ['/api/relay/canvas', '桌面画布只在本机打开：数据面走移动端 token，远程网页窗口打开它也没有库可读'],
 ]);
 
 /**
@@ -431,7 +432,7 @@ test('只有面板页放开「人点开的一页」，别的控制面路由不�
     .map((route) => route.path)
     .sort();
   // 社区桌面壳会把自己接住的链接原地打开，从自定义协议页跳到面板地址时必带
-  // `sec-fetch-site: cross-site`。这一种形态只对只读面板页放开；放开第二条就得先
-  // 想清楚它是不是也能被别人的网页点开。
-  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/settings', '/api/relay/panel/setup']);
+  // `sec-fetch-site: cross-site`。这一种形态只对「只读的一页」放开（面板页、桌面画布页）；
+  // 放开别的就得先想清楚它是不是也能被别人的网页点开。
+  assert.deepEqual(allowed, ['/api/relay/canvas', '/api/relay/panel', '/api/relay/panel/settings', '/api/relay/panel/setup']);
 });

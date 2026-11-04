@@ -26,20 +26,23 @@ const path = require('node:path');
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-attachment-store-'));
 process.env.DSH_HOME = HOME;
 
-const ID = 'a1'.padEnd(2, '0') + 'b'.repeat(62);
+const HEX = 'a1' + 'b'.repeat(62);
+const ID = 'sha256:' + HEX;
 const BYTES = Buffer.alloc(4096);
 BYTES[0] = 0x89;
 BYTES.write('PNG', 1, 'latin1');
-const OBJECT_DIR = path.join(HOME, 'attachments', 'v1', 'objects', ID.slice(0, 2));
+const OBJECT_DIR = path.join(HOME, 'attachments', 'v1', 'objects', HEX.slice(0, 2));
 fs.mkdirSync(OBJECT_DIR, { recursive: true });
-fs.writeFileSync(path.join(OBJECT_DIR, ID.slice(2)), BYTES);
-const MISSING_ID = 'c0' + 'd'.repeat(62);
+fs.writeFileSync(path.join(OBJECT_DIR, HEX.slice(2)), BYTES);
+const MISSING_ID = 'sha256:c0' + 'd'.repeat(62);
 
 const rpc = require('../lib/mobile/rpc.js');
 let hostCalls = 0;
 let hostPayload = null;
-rpc.callSessions = async (_ctx, method) => {
+let hostArgs = null;
+rpc.callSessions = async (_ctx, method, args) => {
   hostCalls += 1;
+  hostArgs = args;
   if (method !== 'attachment') return { result: { ok: true, value: {} } };
   return { result: { ok: true, value: hostPayload } };
 };
@@ -78,9 +81,9 @@ function sealedRequest(extra = {}) {
 /** 走这条路由的唯一入口（`readJsonBody` 读 `req.body`）。 */
 const call = (ctx, extra, res) => handleSessionAttachment(ctx, sealedRequest(extra), res);
 
-test('id 形状不对连路径都不拼（路径穿越 / 大写 / 长度不对）', () => {
-  assert.equal(store.objectPathOf(ID), path.join(OBJECT_DIR, ID.slice(2)));
-  for (const bad of ['../../etc/passwd', 'A1'.repeat(32), 'a1b2', '', 'a'.repeat(63), 'a'.repeat(65), null, 42]) {
+test('id 形状不对连路径都不拼（路径穿越 / 大写 / 长度不对 / 缺 sha256: 前缀）', () => {
+  assert.equal(store.objectPathOf(ID), path.join(OBJECT_DIR, HEX.slice(2)));
+  for (const bad of ['../../etc/passwd', 'A1'.repeat(32), 'a1b2', '', 'a'.repeat(63), 'a'.repeat(65), HEX, 'sha256:' + 'A'.repeat(64), null, 42]) {
     assert.equal(store.objectPathOf(bad), null, `不该接受 ${String(bad)}`);
   }
 });
@@ -88,7 +91,7 @@ test('id 形状不对连路径都不拼（路径穿越 / 大写 / 长度不对�
 test('记过账的 id 才认，没记过的取不到', () => {
   store.reset();
   assert.equal(store.lookup('s-1', ID), null, '没登记就不该命中');
-  store.remember('s-1', ID, 'image/png');
+  store.remember('s-1', ID, { mediaType: 'image/png' });
   assert.deepEqual(store.lookup('s-1', ID), { mediaType: 'image/png' });
   assert.equal(store.lookup('s-2', ID), null, '登记是按会话算的');
   store.reset();
@@ -96,7 +99,7 @@ test('记过账的 id 才认，没记过的取不到', () => {
 
 test('记账会过期（手机手里那份旧了就不再认）', () => {
   store.reset();
-  store.remember('s-1', ID, 'image/png');
+  store.remember('s-1', ID, { mediaType: 'image/png' });
   const later = Date.now() + store.TTL_MS + 1;
   assert.equal(store.lookup('s-1', ID, later), null);
   store.reset();
@@ -104,7 +107,7 @@ test('记账会过期（手机手里那份旧了就不再认）', () => {
 
 test('直读：登记过就直接从盘上流出去，不再调宿主接口，出来的仍是分块信封', async () => {
   store.reset();
-  store.remember('s-1', ID, 'image/png');
+  store.remember('s-1', ID, { mediaType: 'image/png' });
   hostCalls = 0;
   const res = response();
   await call({}, {}, res);
@@ -128,7 +131,7 @@ test('没登记 / 文件不在：退回原来那条宿主接口，行为不变',
 
   // 登记了但对象文件根本不在（被清理、或换了个库）：同样退回原路，不许 500。
   store.reset();
-  store.remember('s-1', MISSING_ID, 'image/png');
+  store.remember('s-1', MISSING_ID, { mediaType: 'image/png' });
   hostCalls = 0;
   const res2 = response();
   await call({}, { attachmentId: MISSING_ID }, res2);
@@ -136,9 +139,24 @@ test('没登记 / 文件不在：退回原来那条宿主接口，行为不变',
   store.reset();
 });
 
+test('回退问宿主时递的是整份引用（宿主新版要这个形状）', async () => {
+  store.reset();
+  const ref = { mediaType: 'image/png', bytes: 4096, width: 12, height: 7, name: 'shot.png' };
+  store.remember('s-1', ID, ref);
+  hostCalls = 0;
+  hostArgs = null;
+  hostPayload = { data: BYTES.toString('base64'), attachment: { mediaType: 'image/png' } };
+  const res = response();
+  await call({}, { raw: false }, res);
+  assert.equal(hostCalls, 1);
+  assert.deepEqual(hostArgs.attachment, { attachmentId: ID, ...ref });
+  assert.equal(hostArgs.attachmentId, undefined, '编号不许留在顶层，要包进 attachment');
+  store.reset();
+});
+
 test('明文会话不进这条路（没有信封，直读分支直接跳过）', async () => {
   store.reset();
-  store.remember('s-1', ID, 'image/png');
+  store.remember('s-1', ID, { mediaType: 'image/png' });
   hostCalls = 0;
   hostPayload = { data: BYTES.toString('base64'), attachment: { mediaType: 'image/png' } };
   const res = response();

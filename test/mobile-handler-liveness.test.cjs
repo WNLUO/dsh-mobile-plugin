@@ -49,12 +49,21 @@ const STREAMING_ROUTES = new Set([
 let savedFetch = null;
 let savedHome = null;
 
+let savedMagpieBin = null;
+
 before(() => {
   // 宿主家里有真账本（`mobile-stats.json`）：统计那条路由会把里面的会话标题 / 最后一句
   // 原样回出去，而这台机器上正好有一条的正文就是「Cannot read property …」—— 下面那条
   // 「不许回代码级错误」的判据直接把用户正文当成崩溃信息判红了。活体守卫只关心接线，
   // 给它一个空家：跟 archive-clean 那套一样，测完还原。
   savedHome = process.env.DSH_HOME;
+  // magpie 那条**真的会去起 4 个子进程 + 问本机网关**（它读的是另一个程序，没有假宿主可切）。
+  // 那种「真活」在本机要 0.9 秒，撞上下面「1 秒内必须回包」的判据 —— 红的是「守卫里混进了
+  // 一次真实的外部调用」，不是 handler 挂住了。所以把查找结果钉成「没装」：总览立刻回
+  // `installed: false`，接线照样整条跑到（每一行都执行），但不去碰外面。
+  // 真实的解析与网关那几条由 `test/magpie.test.cjs` 管。
+  savedMagpieBin = process.env.MAGPIE_BIN;
+  process.env.MAGPIE_BIN = path.join(os.tmpdir(), 'dsh-liveness-no-magpie');
   process.env.DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-liveness-'));
   savedFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
@@ -69,6 +78,8 @@ after(() => {
   globalThis.fetch = savedFetch;
   if (savedHome === undefined) delete process.env.DSH_HOME;
   else process.env.DSH_HOME = savedHome;
+  if (savedMagpieBin === undefined) delete process.env.MAGPIE_BIN;
+  else process.env.MAGPIE_BIN = savedMagpieBin;
 });
 
 /**

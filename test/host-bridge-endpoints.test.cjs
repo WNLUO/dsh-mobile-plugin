@@ -178,6 +178,22 @@ test('session.prompt defaults an omitted mode to queue and preserves explicit mo
   }
 });
 
+test('session.attachment wraps the full image reference under request.attachment', async () => {
+  // 宿主 `SessionAttachmentRequest` = `{ sessionId, attachment: ImageAttachmentRef }`，
+  // attachment 必填（内含 attachmentId/mediaType/bytes/width/height）。曾经直接递
+  // `{ sessionId, attachmentId }`，宿主 strict codec 挡回 `wire field "request" failed
+  // boundary validation` → 400，App catch 掉后图片静默消失。
+  const ctx = makeCtx();
+  const api = createApiProxy(ctx);
+  const ref = { attachmentId: 'sha256:' + 'a'.repeat(64), mediaType: 'image/png', bytes: 10, width: 2, height: 3 };
+  ctx.calls.length = 0;
+  await api.sessions.attachment({ rpcId: 'mobile', payload: { sessionId: 's-1', attachment: ref } });
+  const call = ctx.calls.find((item) => item.namespace === 'session' && item.method === 'attachment');
+  assert.equal(call.args.request.sessionId, 's-1');
+  assert.deepEqual(call.args.request.attachment, ref);
+  assert.equal(call.args.request.attachmentId, undefined, '编号不许留在 request 顶层');
+});
+
 test('端点表不出现 shell / 系统设置这类越界命名空间', () => {
   // 移动端 API 的边界就是这一条：宿主能力很多，但手机端只能拿到会话/消息/审批/工作区
   // 这几类。键表里多出一个 namespace 就等于悄悄扩了权限。
