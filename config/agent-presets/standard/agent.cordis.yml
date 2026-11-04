@@ -110,14 +110,23 @@
     config:
       - id: tool-subagent-control
         name: '@deepseek-ai/dsh-tool-subagent-control'
+      # 独立的 `list_agents` 入口只在 0.2.1 及更早存在；0.2.2 把它并进了主包，
+      # 子路径没了。这一行保留是为了老运行时，启动时宿主会按「这一代认不认这个
+      # 子路径」把副本里的这一行整行拿掉（见 lib/host-compat.cjs 的 dropRows）。
       - id: tool-subagent-list-agents
         name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+      # 子代理挑模型的开关，两代运行时键名不同：0.2.1 及更早读
+      # `modelSelectionSettings`，0.2.2 起改成 `modelSelection`（另加
+      # `modelDiscovery` 才让模型查得到可选模型）。两个键都写：各自的 schema 只认
+      # 自己那个、另一个原样忽略，所以同一份预设挂到哪一代都对。
       - id: tool-subagent
         name: '@deepseek-ai/dsh-tool-subagent'
         config:
           provider: spawn
           toolName: subagent
           modelSelectionSettings: true
+          modelSelection: true
+          modelDiscovery: true
           backgroundMode: continuable
       - id: tool-subagent-fork
         name: '@deepseek-ai/dsh-tool-subagent'

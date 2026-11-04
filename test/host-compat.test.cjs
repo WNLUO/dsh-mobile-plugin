@@ -16,7 +16,7 @@ const os = require('node:os')
 const path = require('node:path')
 const test = require('node:test')
 
-const { rewriteToolNames, syncPresetDir, pinInsertedRows } = require('../lib/host-compat.cjs')
+const { rewriteToolNames, dropRows, syncPresetDir, pinInsertedRows } = require('../lib/host-compat.cjs')
 
 const ENTRY = '/opt/dsh/node_modules/@deepseek-ai/dsh-tool-ask-user/lib/index.js'
 
@@ -94,4 +94,39 @@ test('pinInsertedRows 只改 insert 里的 name，patch 行上的 name 是断言
   assert.deepEqual(pinned[2].config, { printUrl: false })
   // 原数组不能被动到：调用方可能还要按没改过的形态比对。
   assert.equal(patches[1].insert[0].name, '@deepseek-ai/dsh-host-directory-picker-browse')
+})
+
+test('dropRows 整行删掉指定入口，只删它自己（含配置和上方注释）', () => {
+  const source = [
+    '    config:',
+    '      - id: tool-subagent-control',
+    "        name: '@deepseek-ai/dsh-tool-subagent-control'",
+    '      # 这一行说明是在讲下面那条',
+    '      - id: tool-subagent-list-agents',
+    "        name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'",
+    '      - id: tool-subagent',
+    "        name: '@deepseek-ai/dsh-tool-subagent'",
+    '        config:',
+    '          provider: spawn',
+    '',
+  ].join('\n')
+  const out = dropRows(source, ['tool-subagent-list-agents'])
+  assert.ok(!out.includes('list-agents'), `那一行还在：\n${out}`)
+  assert.ok(!out.includes('这一行说明是在讲下面那条'), '上游注释留着会在副本里说反话')
+  assert.ok(out.includes('tool-subagent-control'), '上一条被连带删掉了')
+  assert.ok(out.includes('provider: spawn'), '下一条的嵌套配置被连带删了')
+  assert.equal(dropRows(source, []), source, '没点名时文本必须一字不改')
+})
+
+test('dropRows 保留紧跟其后的同级行，只吃掉更深的那一段', () => {
+  const source = [
+    '      - id: gone',
+    "        name: 'x'",
+    '        config:',
+    '          k: 1',
+    '      - id: kept',
+    "        name: 'y'",
+    '',
+  ].join('\n')
+  assert.equal(dropRows(source, ['gone']), ['      - id: kept', "        name: 'y'", ''].join('\n'))
 })

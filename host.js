@@ -20,7 +20,7 @@ import { installProcessGuard } from './lib/host-guard.cjs'
 import { DIRECTORY_PICKER_ROW, TOOL_ROWS, pinInsertedRows, syncPresetDir } from './lib/host-compat.cjs'
 import { dropBareNameSelfMounts } from './lib/host-patches.cjs'
 import {
-  assertEntriesActivated,
+  auditStartupEntries as assertEntriesActivated,
   boot,
   evaluatePluginCompatibility,
   getDshRuntimeVersion,
@@ -29,10 +29,18 @@ import {
   loadLayeredEnv,
   loadOverlayPatches,
   loadProfile,
-  PROFILE_TEMPLATES,
   readProfileCompatibility,
   resolveProfileDir,
 } from '@deepseek-ai/dsh-app-boot'
+
+/**
+ * 新建 profile 时的初始组合层。
+ *
+ * 不从 `dsh-app-boot` 取 `PROFILE_TEMPLATES`：0.2.2 把这份清单挪进了
+ * `@deepseek-ai/dsh-official-bundles`，旧位置不再导出，而静态导入一个不存在的
+ * 命名导出是让整个宿主起不来（不是降级）。这里本来就只要 web 那一档的两行。
+ */
+const WEB_PROFILE_BUNDLES = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
 
 const BIN_NAME = 'dsh-mobile-plugin'
 const PROFILE_NAME = process.env.DSH_MOBILE_PROFILE || 'mobile'
@@ -58,7 +66,7 @@ try {
   const home = process.env.DSH_HOME
   const profileDir = resolveProfileDir(PROFILE_NAME, home)
   // Idempotent: an already-initialized profile keeps its own patch layer.
-  initProfile(profileDir, PROFILE_TEMPLATES.web)
+  initProfile(profileDir, WEB_PROFILE_BUNDLES)
   const profile = loadProfile(BIN_NAME, PROFILE_NAME, INSTALL_ANCHOR, home, { userLayer: true })
 
   /**
@@ -142,6 +150,19 @@ try {
     )
   }
 
+  // 预设里「列子代理」那一行挂的是 `dsh-tool-subagent-control` 的一个子入口。
+  // 0.2.2 把那个工具并进了主包，子路径没有了 —— 留着它，每建一个会话都会有一行
+  // 起不来，而能力本身还在。判据是**这一代运行时认不认这个子路径**，不按版本号猜。
+  const listAgentsEntry = '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+  let listAgentsRowGone = false
+  try {
+    runtimeRequire?.resolve(listAgentsEntry)
+  } catch {
+    listAgentsRowGone = true
+    process.stderr.write(`${BIN_NAME}: 这一代运行时没有 ${listAgentsEntry}（该工具已并在主包里），预设副本里那一行不再挂\n`)
+  }
+  const dropPresetIds = listAgentsRowGone ? ['tool-subagent-list-agents'] : []
+
   // 预设里的两行默认按裸名写：Loader 从它自己的位置解析，命中哪一份不由我们决定。
   // 解析到了同代的那份就改写一份副本给它，路径写死成那一份的入口。
   const presetRoots = {}
@@ -149,11 +170,12 @@ try {
     const hit = pinnedRows.get(id)
     if (hit) presetRoots[id] = hit.entry
   }
-  const presetDir = TOOL_ROWS.some(({ id }) => presetRoots[id] !== undefined)
+  const presetDir = TOOL_ROWS.some(({ id }) => presetRoots[id] !== undefined) || dropPresetIds.length > 0
     ? syncPresetDir(
       join(PACKAGE_DIR, 'config', 'agent-presets'),
       join(profileDir, '.mobile-agent-presets'),
       presetRoots,
+      { dropIds: dropPresetIds },
     )
     : join(PACKAGE_DIR, 'config', 'agent-presets')
 
