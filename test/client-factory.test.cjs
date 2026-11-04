@@ -200,13 +200,43 @@ function routedFetch(routes = {}, fallback = { ok: true, status: 200, body: { ok
  *
  * 真外壳把 `settings.launcher` 那个出口渲染成 `display:contents` 的盒子，头像那颗
  * 设置按钮是它的孩子、`flex:1` 铺满整行——这里照这个形状搭。
+ *
+ * **`children` 要跟真浏览器一样没有 `slice()`**（2026-11-05 真机现场）：假元素原来是数组，
+ * 于是 `overlay.children.slice()` 在测试里永远成立，而真浏览器里 `children` 是
+ * **HTMLCollection**、根本没有 `slice`，弹窗一画就抛 TypeError —— 点图标一点反应都没有。
+ * 这里把 `children` 包成「有 length / 下标 / 可迭代，但没有 slice」的对象，谁再写出
+ * 数组专属的方法，测试当场红。
  */
+function fakeChildren(owner) {
+  // 真 HTMLCollection 也吃数字下标（`children[0]`），所以用 Proxy 把下标读转给内部数组；
+  // 但 `slice` / `map` / `filter` / `indexOf` 这些数组专属方法**一律没有** —— 那才是要钉的东西。
+  return new Proxy(
+    {
+      get length() {
+        return owner._children.length;
+      },
+      [Symbol.iterator]() {
+        return owner._children[Symbol.iterator]();
+      },
+      item(index) {
+        return owner._children[index] ?? null;
+      },
+    },
+    {
+      get(target, key) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) return owner._children[Number(key)];
+        return target[key];
+      },
+    },
+  );
+}
+
 function fakeElement(tag) {
   const element = {
     tag,
     dataset: {},
     attrs: {},
-    children: [],
+    _children: [],
     parentElement: null,
     setAttribute(name, value) {
       element.attrs[name] = String(value);
@@ -215,6 +245,10 @@ function fakeElement(tag) {
       return name in element.attrs ? element.attrs[name] : null;
     },
     textContent: '',
+    /** 对外是 HTMLCollection 形状（没有 `slice` / `map` / `indexOf`），内部操作走 `_children`。 */
+    get children() {
+      return fakeChildren(element);
+    },
     /** 弹窗要挂点击 / 键盘监听：记下来，测试需要时可以直接触发。 */
     listeners: {},
     addEventListener(type, fn) {
@@ -236,29 +270,29 @@ function fakeElement(tag) {
     },
     insertBefore(child, reference) {
       if (child.parentElement) child.remove();
-      const at = reference ? element.children.indexOf(reference) : element.children.length;
-      element.children.splice(at < 0 ? element.children.length : at, 0, child);
+      const at = reference ? element._children.indexOf(reference) : element._children.length;
+      element._children.splice(at < 0 ? element._children.length : at, 0, child);
       child.parentElement = element;
       return child;
     },
     remove() {
       const parent = element.parentElement;
       if (!parent) return;
-      const at = parent.children.indexOf(element);
-      if (at >= 0) parent.children.splice(at, 1);
+      const at = parent._children.indexOf(element);
+      if (at >= 0) parent._children.splice(at, 1);
       element.parentElement = null;
     },
     get previousSibling() {
       const parent = element.parentElement;
       if (!parent) return null;
-      const at = parent.children.indexOf(element);
-      return at > 0 ? parent.children[at - 1] : null;
+      const at = parent._children.indexOf(element);
+      return at > 0 ? parent._children[at - 1] : null;
     },
     get nextSibling() {
       const parent = element.parentElement;
       if (!parent) return null;
-      const at = parent.children.indexOf(element);
-      return at >= 0 && at + 1 < parent.children.length ? parent.children[at + 1] : null;
+      const at = parent._children.indexOf(element);
+      return at >= 0 && at + 1 < parent._children.length ? parent._children[at + 1] : null;
     },
     /** 只认 `[data-slot="…"]` 这一种选择器：源码用它确认出口真的在座位上。 */
     closest(selector) {
@@ -791,7 +825,9 @@ test('字典覆盖两张界面，中英一一对应', () => {
   // 键集逐个钉死：两张薄卡（配置页 / 画布）+ 一颗图标 + 那张诊断窗，不长成第二个管理面板。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
     'canvasHint', 'cardCanvas', 'cardPanel',
-    'consoleFrameless', 'consoleLead', 'consoleOpenBrowser', 'consoleTitle',
+    'consoleBack', 'consoleEntryConsole', 'consoleEntryConsoleHint', 'consoleEntryDebug',
+    'consoleEntryDebugHint', 'consoleEntryLead', 'consoleEntryTitle',
+    'consoleFrameless', 'consoleLead', 'consoleOpenBrowser', 'consolePopupBlocked', 'consoleTitle',
     'diagBusy', 'diagChecking', 'diagClose', 'diagCopied', 'diagCopy', 'diagCopyFailed',
     'diagFactActivated', 'diagFactOnDisk', 'diagFactPanelUrl', 'diagFactPlugin', 'diagFactReason',
     'diagFactRetry', 'diagFactReturned', 'diagFactScope', 'diagFactSelfcheck', 'diagFactShell',
@@ -916,7 +952,7 @@ const DIAG_MARK = 'data-dshm-mobile-diag';
 
 /** 已经打开的诊断弹窗（没开就是 undefined）。 */
 function diagnosisNode(env) {
-  return env.sandbox.document.body.children.find((node) => node.attrs[DIAG_MARK] !== undefined);
+  return [...env.sandbox.document.body.children].find((node) => node.attrs[DIAG_MARK] !== undefined);
 }
 
 /** 点弹窗里那颗按钮（弹窗是命令式 DOM，按钮上是 `onclick`）。 */
@@ -939,7 +975,7 @@ function dialogButton(env, label) {
 
 /** 那一行里被我们插进去的那颗（没有返回 undefined）。 */
 function footerDomNode(sidebar) {
-  return sidebar.row.children.find((node) => node.attrs[FOOTER_MARK] !== undefined);
+  return [...sidebar.row.children].find((node) => node.attrs[FOOTER_MARK] !== undefined);
 }
 
 test('图标注册信息：槽名走 sidebar.footer.action、id 是自己的、标签走字典', () => {
@@ -1006,7 +1042,7 @@ test('重复渲染不会插出第二颗', async () => {
   await env.hooks.flush();
   env.renderFooter();
   await env.hooks.flush();
-  const ours = sidebar.row.children.filter((node) => node.attrs[FOOTER_MARK] !== undefined);
+  const ours = [...sidebar.row.children].filter((node) => node.attrs[FOOTER_MARK] !== undefined);
   assert.equal(ours.length, 1);
 });
 
@@ -1072,7 +1108,8 @@ test('宿主没给地址：不挂死链，但点它自己开窗取地址再嵌�
   await node.onclick({ preventDefault() {} });
   await settle(12);
   assert.deepEqual(posts, [{ enabled: true }], '先开两小时窗口——这是远程用户唯一能走通的顺序');
-  assert.equal(env.openedWindows.length, 0, '开完窗口是**嵌进来**，不是再开一个浏览器窗口');
+  assert.equal(env.openedWindows.length, 0, '开完窗口是**弹这一窗**，不是再开一个浏览器窗口');
+  await openDebugLayer(env);
   assert.equal(consoleFrame(env).attrs.src, debugPageOf(), '开完窗再读一次状态，地址就拿到了');
   // 一进来就嵌着控制台：这一下不是「诊断」，是那一屏本身。
   assert.notEqual(texts(diagnosisNode(env)).join(''), '', '控制台那一窗要有标题与说明');
@@ -1184,13 +1221,15 @@ test('地址问不到时会自己再问，问到了就停（不再打宿主）',
   assert.equal(statusCalls, after, '地址取到之后不该再轮询');
 });
 
-/* ── 5b. 点下去做什么：弹一屏控制台，不再直接跳走（2026-11-05 用户改的）─────
- * 原来点一下就开浏览器窗口跳过去。用户要的是**先在这一页看到东西**：启动、装载、隧道、
- * 旁挂进程、自检都摆在一屏里，出问题时才有得看。跳转没取消，挪进了那一屏的一颗按钮。
+/* ── 5b. 点下去做什么：弹两层（2026-11-05 用户改的）─────────────────────
+ * 第一层只有一个简单入口：左「进入控制台」（= 原来那个跳转）、右「报错调试」。
+ * 第二层才是那一屏读数（网页版的 `/api/relay/panel/debug`，按同源地址嵌进 iframe）。
  *
- * 那一屏的内容是网页版的 `/api/relay/panel/debug`（同源、宿主吐的一页），这边只把地址
- * 算出来嵌进 iframe。**控制面得先认这个浏览器**，否则嵌进来是一屏 423 —— 所以「从别的
- * 机器打开的页面」仍然先开那两小时窗口，只是不再导航任何地方。
+ * 为什么分两层：原来点图标一上来就是整屏读数，太重；绝大多数时候人只是想去配置页，
+ * 或者去看手机为什么连不上。
+ *
+ * **控制面得先认这个浏览器**，否则嵌进来是一屏 423 —— 所以「从别的机器打开的页面」仍然
+ * 先开那两小时窗口，只是不再导航任何地方。
  */
 
 /** 点开的那一窗里嵌着的那个 iframe（没有就是 undefined）。 */
@@ -1198,6 +1237,24 @@ function consoleFrame(env) {
   const dialog = diagnosisNode(env);
   if (!dialog) return undefined;
   return elements(dialog).find((node) => node.tag === 'iframe');
+}
+
+/** 第一层那两块按钮里的一块（按文案找）。 */
+function choiceButton(env, label) {
+  const dialog = diagnosisNode(env);
+  if (!dialog) return undefined;
+  return elements(dialog).find(
+    (node) => node.tag === 'button' && String(node.className || '').split(/\s+/).includes('dshm_choice') && texts(node)[0] === label,
+  );
+}
+
+/** 把弹窗点到第二层（那一屏调试页）。 */
+async function openDebugLayer(env) {
+  const debug = choiceButton(env, '报错调试');
+  assert.ok(debug, '第一层要有「报错调试」那一块');
+  if (typeof debug.onclick === 'function') await debug.onclick();
+  else await debug.props.onClick();
+  await settle();
 }
 
 /** 调试页地址：按页面自身的同源地址推（`consoleUrlOf` 就是这么算的）。 */
@@ -1232,29 +1289,50 @@ async function railIcon(env) {
   return env.renderFooter({}, { wide: false });
 }
 
-test('本机回环：点下去就地弹出控制台，不跳走也不开窗口', async () => {
+test('本机回环：点下去先弹一个简单入口，左「进入控制台」右「报错调试」', async () => {
   const { env, posts } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   let prevented = false;
   await icon.props.onClick({ preventDefault() { prevented = true; } });
   await settle();
   assert.equal(prevented, true, '点击一律先拦下来：这一下是弹窗，不是导航');
-  assert.equal(env.openedWindows.length, 0, '不许点一下就跳走：控制台就嵌在这一页里');
+  assert.equal(env.openedWindows.length, 0, '第一层不许跳走');
   assert.deepEqual(posts, [], '本机浏览器控制面本来就认，不必开那两小时窗口');
-  const frame = consoleFrame(env);
-  assert.ok(frame, '要弹出嵌着一整页的那一窗');
-  assert.equal(frame.attrs.src, debugPageOf(), '嵌的是同源的调试页');
-  assert.equal(frame.attrs.title, '移动端插件控制台');
+  // 第一层只有两块，**没有 iframe**：那一屏读数得再点一下才进来。
+  assert.equal(consoleFrame(env), undefined, '第一层不该直接摆整屏读数');
+  assert.ok(choiceButton(env, '进入控制台'), '左边那块是进控制台');
+  assert.ok(choiceButton(env, '报错调试'), '右边那块是报错调试');
+  const choices = elements(diagnosisNode(env)).filter((node) =>
+    String(node.className || '').split(/\s+/).includes('dshm_choice'),
+  );
+  assert.equal(choices.length, 2, '第一层就两块，不多不少');
 });
 
-test('局域网地址：先把两小时窗口开了再嵌，不导航任何地方', async () => {
+test('入口右侧「报错调试」才进那一屏读数；「返回」回得来', async () => {
+  const { env } = clickEnv({ panelScope: 'loopback' });
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  await openDebugLayer(env);
+  const frame = consoleFrame(env);
+  assert.ok(frame, '第二层才嵌那一整页');
+  assert.equal(frame.attrs.src, debugPageOf(), '嵌的是同源的调试页');
+  assert.equal(frame.attrs.title, '移动端插件控制台');
+  await clickDialogButton(env, '返回');
+  assert.equal(consoleFrame(env), undefined, '返回之后回到第一层，iframe 撤掉');
+  assert.ok(choiceButton(env, '报错调试'), '第一层那两块还在');
+});
+
+test('局域网地址：先把两小时窗口开了，再弹入口；进调试那层才有 iframe', async () => {
   const { env, posts } = clickEnv({ panelScope: 'private' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
   assert.deepEqual(posts, [{ enabled: true }], '远程浏览器要先开窗口，否则嵌进来是一屏 423');
   assert.equal(env.confirms.length, 0, '局域网不再问第二遍');
-  assert.equal(env.openedWindows.length, 0, '只嵌，不导航');
+  assert.equal(env.openedWindows.length, 0, '只弹窗，不导航');
+  assert.ok(choiceButton(env, '报错调试'), '先到入口那一层');
+  await openDebugLayer(env);
   assert.equal(consoleFrame(env).attrs.src, debugPageOf());
 });
 
@@ -1276,6 +1354,7 @@ test('公网地址：确认之后开窗口再嵌控制台', async () => {
   await settle();
   assert.equal(env.confirms.length, 1);
   assert.deepEqual(posts, [{ enabled: true }]);
+  await openDebugLayer(env);
   assert.ok(consoleFrame(env));
   assert.equal(env.openedWindows.length, 0);
 });
@@ -1290,14 +1369,16 @@ test('窗口已经开着：不再确认也不再重复开（不续期），照�
   await settle();
   assert.equal(env.confirms.length, 0);
   assert.deepEqual(posts, [], '开着就直接用，别又续一次两小时');
+  await openDebugLayer(env);
   assert.ok(consoleFrame(env));
 });
 
-test('控制台上那颗「在浏览器里打开」仍然能把配置页开出去', async () => {
+test('第二层那颗「在浏览器里打开」仍然能把配置页开出去', async () => {
   const { env } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
+  await openDebugLayer(env);
   const button = dialogButton(env, '在浏览器里打开配置页面');
   assert.ok(button, '跳转没被取消，只是挪进了这一屏');
   if (typeof button.onclick === 'function') await button.onclick();
@@ -1323,7 +1404,8 @@ test('桌面壳里的页面（dsh-app:）：照样就地嵌，页面不被导航
     'http://127.0.0.1:56495/',
     '整个页面不许被导航走：这一下是弹窗',
   );
-  assert.ok(consoleFrame(env), '壳里同样要能弹出控制台');
+  await openDebugLayer(env);
+  assert.ok(consoleFrame(env), '壳里同样要能进那一屏调试页');
 });
 
 test('插进那一行的那颗也走同一套点击逻辑', async () => {
@@ -1349,7 +1431,7 @@ test('插进那一行的那颗也走同一套点击逻辑', async () => {
   await node.onclick({ preventDefault() {} });
   await settle();
   assert.equal(env.confirms.length, 1);
-  assert.ok(consoleFrame(env), '插进那一行的那颗点下去也是弹控制台');
+  assert.ok(choiceButton(env, '报错调试'), '插进那一行的那颗点下去也是同一个入口');
   assert.equal(env.openedWindows.length, 0);
 });
 
@@ -1552,7 +1634,7 @@ test('同一时刻只留一个诊断窗；再点一次是就地重画', async ()
   icon = env.renderFooter({}, { wide: false });
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  const dialogs = env.sandbox.document.body.children.filter((node) => node.attrs[DIAG_MARK] !== undefined);
+  const dialogs = [...env.sandbox.document.body.children].filter((node) => node.attrs[DIAG_MARK] !== undefined);
   assert.equal(dialogs.length, 1, '叠出两摞窗比没反应更糟');
 });
 
