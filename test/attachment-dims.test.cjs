@@ -7,6 +7,9 @@
 // 钉三条：只回两格数字（**字节一个都不许出**）、量不出来要如实 404、不带 dims 时行为不变。
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 /** 造一张只有文件头、尺寸字段是真的假 PNG。 */
 function fakePng(width = 3, height = 2) {
@@ -17,6 +20,16 @@ function fakePng(width = 3, height = 2) {
   buf.writeUInt32BE(height, 20);
   return buf;
 }
+
+// 取附件要先拼一份**与盘上字节对得上**的引用（宿主会逐字段比对类型 / 字节数 / 宽高），
+// 拼不出来直接 404。所以这一层也得有真对象文件 —— 造一个临时数据目录、放一张真 PNG 头。
+const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-attachment-dims-'));
+process.env.DSH_HOME = HOME;
+const HEX = 'a1' + 'b'.repeat(62);
+const ATTACHMENT_ID = 'sha256:' + HEX;
+const OBJECT_DIR = path.join(HOME, 'attachments', 'v1', 'objects', HEX.slice(0, 2));
+fs.mkdirSync(OBJECT_DIR, { recursive: true });
+fs.writeFileSync(path.join(OBJECT_DIR, HEX), fakePng(640, 480));
 
 /** 把宿主的 `callSessions` 换成假实现（必须在 require session-send 之前打）。 */
 const rpc = require('../lib/mobile/rpc.js');
@@ -40,7 +53,7 @@ async function call(body) {
 
 test('dims: true 只回宽高，字节一个都不出', async () => {
   payload = { data: fakePng(640, 480).toString('base64'), attachment: { mediaType: 'image/png', name: 'a.png' } };
-  const { status, body } = await call({ sessionId: 's1', attachmentId: 'a1', dims: true });
+  const { status, body } = await call({ sessionId: 's1', attachmentId: ATTACHMENT_ID, dims: true });
   assert.equal(status, 200);
   assert.deepEqual({ width: body.width, height: body.height }, { width: 640, height: 480 });
   assert.equal(body.ok, true);
@@ -49,7 +62,7 @@ test('dims: true 只回宽高，字节一个都不出', async () => {
 
 test('量不出宽高（不是位图）如实回 404', async () => {
   payload = { data: Buffer.from('#!/bin/sh\n').toString('base64'), attachment: { mediaType: 'image/png' } };
-  const { status, body } = await call({ sessionId: 's1', attachmentId: 'a1', dims: true });
+  const { status, body } = await call({ sessionId: 's1', attachmentId: ATTACHMENT_ID, dims: true });
   assert.equal(status, 404);
   assert.equal(body.ok, false);
   assert.equal(body.error.code, 'no-dims');
@@ -57,7 +70,7 @@ test('量不出宽高（不是位图）如实回 404', async () => {
 
 test('不带 dims 时照旧回整张字节', async () => {
   payload = { data: fakePng(8, 6).toString('base64'), attachment: { mediaType: 'image/png', name: 'b.png' } };
-  const { status, body } = await call({ sessionId: 's1', attachmentId: 'a1' });
+  const { status, body } = await call({ sessionId: 's1', attachmentId: ATTACHMENT_ID });
   assert.equal(status, 200);
   assert.equal(body.data, payload.data);
   assert.equal(body.name, 'b.png');
@@ -111,7 +124,7 @@ test('raw: true 回分块信封，明文 PNG 不在线上', async () => {
   payload = { data: png.toString('base64'), attachment: { mediaType: 'image/png' } };
   const res = collectRes();
   await handleSessionAttachment({}, {
-    body: { sessionId: 's1', attachmentId: 'a1', raw: true },
+    body: { sessionId: 's1', attachmentId: ATTACHMENT_ID, raw: true },
     url: '/api/mobile/v1/session/attachment',
     __dshE2ee: { keys: { down: DOWN_KEY }, req: { ts: 1, nonce: REQUEST_NONCE } },
   }, res);
@@ -133,7 +146,7 @@ test('raw: true 但请求没封包 → 400，不降级成明文', async () => {
     writeHead(code) { this.statusCode = code; },
     end(text) { this.body = text.toString(); },
   };
-  await handleSessionAttachment({}, { body: { sessionId: 's1', attachmentId: 'a1', raw: true } }, res);
+  await handleSessionAttachment({}, { body: { sessionId: 's1', attachmentId: ATTACHMENT_ID, raw: true } }, res);
   assert.equal(res.statusCode, 400);
   assert.equal(JSON.parse(res.body).error.code, 'e2ee-required');
 });
