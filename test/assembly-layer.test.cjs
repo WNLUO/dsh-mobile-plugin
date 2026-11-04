@@ -46,7 +46,9 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // （`mount` / `mountRoute` 的声明与说明），没有一行实现搬回来。2026-11-01 +7：手填的 IPv6
   // 直连地址 —— schema 一项、configOf 一行、二维码与移动端候选各一行（多出来的那行是注释），
   // 候选的合并逻辑在 `relay/lan-network.cjs` 的 `withManualIpv6Candidate`，没有搬回装配层。
-  assert.ok(lines <= 548, `lib/impl.js 回到 ${lines} 行了；超过 548 说明实现又被搬回装配层`);
+  // 2026-11-04 +4：终端 / CLI 与「操作手机」各两行（一个 require、一个把服务交给路由表），
+  // 实现分别在 `mobile/services.js` 与 `mobile/phone/`，没有一行搬回装配层。
+  assert.ok(lines <= 552, `lib/impl.js 回到 ${lines} 行了；超过 552 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

@@ -61,6 +61,19 @@ const RELAY_SERVED = new Map([
  */
 const LEGACY_ROUTES = new Map([
   ['/session/search', '2026-10 App 侧整条下线「侧栏工作区」的会话搜索（见 docs/decisions.md），但插件侧的正文检索透传对旧版 App 仍然有效；它的透传契约（500 码元截断、代理对不劈、宿主错误如实上报）由 test/session-search.test.cjs 完整覆盖，不是无主的死路由'],
+  // CLI 对话的旧专用接口。2026-11 App 侧改成「CLI 会话就是普通会话」：开完会话之后消息 /
+  // 流 / 审批 / 模型全走上面那组 session 路由，界面也复用普通对话页，于是这八条不再有新
+  // 调用方。保留是因为已发布的旧版 App 还靠它们活着（旧版走 WebSocket 推流 + HTTP 兜底），
+  // 删掉会让那批客户端从「本地降级匹配」变成 404。新客户端只用 `/cli/agents` 与 `/cli/session`
+  // 两条（建会话），那两条仍在 apiPaths.ts 里。
+  ['/cli/close', '旧版 App 的「结束 CLI 会话」入口（`cliService.handleClose`）。新版由侧栏的归档 / 会话收尾接管，不再单独调它；旧版靠它就地把 ACP 子进程收掉，删了会留下孤儿进程'],
+  ['/cli/sessions', '旧版 App 的 CLI 会话清单（`cliService.handleSessions`）。新版由 `/sessions` 统一列出（CLI 会话已被并进那份清单），这条只服务旧版侧栏'],
+  ['/cli/detail', '旧版 App 的整份详情兜底轮询（块 / 配置 / 挂起审批）。新版由 `/session/messages` + `/session/stream` 承载；旧版在隧道上丢帧时靠它把整页铺出来'],
+  ['/cli/prompt', '旧版 App 的 HTTP 发送兜底（WS 帧进不来时的那条路）。新版走 `/session/send`；旧版这条与 WS 的 prompt 帧共用 `runPrompt`，行为一字未变'],
+  ['/cli/permission', '旧版 App 的审批回答（按 ACP 的 optionId 作答）。新版走 `/approval/respond`（宿主同一种审批卡），这条留给旧客户端'],
+  ['/cli/cancel', '旧版 App 的「停掉这一轮」（不杀会话）。新版走 `/session/stop`，两者都落 `cancelTurn`'],
+  ['/cli/config', '旧版 App 的选模型 / 换模式（ACP `set_config_option` / `set_mode`）。新版由 `/session/select-model` + `session/models` 承载'],
+  ['/cli/stream', '旧版 App 的 WebSocket 流（`?session=` 升级）。新版 CLI 会话走 `/session/stream` 的 SSE，与普通会话同一条；这条只服务旧版客户端，`handleUpgrade` 的鉴权与拒绝路径不变'],
 ]);
 
 /**
@@ -134,7 +147,7 @@ test('保留的旧客户端路由清单本身没腐化', { skip: SKIP_NO_APP }, 
     assert.ok(!known.has(full), `LEGACY_ROUTES 里的 ${full} 在 apiPaths.ts 里又出现了（App 侧又接上了它），请删掉这条豁免`);
     assert.ok(why.length > 40, `LEGACY_ROUTES 里的 ${full} 得写清为什么保留`);
   }
-  assert.equal(LEGACY_ROUTES.size, 1, '豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
+  assert.equal(LEGACY_ROUTES.size, 9, '豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
 });
 
 test('插件侧没有 App 从不打的移动端路由（死路由要么删要么补测试）', { skip: SKIP_NO_APP }, () => {
