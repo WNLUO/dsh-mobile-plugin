@@ -122,3 +122,24 @@ test('新会话开局套用：按新会话自己的选项表校验，写不进�
   // 没记过任何东西的 CLI：一项都不写，让 CLI 用它自己的默认。
   assert.deepEqual(pendingPrefsOf({ agentId: 'untouched', configOptions: session.configOptions }), []);
 });
+
+test('模型走自己那本账，其余项走 config-prefs（两本账不许各记一份）', () => {
+  // 判据是 ACP 的 `category`，不是 id 字面 —— claude 的模型项也叫 `model`，但换一家可能就叫
+  // 别的名字；按 id 猜会漏，漏掉的表现正是「配置页勾上了、开新对话还是原来的模型」。
+  const { isModelOption, valuesBodyOf } = require('../lib/mobile/cli/service.js');
+  const options = [
+    { id: 'model', category: 'model', choices: [] },
+    { id: 'mode', category: 'mode', choices: [] },
+  ];
+  assert.equal(isModelOption(options, 'model'), true);
+  assert.equal(isModelOption(options, 'mode'), false);
+  // 选项表还没有（第一次进配置页）时按 id 兜底，别把模型那一项错记进另一本账。
+  assert.equal(isModelOption([], 'model'), true);
+  assert.equal(isModelOption([], 'mode'), false);
+
+  // 配置页要画的那张表把两本并起来：模型记在 `model-prefs`，但用户必须看得见自己选过它。
+  const models = require('../lib/mobile/cli/model-prefs.js');
+  prefs.setValue('merge', 'mode', 'plan');
+  models.rememberModel('merge', 'model', 'm2');
+  assert.deepEqual(valuesBodyOf('merge', options), { mode: 'plan', model: 'm2' });
+});
