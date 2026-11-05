@@ -16,7 +16,9 @@
  *   3. 工作区干净：发出去的必须是提交里的那一份，不能是测完又改过的工作区
  *   4. 面板产物跟得上源码：拿当前源码真重建一次，与盘上那份对不上就停在这一步
  *   5. 整套测试（在主仓里跑才包含跨仓对账）
- *   6. 真打一次包：关键产物在不在、有没有把源码和测试带出去、版本号对不对
+ *   6. 真打一次包：关键产物在不在、有没有把源码和测试带出去、版本号对不对；
+ *      随包的扩展清单里每个登记包有没有 manifest.json 与 index.html（入口页固定叫这个，
+ *      缺了的话包装到用户手机上能装却打不开）
  *   7. 公开仓库的 issue：列出来给人看（只提醒，连不上就跳过，不挡发版）
  *
  * 跑完打印接下来那三步。README 的发版流程第一步就是它。
@@ -44,6 +46,7 @@ const REQUIRED_FILES = [
   'icon.png',
   'locale/zh.json',
   'locale/en.json',
+  'extensions/catalog.json',
 ];
 /** 包内不该出现的东西：源码、测试、脚本、依赖树。 */
 const FORBIDDEN_PREFIXES = ['React/', 'test/', 'scripts/', 'node_modules/'];
@@ -235,7 +238,27 @@ function checkPackage(version) {
         '源码、测试、脚本、依赖树都不进包；改 package.json 的 files。',
       );
     }
-    ok(`包内 ${files.size} 个文件，关键产物齐全、没有夹带源码`);
+    // 随包发布的扩展：清单里登记了哪个包，包目录就得带齐入口页。手机打开扩展只认
+    // index.html，缺了它的包能装却打不开 —— 发版前在这里拦下，别等用户撞见白屏。
+    const catalog = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'extensions', 'catalog.json'), 'utf8'));
+    const badPackages = [];
+    for (const row of Array.isArray(catalog.packages) ? catalog.packages : []) {
+      const slug = typeof row === 'object' && row !== null ? row.slug : null;
+      if (typeof slug !== 'string' || !/^[A-Za-z0-9._-]{1,64}$/.test(slug)) {
+        badPackages.push(String(slug));
+        continue;
+      }
+      for (const required of ['manifest.json', 'index.html']) {
+        if (!files.has(`extensions/${slug}/${required}`)) badPackages.push(`${slug}/${required}`);
+      }
+    }
+    if (badPackages.length) {
+      throw new Stop(
+        `随包发布的扩展缺文件：${badPackages.join('、')}`,
+        '每个登记的包都要有 manifest.json 与 index.html；入口页固定叫 index.html。',
+      );
+    }
+    ok(`包内 ${files.size} 个文件，关键产物齐全、没有夹带源码、登记的扩展都带入口页`);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -48,7 +48,11 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 候选的合并逻辑在 `relay/lan-network.cjs` 的 `withManualIpv6Candidate`，没有搬回装配层。
   // 2026-11-04 +4：终端 / CLI 与「操作手机」各两行（一个 require、一个把服务交给路由表），
   // 实现分别在 `mobile/services.js` 与 `mobile/phone/`，没有一行搬回装配层。
-  assert.ok(lines <= 552, `lib/impl.js 回到 ${lines} 行了；超过 552 说明实现又被搬回装配层`);
+  // 2026-11-05 +9：公众号文章库的两个工具（一个 require、一条 effect 挂载连注释），实现都在
+  // `mobile/wechat-tools.js` 与 `mobile/wechat.js`，装配层只负责挂一下。
+  // 2026-11-05 +2：悬浮宠物的两个工具（一个 require、一个 mount），实现在
+  // `mobile/pet-tools.js`，包目录与三条路由在 `mobile/pets.js`，没有一行搬回装配层。
+  assert.ok(lines <= 563, `lib/impl.js 回到 ${lines} 行了；超过 563 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

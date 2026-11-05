@@ -126,6 +126,17 @@ test('右栏「打开文件」那条：两侧都叫 /file/read，且与 /session
   assert.ok(registered.has(`${API_BASE}/session/file`), `卡片取字节那条被人删了：${API_BASE}/session/file`);
 });
 
+test('已审核扩展清单的两条：两侧同名，清单在前、取文件在后', { skip: SKIP_NO_APP }, () => {
+  const registered = pluginPaths();
+  for (const sub of ['/extension/catalog', '/extension/catalog/file']) {
+    assert.ok(registered.has(`${API_BASE}${sub}`), `插件侧没注册 ${API_BASE}${sub}`);
+  }
+  // 与 /file/read 那条同一口径：按**值**对账，不钉 key 名 —— 路径才是契约。
+  const app = fs.readFileSync(APP_PATHS, 'utf8');
+  assert.match(app, /^\s{2}\w+:\s*'\/extension\/catalog',?$/m, "App 侧 apiPaths.ts 得声明一条 '/extension/catalog'");
+  assert.match(app, /^\s{2}\w+:\s*'\/extension\/catalog\/file',?$/m, "App 侧 apiPaths.ts 得声明一条 '/extension/catalog/file'");
+});
+
 test('由中转提供的路径清单本身没腐化（App 里那把钥匙还在）', { skip: SKIP_NO_APP }, () => {
   const all = fs.readFileSync(APP_PATHS, 'utf8');
   for (const [key, why] of RELAY_SERVED) {
