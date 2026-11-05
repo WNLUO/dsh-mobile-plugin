@@ -76,15 +76,25 @@ test('登记：同一张图重复登记是同一个编号，宽高从文件头�
   assert.ok(localImageOf(first.id), '登记完要能按编号查回来');
 }));
 
-test('登记：不是位图 / 不存在 / 太大一律不登记（正文保持字面 markdown）', () => withTempDir(async (dir) => {
+test('登记：不是位图 / 不存在不登记；超过单张上限的照登，但标成太大', () => withTempDir(async (dir) => {
   clearLocalImages();
   const notImage = path.join(dir, 'x.png');
   fs.writeFileSync(notImage, Buffer.from('#!/bin/sh\n'));
   assert.equal(await registerLocalImage(notImage), null, '字节不是位图就不能登记');
   assert.equal(await registerLocalImage(path.join(dir, 'missing.png')), null);
+  // 超过 2.5MB 的那张**仍然登记**：不登记就退回字面 markdown，用户看到的是一串源码。
+  // 登记之后取图口回 413，App 画成「图片太大」的占位块。
   const huge = path.join(dir, 'huge.png');
   fs.writeFileSync(huge, Buffer.concat([fakePng(), Buffer.alloc(3 * 1024 * 1024)]));
-  assert.equal(await registerLocalImage(huge), null, '超过 2.5MB 的不登记');
+  const over = await registerLocalImage(huge);
+  assert.ok(over && over.id, '太大的图也要有编号');
+  assert.equal(over.tooLarge, true);
+  assert.equal(over.width, undefined, '不往回搬字节，宽高也不必读');
+
+  const res = fakeRes();
+  await handleSessionLocalImage({}, fakeReq({ id: over.id }), res);
+  assert.equal(res.statusCode, 413, '取图口如实回 413');
+  assert.equal(res.body.error.code, 'too-large');
 }));
 
 test('文件头里的宽高不合理时不写进正文（垃圾数据不许撑坏行高）', () => withTempDir(async (dir) => {
