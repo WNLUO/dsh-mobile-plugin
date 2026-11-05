@@ -1,8 +1,6 @@
 <h3 align="center">AI-HUB 移动端插件</h3>
 
-<p align="center">
-  <img src="assets/banner.jpg" alt="AI-HUB：手机和平板上的 DSH 会话界面" width="760">
-</p>
+![AI-HUB：手机和平板上的 DSH 会话界面](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/banner.jpg)
 
 <p align="center">
   <a href="https://app.wnluo.com/public/apps/14"><img alt="安卓 分发下载" src="https://img.shields.io/badge/%E5%AE%89%E5%8D%93-%E5%88%86%E5%8F%91%E4%B8%8B%E8%BD%BD-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
@@ -22,12 +20,7 @@
 
 **AI-HUB 的手机端插件。** 装在电脑这边，手机 App 就通过一条中转隧道或局域网配对连进你的 DSH —— 看会话、接着聊、管理文件和工作区，进度实时同步。它也可以脱离桌面外壳单独跑在服务器上，当作无头宿主用。
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-dark.svg">
-    <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-light.svg" alt="手机 App 经中转或局域网连到你电脑上的 DSH" width="720">
-  </picture>
-</p>
+![手机 App 经中转或局域网连到你电脑上的 DSH](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-light.svg)
 
 手机连的是**你自己那台电脑上的 DSH**，不是某个云端服务。电脑不用公网 IP，也不用在路由器上开端口：插件从内网主动往外建一条隧道，手机沿这条路回来。
 
@@ -131,9 +124,7 @@ DSH 跑在电脑上，但我不是一直坐在电脑前。出门、在别的房�
 
 ## 交流与反馈
 
-<p align="center">
-  <img src="assets/wechat-group.png" alt="企业微信群二维码" width="180">
-</p>
+![企业微信群二维码](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/wechat-group.png)
 
 扫上面的码进企业微信群。不方便的话发邮件到 <admin@wnluo.com> 或 <wnluo2@gmail.com>。用着顺手就给仓库点个 star，这是最实在的支持。
 
