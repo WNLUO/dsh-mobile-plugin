@@ -475,3 +475,35 @@ test('两个工具真的注册得上（schema 能被 dsh-tools 编译），没�
     /文件名不合规矩/,
   );
 });
+
+test('pet_pack_list 的渲染：六状态齐全的包说「五个状态都有」，真缺的才报缺', async (t) => {
+  const { userRoot, builtinDir } = setup(t);
+  // 内置这只六个状态键都齐（执行那一步把它折成状态名数组交给渲染）。
+  makePack(builtinDir, 'deepy-whale', {
+    schema: 1, id: 'deepy-whale', name: 'Deepy 小鲸鱼',
+    states: {
+      idle: { file: 'idle.png' }, working: { file: 'idle.png' }, attention: { file: 'idle.png' },
+      done: { file: 'idle.png' }, error: { file: 'idle.png' }, sleeping: { file: 'idle.png' },
+    },
+  }, { 'idle.png': PNG_BYTES });
+  // 对照用的自制包：只有 idle，缺的那四个得照样点出来。
+  makePack(userRoot, 'mine', goodPack('mine'), { 'idle.png': PNG_BYTES });
+
+  const { installPetTools } = require('../lib/mobile/pet-tools.js');
+  const registered = [];
+  installPetTools({ inject: (_deps, scoped) => scoped({ tools: { register: (tool) => registered.push(tool) } }) });
+  const list = registered.find((tool) => tool.name === 'pet_pack_list');
+
+  const out = await list.execute({});
+  assert.deepEqual(out.packs.find((pack) => pack.id === 'deepy-whale').states, [
+    'idle', 'working', 'attention', 'done', 'error', 'sleeping',
+  ], '交给渲染的是状态名数组');
+
+  const text = list.output.render({}, out)[0].text;
+  const whale = text.split('\n').find((line) => line.includes('Deepy 小鲸鱼'));
+  const mine = text.split('\n').find((line) => line.includes('小鲸鱼》') && line.includes('id mine'));
+  assert.match(whale, /五个状态都有/);
+  assert.doesNotMatch(whale, /缺 idle/);
+  assert.doesNotMatch(whale, /缺 /);
+  assert.match(mine, /缺 working \/ attention \/ done \/ error（将回退到 idle）/);
+});

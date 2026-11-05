@@ -722,6 +722,119 @@ test('老账本升级：第一次采到模型就把这条会话的累计量回�
   });
 });
 
+test('老账本回填模型：按天明细摊在会话自己那几天，窄范围里不比总量大', async () => {
+  // 价目从真表里取一条（具体数字随快照变，这里只当「一行有价」用）。
+  const table = require('../lib/mobile/model-prices-table.cjs');
+  const pricedKey = Object.keys(table.BY_PROVIDER_MODEL)[0];
+  const split = pricedKey.indexOf('/');
+  const priced = { provider: pricedKey.slice(0, split), providerName: '渠道', model: pricedKey.slice(split + 1), modelName: '模型' };
+  await withHome(async (home) => {
+    const now = Date.now();
+    const oldDay = ledger.dayKeyOf(now - 20 * 86400000);
+    const recentDay = ledger.dayKeyOf(now - 2 * 86400000);
+    // 升级前的账本：累计 10M，但量分布在 20 天前（9M）与 2 天前（1M）；没有模型这一栏。
+    const billed = usage({ uncachedInputTokens: 10_000_000, turns: 4 });
+    const old = {
+      version: 1,
+      updatedAt: 0,
+      days: {
+        [oldDay]: { ...usage({ uncachedInputTokens: 9_000_000, turns: 3 }), requests: 3 },
+        [recentDay]: { ...usage({ uncachedInputTokens: 1_000_000, turns: 1 }), requests: 1 },
+      },
+      sessions: {
+        s1: {
+          title: '老会话',
+          firstAt: now - 30 * 86400000,
+          lastAt: now - 2 * 86400000,
+          collectedAt: 0,
+          billed,
+          daily: {
+            [oldDay]: usage({ uncachedInputTokens: 9_000_000, turns: 3 }),
+            [recentDay]: usage({ uncachedInputTokens: 1_000_000, turns: 1 }),
+          },
+          watermark: billed,
+        },
+      },
+      composition: null,
+    };
+    fs.writeFileSync(path.join(home, 'mobile-stats.json'), JSON.stringify(old));
+    ledger.forgetLedger();
+
+    const ctx = fakeCtx({
+      items: [{ sessionId: 's1', updatedAt: now - 2 * 86400000 }],
+      // 宿主累计与水位逐项相等：这一轮没有增量，只有回填这一件事。
+      projectionsById: {
+        s1: {
+          tokenUsage: { uncachedInputTokens: 10_000_000 },
+          sessionStats: { turns: 4, steps: 0, llmMs: 0, toolMs: 0 },
+        },
+      },
+      modelsById: { s1: modelCatalog(priced.provider, priced.model, priced.providerName, priced.modelName) },
+    });
+    const book = await collectStats(ctx, { force: true });
+
+    const week = ledger.summarize(book, '7d', now);
+    assert.equal(week.kpi.uncachedInputTokens, 1_000_000, '7d 只有两天前那一笔');
+    assert.equal(week.models.length, 1, '模型行照常出现');
+    assert.equal(week.models[0].billedTokens, 1_000_000, '模型行与 KPI 同一个数，不是整段累计');
+    assert.equal(week.cost.pricedBilled, 1_000_000, '金额只覆盖窗口里的量');
+    assert.equal(week.cost.unpricedBilled, 0);
+    const all = ledger.summarize(book, 'all', now);
+    assert.equal(all.models[0].billedTokens, 10_000_000, '全部那档仍是累计，一笔不少');
+  });
+});
+
+test('已有模型的会话：某一轮模型读失败，那一截增量仍记在已知模型名下', async () => {
+  await withHome(async () => {
+    const now = Date.now();
+    const catalog = { s1: modelCatalog('p1', 'm1', '渠道一', '模型一') };
+    const ctxFor = (uncachedInputTokens, updatedAt, models) => fakeCtx({
+      items: [{ sessionId: 's1', updatedAt }],
+      projectionsById: {
+        s1: { tokenUsage: { uncachedInputTokens }, sessionStats: { turns: 1, steps: 1, llmMs: 0, toolMs: 0 } },
+      },
+      modelsById: models,
+    });
+
+    // 第一轮：模型读得到，整段 110 记进桶。
+    const first = await collectStats(ctxFor(110, now - 60000, catalog), { force: true });
+    assert.equal(first.models['p1\u0000m1'].billed.uncachedInputTokens, 110);
+    assert.equal(first.sessions.s1.model.model, 'm1', '记录上留着已知模型');
+
+    // 第二轮：宿主涨到 330，但这一轮 `session.models` 读不到。
+    const second = await collectStats(ctxFor(330, now, {}), { force: true });
+    assert.equal(second.sessions.s1.billed.uncachedInputTokens, 330, '会话与按天账照常入账');
+    assert.equal(
+      second.models['p1\u0000m1'].billed.uncachedInputTokens,
+      330,
+      '读不到就沿用已知模型，那一截不许停在模型卡与成本之外',
+    );
+    const all = ledger.summarize(second, 'all', now);
+    assert.equal(all.models[0].billedTokens, ledger.billedOf(all.kpi), '模型行加起来等于总量');
+  });
+});
+
+test('trim 瘦身过的按天明细不会在读盘时长回来（`daily: {}` 不是「老账本缺这一栏」）', async () => {
+  await withHome(async (home) => {
+    const longAgo = Date.now() - 100 * 86400000;
+    const book = bookWith([{ sessionId: 'old', at: longAgo, delta: usage({ uncachedInputTokens: 40, turns: 2 }) }]);
+    book.sessions.old.watermark = usage({ uncachedInputTokens: 40, turns: 2 });
+    ledger.trim(book);
+    assert.deepEqual(book.sessions.old.daily, {}, '瘦身之后没有明细');
+    ledger.saveLedger(book);
+    ledger.forgetLedger();
+    assert.ok(fs.existsSync(path.join(home, 'mobile-stats.json')));
+
+    const reread = ledger.readLedger();
+    assert.deepEqual(reread.sessions.old.daily, {}, '读盘不替它编一天：编了卡片就会大于总量');
+    assert.equal(ledger.summarize(reread, 'all', Date.now()).sessions[0].billedTokens, 40, '累计值照旧给得出');
+    // 「all」用累计值；按范围看时它本来就不该出现，差额由 untrackedBilled 交代。
+    const week = ledger.summarize(reread, '30d', Date.now());
+    assert.equal(week.sessions.length, 0);
+    assert.equal(week.untrackedBilled, ledger.billedOf(week.kpi), '按天账上的量由差额交代');
+  });
+});
+
 test('模型桶跟着页面范围折算：7d 只有窗口内的天，all 用累计值', () => {
   const now = Date.UTC(2026, 9, 22, 6, 0);
   const book = bookWith([]);

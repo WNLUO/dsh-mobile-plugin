@@ -52,7 +52,11 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // `mobile/wechat-tools.js` 与 `mobile/wechat.js`，装配层只负责挂一下。
   // 2026-11-05 +2：悬浮宠物的两个工具（一个 require、一个 mount），实现在
   // `mobile/pet-tools.js`，包目录与三条路由在 `mobile/pets.js`，没有一行搬回装配层。
-  assert.ok(lines <= 563, `lib/impl.js 回到 ${lines} 行了；超过 563 说明实现又被搬回装配层`);
+  // 2026-11-06 +3：直连隧道的两个依赖转交（status 视图一格、移动端路由一格与注释），实现在
+  // `lib/tailcat/`。
+  // 2026-11-06 +8：直连隧道的挂载（一个 require、一次 `mountTailcat`、依赖表一行与注释）；
+  // 入口、助手会话与启停都在 `lib/tailcat/`（`wiring.cjs` 只做挂载），没有一行搬回装配层。
+  assert.ok(lines <= 572, `lib/impl.js 回到 ${lines} 行了；超过 572 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

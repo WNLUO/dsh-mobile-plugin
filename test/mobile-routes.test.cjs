@@ -203,3 +203,20 @@ test('公开路由清单本身没腐化', () => {
   }
   assert.equal(PUBLIC_ROUTES.size, 2, '公开豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
 });
+/**
+ * 报名那条路由必须从 `req.body` 取请求体。
+ *
+ * 协议 v2 的请求体是**守卫读掉的**：`createGuarded` 先 `readBody(req)` 解密、把明文放进
+ * `req.body`，原始流到 handler 手里已经是空的。自己 `for await (const chunk of req)` 只会
+ * 拿到空串，于是公钥永远是空的、一律 400 —— 手机那边看到的就是一句笼统的失败，而宿主日志
+ * 里什么都没有。`readJson(req)` 就是这个文件里通用那一版：有 `req.body` 用 `req.body`，
+ * 没有（老客户端明文）才读流。
+ */
+test('报名路由从 req.body 取请求体，不自己读流', () => {
+  const table = readRouteTable();
+  const at = table.indexOf("route('/api/mobile/v1/tunnel'");
+  assert.ok(at > 0, '报名路由不见了');
+  const body = table.slice(at, at + 900);
+  assert.ok(/const body = await readJsonBody\(req, 64 \* 1024\)/.test(body), '必须用 readJsonBody(req) 取请求体（信封的明文在 req.body，原始流已经被守卫读掉）');
+  assert.ok(!/for await \(const chunk of req\)/.test(body), '别自己读请求流：信封请求的那条流已经被守卫读掉，读出来是空的');
+});
