@@ -376,3 +376,42 @@ test('缓存：同一平台只探一次，「重新自检」能穿过去', async
   assert.equal(probes, 2);
   resetFirewallCache();
 });
+
+test('直连隧道：自检真去拨下游端口，ready 但下游没人听要如实报不通', async () => {
+  const now = 3_000_000;
+  const mk = (tailcat, probe) => createConnectionCheck({
+    platform: 'linux',
+    now: () => now,
+    status: () => ({ lan: { state: 'off', port: 18787 }, tunnel: { state: 'connected' }, tailcat }),
+    lanCandidates: () => [],
+    mobileActivity: () => ({ lastMobileAt: 0 }),
+    probeFirewall: async () => ({ supported: false, allowsApp: null }),
+    probePort: probe,
+  });
+
+  // ready 且下游端口拨得通 → reachable true，且拨的正是报上来的那个端口。
+  const up = await mk(
+    { available: true, enabled: true, ready: true, paired: 2, targetPort: 3080 },
+    async (port) => { assert.equal(port, 3080, '要拨 selfcheck 报出来的下游端口'); return true; },
+  ).run();
+  assert.deepEqual(up.tailcat, { available: true, enabled: true, ready: true, paired: 2, targetPort: 3080, reachable: true });
+
+  // ready 但下游没人听（正是「局域网关却仍指向死端口」那一类）→ reachable false。
+  const down = await mk(
+    { available: true, enabled: true, ready: true, paired: 2, targetPort: 18787 },
+    async () => false,
+  ).run();
+  assert.equal(down.tailcat.reachable, false);
+
+  // 没起来 / 关了 → 没得测，reachable 留 null（不是「不通」），也不该去拨。
+  const idle = await mk(
+    { available: true, enabled: true, ready: false, paired: 0, targetPort: 3080 },
+    async () => { throw new Error('没 ready 不该拨端口'); },
+  ).run();
+  assert.equal(idle.tailcat.ready, false);
+  assert.equal(idle.tailcat.reachable, null);
+
+  // 宿主根本没这条通道 → tailcat 为 null。
+  const none = await mk(null, async () => true).run();
+  assert.equal(none.tailcat, null);
+});
