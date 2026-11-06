@@ -61,7 +61,7 @@ before(() => {
   // 那种「真活」在本机要 0.9 秒，撞上下面「1 秒内必须回包」的判据 —— 红的是「守卫里混进了
   // 一次真实的外部调用」，不是 handler 挂住了。所以把查找结果钉成「没装」：总览立刻回
   // `installed: false`，接线照样整条跑到（每一行都执行），但不去碰外面。
-  // 真实的解析与网关那几条由 `test/magpie.test.cjs` 管。
+  // 真实的解析与网关那几条由 `test/magpie-web.test.cjs` 管。
   savedMagpieBin = process.env.MAGPIE_BIN;
   process.env.MAGPIE_BIN = path.join(os.tmpdir(), 'dsh-liveness-no-magpie');
   process.env.DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-liveness-'));
