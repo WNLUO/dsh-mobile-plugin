@@ -190,6 +190,8 @@ test('op 发到那台手机，回包按 id 对上', async () => {
   assert.equal(result.data.echo, 'screen.read');
   assert.equal(seen.length, 1);
   assert.equal(seen[0].sessionId, 's1', 'sessionId 要原样带过去（宿主按它算绑定）');
+  assert.equal(typeof seen[0].timeout, 'number', 'op 帧要带自适应算出的 timeout 预算');
+  assert.ok(seen[0].timeout > 0, 'timeout 预算应为正数');
 
   phone.close();
   await new Promise((r) => setTimeout(r, 20));
@@ -233,10 +235,12 @@ test('手机不回应时按自己的预算超时，并给手机发一条 cancel'
   const service = createPhoneService({ authorized: () => true });
   const { server, url } = await listen(service);
   const cancels = [];
+  const opTimeouts = [];
   const phone = new WebSocket(url, { headers: { 'x-dsh-device': 'd1', 'x-dsh-device-credential': 'ok' } });
   phone.on('message', (raw) => {
     const frame = JSON.parse(String(raw));
     if (frame.t === 'cancel') cancels.push(frame.id);
+    if (frame.t === 'op') opTimeouts.push(frame.timeout);
     // op 故意不回：这一条要考的就是预算
   });
   await new Promise((resolve) => phone.once('open', resolve));
@@ -248,6 +252,7 @@ test('手机不回应时按自己的预算超时，并给手机发一条 cancel'
   );
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(cancels.length, 1, '超时之后要撤销那一步，否则下一个 op 会错位');
+  assert.equal(opTimeouts[0], 120, '显式 timeoutMs 优先，且带进 op 帧');
 
   phone.close();
   await new Promise((r) => setTimeout(r, 20));
