@@ -4,6 +4,9 @@
  * 只做展示与转发：每张卡片的信息都来自 `/api/relay/*`（宿主是唯一事实来源），页面自己
  * 不留状态副本。这一页由浏览器加载，改完刷新即生效；插件设置页签那一半要完整安装 +
  * 重启 DSH 才换得掉。
+ *
+ * 配对二维码在隧道段临期前会自己重取一次（见下面 `renewPairing` 那段），所以一直开着这一页
+ * 也扫得动 —— 手机装完 App 回来扫的往往就是它。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from './lib/i18n/index.ts'
@@ -26,6 +29,7 @@ import {
   apiGet,
   apiPost,
   errorText,
+  pairingRenewIn,
   type AddressBook,
   type ConfigPatch,
   type PairingInfo,
@@ -137,6 +141,42 @@ export function App() {
     if (!status?.enabled || !pairing) return
     if (status.pairingCode && pairing.pairingCode !== status.pairingCode) void loadPairing()
   }, [status?.pairingCode, status?.enabled, pairing, loadPairing])
+
+  /**
+   * 续码用的重取：**失败就留着屏幕上那张**。
+   *
+   * `loadPairing` 失败会把码清掉、换一句报错 —— 那适合「一进页面就没取到」。续码是背景动作，
+   * 宿主重启或网络抖一下时，屏幕上那张的局域网与中转两段仍能扫，把它换成一句报错反而更糟。
+   */
+  const renewPairing = useCallback(async () => {
+    try {
+      setPairing(await apiGet<PairingInfo>('/api/relay/pairing'))
+      setPairingError('')
+    } catch {
+      /* 见上：留着原来那张。下一次改配置、重连、或者重新进这一页再取。 */
+    }
+  }, [])
+
+  /**
+   * 隧道段临期前续一次码（与引导页同一条规矩，见 `Onboarding.tsx` 那段注释）。
+   *
+   * 码里只有隧道那一段会过期：宿主每取一次码就现开一个两分钟的一次性窗口、并作废上一张。
+   * 面板这一页常常一直开着（手机装完 App 回来扫的就是它），不续的话屏幕上那张的隧道段早
+   * 就没了，App 静默丢掉它、只剩局域网与中转。
+   *
+   * **切到后台也照样续**：人正是去装 App 了，回来还要扫这张，停掉续期等于把这一页变成
+   * 一打开就过期的码。只续这一版码里的隧道段：没拿到隧道（助手不可用 / 出错）就不排下一拍，
+   * 剩下两条路本来就不会过期。
+   */
+  useEffect(() => {
+    if (!status?.enabled) return
+    const wait = pairingRenewIn(pairing)
+    if (wait === null) return
+    const timer = window.setTimeout(() => void renewPairing(), wait)
+    return () => window.clearTimeout(timer)
+    // 按每一版新码的 `expiresAt` 重排，别跟其它状态。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上
+  }, [pairing, status?.enabled, renewPairing])
 
   // 地址库在打开「网络配置」时补取一次（地址选择与两条手填地址都读它）。
   useEffect(() => {

@@ -1,6 +1,13 @@
 'use strict';
 
-/** 配对二维码展示尺寸、白边与主页默认隐藏行为。 */
+/**
+ * 配对二维码：展示尺寸与白边、主页默认隐藏，以及隧道段临期前的自动续码。
+ *
+ * 续码那一条是 2026-11-07 加的：宿主每取一次码就现开一个两分钟的一次性隧道窗口、并作废
+ * 上一张，而用户常常是装完 App 过一阵才回来扫。不续的话屏幕上那张的隧道段早过期，App 静默
+ * 丢掉它、只剩局域网与中转 —— 手机不在同一网且中转不通时就是「扫不上但码看着正常」。
+ * 所以面板要在临期前重取一次；但**不能退化成轮询**（每两分钟白开一个没人扫的窗口）。
+ */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -47,5 +54,54 @@ test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且
   assert.match(page, /<Dialog open=\{qrZoomOpen\} onOpenChange=\{setQrZoomOpen\}>/);
   assert.match(page, /\{qrSvg \? \([\s\S]{0,200}panel\.pairing\.qrZoom/);
   assert.match(page, /onClick=\{\(\) => setQrZoomOpen\(true\)\}[\s\S]{0,400}dangerouslySetInnerHTML=\{\{ __html: qrSvg \}\}/);
+});
+
+test('引导页与主页都在隧道段临期前续一次码，且排的是下一拍而不是轮询', () => {
+  const page = read('Onboarding.tsx');
+  const app = read('App.tsx');
+  // 两处同一套写法：读这一版码的 `expiresAt`，排一个定时器，到点重取一次。
+  for (const [name, text] of [['Onboarding.tsx', page], ['App.tsx', app]]) {
+    assert.match(text, /const wait = pairingRenewIn\(pairing\)/, `${name} 要按这一版码的隧道段排下一拍`);
+    assert.match(
+      text,
+      /window\.setTimeout\(\(\) =>[\s\S]{0,120}(load|renew)Pairing\(\)[\s\S]{0,200}window\.clearTimeout\(timer\)/,
+      `${name} 到点只重取一次，卸载时要把定时器撤掉`,
+    );
+    // 挂在 `pairing` 上：每拿到一版新码就按它的新 `expiresAt` 重排，而不是一秒一轮去问宿主。
+    assert.match(text, /\}, \[pairing/);
+    assert.ok(
+      !/window\.setInterval\([\s\S]{0,200}(load|renew)Pairing/.test(text),
+      `${name} 不许把续码做成轮询：每两分钟开一个没人扫的配对窗口，助手那边是实打实的开销`,
+    );
+  }
+  // 主页只在远程控制开着时续：关着的时候宿主对这条路由回 409。
+  assert.match(app, /if \(!status\?\.enabled\) return[\s\S]{0,120}pairingRenewIn\(pairing\)/);
+  // 续码失败要留着屏幕上那张：`loadPairing` 失败会把码清掉换成一句报错，而背景续码时
+  // 屏幕上那张的局域网与中转两段仍然能扫，换成报错只会让人以为码坏了。
+  assert.match(
+    app,
+    /const renewPairing = useCallback\(async \(\) => \{[\s\S]{0,200}catch \{[\s\S]{0,120}\}[\s\S]{0,40}\}, \[\]\)/,
+    '主页的续码要走一份不清码的取法',
+  );
+});
+
+test('续码间隔按隧道段的 expiresAt 算，没有隧道段就不排', async () => {
+  const { pairingRenewIn, PAIRING_RENEW_LEAD_MS } = await import(
+    path.join(src, 'lib', 'api.ts')
+  );
+  const now = 1_700_000_000_000;
+  const at = (seconds) => ({ ok: true, tailcat: { address: 'a', port: 1, expiresAt: seconds } });
+
+  // 两分钟的窗口取到码，正常节奏是九十秒后再续一次（留 30 秒给人扫码）。
+  assert.equal(pairingRenewIn(at(now / 1000 + 120), now), 120_000 - PAIRING_RENEW_LEAD_MS);
+  // 只剩最后几秒：一秒后再取，别当场连着发。
+  assert.equal(pairingRenewIn(at(now / 1000 + 2), now), 1_000);
+  // 没有隧道段：助手不可用 / 出错 / 老宿主没有这个字段 —— 不排下一拍。
+  assert.equal(pairingRenewIn({ ok: true }, now), null);
+  assert.equal(pairingRenewIn({ ok: true, tailcat: null }, now), null);
+  assert.equal(pairingRenewIn(null, now), null);
+  // 拿到手就已经过期：这一页的钟和宿主对不上（远程打开面板时常见），倒计时算不出来就不排，
+  // 否则定时器会退化成每秒重取一次、每次都白开一个配对窗口。
+  assert.equal(pairingRenewIn(at(now / 1000 - 60), now), null, '过期的隧道段不排下一拍');
 });
 

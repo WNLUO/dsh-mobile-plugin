@@ -164,6 +164,20 @@ export type AddressBook = {
   ipv6?: AddressEntry[]
 }
 
+/**
+ * 二维码里那条隧道段（Tailcat）到什么时候失效。
+ *
+ * 宿主每取一次 `/api/relay/pairing` 就现开一个两分钟的一次性窗口、并作废上一张
+ * （`lib/routes/control-plane.js` 的 `openPairingWindow(120)`），所以它比码里的局域网与
+ * 中转两段先过期。过期之后 App 会静默丢掉这一段，手机上只剩另外两条路。
+ */
+export type PairingTailcat = {
+  address: string
+  port: number
+  /** unix 秒，宿主原样转发助手报的那个。 */
+  expiresAt: number
+}
+
 export type PairingInfo = {
   ok: true
   name: string
@@ -172,7 +186,40 @@ export type PairingInfo = {
   pairingCode: string
   lanPort: number
   lanPortAdjusted: boolean
+  /** 这次取码有没有顺带开出一条隧道段；老宿主没有这个字段。 */
+  tailcat?: PairingTailcat | null
   svg: string
+}
+
+/**
+ * 隧道段临期前多久重取一次码：留 30 秒，够人把手机举起来扫，也够那次请求跑一个来回。
+ *
+ * 宿主那个窗口是两分钟，所以正常节奏是「取一次码、九十秒后再取一次」，不是轮询。
+ */
+export const PAIRING_RENEW_LEAD_MS = 30_000
+
+/**
+ * 两次续码之间至少隔一秒。
+ *
+ * 留给「刚取到就只剩几秒」那种情况：别当场连着发，一秒之后再取。
+ */
+const PAIRING_RENEW_MIN_MS = 1_000
+
+/**
+ * 距下一次该续码还有多少毫秒；`null` = 这一版码不用排下一拍。
+ *
+ * 三种情况不排：码里没有隧道段（助手不可用 / 出错 / 老宿主没有这个字段，剩下两条路本来
+ * 就不会过期）；拿到手隧道段就已经过期（这一页的钟和宿主对不上，远程打开面板时常见，倒计时
+ * 算不出来，排下去只会变成「每秒重取一次、每次都白开一个配对窗口」）；`expiresAt` 不是个数。
+ *
+ * 其余按「剩余寿命减去 30 秒」排，取到码九十秒后正好再取一次。
+ */
+export function pairingRenewIn(info: PairingInfo | null, now = Date.now()): number | null {
+  const expiresAt = info?.tailcat?.expiresAt ?? 0
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) return null
+  const left = expiresAt * 1000 - now
+  if (left <= 0) return null
+  return Math.max(left - PAIRING_RENEW_LEAD_MS, PAIRING_RENEW_MIN_MS)
 }
 
 export type RevokeResult = {

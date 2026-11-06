@@ -11,6 +11,9 @@
  *
  * 按钮那一下：`POST /api/relay/config` → `/api/relay/toggle {enabled:true}` →
  * `/api/relay/onboarded`，再轮询状态。页面不猜连接结果，也不假报成功。
+ *
+ * 码里的隧道段只活两分钟（宿主每取一次码就换一张），所以这一页在它临期前会自己重取一次，
+ * 人装完 App 回来扫时屏幕上那张仍带一条能用的隧道。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Button } from '@appica/ui-react/button'
@@ -32,6 +35,7 @@ import {
   apiGet,
   apiPost,
   errorText,
+  pairingRenewIn,
   type AddressBook,
   type ConfigPatch,
   type PairingInfo,
@@ -173,6 +177,31 @@ export function Onboarding({ onDone }: Props) {
       /* 拿不到二维码不挡结论：二维码那块自己会说「没取到」。 */
     }
   }
+
+  /**
+   * 隧道段临期前续一次码。
+   *
+   * 码里那三段只有隧道会过期：宿主每取一次码就现开一个两分钟的一次性窗口，并作废上一张。
+   * 用户装完 App 回来扫时，屏幕上那张要是取早了，隧道段就没了，App 静默丢掉它、只剩局域网
+   * 与中转 —— 手机不在同一网、中转又不通时，表现成「扫不上但码看着正常」。
+   *
+   * 所以只在临期前那一拍重取一次，重取之后按新的 `expiresAt` 再排下一拍；不是一秒一轮的
+   * 轮询（那会每两分钟白白开一堆没人扫的窗口）。这一版码里没有隧道段（助手不可用 / 出错）
+   * 就不排 —— 剩下两条路不会过期，排下去只是白发请求。
+   *
+   * 重取失败也留着屏幕上那张：它的局域网与中转两段还能扫，换成一句报错反而更像码坏了。
+   * 这一拍之后不重排（下一拍的前提是拿到新码），等下一次改配置或重连再取。
+   */
+  useEffect(() => {
+    const wait = pairingRenewIn(pairing)
+    if (wait === null) return
+    const timer = window.setTimeout(() => {
+      if (alive.current) void loadPairing()
+    }, wait)
+    return () => window.clearTimeout(timer)
+    // 每次拿到新码就按它的 `expiresAt` 重排，别把定时器挂到别的状态上。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上
+  }, [pairing])
 
   /** 弹窗里点名用的端口：宿主实际在用的那个（首选端口被占时会退到别的，别写死 18787）。 */
   const lanPortText = String(status?.lan.port || addresses?.port || 18787)

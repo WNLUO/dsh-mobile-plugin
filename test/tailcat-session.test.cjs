@@ -139,3 +139,36 @@ test('老设备报名：公钥形状不对时什么都不做', async () => {
   assert.deepEqual(disk.tailcatAllowedClients, [])
   assert.deepEqual(host.calls.setAllowed, [])
 })
+
+test('助手装晚了：第一次找不到，之后入口上重探到就能正常拉起', async () => {
+  // 助手是可选依赖，插件加载那一刻可能还没装好（镜像跳过 optionalDependencies、装晚了）。
+  // 早先的做法是加载时找不到就把这条通道永久判死，用户必须重开 DSH 才好。
+  const disk = { tailcatEnabled: true, tailcatState: null, tailcatAllowedClients: [] }
+  const host = fakeHost()
+  let found = false
+  const session = createTailcatSession({
+    readState: () => ({ ...disk }),
+    writeState: patch => Object.assign(disk, patch),
+    localPort: 19000,
+    host,
+    resolveBinary: () => (found ? '/opt/helpers/dsh-tailcat-host' : null),
+  })
+  const emit = event => session._event(event)
+
+  session.start()
+  assert.equal(session.status().available, false, '还没装助手时该如实说没有')
+  assert.equal(session.status().error, 'helper-missing')
+  assert.equal(await session.openPairingWindow(120), null)
+  assert.deepEqual(host.calls.pair, [])
+
+  // 装上了：不需要重开插件，下一次开码就该起来。
+  found = true
+  const pending = session.openPairingWindow(120)
+  assert.equal(host.calls.start, 1, '入口被调用时要重新探一次二进制并拉起')
+  assert.deepEqual(host.calls.pair, [120])
+  assert.equal(session.status().available, true)
+  assert.equal(session.status().error, '', '找到助手之后不能再留着「没有助手」那条旧结论')
+
+  emit({ event: 'pairing', address: 'tcpADDR', port: 48942, key: 'privkey:' + 'a'.repeat(64), proof: 'p'.repeat(43), expiresAt: 1 })
+  assert.equal((await pending).address, 'tcpADDR')
+})
