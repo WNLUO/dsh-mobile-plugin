@@ -6,17 +6,36 @@
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
+import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
 
-import type { StatusView } from '../lib/api.ts'
-import { sidecarText, timeText, tunnelText, tunnelTone } from '../lib/format.ts'
+import type { StatusView, TailcatStatus } from '../lib/api.ts'
+import { sidecarText, timeText, tunnelText, tunnelTone, type Tone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 
 type Props = {
   status: StatusView
   busy: string
   onToggle: (enabled: boolean) => void
+  /** 「管理」那颗：打开 Tailcat 隧道的弹窗（查看 / 开关 / 移除手机）。 */
+  onManageTailcat: () => void
+}
+
+/** 隧道此刻的状态 → 一行字的键。老宿主没有这一格时整行不画（见下面 `status.tailcat`）。 */
+function tailcatTextKey(tailcat: TailcatStatus): string {
+  if (!tailcat.available) return 'panel.tailcat.unavailable'
+  if (!tailcat.enabled) return 'panel.tailcat.disabled'
+  if (tailcat.error) return 'panel.tailcat.error'
+  if (tailcat.ready) return 'panel.tailcat.ready'
+  return 'panel.tailcat.starting'
+}
+
+function tailcatTone(tailcat: TailcatStatus): Tone {
+  if (!tailcat.available || !tailcat.enabled) return 'off'
+  if (tailcat.error) return 'error'
+  if (tailcat.ready) return 'ok'
+  return 'warn'
 }
 
 /**
@@ -41,9 +60,10 @@ type Props = {
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, busy, onToggle }: Props) {
+export function ConnectionCard({ status, busy, onToggle, onManageTailcat }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
+  const tailcat = status.tailcat ?? null
 
   return (
     <Card frame="solid">
@@ -81,6 +101,20 @@ export function ConnectionCard({ status, busy, onToggle }: Props) {
             {...(tunnel.error ? { detail: tunnel.error } : {})}
           />
         </InfoRow>
+        {tailcat ? (
+          <InfoRow label={t('panel.tailcat.title')} tone={tailcatTone(tailcat)}>
+            <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
+              <ToneValue
+                tone={tailcatTone(tailcat)}
+                text={t(tailcatTextKey(tailcat))}
+                {...(tailcat.error ? { detail: tailcat.error } : {})}
+              />
+              <Button variant="ghost" size="sm" onClick={onManageTailcat}>
+                {t('panel.tailcat.manage')}
+              </Button>
+            </span>
+          </InfoRow>
+        ) : null}
         <InfoRow label={t('panel.connection.sidecar')}>
           <ToneValue
             tone={status.sidecar.state === 'healthy' ? 'ok' : 'warn'}

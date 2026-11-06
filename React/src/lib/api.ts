@@ -11,6 +11,29 @@ import { t } from './i18n/index.ts'
 
 export type PairingPolicy = 'code' | 'deny'
 
+/**
+ * 手机直连隧道（Tailcat）此刻的状态（宿主 `lib/tailcat/session.cjs` 的 `status()`）。
+ *
+ * `available` = 这台机器上有没有隧道助手；没有它这条通道整条不可用（别的通道照旧）。
+ * `paired` 是白名单里的手机把数，具体公钥由 `/api/relay/tailcat` 那份快照给。
+ */
+export type TailcatStatus = {
+  available: boolean
+  enabled: boolean
+  running: boolean
+  ready: boolean
+  address: string
+  paired: number
+  error: string
+}
+
+/** `GET/POST /api/relay/tailcat*` 的回答：状态 + 当前允许的手机公钥。 */
+export type TailcatView = {
+  ok: boolean
+  status: TailcatStatus | null
+  allowedClients: string[]
+}
+
 export type TunnelSnapshot = {
   state: string
   error: string | null
@@ -33,6 +56,8 @@ export type StatusView = {
   appVersion: string
   localPort: number
   tunnel: TunnelSnapshot
+  /** 手机直连隧道（Tailcat）的状态；老宿主没有这个字段时按「不可用」处理。 */
+  tailcat?: TailcatStatus | null
   lan: {
     enabled: boolean
     port: number

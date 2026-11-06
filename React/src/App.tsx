@@ -18,6 +18,7 @@ import { PortDialog } from './components/PortDialog.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { SelfCheckDialog } from './components/SelfCheckDialog.tsx'
+import { TailcatDialog } from './components/TailcatDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { WebAccessCard } from './components/WebAccessCard.tsx'
@@ -66,6 +67,8 @@ export function App() {
   const [addresses, setAddresses] = useState<AddressBook | null>(null)
   /** 「连接自检」弹窗：地址那一行下面那张卡的最后一行点开的就是它。 */
   const [selfCheckOpen, setSelfCheckOpen] = useState(false)
+  /** 「Tailcat 隧道」管理弹窗：连接状态卡里那行 Tailcat 右侧的「管理」。 */
+  const [tailcatOpen, setTailcatOpen] = useState(false)
   /**
    * 自检**不跟上面那 3 秒轮询**：宿主每答一次都要开子进程查防火墙。
    * 只有两种时候发请求 —— 人点开弹窗（`SelfCheckDialog` 开窗时调 `ensure`），
@@ -338,7 +341,7 @@ export function App() {
               components/NoticeBoard.tsx 文件头）。 */}
           <NoticeBoard lanPort={status.lan.port} />
 
-          <ConnectionCard status={status} busy={busy} onToggle={toggle} />
+          <ConnectionCard status={status} busy={busy} onToggle={toggle} onManageTailcat={() => setTailcatOpen(true)} />
 
           {/* 网页管理那两小时窗口的到期时间与「立即关闭」。
               窗口关着时宿主不给远程读管理接口，这张卡也就跟着不出现。
@@ -372,6 +375,12 @@ export function App() {
         onOpenChange={setSelfCheckOpen}
         state={selfcheck}
         lastMobileAt={status.lastMobileAt}
+      />
+
+      <TailcatDialog
+        open={tailcatOpen}
+        onOpenChange={setTailcatOpen}
+        onChanged={() => void loadStatus()}
       />
 
       <PortDialog

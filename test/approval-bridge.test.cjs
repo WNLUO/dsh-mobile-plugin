@@ -108,6 +108,24 @@ function setup() {
   return { ctx, cards, watch };
 }
 
+/**
+ * 网关假体：宿主把审批转发给桌面窗口时，按「请求对象」在 `pendingRemoteEvents` 里登记一发；
+ * 撤回就是把它从表里摘掉并给窗口推 cancel 帧（真实现见 `@deepseek-ai/dsh-api-gateway`）。
+ */
+function fakeGateway() {
+  const cancelled = [];
+  const gateway = {
+    pendingRemoteEvents: new Map(),
+    cancelRemoteEvent(item, reason) {
+      cancelled.push({ item, reason });
+      for (const [id, value] of this.pendingRemoteEvents) {
+        if (value === item) this.pendingRemoteEvents.delete(id);
+      }
+    },
+  };
+  return { gateway, cancelled };
+}
+
 const escalation = (overrides = {}) => ({
   agent: { session: { id: 's-1' } },
   toolName: 'bash',
@@ -196,6 +214,71 @@ test('手机答了：钩子拿到同一个结论，卡当场收掉，agent 才�
   assert.ok(resolved, '手机自己答完也要收卡，不能等宿主绕一圈');
   assert.equal(resolved.approvalId, 'ap-1');
   assert.equal(resolved.outcome, 'allowed-once');
+});
+
+test('手机答完之后把桌面那一发转发撤掉（审批先到桌面、手机后连的边角）', async () => {
+  // 审批发出时手机没在看，卡已转发给桌面窗口；之后手机才连上来答。那一发只有桌面自己答 /
+  // 本轮取消 / 宿主撤回三条路会消失，本桥按请求对象找回网关里挂着的那一发，主动撤掉。
+  const { ctx, cards, watch } = setup();
+  const { gateway, cancelled } = fakeGateway();
+  ctx.get = (name) => (name === 'typertGateway' ? gateway : undefined);
+  fire(ctx, 'session/event', { id: 's-1' }, askEvent({ id: 'ap-1', toolName: 'bash', callId: 'call-1' }));
+  const request = escalation();
+  const forwarded = { source: { request }, frame: { event: 'approval/request' } };
+  const unrelated = { source: { request: escalation() }, frame: { event: 'approval/request' } };
+  gateway.pendingRemoteEvents.set('fwd', forwarded);
+  gateway.pendingRemoteEvents.set('other', unrelated);
+  const held = runHook(ctx, request, HOLD); // 这一刻没人看 → 转发到桌面
+  await flush();
+  assert.deepEqual(cards, [], '没人看的时候先不推卡');
+  watch('s-1'); // 手机后来连上，补发那张卡
+  const card = cards.find((frame) => frame.type === 'approval/requested');
+  assert.ok(card, '手机连上时要把已挂起的卡补发出来');
+  const res = jsonResponse();
+  await approvals.handleApprovalRespond(ctx, jsonRequest({
+    rpcId: card.rpcId,
+    sessionId: 's-1',
+    approvalId: card.approvalId,
+    outcome: 'allowed-once',
+  }), res);
+  assert.equal(res.status, 200);
+  assert.deepEqual(cancelled.map((entry) => entry.item), [forwarded], '只撤这一条，别的挂起项不许动');
+  assert.ok(cancelled[0].reason instanceof Error, '撤回要带一个原因（窗口按 abort 处理）');
+  assert.equal(gateway.pendingRemoteEvents.has('fwd'), false, '撤掉的那发必须离开网关的挂起表');
+  assert.equal(gateway.pendingRemoteEvents.has('other'), true);
+  assert.equal(await held, 'allowed-once', '撤卡不影响结论交回宿主');
+  watch();
+});
+
+test('桌面先答时不碰网关：那一发本来就没了，撤无可撤', async () => {
+  const { ctx, watch } = setup();
+  const { gateway, cancelled } = fakeGateway();
+  ctx.get = (name) => (name === 'typertGateway' ? gateway : undefined);
+  const held = runHook(ctx, escalation(), () => Promise.resolve('rejected'));
+  await flush();
+  assert.equal(await held, 'rejected');
+  assert.deepEqual(cancelled, []);
+  watch();
+});
+
+test('网关认不到（老宿主没这道口子）时，手机答完照样 200，不报错', async () => {
+  const { ctx, cards, watch } = setup();
+  fire(ctx, 'session/event', { id: 's-1' }, askEvent({ id: 'ap-1', toolName: 'bash', callId: 'call-1' }));
+  const held = runHook(ctx, escalation(), HOLD);
+  await flush();
+  watch('s-1');
+  const card = cards.find((frame) => frame.type === 'approval/requested');
+  const res = jsonResponse();
+  await approvals.handleApprovalRespond(ctx, jsonRequest({
+    rpcId: card.rpcId,
+    sessionId: 's-1',
+    approvalId: 'ap-1',
+    outcome: 'allowed-once',
+  }), res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.accepted, true);
+  assert.equal(await held, 'allowed-once');
+  watch();
 });
 
 test('桌面（下游）先答：钩子返回下游的结论（此场景手机本就没在看，竞速路径）', async () => {

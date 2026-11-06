@@ -10,6 +10,7 @@
 import { mergeTables, resolvePanelLanguage, translate, type PanelLanguage } from './core.ts'
 import { COMMON, STATUS, SHELL } from './messages/shell.ts'
 import { ADDRESS, CHANNELS, CONNECTION, INBOX, PAIRING } from './messages/panel.ts'
+import { TAILCAT } from './messages/tailcat.ts'
 import { ONBOARDING } from './messages/onboarding.ts'
 import { UPDATE } from './messages/update.ts'
 import { DEVICES } from './messages/devices.ts'
@@ -18,7 +19,7 @@ import { SELFCHECK } from './messages/selfcheck.ts'
 import { DEBUG } from './messages/debug.ts'
 
 /** 全部领域表。守卫按它逐门检查键集对齐与占位符一致。 */
-export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, ONBOARDING, UPDATE, DEVICES, NOTICE, SELFCHECK, DEBUG]
+export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, TAILCAT, ONBOARDING, UPDATE, DEVICES, NOTICE, SELFCHECK, DEBUG]
 
 /** 合并后的字典：语言 → 扁平表。 */
 export const MESSAGES: Record<PanelLanguage, Record<string, string>> = (() => {
