@@ -67,7 +67,12 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 11.22.0
+      # 刚发布的本仓自己的包（如 tailcat 平台包）会立刻进锁文件，而 pnpm 11 默认的
+      # 「新包冷却 minimumReleaseAge」供应链策略会把它们判成「太新」、拒绝冻结安装。
+      # 这是我们自己已发布的产物，装的时候直接关掉这道晾置策略（与插件自更新器同一口径）。
       - run: pnpm install --frozen-lockfile
+        env:
+          PNPM_CONFIG_MINIMUM_RELEASE_AGE: '0'
 
       # 发之前跑测试。跨仓对账那几组在单独检出里会自己跳过（它们要读主仓的 app/ 与
       # 中转的 Rust 源码），宿主侧能钉的照旧钉住。
