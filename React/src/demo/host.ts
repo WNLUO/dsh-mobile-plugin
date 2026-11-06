@@ -184,6 +184,17 @@ function statusView(): StatusView {
       state: tunnelUp ? 'connected' : 'off',
       error: null,
     },
+    // Tailcat 隧道：演示里当作「助手装好、已就绪」，与真宿主同形状（真机 `available` 为假时
+    // 引导页会显示「不可用」）。地址是编的，只求状态那一行显示正常，没有可用的隧道。
+    tailcat: {
+      available: true,
+      enabled: true,
+      running: state.enabled,
+      ready: state.enabled,
+      address: state.enabled ? 'demo-tailcat-node.example' : '',
+      paired: state.enabled ? 1 : 0,
+      error: '',
+    },
     lan: {
       enabled: state.lanEnabled,
       port: state.lanPort,

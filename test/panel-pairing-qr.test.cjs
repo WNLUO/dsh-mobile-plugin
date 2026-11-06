@@ -9,10 +9,9 @@ const path = require('node:path');
 const src = path.join(__dirname, '..', 'React', 'src');
 const read = (name) => fs.readFileSync(path.join(src, name), 'utf8');
 
-test('引导页二维码放大并保留白色边框，预览码仍走同一展示', () => {
+test('引导页二维码放大并保留白色边框', () => {
   const page = read('Onboarding.tsx');
-  assert.match(page, /md:grid-cols-\[minmax\(280px,0\.9fr\)_minmax\(0,1\.1fr\)\]/);
-  assert.match(page, /const qrSvg = showingPreview \? previewSvg : pairing\?\.svg/);
+  assert.match(page, /const qrSvg = pairing\?\.svg \?\? ''/);
   assert.match(page, /size-\[280px\] rounded-lg bg-white p-3 \[&_svg\]:h-full \[&_svg\]:w-full/);
   assert.match(page, /dangerouslySetInnerHTML=\{\{ __html: qrSvg \}\}/);
 });
@@ -43,10 +42,10 @@ test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且
     1,
     '主页那颗「看大图」按钮已经删了，别再加回来',
   );
-  // 引导页同一份弹窗，码被虚线占位挡住时不给放大。
+  // 引导页同一份弹窗：码还没有的时候不给放大（那时弹窗里只是一片白）。
   assert.match(page, /const \[qrZoomOpen, setQrZoomOpen\] = useState\(false\)/);
   assert.match(page, /<Dialog open=\{qrZoomOpen\} onOpenChange=\{setQrZoomOpen\}>/);
-  assert.match(page, /\{qrSvg && !qrBlocked \? \([\s\S]{0,200}panel\.pairing\.qrZoom/);
+  assert.match(page, /\{qrSvg \? \([\s\S]{0,200}panel\.pairing\.qrZoom/);
   assert.match(page, /onClick=\{\(\) => setQrZoomOpen\(true\)\}[\s\S]{0,400}dangerouslySetInnerHTML=\{\{ __html: qrSvg \}\}/);
 });
 

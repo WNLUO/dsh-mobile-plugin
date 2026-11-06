@@ -62,9 +62,17 @@ test('IPv6 那份只摆出来、不进「手机优先用这条」那个选择', 
   );
   // 裸 IPv6 拼 URL 必须套方括号，否则产出的是 `http://240e::1:18787` 这种坏地址。
   assert.match(picker, /address\.includes\(':'\) \? `\[\$\{address\}\]`/, 'IPv6 字面量拼 URL 时必须套方括号');
-  // 引导页那份自己渲染地址清单，同样要带上这一份。
+  // 引导页不再自己渲染地址清单（2026-11-07 起不让用户选地址，见 A3-38）：
+  // 它只管把两条路一起打开、把二维码摆出来，选哪条由手机的自动档决定。
   const onboarding = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'Onboarding.tsx'), 'utf8');
-  assert.match(onboarding, /IPv6 直连/, '引导页的地址清单也要把 IPv6 那份摆出来');
+  assert.ok(
+    !/选择地址|currentLanAddress|pickableAddresses|AddressPicker/.test(onboarding),
+    '引导页又摆回地址单选了：那一块按用户要求删掉，地址只在主页「网络配置」里改',
+  );
+  assert.ok(
+    !/IPv6 直连/.test(onboarding),
+    '引导页的只读地址清单也一起删了：IPv6 候选由手机侧自己择优，不需要在这一页列给人看',
+  );
 });
 
 test('调试 OTA 的前端入口已经不显示，但后端接口与客户端函数都留着', () => {

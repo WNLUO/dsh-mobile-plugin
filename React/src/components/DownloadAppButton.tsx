@@ -37,7 +37,8 @@ type Props = {
 function channelGlyph(channel: DownloadChannel) {
   if (channel.name === 'GitHub') return <GithubMark />
   if (channel.name === 'App Store') return <AppleMark />
-  if (channel.name === 'TestFlight') return <TestFlightMark />
+  // TestFlight 也用苹果标：它是苹果自家的测试分发渠道，单画一颗纸飞机反而让人以为是别家。
+  if (channel.name === 'TestFlight') return <AppleMark />
   return <DownloadMark />
 }
 
@@ -59,9 +60,34 @@ function ChannelCard({ channel }: { channel: DownloadChannel }) {
       </span>
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-sm text-foreground-intense">{channel.name ?? (channel.nameKey ? t(channel.nameKey) : '')}</span>
-        <span className="text-xs text-foreground-muted">{t(channel.hintKey)}</span>
+        {/* 一行搞定：第二行那句是「这条渠道是什么」，换行会把卡片撑高一截、四张卡高度还参差。 */}
+        <span className="truncate text-xs text-foreground-muted">{t(channel.hintKey)}</span>
       </span>
     </a>
+  )
+}
+
+/**
+ * 渠道网格：两列按平台分（安卓 / 苹果），每列两条渠道卡。
+ *
+ * 引导页右栏与「下载 APP」弹窗渲染的是同一份 —— 各写一份必然只改掉其中一处。
+ * 这里是纯内容，不带弹窗外壳，谁要摆就直接摆。
+ */
+export function DownloadChannelsGrid() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {DOWNLOAD_CHANNELS.map((group) => (
+        <div key={group.platform} className="flex flex-col gap-2">
+          <div className="flex items-center justify-center gap-1.5 pb-0.5 text-xs text-foreground-muted">
+            {platformGlyph(group.platform)}
+            <span>{t(group.platform === 'android' ? 'panel.links.android' : 'panel.links.apple')}</span>
+          </div>
+          {group.channels.map((channel) => (
+            <ChannelCard key={channel.url} channel={channel} />
+          ))}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -87,19 +113,9 @@ export function DownloadAppButton({ size = 'md' }: Props) {
 
           {/* 两列按平台分，窄屏（面板被夹在侧栏里时）自己叠成一列。 */}
           <div ref={dialogRef} tabIndex={-1} className="outline-none">
-          <DialogBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {DOWNLOAD_CHANNELS.map((group) => (
-              <div key={group.platform} className="flex flex-col gap-2">
-                <div className="flex items-center justify-center gap-1.5 pb-0.5 text-xs text-foreground-muted">
-                  {platformGlyph(group.platform)}
-                  <span>{t(group.platform === 'android' ? 'panel.links.android' : 'panel.links.apple')}</span>
-                </div>
-                {group.channels.map((channel) => (
-                  <ChannelCard key={channel.url} channel={channel} />
-                ))}
-              </div>
-            ))}
-          </DialogBody>
+            <DialogBody>
+              <DownloadChannelsGrid />
+            </DialogBody>
           </div>
         </DialogContent>
       </Dialog>
@@ -141,19 +157,6 @@ function DownloadMark() {
       <path d="M12 4v10" />
       <path d="m8 10.5 4 4 4-4" />
       <path d="M4 18.5h16" />
-    </svg>
-  )
-}
-
-/**
- * TestFlight 没有官方单色标可抄，用一颗纸飞机（与官网同一个 path，24×24 描边风格）。
- * 它是唯一一颗**描边**图标，所以不做 `stroke-0`：按钮基类那条 1.85 的描边在这里正好。
- */
-function TestFlightMark() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M21 3 3 10.5l7.5 3L14 21l7-18Z" />
-      <path d="M21 3 10.5 13.5" />
     </svg>
   )
 }
