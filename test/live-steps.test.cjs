@@ -184,3 +184,19 @@ test('签名块：落定后的摘要在签名之后', () => {
   assert.equal(step.state, 'ok');
   assert.equal(step.summary, '先看这个文件');
 });
+
+// 按轮隔离：重连之后新一轮的 turn/start 被当成重复丢掉，App 收不到「换轮」信号 —— 只能靠
+// 每一帧自带的 data.turn 来判。换了轮就整份换掉，绝不把上一轮的步骤接着拼进来。
+test('换轮（漏了 turn/start）不把上一轮拼进来', () => {
+  fresh();
+  const withTurn = (turn, event) => ({ ...event, data: { ...event.data, turn } });
+  // 第一轮（turn 1）：思考一步 + 工具一步
+  noteLiveEvent(CTX, SESSION, withTurn(1, reasoning(0, '第一轮')));
+  noteLiveEvent(CTX, SESSION, withTurn(1, toolDelta(1, { id: 'c1', name: 'read' })));
+  assert.equal(liveStepsOf(CTX, SESSION).length, 2);
+  // 第二轮直接来（turn 2，中间没有 turn/start）：整份换掉，只剩第二轮这一步
+  noteLiveEvent(CTX, SESSION, withTurn(2, reasoning(0, '第二轮')));
+  const steps = liveStepsOf(CTX, SESSION);
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].step.kind, 'think');
+});
