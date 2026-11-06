@@ -134,6 +134,9 @@ test('不是图片的地址一律保持字面 markdown', () => withTempDir(async
     // 真可能存在，那时这条会莫名其妙地红（2026-10-23 实测踩过）。
     `![bare](${path.join(dir, 'not-there.png')})`,
     '![empty](https://x.com/a.png)',          // 与第一条同形，保证多图场景不互相干扰
+    // 网页图片地址（协议相对）与 Windows 网络共享：既不是本机文件，也不该去 stat。
+    '![sina](//n.sinaimg.cn/finance/blackcat/pc/img/a.jpg)',
+    '![unc](\\\\server\\share\\a.png)',
   ];
   for (const text of cases) {
     assert.equal(await inlineTextImages(text), text, text);
@@ -278,6 +281,20 @@ test('localImagePathOf 只认本机位图（相对地址要有工作区目录才
   assert.equal(localImagePathOf('a.png', '/tmp'), path.normalize('/tmp/a.png'));
   assert.equal(localImagePathOf('./docs/a.png', '/tmp'), path.normalize('/tmp/docs/a.png'));
   assert.equal(localImagePathOf('/tmp/a.txt'), null);
+});
+
+// 网页地址与 Windows 网络路径都不是本机文件：不认它们，否则在 Windows 上会被当成本机绝对
+// 路径（UNC）去 stat，一读就卡几十秒。真实现场：`![](//n.sinaimg.cn/…/a.jpg)` 卡了约 29 秒。
+test('双分隔符打头的网页地址 / UNC / 扩展路径一律不认', () => {
+  // 协议相对网页地址
+  assert.equal(localImagePathOf('//n.sinaimg.cn/finance/blackcat/pc/img/a.jpg'), null);
+  assert.equal(localImagePathOf('//cdn.example.com/x/a.png'), null);
+  // Windows 网络共享（UNC）
+  assert.equal(localImagePathOf('\\\\server\\share\\a.png'), null); // \\server\share\a.png
+  // Windows 扩展长度路径（\\?\）
+  assert.equal(localImagePathOf('\\\\?\\C:\\Users\\a.png'), null); // \\?\C:\Users\a.png
+  // file:// 指向网络共享也不认（剥完仍是双斜杠）
+  assert.equal(localImagePathOf('file:////server/share/a.png'), null);
 });
 
 test('目录即使叫 .png 也不是图片（只有普通文件才内联）', () => withTempDir(async (dir) => {
