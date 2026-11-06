@@ -68,6 +68,12 @@ function makeFakePnpm(label) {
       `    mkdir -p node_modules/${PLUGIN}`,
       `    printf '{"name":"${PLUGIN}","version":"%s"}\\n' "$FAKE_PNPM_VERSION" > node_modules/${PLUGIN}/package.json`,
       '    ;;',
+      // 模拟「装了插件 + 按当前平台带出一个可选依赖（另一个平台包因 os/cpu 不匹配被跳过）」。
+      // 目录由测试提前建好（假包管理器在空 PATH 下没有 mkdir），这里只写清单。
+      '  okopt)',
+      `    printf '{"name":"${PLUGIN}","version":"%s","optionalDependencies":{"dsh-mobile-tailcat-linux-x64":"1.0.0","dsh-mobile-tailcat-win32-x64":"1.0.0"}}\\n' "$FAKE_PNPM_VERSION" > node_modules/${PLUGIN}/package.json`,
+      `    printf '{"name":"dsh-mobile-tailcat-linux-x64","version":"1.0.0"}\\n' > node_modules/dsh-mobile-tailcat-linux-x64/package.json`,
+      '    ;;',
       '  noop) : ;;',
       '  fail) echo "boom: 装不了" >&2; exit 7 ;;',
       // pnpm 10.4 及以前在 workspace 根上跑 add 就是这么拒的（profile 自己带 pnpm-workspace.yaml）。
@@ -663,6 +669,27 @@ test('排除清单：没有这个键就补一段，看不懂的 flow 写法不�
   // 已经登记过同一版：不再重复追加。
   const again = await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [fake.binDir], env: isolatedEnv(fake.binDir) });
   assert.equal(again.installed, false, '版本没变不算装上');
+});
+
+test('装成功后，插件按当前平台带出的可选依赖也一并登记（漏记的正是刚发的平台包）', async () => {
+  const profile = makeProfile('register-optdep', '0.1.60');
+  // 这个平台装上的那份可选依赖的目录（假包管理器在空 PATH 下没有 mkdir，先建好；另一个平台包故意不建，模拟被 os/cpu 跳过）。
+  fs.mkdirSync(path.join(profile.nodeModules, 'dsh-mobile-tailcat-linux-x64'), { recursive: true });
+  fs.writeFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'packages:\n  - .\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - dsh-mobile-plugin@0.1.60\n');
+  const fake = makeFakePnpm('register-optdep');
+  const result = await installLatest({
+    profileNodeModules: profile.nodeModules,
+    version: '0.2.0',
+    dirs: [fake.binDir],
+    env: isolatedEnv(fake.binDir, { FAKE_PNPM_MODE: 'okopt' }),
+  });
+  assert.equal(result.installed, true);
+  assert.equal(result.releaseAgeRecorded, true);
+  const yaml = fs.readFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'utf8');
+  assert.match(yaml, /dsh-mobile-plugin@0\.1\.60 \|\| 0\.2\.0/, '插件本体并进原行、不新开一行');
+  assert.match(yaml, /dsh-mobile-tailcat-linux-x64@1\.0\.0/, '按平台装上的可选依赖要登记');
+  assert.doesNotMatch(yaml, /dsh-mobile-tailcat-win32-x64/, '被 os/cpu 跳过的平台包不登记');
+  assert.equal((yaml.match(/dsh-mobile-tailcat-linux-x64/g) || []).length, 1, '同一个包只登记一次');
 });
 
 test('宿主 pnpm 说依赖树是旧版建的：重建一次再重试', async () => {
