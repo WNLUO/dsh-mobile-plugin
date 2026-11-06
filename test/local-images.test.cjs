@@ -13,6 +13,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -199,6 +200,71 @@ test('单张超过上限的图仍登记编号并标 tooLarge（App 画「图片�
   assert.ok(entry, '编号要能在登记表里查到');
   assert.equal(entry.tooLarge, true, '登记项要标 tooLarge，取图口据此回 413');
 }));
+
+/** 起一只只听回环的小服务跑一条用例；返回它自己关掉，不把端口漏出去。 */
+async function withLoopbackServer(handler, fn) {
+  const server = http.createServer(handler);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    return await fn(`http://127.0.0.1:${port}`);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+// 生图插件常把成品图挂在自己电脑的一个回环小服务上，回的是 `http://127.0.0.1:<端口>/…`。
+// 手机拿着它只会指回手机自己，所以由电脑去取回来、落盘、按编号给手机。下面几条真起服务跑。
+test('回环地址上的图片由电脑取回、换成编号并可被取图口读到', () => withLoopbackServer((req, res) => {
+  if (req.url === '/shot.png') {
+    res.writeHead(200, { 'content-type': 'image/png' });
+    res.end(TINY_PNG);
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+}, async (base) => {
+  const out = await inlineTextImages(`![远程生成](${base}/shot.png)`);
+  const m = /dsh-local-image:([a-f0-9]+)/.exec(out);
+  assert.ok(m, out);
+  assert.ok(out.includes('![远程生成]('), 'alt 与文字保持原样');
+  const entry = localImageOf(m[1]);
+  assert.ok(entry && entry.mediaType === 'image/png', '按魔术字节登记成 PNG');
+  assert.ok(entry.filePath && fs.existsSync(entry.filePath), '字节落成临时文件，取图口按编号读它');
+  assert.equal(fs.readFileSync(entry.filePath).length, TINY_PNG.length, '落盘的就是取回来的那份字节');
+}));
+
+test('localhost 这种主机名同样认，路径与查询串原样交给电脑去取', () => withLoopbackServer((req, res) => {
+  if (req.url === '/img?id=7') {
+    res.writeHead(200);
+    res.end(TINY_PNG);
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+}, async (base) => {
+  const url = base.replace('127.0.0.1', 'localhost');
+  const out = await inlineTextImages(`![](<${url}/img?id=7>)`);
+  assert.ok(out.includes('dsh-local-image:'), out);
+}));
+
+test('回环地址但字节不是图片：保持字面 markdown', () => withLoopbackServer((req, res) => {
+  res.writeHead(200, { 'content-type': 'text/html' });
+  res.end('<!doctype html><p>not an image</p>');
+}, async (base) => {
+  const text = `![x](${base}/page.png)`;
+  assert.equal(await inlineTextImages(text), text);
+}));
+
+test('回环地址但服务不在：保持字面 markdown，不抛也不干等', async () => {
+  const text = '![x](http://127.0.0.1:1/nope.png)';
+  assert.equal(await inlineTextImages(text), text);
+});
+
+test('非回环的远程图绝不由电脑去取（能力面只到回环）', async () => {
+  const text = '![r](http://203.0.113.10:8080/a.png)';
+  assert.equal(await inlineTextImages(text), text);
+});
 
 test('localImagePathOf 只认本机位图（相对地址要有工作区目录才认）', () => {
   assert.equal(localImagePathOf('/tmp/a.png'), path.normalize('/tmp/a.png'));
