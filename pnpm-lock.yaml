@@ -48,6 +48,22 @@ importers:
       yaml:
         specifier: 2.9.1
         version: 2.9.1
+    optionalDependencies:
+      dsh-mobile-tailcat-darwin-arm64:
+        specifier: 1.0.0
+        version: 1.0.0
+      dsh-mobile-tailcat-darwin-x64:
+        specifier: 1.0.0
+        version: 1.0.0
+      dsh-mobile-tailcat-linux-arm64:
+        specifier: 1.0.0
+        version: 1.0.0
+      dsh-mobile-tailcat-linux-x64:
+        specifier: 1.0.0
+        version: 1.0.0
+      dsh-mobile-tailcat-win32-x64:
+        specifier: 1.0.0
+        version: 1.0.0
 
 packages:
 
@@ -759,6 +775,31 @@ packages:
 
   dijkstrajs@1.0.3:
     resolution: {integrity: sha512-qiSlmBq9+BCdCA/L46dw8Uy93mloxsPSbwnm5yrKn2vMPiy8KyAskTF6zuV/j5BMsmOGZDPs7KjU+mjb670kfA==}
+
+  dsh-mobile-tailcat-darwin-arm64@1.0.0:
+    resolution: {integrity: sha512-yMOLC3O8wnHCkBfTfDW6Yrudpf2R3cxuwJiJO0iE6fy8lcQZPFSz6lwM7jPZd3ThLYG0jBsDDk73/wKnFLnPPg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  dsh-mobile-tailcat-darwin-x64@1.0.0:
+    resolution: {integrity: sha512-JyqFLRnHg3+zPv3Rehtl9AgLH5Sp9EdN3zDXs2eSHUX9c2C2keKonaDxSzdMSYqQsPO6dAaOiHWGiI8vcOZ2IA==}
+    cpu: [x64]
+    os: [darwin]
+
+  dsh-mobile-tailcat-linux-arm64@1.0.0:
+    resolution: {integrity: sha512-6IEvxoymhBEOcXZxKoQwWQWp1/DBOdXbNS3kw3rFLK7zzD62I5FncRh6VBIv4arPnSpZgkgb2xUtE09d1kGkUA==}
+    cpu: [arm64]
+    os: [linux]
+
+  dsh-mobile-tailcat-linux-x64@1.0.0:
+    resolution: {integrity: sha512-2p1Uh/+3Om8Y1RxmkTZO/efTqzjoOTJcUTj2OVFBp4Vq8BaGIt4gYvzbGf9jJtL4xC40LHcs0HkaiLrhGAgZqA==}
+    cpu: [x64]
+    os: [linux]
+
+  dsh-mobile-tailcat-win32-x64@1.0.0:
+    resolution: {integrity: sha512-weEU9m19CABHmOMse82qCFvqsOUQSxaERZSV58vH/wuMb4dY9sl0Zmg//sG/qbi179dFblB+QZ5jPneJfoF19A==}
+    cpu: [x64]
+    os: [win32]
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
@@ -1719,6 +1760,21 @@ snapshots:
   decamelize@1.2.0: {}
 
   dijkstrajs@1.0.3: {}
+
+  dsh-mobile-tailcat-darwin-arm64@1.0.0:
+    optional: true
+
+  dsh-mobile-tailcat-darwin-x64@1.0.0:
+    optional: true
+
+  dsh-mobile-tailcat-linux-arm64@1.0.0:
+    optional: true
+
+  dsh-mobile-tailcat-linux-x64@1.0.0:
+    optional: true
+
+  dsh-mobile-tailcat-win32-x64@1.0.0:
+    optional: true
 
   emoji-regex@8.0.0: {}
 

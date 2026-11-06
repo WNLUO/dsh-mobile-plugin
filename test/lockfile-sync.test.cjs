@@ -49,7 +49,7 @@ test('锁文件与 package.json 同步：每个依赖在锁里都有同一个 sp
     [...importer.matchAll(/^ {6}'?([^'\n:]+)'?:\n {8}specifier: '?([^'\n]+)'?$/gm)].map((m) => [m[1], m[2]]),
   );
 
-  const declared = { ...(pkg.dependencies || {}), ...(pkg.peerDependencies || {}), ...(pkg.devDependencies || {}) };
+  const declared = { ...(pkg.dependencies || {}), ...(pkg.optionalDependencies || {}), ...(pkg.peerDependencies || {}), ...(pkg.devDependencies || {}) };
   for (const [name, range] of Object.entries(declared)) {
     assert.ok(specs.has(name), `${name}（${range}）不在 pnpm-lock.yaml 里——跑一次 pnpm install 更新锁`);
     assert.equal(specs.get(name), range, `${name} 的 specifier 对不上：package.json 写 ${range}，锁里写 ${specs.get(name)}`);

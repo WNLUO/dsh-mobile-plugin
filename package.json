@@ -60,6 +60,13 @@
     "qrcode": "1.5.4",
     "ws": "8.18.0"
   },
+  "optionalDependencies": {
+    "dsh-mobile-tailcat-darwin-arm64": "1.0.0",
+    "dsh-mobile-tailcat-darwin-x64": "1.0.0",
+    "dsh-mobile-tailcat-linux-arm64": "1.0.0",
+    "dsh-mobile-tailcat-linux-x64": "1.0.0",
+    "dsh-mobile-tailcat-win32-x64": "1.0.0"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.1",
     "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",

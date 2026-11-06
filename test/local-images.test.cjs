@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { inlineTextImages, createTextImageBudget, localImagePathOf, imageSizeOf } = require('../lib/mobile/local-images.js');
+const { inlineTextImages, createTextImageBudget, localImagePathOf, localImageOf, imageSizeOf } = require('../lib/mobile/local-images.js');
 const { resolveEventAttachments } = require('../lib/mobile/attachments.js');
 const { deriveMessages } = require('../lib/mobile/sessions.js');
 
@@ -189,11 +189,15 @@ test('预算用尽后剩下的图片保持字面 markdown', async () => withTemp
   assert.equal((first.match(/dsh-local-image:/g) || []).length, 2, first);
 }));
 
-test('单张超过上限的图保持字面 markdown', async () => withTempDir(async (dir) => {
+test('单张超过上限的图仍登记编号并标 tooLarge（App 画「图片太大」占位，不给 literal 源码）', async () => withTempDir(async (dir) => {
   const huge = path.join(dir, 'huge.png');
   fs.writeFileSync(huge, Buffer.concat([TINY_PNG, Buffer.alloc(3 * 1024 * 1024)]));
-  const text = `![big](${huge})`;
-  assert.equal(await inlineTextImages(text), text, '2.5MB 以上的原图不内联');
+  const out = await inlineTextImages(`![big](${huge})`);
+  const m = /dsh-local-image:([a-f0-9]+)/.exec(out);
+  assert.ok(m, '超过上限的图也要换成编号，不能退回字面 markdown');
+  const entry = localImageOf(m[1]);
+  assert.ok(entry, '编号要能在登记表里查到');
+  assert.equal(entry.tooLarge, true, '登记项要标 tooLarge，取图口据此回 413');
 }));
 
 test('localImagePathOf 只认本机位图（相对地址要有工作区目录才认）', () => {
