@@ -1,7 +1,7 @@
 <h3 align="center">AI-HUB mobile plugin</h3>
 
 <p align="center">
-  <img src="assets/banner.jpg" alt="AI-HUB: DSH sessions on a phone and a tablet" width="760">
+  <img src="assets/banner.jpg" alt="AI-HUB: DeepSeek Harness sessions on a phone and a tablet" width="760">
 </p>
 
 <p align="center">
@@ -20,16 +20,16 @@
 
 <p align="center">Pick up on your phone where your desktop left off.</p>
 
-**The mobile-side plugin for AI-HUB.** Install it on the computer and the phone app reaches your DSH through a relay tunnel or a LAN pairing — browse sessions, keep chatting, manage files and workspaces, with progress synced live. It also runs on a server without a desktop shell, as a headless host.
+**The mobile-side plugin for AI-HUB.** Install it on the computer and the phone app reaches your DeepSeek Harness through a relay tunnel or a LAN pairing — browse sessions, keep chatting, manage files and workspaces, with progress synced live. It also runs on a server without a desktop shell, as a headless host.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-en-dark.svg">
-    <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-en-light.svg" alt="The phone app reaches the DSH on your computer through a relay, or directly over the LAN" width="720">
+    <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-en-light.svg" alt="The phone app reaches the DeepSeek Harness on your computer through a relay, or directly over the LAN" width="720">
   </picture>
 </p>
 
-Your phone talks to **the DSH running on your own computer**, not to a cloud service. That computer needs no public IP address and no port forwarding: the plugin dials out from the local network, and the phone comes back along that tunnel.
+Your phone talks to **the DeepSeek Harness running on your own computer**, not to a cloud service. That computer needs no public IP address and no port forwarding: the plugin dials out from the local network, and the phone comes back along that tunnel.
 
 ## Features
 
@@ -115,7 +115,7 @@ The pairing policy defaults to `code`, admitting devices that present a valid pa
 
 ## Why I built this
 
-DSH runs on my computer, and I am not always sitting in front of it. Out of the house, in another room, lying in bed — when I want to know how far a task got, or it is stuck on an approval waiting for me to tap, the only option used to be walking back.
+DeepSeek Harness runs on my computer, and I am not always sitting in front of it. Out of the house, in another room, lying in bed — when I want to know how far a task got, or it is stuck on an approval waiting for me to tap, the only option used to be walking back.
 
 The starting point is that narrow: this does not squeeze DSH onto a phone screen. It lets you see, keep talking, and tap the thing that needs tapping after you leave the desk.
 

@@ -1,6 +1,6 @@
 <h3 align="center">AI-HUB 移动端插件</h3>
 
-![AI-HUB：手机和平板上的 DSH 会话界面](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/banner.jpg)
+![AI-HUB：手机和平板上的 DeepSeek Harness 会话界面](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/banner.jpg)
 
 <p align="center">
   <a href="https://app.wnluo.com/public/apps/14"><img alt="安卓 分发下载" src="https://img.shields.io/badge/%E5%AE%89%E5%8D%93-%E5%88%86%E5%8F%91%E4%B8%8B%E8%BD%BD-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
@@ -16,13 +16,13 @@
   <a href="EN-README.md"><img alt="English" src="https://img.shields.io/badge/README-English-2f81f7?style=flat-square"></a>
 </p>
 
-<p align="center">电脑上开着的 DSH，手机上接着用。</p>
+<p align="center">电脑上开着的 DeepSeek Harness，手机上接着用。</p>
 
-**AI-HUB 的手机端插件。** 装在电脑这边，手机 App 就通过一条中转隧道或局域网配对连进你的 DSH —— 看会话、接着聊、管理文件和工作区，进度实时同步。它也可以脱离桌面外壳单独跑在服务器上，当作无头宿主用。
+**AI-HUB 的手机端插件。** 装在电脑这边，手机 App 就通过一条中转隧道或局域网配对连进你的 DeepSeek Harness —— 看会话、接着聊、管理文件和工作区，进度实时同步。它也可以脱离桌面外壳单独跑在服务器上，当作无头宿主用。
 
-![手机 App 经中转或局域网连到你电脑上的 DSH](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-light.svg)
+![手机 App 经中转或局域网连到你电脑上的 DeepSeek Harness](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-light.svg)
 
-手机连的是**你自己那台电脑上的 DSH**，不是某个云端服务。电脑不用公网 IP，也不用在路由器上开端口：插件从内网主动往外建一条隧道，手机沿这条路回来。
+手机连的是**你自己那台电脑上的 DeepSeek Harness**，不是某个云端服务。电脑不用公网 IP，也不用在路由器上开端口：插件从内网主动往外建一条隧道，手机沿这条路回来。
 
 ## 功能
 
@@ -108,7 +108,7 @@ pnpm add dsh-mobile-plugin@<版本>
 
 ## 为什么做这个
 
-DSH 跑在电脑上，但我不是一直坐在电脑前。出门、在别的房间、躺床上，想知道刚才那个任务跑到哪一步了，或者它正卡在一个要我点的审批上，只能走回去。
+DeepSeek Harness 跑在电脑上，但我不是一直坐在电脑前。出门、在别的房间、躺床上，想知道刚才那个任务跑到哪一步了，或者它正卡在一个要我点的审批上，只能走回去。
 
 这个插件的出发点就这么窄：不是把整个 DSH 塞进手机屏幕，而是让人离开电脑之后，还能看见、还能接着聊、还能把该点的那一下点掉。
 
