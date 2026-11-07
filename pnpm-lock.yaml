@@ -35,6 +35,9 @@ importers:
       ws:
         specifier: 8.18.0
         version: 8.18.0
+      zod:
+        specifier: 4.6.5
+        version: 4.6.5
     devDependencies:
       '@deepseek-ai/dsh-host-directory-picker-browse':
         specifier: ^0.2.1-rc.3

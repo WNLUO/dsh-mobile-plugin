@@ -59,7 +59,8 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "2.4.0",
     "qrcode": "1.5.4",
-    "ws": "8.18.0"
+    "ws": "8.18.0",
+    "zod": "4.6.5"
   },
   "optionalDependencies": {
     "dsh-mobile-tailcat-darwin-arm64": "1.0.0",
