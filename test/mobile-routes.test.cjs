@@ -74,6 +74,12 @@ const LEGACY_ROUTES = new Map([
   ['/cli/cancel', '旧版 App 的「停掉这一轮」（不杀会话）。新版走 `/session/stop`，两者都落 `cancelTurn`'],
   ['/cli/config', '旧版 App 的选模型 / 换模式（ACP `set_config_option` / `set_mode`）。新版由 `/session/select-model` + `session/models` 承载'],
   ['/cli/stream', '旧版 App 的 WebSocket 流（`?session=` 升级）。新版 CLI 会话走 `/session/stream` 的 SSE，与普通会话同一条；这条只服务旧版客户端，`handleUpgrade` 的鉴权与拒绝路径不变'],
+  // 2026-11-08：App 侧「把电脑上 magpie 的网页版整页嵌进来」那一整条删了（右栏改推扩展页），
+  // 于是 App 不再打这条。插件这边保留 —— 已发布的旧版 App 仍靠它拿到「端口 + key」再嵌那一页，
+  // 删掉会让那批客户端从「本地降级匹配」变成 404。它的透传契约（起进程、探端口、换 cookie、
+  // 起不来时按档回 reason）由 test/magpie-web.test.cjs 完整覆盖，`extension-data.js` 还在复用
+  // 同一个 `ensureWeb`，不是无主的死路由。
+  ['/magpie/web', '旧版 App 打开 magpie 网页版时问「端口 + key」的那条（`handleMagpieWeb`）。新版改由扩展页直接取数，App 不再调用；宿主侧的 `ensureWeb` 仍被扩展取数通道复用，这条只留给旧客户端'],
 ]);
 
 /**
@@ -158,7 +164,7 @@ test('保留的旧客户端路由清单本身没腐化', { skip: SKIP_NO_APP }, 
     assert.ok(!known.has(full), `LEGACY_ROUTES 里的 ${full} 在 apiPaths.ts 里又出现了（App 侧又接上了它），请删掉这条豁免`);
     assert.ok(why.length > 40, `LEGACY_ROUTES 里的 ${full} 得写清为什么保留`);
   }
-  assert.equal(LEGACY_ROUTES.size, 9, '豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
+  assert.equal(LEGACY_ROUTES.size, 10, '豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
 });
 
 test('插件侧没有 App 从不打的移动端路由（死路由要么删要么补测试）', { skip: SKIP_NO_APP }, () => {

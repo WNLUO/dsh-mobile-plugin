@@ -376,9 +376,12 @@ test('模型那组工具里没有任何一条能自己指定手机', () => {
   // 少一条不会红、多一条会红，所以宁可每次扩能力面都改这里一次。
   const names = registered.map((tool) => tool.name).sort();
   assert.deepEqual(names, [
-    'phone_apps', 'phone_gesture', 'phone_key', 'phone_open_app', 'phone_open_link',
-    'phone_screen', 'phone_screenshot', 'phone_scroll', 'phone_scroll_to', 'phone_steps',
-    'phone_tap', 'phone_target', 'phone_type', 'phone_wait',
+    'phone_add_calendar_event', 'phone_app_after_task', 'phone_apps', 'phone_collect',
+    'phone_extract', 'phone_find', 'phone_gesture', 'phone_key', 'phone_open_app',
+    'phone_open_link', 'phone_query', 'phone_screen', 'phone_screenshot', 'phone_scroll',
+    'phone_scroll_to', 'phone_set_alarm', 'phone_set_timer', 'phone_share_text',
+    'phone_show_alarms', 'phone_steps', 'phone_tap', 'phone_target', 'phone_type',
+    'phone_wait', 'phone_wheel',
   ]);
 });
 

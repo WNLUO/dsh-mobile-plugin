@@ -63,7 +63,11 @@ const GOLDEN = {
   'host.createDirectory': ['directoryPicker', 'createDirectory', ['name', 'path']],
   'skills.list': ['skills', 'list', ['request']],
   'subagents.prompt': ['subagents', 'prompt', ['request']],
-  'subagents.interrupt': ['subagents', 'interruptByParent', ['childSessionId', 'mode', 'parentSessionId']],
+  // 2026-11-08：上游 0.2.1-rc.2 起 `interruptByParent(childSessionId, parentSessionId, mode)`
+  // 被换成 `interruptByUser(childSessionId)`（授权挂在子会话本身），插件侧先打新接口、
+  // 只有宿主没有这个方法（host-unavailable）时才退回旧接口。这张金标准钉的是**那条主路由**，
+  // 所以记新接口；旧接口那条兜底在下面「打断先打新接口」的用例里单独钉。
+  'subagents.interrupt': ['subagents', 'interruptByUser', ['childSessionId']],
   'subagents.list': null, // 合成：从会话投影里出目录
   'goals.edit': ['goals', 'edit', ['agentId', 'ref', 'request']],  // objective/maxGoalRounds 被宿主挪进了 request
   'goals.pause': ['goals', 'pause', ['agentId', 'ref']],
@@ -218,4 +222,91 @@ test('DeepSeek 账号只开放状态、资料和余额读取', () => {
     Object.keys(ENDPOINTS).filter((key) => key.startsWith('account.')),
     ['account.getState', 'account.getProfile', 'account.getBalance'],
   );
+});
+
+/**
+ * 子代理打断的两代接口：新宿主只有 `interruptByUser(childSessionId)`，老宿主只有
+ * `interruptByParent(childSessionId, parentSessionId, mode)`。
+ *
+ * 这条金标准只钉得住「第一发打哪个」，钉不住「老宿主能不能真的打断」——退错一步就是
+ * 点「停止」看着点了、子代理还在跑，而这在手机上没有任何报错可看。所以兜底那条单独钉。
+ */
+function interruptCtx({ newMethodExists, newError, legacyExists, legacyError }) {
+  const calls = [];
+  /** 网关的失败是**抛**出来的（`invoke` 接的是 reject），不是回一个 error 字段。 */
+  const thrown = (error) => {
+    const failure = new Error(error.message || error.code);
+    failure.code = error.code;
+    return failure;
+  };
+  const ctx = {
+    calls,
+    get: (key) => (key === 'typertGateway'
+      ? {
+          async invoke({ namespace, method, args }) {
+            calls.push({ namespace, method, args });
+            // 「这个方法不存在」在网关那侧是 method-unavailable，`errorOf` 会把它收敛成
+            // host-unavailable —— 兜底判据认的正是收敛后的那个码。
+            const missing = { code: 'gateway/method-unavailable', message: 'no such method' };
+            if (method === 'interruptByUser') {
+              if (!newMethodExists) throw thrown(missing);
+              if (newError) throw thrown(newError);
+              return { interrupted: true };
+            }
+            if (!legacyExists) throw thrown(missing);
+            if (legacyError) throw thrown(legacyError);
+            return { interrupted: true };
+          },
+          async stream() { return Readable.from([]); },
+        }
+      : undefined),
+    logger: { warn() {} },
+  };
+  return ctx;
+}
+
+const INTERRUPT_PAYLOAD = {
+  rpcId: 'mobile',
+  parentSessionId: 'parent-1',
+  childSessionId: 'child-1',
+  mode: 'continuable',
+};
+
+test('打断在新宿主上只打 interruptByUser，且只带 childSessionId', async () => {
+  const ctx = interruptCtx({ newMethodExists: true });
+  const api = createApiProxy(ctx);
+  const envelope = await api.subagents.interrupt({ rpcId: 'mobile', payload: INTERRUPT_PAYLOAD });
+  assert.deepEqual(ctx.calls.map((c) => `${c.namespace}/${c.method}`), ['subagents/interruptByUser']);
+  assert.deepEqual(Object.keys(ctx.calls[0].args), ['childSessionId']);
+  assert.equal(ctx.calls[0].args.childSessionId, 'child-1');
+  assert.ok(!envelope.result.error, '新宿主上打断应该直接成功');
+});
+
+test('打断在老宿主上退回 interruptByParent（带齐三个键）', async () => {
+  const ctx = interruptCtx({ newMethodExists: false, legacyExists: true });
+  const api = createApiProxy(ctx);
+  const envelope = await api.subagents.interrupt({ rpcId: 'mobile', payload: INTERRUPT_PAYLOAD });
+  assert.deepEqual(
+    ctx.calls.map((c) => `${c.namespace}/${c.method}`),
+    ['subagents/interruptByUser', 'subagents/interruptByParent'],
+  );
+  assert.deepEqual(Object.keys(ctx.calls[1].args).sort(), ['childSessionId', 'mode', 'parentSessionId']);
+  assert.equal(ctx.calls[1].args.mode, 'continuable');
+  assert.ok(!envelope.result.error, '老宿主上退回旧接口也应该成功');
+});
+
+test('打断在新接口存在但真失败时不退回旧接口（否则会盖掉真实错误）', async () => {
+  const ctx = interruptCtx({ newMethodExists: true, newError: { code: 'gateway/internal', message: 'boom' } });
+  const api = createApiProxy(ctx);
+  const envelope = await api.subagents.interrupt({ rpcId: 'mobile', payload: INTERRUPT_PAYLOAD });
+  assert.deepEqual(ctx.calls.map((c) => `${c.namespace}/${c.method}`), ['subagents/interruptByUser']);
+  assert.equal(envelope.result.error.code, 'gateway/internal', '新接口的真实错误要原样透出');
+});
+
+test('两个打断接口都不存在时，报的是「宿主没有打断能力」而不是静默成功', async () => {
+  const ctx = interruptCtx({ newMethodExists: false, legacyExists: false });
+  const api = createApiProxy(ctx);
+  const envelope = await api.subagents.interrupt({ rpcId: 'mobile', payload: INTERRUPT_PAYLOAD });
+  assert.equal(envelope.result.error.code, 'host-unavailable');
+  assert.match(envelope.result.error.message, /打断接口/);
 });

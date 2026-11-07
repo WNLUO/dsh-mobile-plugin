@@ -111,6 +111,41 @@ test('单键更新帧（inbox 变化）同样摊平，空队列发空数组', as
   assert.deepEqual(queue[1].payload.items, [], '队列被认领后必须推空数组，否则排队条留在原地');
 });
 
+test('一事件一帧的 changes 形状：多个键同帧应用，队列只发一次', async () => {
+  // 2026-11-08：宿主 0.2.2-alpha.2 起 live projection 帧从「一 key 一帧」改成
+  // `{ type:'projection', sessionId, seq, changes:[{key,val}] }`（见上游
+  // docs/upgrade-guide/v0.2.2-alpha.2/projection-event-frames）。这里钉两件事：
+  // 同帧里的每个 change 都要落到 values 上；inbox 也在这一帧里时只发一次队列帧，
+  // 不能因为「改了多个键」就重复发。
+  const { ctx } = makeCtx([
+    baselineFor('s-1', { inbox: { 'next-turn': [], 'next-step': [] }, model: { lastUsed: 'old' } }),
+    {
+      type: 'projection',
+      sessionId: 's-1',
+      seq: 11,
+      changes: [
+        { key: 'inbox', val: { 'next-turn': [inboxMessage('c1', '同帧队列')], 'next-step': [] } },
+        { key: 'model', val: { lastUsed: 'new' } },
+      ],
+    },
+  ]);
+
+  const frames = await collect(muxFrames(ctx, { payload: { sessionId: 's-1' } }));
+  const queue = queueFrames(frames);
+
+  // 基线那一帧自己也带 inbox（空队列），所以这里一共两条：基线的空 + 这次 changes 的那条。
+  assert.equal(queue.length, 2, '一帧多键只该发一条队列帧，加上基线的空队列共两条');
+  assert.deepEqual(queue[0].payload.items, [], '基线里是空队列');
+  assert.deepEqual(queue[1].payload.items, [
+    { id: 'c1', placement: 'queued', message: { id: 'c1', content: [{ type: 'text', text: '同帧队列' }] } },
+  ]);
+
+  const last = frames.filter((frame) => frame.payload.type === 'session/projection').pop();
+  assert.equal(last.payload.seq, 11);
+  assert.deepEqual(last.payload.values.inbox, { 'next-turn': [inboxMessage('c1', '同帧队列')], 'next-step': [] });
+  assert.deepEqual(last.payload.values.model, { lastUsed: 'new' }, '同帧里的第二个键也要应用');
+});
+
 test('畸形 inbox 一律退化成空 items，不报错也不伪造行', async () => {
   const malformed = [
     { 'next-turn': [{ content: [{ type: 'text', text: '没有 id' }] }], 'next-step': [] },
