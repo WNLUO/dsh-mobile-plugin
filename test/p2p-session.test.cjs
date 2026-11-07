@@ -9,7 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { createP2PSession, STATE, P2P_PORT } = require('../lib/p2p/session.cjs');
-const { mountP2P } = require('../lib/p2p/wiring.cjs');
+const { mountP2P, chooseP2PTarget } = require('../lib/p2p/wiring.cjs');
 
 /** 一个假助手：把写进来的命令记下来，事件由用例自己喂。 */
 function fakeHost() {
@@ -116,20 +116,70 @@ test('另一台手机正在用时如实说「被占用」，绝不去抢（抢�
   assert.ok(!host.written.some((item) => item.command === 'p2pStop'), '不许停别人的隧道');
 });
 
-test('同一台手机再来一次不重开（候选变了也不踢掉已经打通的洞）', async () => {
+test('同一台手机、候选一模一样再来一次不重开（别每分钟踢掉已经打通的洞）', async () => {
+  // 判据是「同一把手机公钥 + 同一个候选集合」（决策见 lib/p2p/session.cjs 的 open）。
+  // 早先这条只判公钥，连候选变了也复用 —— 那一条是错的，理由见下面「候选变了要重开」。
+  // 候选**顺序不同、内容相同**不算变：手机每轮报上来的先后本来就不稳定，按顺序比就是
+  // 每轮重开一次，用户感受到的是「网一分钟断一次」。
   const { session, host } = makeSession({
+    [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub',
+  });
+  const first = session.open({
+    phonePublicKey: 'phone-a',
+    candidates: ['203.0.113.1:5000', '203.0.113.2:5001'],
+    localCandidates: ['10.0.0.2:5000'],
+  });
+  session._event({ event: 'p2pReady', url: 'http://10.99.0.1:48950' });
+  await first;
+
+  const again = await session.open({
+    phonePublicKey: 'phone-a',
+    candidates: ['203.0.113.2:5001', '203.0.113.1:5000'],
+    localCandidates: ['10.0.0.2:5000'],
+  });
+  assert.equal(again.ok, true, '同一份候选要照常回现状');
+
+  const starts = host.written.filter((item) => item.command === 'p2pStart');
+  assert.equal(starts.length, 1, '同一把手机公钥 + 同一份候选不该重开');
+  assert.ok(!host.written.some((item) => item.command === 'p2pStop'));
+});
+
+test('候选真的变了要重开（只听不打起来的隧道拿不到新候选，公网永远往空气里打）', async () => {
+  // 电脑第一次常常是在手机还没报出候选时以「只听不打」起来的。之后手机把真实候选报上来，
+  // 若判据只看公钥，电脑就一直复用一个没有任何对端地址的隧道 —— 永远不往手机打。
+  // 局域网还能通，只因为手机摸得到电脑的内网地址、先从那边打过来了；一到公网就只剩「等待」。
+  // 这是这条通道公网打不通的头号原因，所以候选必须进判据。
+  const { session, host } = makeSession({
+    [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub',
+  });
+  const first = session.open({ phonePublicKey: 'phone-a', candidates: [] });
+  session._event({ event: 'p2pReady', url: 'http://10.99.0.1:48950' });
+  await first;
+
+  const second = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.9:6000'] });
+  session._event({ event: 'p2pReady', url: 'http://10.99.0.1:48951', candidates: [] });
+  await second;
+
+  const starts = host.written.filter((item) => item.command === 'p2pStart');
+  assert.equal(starts.length, 2, '候选从空变成有地址，必须按新候选重开一次');
+  assert.deepEqual(starts[1].peerPublic, ['203.0.113.9:6000'], '重开那一发必须带上新候选');
+});
+
+test('被 busy 拒掉的那台不许改盘上的对端公钥（否则下一轮原来那台反被当成别人）', async () => {
+  // 落盘顺序的坑：早先是「先把手机公钥落盘成 p2pPeerKey，再判 busy」。于是一台被拒的手机
+  // 也把盘上那份改了，原来那台下次来会合时 `peerKey === runningPeer` 不成立、反被判成
+  // 「另一台」，两台谁也接不上。落盘必须在两道门（复用 / busy）之后。
+  const { session, saved } = makeSession({
     [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub',
   });
   const first = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
   session._event({ event: 'p2pReady', url: 'http://10.99.0.1:48950' });
   await first;
+  assert.equal(saved[STATE.peerKey], 'phone-a');
 
-  const again = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.9:6000'] });
-  await again;
-
-  const starts = host.written.filter((item) => item.command === 'p2pStart');
-  assert.equal(starts.length, 1, '同一把手机公钥不该重开 —— 重开等于每分钟踢掉一次已经打通的洞');
-  assert.ok(!host.written.some((item) => item.command === 'p2pStop'));
+  const second = await session.open({ phonePublicKey: 'phone-b', candidates: ['203.0.113.2:5000'] });
+  assert.equal(second.code, 'busy');
+  assert.equal(saved[STATE.peerKey], 'phone-a', '被拒的那台不许把盘上的对端改掉');
 });
 
 test('状态如实反映「通没通」：打不通时 active 必须是假', async () => {
@@ -428,6 +478,68 @@ test('会合：这台电脑没这条通道时如实说不可用，不让手机�
   const captured = await captureJson(() => handler(null, req, res), res);
   assert.equal(captured.available, false);
   assert.equal(captured.reason, 'p2p-unavailable');
+});
+
+test('会合：落点端口取门面给的，不是硬编码的局域网端口（局域网关着时那个口没人听）', async () => {
+  // 隧道会「连上了却毫无反应」的那个坑：局域网关着时局域网端口根本没在监听，隧道照旧往它
+  // 转，握手成功、数据一到就断。门面（`lib/p2p/wiring.cjs`）自己知道该转谁，会合这条路
+  // 必须用它的答案，而不是自己拿 `lanPortInUse`。
+  const opened = [];
+  const handler = createP2PRendezvousHandler({
+    p2p: {
+      constants: { P2P_PORT },
+      targetPort: () => 19485,
+      open: async (options) => {
+        opened.push(options);
+        return { ok: true, candidates: [] };
+      },
+    },
+    // 局域网端口那一份是**诱饵**：谁要是回退到它，这条就红。
+    lanPortInUse: () => 18787,
+  });
+  const { req, res } = fakeHttp({ phonePublicKey: 'phoneKey', candidates: ['203.0.113.1:5000'] });
+  await captureJson(() => handler(null, req, res), res);
+  assert.equal(opened[0].targetPort, 19485, '必须用门面给的落点端口，局域网关着时它才是 webServer.port');
+});
+
+test('挂载层：落点端口跟局域网开关走（局域网开着转局域端口，关着转 web 端口）', async () => {
+  // 样板是直连隧道的 `chooseTailcatTarget`，判据一模一样：两条隧道最终都转给
+  // 「手机上那个 API」，只是局域网关着时它住在宿主 web 端口上。
+  let lanOn = true;
+  const target = chooseP2PTarget({
+    lanEnabled: () => lanOn,
+    lanPort: () => 18787,
+    webPort: () => 19485,
+  });
+  const door = mountP2P({
+    mount: (_label, fn) => fn(),
+    warn: () => {},
+    state: {},
+    saveState: () => {},
+    localPort: () => 18787,
+    targetPort: target,
+    ctx: { effect: (fn) => fn() },
+    name: 'test',
+    // 同上：钉住「本机没装助手」，别真拉一个子进程起来。
+    resolveBinary: () => null,
+  });
+  assert.equal(door.targetPort(), 18787, '局域网开着：与一台 LAN 手机走同一条路');
+  lanOn = false;
+  assert.equal(door.targetPort(), 19485, '局域网关着：那个口没人听，必须转宿主 web 端口');
+});
+
+test('挂载层：没给 targetPort 时退回 localPort（老形状，行为不变）', () => {
+  const door = mountP2P({
+    mount: (_label, fn) => fn(),
+    warn: () => {},
+    state: {},
+    saveState: () => {},
+    localPort: () => 18787,
+    ctx: { effect: (fn) => fn() },
+    name: 'test',
+    resolveBinary: () => null,
+  });
+  assert.equal(door.targetPort(), 18787);
 });
 
 test('会合：助手起不来时也不假装成功', async () => {
