@@ -94,26 +94,159 @@ test('拉起隧道：按手机报上来的公钥与候选发命令', async () =>
   assert.equal(start.targetPort, 0);
 });
 
-test('另一台手机正在用时如实说「被占用」，绝不去抢（抢就会两边端口乱跳、永远打不穿）', async () => {
-  // 这条通道一次只服务一个对端，所以多台手机同时在线时必须有一个人退让。
-  // 早先这里是「换设备就重开」，于是 A 起来 → B 把 A 踢掉 → 下一轮 A 又把 B 踢掉：
-  // 每抢一次 socket 端口都换一个，两端手里的候选永远对不上，打洞永远打不穿，而面板上
-  // 它老老实实报 `punching` / `failed`，看起来像 NAT 太严。真机上一平板一手机同时开着
-  // 就是这个场面 —— 抢是错的，让才是对的。
+test('第二台手机来会合也给它起一条，不再回 busy（一台电脑同时服务多台）', async () => {
+  // **决策变了**：这里早先钉的是「第二台手机必须拿到 busy、绝不去抢」。
+  // 那个结论成立的前提是「一条隧道只服务一个对端」—— 现在助手侧按手机公钥维护一张隧道表
+  // （每条隧道各有独立的用户态网络栈，同一个隧道内端口在各自栈里互不冲突），两台可以并存。
+  // 继续回 busy 只会把第二台永远挡在门外，而手机侧已经能把它解释成「另一台占着」，
+  // 用户看到的就是「明明没别人在用却说被占用」。
+  //
+  // 抢这个动作仍然是错的：判据（同一把公钥 + 同一份候选）让每台只碰**自己那一条**，
+  // 所以不存在 A 起来 → B 把 A 踢掉 → A 再把 B 踢掉那个死循环；两条并存即可。
   const { session, host } = makeSession({
     [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub',
   });
   const first = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
-  session._event({ event: 'p2pReady', url: 'http://10.99.0.1:48950' });
+  session._event({ event: 'p2pReady', peerKey: 'phone-a', url: 'http://10.99.0.1:48950' });
   await first;
 
-  const second = await session.open({ phonePublicKey: 'phone-b', candidates: ['203.0.113.2:5000'] });
+  const second = session.open({ phonePublicKey: 'phone-b', candidates: ['203.0.113.2:5000'] });
+  session._event({ event: 'p2pReady', peerKey: 'phone-b', url: 'http://10.99.0.2:48950' });
+  const reply = await second;
 
-  assert.equal(second.ok, false, '第二台手机必须拿到明确的「不可用」');
-  assert.equal(second.code, 'busy', '原因要说清是「别人在用」，不是笼统的起不来');
+  assert.equal(reply.ok, true, '第二台手机要照常拿到它那条的现状');
+  assert.equal(reply.url, 'http://10.99.0.2:48950', '回给它的必须是它自己那条');
   const starts = host.written.filter((item) => item.command === 'p2pStart');
-  assert.equal(starts.length, 1, '不许把第一台那条收掉重开 —— 那一收一开就把端口换掉了');
-  assert.ok(!host.written.some((item) => item.command === 'p2pStop'), '不许停别人的隧道');
+  assert.equal(starts.length, 2, '两台手机各一条隧道');
+  assert.equal(starts[0].peerKey, 'phone-a');
+  assert.equal(starts[1].peerKey, 'phone-b');
+  assert.ok(!host.written.some((item) => item.command === 'p2pStop'), '不许把第一台那条收掉');
+});
+
+test('一对多：两台同时会合时，一台的回执不许拿去回另一台', async () => {
+  // 等待者早先是「谁在等就全叫醒」——单条隧道时没问题，多台时就成了串台：A 那条
+  // `p2pReady` 会把 B 的会合也唤醒，B 拿到的是 A 的地址，然后往一个自己够不到的 URL 上走，
+  // 现象是「两台都报会合成功，只有一台真的能用」。所以等待者按公钥认领。
+  const { session } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const a = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
+  const b = session.open({ phonePublicKey: 'phone-b', candidates: ['203.0.113.2:5000'] });
+
+  session._event({ event: 'p2pReady', peerKey: 'phone-a', url: 'http://a', candidates: [] });
+  const replyA = await a;
+  assert.equal(replyA.url, 'http://a', 'A 拿到的必须是 A 那条');
+
+  // B 此刻还没收到自己的回执：给它一个极短的时间片，确认它确实没被 A 那条唤醒。
+  const early = await Promise.race([b.then(() => 'settled'), new Promise((r) => setTimeout(() => r('pending'), 100))]);
+  assert.equal(early, 'pending', 'B 不许被 A 的回执唤醒');
+
+  session._event({ event: 'p2pReady', peerKey: 'phone-b', url: 'http://b', candidates: [] });
+  const replyB = await b;
+  assert.equal(replyB.url, 'http://b', 'B 拿到的必须是 B 那条');
+});
+
+test('发起落空的那一台还能再发起，不许永久卡成「正在起」', async () => {
+  // `dialing` 是给「命令发出去了、还没回」留的位。发起落空（助手报错，或等回执超时）
+  // 必须把它清掉 —— 不清的话这一格永远是「正在发起」，下一轮同候选的会合会被判成
+  // 「已经在起，复用」，这台就再也不会重新发起（看起来像隧道卡住了，怎么等都不动）。
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const first = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
+  // 助手没答、直接报错：这一轮发起落空（真超时那一支走的是同一处清位，用例不真等 10 秒）。
+  session._event({ event: 'error', code: 'p2p-timeout' });
+  const reply = await first;
+  assert.equal(reply.ok, false, '没打通就如实说没打通');
+
+  // 再一模一样地来一次：必须重新发一条 p2pStart，而不是复用那条从没起来的。
+  const again = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
+  session._event({ event: 'p2pReady', peerKey: 'phone-a', url: 'http://a', candidates: [] });
+  await again;
+  const starts = host.written.filter((item) => item.command === 'p2pStart');
+  assert.equal(starts.length, 2, '超时之后必须能重新发起');
+});
+
+test('一对多：事件按 peerKey 落到各自那一格，互不覆盖', async () => {
+  // 这是多台之后最容易出的错：所有事件都写进「全局唯一那一份」，于是第二台的
+  // `p2pStatus` 把第一台的状态盖掉。面板于是只能看到最后说话的那台，另一台看起来「没了」。
+  const { session } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  session._event({ event: 'p2pReady', peerKey: 'phone-a', url: 'http://a', candidates: ['1.1.1.1:1'] });
+  session._event({ event: 'p2pReady', peerKey: 'phone-b', url: 'http://b', candidates: ['2.2.2.2:2'] });
+  session._event({ event: 'p2pStatus', peerKey: 'phone-a', running: true, url: 'http://a', path: 'direct', active: true, detail: '' });
+
+  const status = session.status();
+  assert.equal(status.path, 'direct', '最近活跃那条（phone-a）走的是老字段');
+  const roster = new Map(status.peers.map((item) => [item.peerKey, item]));
+  assert.equal(roster.get('phone-a').path, 'direct');
+  assert.equal(roster.get('phone-a').active, true);
+  assert.equal(roster.get('phone-b').path, 'unknown', 'phone-b 没报过 path，不该被 phone-a 那份覆盖');
+  assert.equal(roster.get('phone-b').url, 'http://b');
+});
+
+test('老助手的事件里没有 peerKey：退回最近那个对端，不许崩', async () => {
+  // 助手是可选依赖、也可能是旧版本。新插件配上老助手必须照常能用 —— 老助手一条进程
+  // 只有一条隧道，事件里不带公钥，所以只能按「最近会合的那台」落。
+  const { session, saved } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const pending = session.open({ phonePublicKey: 'phone-a', candidates: [] });
+  session._event({ event: 'p2pReady', url: 'http://x', candidates: [] });
+  const reply = await pending;
+  assert.equal(reply.ok, true, '不带 peerKey 的 p2pReady 必须照样能唤醒会合');
+  assert.equal(reply.url, 'http://x');
+
+  session._event({ event: 'p2pStatus', running: true, url: 'http://x', path: 'direct', active: true, detail: '' });
+  const status = session.status();
+  assert.equal(status.path, 'direct', '不带 peerKey 的状态要落到最近会合那台上');
+  assert.equal(status.peers.length, 1);
+  assert.equal(status.peers[0].peerKey, 'phone-a');
+  assert.equal(saved[STATE.peerKey], 'phone-a');
+});
+
+test('老助手报收尾（没有 peerKey）是「全停了」；新助手只收掉那一台', async () => {
+  const { session } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  session._event({ event: 'p2pReady', peerKey: 'phone-a', url: 'http://a', candidates: [] });
+  session._event({ event: 'p2pReady', peerKey: 'phone-b', url: 'http://b', candidates: [] });
+
+  // 新助手：停一台不动别的。
+  session._event({ event: 'p2pStopped', peerKey: 'phone-a' });
+  let status = session.status();
+  assert.deepEqual(status.peers.map((item) => item.peerKey), ['phone-b'], '只收掉报上来的那台');
+
+  // 老助手：一条进程一条隧道，回的就是全停。
+  session._event({ event: 'p2pStopped' });
+  status = session.status();
+  assert.equal(status.ready, false);
+  assert.deepEqual(status.peers, [], '不带 peerKey 的收尾按「全停了」处理');
+});
+
+test('被复用判据挡下的那一台不许改盘上的对端公钥（落盘在复用判定之后）', async () => {
+  // 落盘顺序那条坑换了形状还在：早先是「先把手机公钥落盘成 p2pPeerKey，再判 busy」，
+  // 于是一台被拒的手机也把盘上那份改了。busy 已经没了，但**顺序本身**仍然要保住 ——
+  // 会话一旦把「这次该用谁」先写出去，任何一道门之内的判断都会顺手污染盘上唯一的对端格。
+  // 现在盘上只有一格，多台时它记的是「最后真正重开过隧道的那台」，重启后的兜底只对它有效；
+  // 其余几台等下一轮会合（60 秒）自动补齐 —— 这是这一版接受的退化，写在这里免得下次当成回归。
+  const patches = [];
+  const saved = { [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' };
+  const host = fakeHost();
+  const session = createP2PSession({
+    readState: () => saved,
+    writeState: (patch) => { patches.push(patch); Object.assign(saved, patch); },
+    localPort: 18787,
+    host,
+    log: () => {},
+  });
+
+  const first = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
+  session._event({ event: 'p2pReady', peerKey: 'phone-a', url: 'http://10.99.0.1:48950' });
+  await first;
+  assert.equal(saved[STATE.peerKey], 'phone-a');
+  const afterFirst = patches.length;
+
+  // 同一台、同一份候选：走到复用那一支直接返回，一个字节都不该往盘上写。
+  await session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
+  assert.equal(patches.length, afterFirst, '复用这一支不许碰盘');
+
+  // 另一台：它本来就该有自己的那条，落盘改成它是正当的（不是「被拒的那台也写进去」）。
+  const second = session.open({ phonePublicKey: 'phone-b', candidates: ['203.0.113.2:5000'] });
+  session._event({ event: 'p2pReady', peerKey: 'phone-b', url: 'http://10.99.0.2:48950' });
+  await second;
+  assert.equal(saved[STATE.peerKey], 'phone-b');
 });
 
 test('同一台手机、候选一模一样再来一次不重开（别每分钟踢掉已经打通的洞）', async () => {
@@ -163,23 +296,6 @@ test('候选真的变了要重开（只听不打起来的隧道拿不到新候�
   const starts = host.written.filter((item) => item.command === 'p2pStart');
   assert.equal(starts.length, 2, '候选从空变成有地址，必须按新候选重开一次');
   assert.deepEqual(starts[1].peerPublic, ['203.0.113.9:6000'], '重开那一发必须带上新候选');
-});
-
-test('被 busy 拒掉的那台不许改盘上的对端公钥（否则下一轮原来那台反被当成别人）', async () => {
-  // 落盘顺序的坑：早先是「先把手机公钥落盘成 p2pPeerKey，再判 busy」。于是一台被拒的手机
-  // 也把盘上那份改了，原来那台下次来会合时 `peerKey === runningPeer` 不成立、反被判成
-  // 「另一台」，两台谁也接不上。落盘必须在两道门（复用 / busy）之后。
-  const { session, saved } = makeSession({
-    [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub',
-  });
-  const first = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
-  session._event({ event: 'p2pReady', url: 'http://10.99.0.1:48950' });
-  await first;
-  assert.equal(saved[STATE.peerKey], 'phone-a');
-
-  const second = await session.open({ phonePublicKey: 'phone-b', candidates: ['203.0.113.2:5000'] });
-  assert.equal(second.code, 'busy');
-  assert.equal(saved[STATE.peerKey], 'phone-a', '被拒的那台不许把盘上的对端改掉');
 });
 
 test('状态如实反映「通没通」：打不通时 active 必须是假', async () => {
