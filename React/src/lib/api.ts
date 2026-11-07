@@ -34,6 +34,33 @@ export type TailcatView = {
   allowedClients: string[]
 }
 
+/**
+ * 点对点隧道（P2P）此刻的状态（宿主 `lib/p2p/session.cjs` 的 `status()`）。
+ *
+ * 与直连隧道那条形状相近，但**没有白名单也没有总开关那一套**：能连上的前提就是两端
+ * 私钥对得上。所以这里只有「起没起、通没通」这一档事实。
+ *
+ * `path` 只可能是 `direct` / `failed` / `unknown` —— 这条通道没有中继兜底，打不通就是
+ * 打不通，不会像直连隧道那样报「经中继」。
+ */
+export type P2PStatus = {
+  available: boolean
+  enabled: boolean
+  ready: boolean
+  /** 这一进程里隧道有没有被手机叫起来过：false + ready:false 是「还没有手机来会合」。 */
+  started: boolean
+  url: string
+  /** direct / failed 是终态；punching 在打、waiting 等人来打，都不是终态。 */
+  path: 'direct' | 'failed' | 'punching' | 'waiting' | 'unknown'
+  active: boolean
+  detail: string
+  /** 电脑自己探到的打洞候选（私网 + 公网出口）。手机靠它知道往哪打。 */
+  candidates: string[]
+  /** 电脑这把公钥：二维码里给手机的就是它。 */
+  publicKey: string
+  error: string
+}
+
 export type TunnelSnapshot = {
   state: string
   error: string | null
@@ -58,6 +85,8 @@ export type StatusView = {
   tunnel: TunnelSnapshot
   /** 手机直连隧道（Tailcat）的状态；老宿主没有这个字段时按「不可用」处理。 */
   tailcat?: TailcatStatus | null
+  /** 点对点隧道（P2P）的状态；老宿主没有这个字段时按「不可用」处理。 */
+  p2p?: P2PStatus | null
   lan: {
     enabled: boolean
     port: number

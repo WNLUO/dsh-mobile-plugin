@@ -195,6 +195,18 @@ test('插件里的 handler 全部经守卫挂载，没有裸奔的', () => {
   assert.ok(viaRoute >= 45, `移动端路由条数偏少（${viaRoute}），表可能没挂全`);
 });
 
+test('心跳里必须带 P2P 那一格（否则 App 永远显示「未配置」）', () => {
+  // 这条钉的是一个真实故障：`/api/mobile/v1/status` 只回了 instanceId / name / relayUrl
+  // 那几格，**完全没有 p2p**。于是 App 每 30 秒问一次都拿不到任何 P2P 信息，界面上就只能
+  // 写「未配置」—— 而电脑面板那边明明显示「等待手机接入」，两边说的是同一件事，一边有
+  // 数据、一边没有。手表/手机都连得上插件了，状态完全同步得过来。
+  const table = readRouteTable();
+  const statusBlock = table.slice(table.indexOf("path: '/api/mobile/v1/status'"));
+  const body = statusBlock.slice(0, statusBlock.indexOf('}) })'));
+  assert.match(body, /p2p\s*:/, '/status 的回包里必须有 p2p 这一格');
+  assert.match(body, /p2p\.status\(\)/, '这一格要直接取门面的 status()，不要另算一套');
+});
+
 test('公开路由清单本身没腐化', () => {
   const table = readRouteTable();
   for (const [sub, why] of PUBLIC_ROUTES) {

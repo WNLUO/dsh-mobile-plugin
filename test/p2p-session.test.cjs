@@ -185,6 +185,9 @@ test('挂载层：有端口就建会话，状态门面接得上', () => {
     localPort: () => 18787,
     ctx: { effect: (fn) => fn() },
     name: 'test',
+    // 钉住「本机没装助手」：不钉的话，开发机上刚好编好了助手，这条用例就会去拉一个
+    // 真的子进程，结果取决于这台机器，而不是这段代码。
+    resolveBinary: () => null,
   });
   // 会话是异步建好的（Promise.resolve().then），让出一拍。
   return Promise.resolve().then(() => {
@@ -192,6 +195,21 @@ test('挂载层：有端口就建会话，状态门面接得上', () => {
     assert.equal(typeof status.available, 'boolean');
     assert.equal(status.available, false, '本机没装助手时就是不可用，这是正常结局');
   });
+});
+
+test('挂载层：门面必须带出 P2P 端口常量（会合回包要用，缺了手机就判「这次没有」）', () => {
+  const door = mountP2P({
+    mount: (_label, fn) => fn(),
+    warn: () => {},
+    state: {},
+    saveState: () => {},
+    localPort: () => 0,
+    ctx: { effect: (fn) => fn() },
+    name: 'test',
+  });
+  // 这一条是用真实装配出来的门面跑的：早先守卫自己喂了一份带常量的假门面，
+  // 于是「真实门面根本没有这个字段」一路绿到了真机上。
+  assert.equal(door.constants && door.constants.P2P_PORT, P2P_PORT);
 });
 
 // ── 会合那一环：没有它两端都不知道往哪打洞，这条通道一次都连不上 ────────────────
@@ -239,6 +257,88 @@ test('会合：电脑把自己那份候选回给手机（打洞的起点）', as
   assert.deepEqual(opened[0].candidates, ['203.0.113.1:5000']);
   assert.deepEqual(opened[0].localCandidates, ['10.0.0.2:5000']);
   assert.equal(opened[0].targetPort, 18787);
+});
+
+test('会合：手机的公钥要一层层交到会话，并落盘（电脑拿它配对端）', async () => {
+  const phoneKey = 'uQ8Z9nq1k7Yb3r5T2mW4xV6cL0aE8hJ1sDfG3kMn5pQ=';
+  const opened = [];
+  const handler = createP2PRendezvousHandler({
+    p2p: {
+      constants: { P2P_PORT },
+      open: async (options) => {
+        opened.push(options);
+        return { ok: true, candidates: ['198.51.100.7:51820'] };
+      },
+    },
+    lanPortInUse: () => 18787,
+  });
+  const { req, res } = fakeHttp({ peerKey: 'peer', phonePublicKey: phoneKey, candidates: [] });
+  await captureJson(() => handler(null, req, res), res);
+  assert.equal(opened[0].phonePublicKey, phoneKey, '手机公钥要原样交给会话');
+
+  // 会话那一头：拿到了就存下来，并且之后拉起隧道用的是它。
+  const { session, host, saved } = makeSession({
+    [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub',
+  });
+  const pending = session.open({ phonePublicKey: phoneKey, candidates: ['198.51.100.7:51820'] });
+  session._event({ event: 'p2pReady', url: 'http://x', candidates: [] });
+  await pending;
+  assert.equal(saved[STATE.peerKey], phoneKey, '手机公钥必须落盘，进程重启后还得接着用');
+  assert.equal(host.written.find((item) => item.command === 'p2pStart').peerKey, phoneKey);
+});
+
+test('会合：公钥形状不对一律不收（空白 / 太短 / 太长）', async () => {
+  const opened = [];
+  const handler = createP2PRendezvousHandler({
+    p2p: {
+      constants: { P2P_PORT },
+      open: async (options) => {
+        opened.push(options);
+        return { ok: true, candidates: ['198.51.100.7:51820'] };
+      },
+    },
+    lanPortInUse: () => 18787,
+  });
+  const { req, res } = fakeHttp({ peerKey: 'peer', phonePublicKey: 'not-a-key', candidates: [] });
+  await captureJson(() => handler(null, req, res), res);
+  assert.equal(opened[0].phonePublicKey, '');
+});
+
+test('状态要能区分「还没人接」与「正在起」（否则面板永远说「正在启动」）', () => {
+  const { session } = makeSession({
+    [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub',
+  });
+  // 从没被会合叫起来过：ready 假、started 假 —— 这是「还没有手机来会合」，不是「正在启动」。
+  const idle = session.status();
+  assert.equal(idle.ready, false);
+  assert.equal(idle.started, false);
+});
+
+test('起过一次之后 started 要变真（面板据此说「正在打洞」而不是「等人接」）', async () => {
+  const { session } = makeSession({
+    [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub',
+  });
+  const pending = session.open({ candidates: [] });
+  session._event({ event: 'p2pReady', url: 'http://x', candidates: [] });
+  await pending;
+  assert.equal(session.status().started, true);
+});
+
+test('会话启动时就催一次密钥对（否则没开过码的机器上这条通道永远是死的）', () => {
+  const { session, host } = makeSession({});
+  // 没配过密钥：`start()` 应当顺手催一次 `p2pKeys`，而不是等到有人点开二维码才生成。
+  session.start();
+  assert.ok(host.written.some((item) => item.command === 'p2pKeys'));
+});
+
+test('会话：进程重启后能从盘上读回对端公钥（否则配不出设备、永远起不来）', async () => {
+  const { session, host } = makeSession({
+    [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub', [STATE.peerKey]: 'phoneKeyFromDisk',
+  });
+  const pending = session.open({ candidates: ['198.51.100.7:51820'] });
+  session._event({ event: 'p2pReady', url: 'http://x', candidates: [] });
+  await pending;
+  assert.equal(host.written.find((item) => item.command === 'p2pStart').peerKey, 'phoneKeyFromDisk');
 });
 
 test('会合：手机没有候选也照接（电脑「只听不打」地起来、把候选报回去）', async () => {

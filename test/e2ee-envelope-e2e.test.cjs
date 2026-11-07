@@ -14,7 +14,8 @@
  *  4. 同一 nonce 的写请求第二次进来回 409 `e2ee-replay`；
  *  5. GET 复用同一 nonce 不算重放（换通道重投就是这个形状）;
  *  6. 未知 keyId 回 401 `e2ee-unknown-device`（明文）；
- *  7. `401/403/503` 的响应不加密。
+ *  7. `401/403/503` 的响应不加密；
+ *  8. 重放表超过软上限时只淘汰过期项，窗口内最早的 nonce 重投仍判 `e2ee-replay`。
  *
  * 运行：`node dsh-mobile-plugin/test/e2ee-envelope-e2e.test.cjs`
  */
@@ -277,4 +278,64 @@ test('原生后台服务的 /monitor 不再免信封：v2 凭据不带信封一�
     assert.equal(res.statusCode, 400);
     assert.equal(JSON.parse(res.written).error.code, 'e2ee-required');
   }
+});
+
+/**
+ * 重放表清理只淘汰**真正过期**的 nonce，不按数量硬删。
+ *
+ * 这是「超过软上限后仍把窗口内的 nonce 删掉」那个回归的守卫：单设备连续写满一整个窗口、
+ * 把表撑过上限后，最早那枚 nonce 还在 5 分钟内，重投必须仍然被判重放。旧写法在循环里
+ * 带着 `table.size > NONCE_TABLE_SIZE` 一路删到 256 条，会把最早的那枚删掉，让重投溜过去。
+ *
+ * 用独立的 keyId（`BULK_KEY_ID`），不污染其它用例共享的 nonce 表。
+ */
+test('重放表超过软上限也只淘汰过期项：窗口内最早的 nonce 重投仍判 e2ee-replay', async () => {
+  const { openRequest, NONCE_TABLE_SIZE, evictExpiredNonces } = require(path.join(root, 'lib/shared/e2ee-request.js'));
+  const BULK_KEY_ID = 'bulk-replay-device';
+  const deps = {
+    keyFor: (keyId) =>
+      keyId === BULK_KEY_ID ? { deviceKey: DEVICE_KEY.toString('base64url'), deviceId: 'dev-bulk' } : null,
+  };
+
+  // 12 字节 nonce，低 4 字节放序号 —— 保证 total > 256 条仍两两不同。
+  const mkNonce = (i) => {
+    const b = Buffer.alloc(12);
+    b.writeUInt32BE(i >>> 0, 8);
+    return b;
+  };
+  const ts = Date.now();
+  const total = NONCE_TABLE_SIZE + 50;
+
+  for (let i = 0; i < total; i += 1) {
+    const built = buildRequest({ plain: { a: 1 }, nonce: mkNonce(i), ts });
+    built.headers['x-dsh-key-id'] = BULK_KEY_ID;
+    const out = openRequest(fakeReq({ headers: built.headers, body: built.wire }), deps, Buffer.from(built.wire, 'utf8'));
+    assert.equal(out.ok, true, `第 ${i} 条写请求应通过`);
+  }
+
+  // 重投最早那枚（仍在 5 分钟窗口内）：必须判重放，说明没有被上限清理误删。
+  const replay = buildRequest({ plain: { a: 1 }, nonce: mkNonce(0), ts });
+  replay.headers['x-dsh-key-id'] = BULK_KEY_ID;
+  const out = openRequest(
+    fakeReq({ headers: replay.headers, body: replay.wire }),
+    deps,
+    Buffer.from(replay.wire, 'utf8'),
+  );
+  assert.equal(out.ok, false, '窗口内最早的 nonce 被删了 → 重投被当成新请求放行了');
+  assert.equal(out.code, 'e2ee-replay');
+
+  // 纯函数侧：同样规模的窗口内表，一条都不删；只有真正过期的才删。
+  const table = new Map();
+  for (let i = 0; i < total; i += 1) table.set(`n${i}`, ts);
+  evictExpiredNonces(table, ts);
+  assert.equal(table.size, total, '都在窗口内，不应删任何一条');
+  assert.equal(table.has('n0'), true, '最早那条必须保留');
+
+  const mixed = new Map([
+    ['fresh', ts],
+    ['stale', ts - 6 * 60 * 1000],
+  ]);
+  evictExpiredNonces(mixed, ts);
+  assert.equal(mixed.has('fresh'), true, '窗口内的不许删');
+  assert.equal(mixed.has('stale'), false, '过期的必须删');
 });

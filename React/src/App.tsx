@@ -22,6 +22,7 @@ import { PairingCard } from './components/PairingCard.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { SelfCheckDialog } from './components/SelfCheckDialog.tsx'
 import { TailcatDialog } from './components/TailcatDialog.tsx'
+import { P2PDialog } from './components/P2PDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { WebAccessCard } from './components/WebAccessCard.tsx'
@@ -73,6 +74,8 @@ export function App() {
   const [selfCheckOpen, setSelfCheckOpen] = useState(false)
   /** 「Tailcat 隧道」管理弹窗：连接状态卡里那行 Tailcat 右侧的「管理」。 */
   const [tailcatOpen, setTailcatOpen] = useState(false)
+  /** 「P2P 隧道」管理弹窗：连接状态卡里那行 P2P 右侧的「管理」。 */
+  const [p2pOpen, setP2POpen] = useState(false)
   /**
    * 自检**不跟上面那 3 秒轮询**：宿主每答一次都要开子进程查防火墙。
    * 只有两种时候发请求 —— 人点开弹窗（`SelfCheckDialog` 开窗时调 `ensure`），
@@ -381,7 +384,7 @@ export function App() {
               components/NoticeBoard.tsx 文件头）。 */}
           <NoticeBoard lanPort={status.lan.port} />
 
-          <ConnectionCard status={status} busy={busy} onToggle={toggle} onManageTailcat={() => setTailcatOpen(true)} />
+          <ConnectionCard status={status} busy={busy} onToggle={toggle} onManageTailcat={() => setTailcatOpen(true)} onManageP2P={() => setP2POpen(true)} />
 
           {/* 网页管理那两小时窗口的到期时间与「立即关闭」。
               窗口关着时宿主不给远程读管理接口，这张卡也就跟着不出现。
@@ -422,6 +425,8 @@ export function App() {
         onOpenChange={setTailcatOpen}
         onChanged={() => void loadStatus()}
       />
+
+      <P2PDialog open={p2pOpen} onOpenChange={setP2POpen} />
 
       <PortDialog
         open={portOpen}

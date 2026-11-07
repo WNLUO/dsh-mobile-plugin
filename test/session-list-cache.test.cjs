@@ -103,8 +103,13 @@ function makeCtx() {
         },
       },
       workspace: {
+        // items 里要真有那两条会话所在的目录：`/session/new` 现在要求 cwd 落在已登记
+        // 的工作区里（见 session-new-cwd.test.cjs），空清单会让新建那一条直接 403。
         list: async () => ({
-          result: { ok: true, value: { items: [], archivedSessionIds: state.archivedSessionIds } },
+          result: {
+            ok: true,
+            value: { items: [{ workspaceId: 'w1', path: '/ws/a' }], archivedSessionIds: state.archivedSessionIds },
+          },
         }),
         archiveSession: async () => {
           state.archivedSessionIds = [...state.archivedSessionIds, 'session-a'];

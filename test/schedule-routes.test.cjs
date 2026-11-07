@@ -57,7 +57,7 @@ const emptyHistory = (id) => ({
  * 调 `options.*` 的实现，缺省给合法空值。所有调用参数都记在 `calls` 里。
  */
 async function serve(options = {}) {
-  const calls = { catalog: 0, list: [], history: [], delete: [] };
+  const calls = { catalog: 0, list: [], history: [], delete: [], edit: [] };
   let service;
   if (!options.missing) {
     service = {
@@ -73,11 +73,19 @@ async function serve(options = {}) {
         calls.history.push(payload);
         return options.history ? options.history(payload) : emptyHistory(payload.id);
       },
-      delete: async (payload) => {
+    };
+    // v2 宿主把 delete 并进了 edit，服务上没有 delete 这个方法 —— 真宿主就是这样。
+    if (options.v2) {
+      service.edit = async (payload) => {
+        calls.edit.push(payload);
+        return options.edit ? options.edit(payload) : { id: payload.id, deleted: true };
+      };
+    } else {
+      service.delete = async (payload) => {
         calls.delete.push(payload);
         return options.delete ? options.delete(payload) : { id: payload.id, deleted: true };
-      },
-    };
+      };
+    }
   }
   const ctx = { get: (name) => (name === 'schedule' ? service : undefined) };
 
@@ -482,4 +490,115 @@ test('四条路由真的挂在路由表上，schedule 模块也被引入了', ()
     assert.ok(wiring.includes(`route('${path}',`), `路由表里没有 ${path}`);
   }
   assert.match(wiring, /require\(['"](?:\.\.?\/mobile)\/schedule(?:\.js)?['"]\)/);
+});
+
+// ── v2 宿主：会话归属挪进 target、状态多了 paused/ended、多一种 rrule ──────────────
+//
+// 2026-11-07 用户报「电脑上有任务、手机显示 0 条」。根因是 v2 宿主把会话归属从行上的
+// `sessionId` 挪进了 `target`，手机这侧只认老位置，于是每条都被当「缺字段」整条丢掉 ——
+// 接口 200、清单为空，页面照常写「还没有任务」。下面几条钉住新旧两种形状都能读出来。
+
+test('v2 行：会话归属从 target 里取，不再要求行上有 sessionId', async () => {
+  const row = {
+    id: 'schedule-v2',
+    kind: 'every',
+    title: 'v2 任务',
+    prompt: 'p',
+    everySeconds: 3600,
+    scheduledAt: '2026-11-08T01:00:00.000Z',
+    status: 'active',
+    target: { kind: 'session', sessionId: 'session-v2' },
+    involvedSessionIds: ['session-v2'],
+  };
+  await withHost({ catalog: () => [row] }, async (host) => {
+    const res = await host.get(`${BASE}/catalog`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.records.length, 1, 'v2 行不能被当成缺 sessionId 丢掉');
+    assert.equal(res.body.records[0].sessionId, 'session-v2');
+    assert.equal(res.body.records[0].state, 'active');
+  });
+});
+
+test('v2 行：target 是 new（没有确定会话）时退回 involvedSessionIds 第一条', async () => {
+  const row = {
+    id: 'schedule-new',
+    kind: 'daily',
+    title: '每次新建会话',
+    prompt: 'p',
+    time: '09:00:00.000',
+    timeZone: 'Asia/Shanghai',
+    scheduledAt: '2026-11-08T01:00:00.000Z',
+    status: 'active',
+    target: { kind: 'new', create: {} },
+    involvedSessionIds: ['session-first', 'session-other'],
+  };
+  await withHost({ catalog: () => [row] }, async (host) => {
+    const res = await host.get(`${BASE}/catalog`);
+    assert.equal(res.body.records[0].sessionId, 'session-first');
+  });
+});
+
+test('v2 状态：paused / ended 都收成已结束，active 才是已开启', async () => {
+  const base = { kind: 'every', prompt: 'p', everySeconds: 60, target: { kind: 'session', sessionId: 'session-a' } };
+  const rows = [
+    { ...base, id: 'schedule-a', title: 'A', status: 'active' },
+    { ...base, id: 'schedule-p', title: 'P', status: 'paused' },
+    { ...base, id: 'schedule-e', title: 'E', status: 'ended' },
+  ];
+  await withHost({ catalog: () => rows }, async (host) => {
+    const res = await host.get(`${BASE}/catalog`);
+    assert.deepEqual(res.body.records.map((r) => `${r.id}:${r.state}`), [
+      'schedule-a:active',
+      'schedule-p:inactive',
+      'schedule-e:inactive',
+    ]);
+  });
+});
+
+test('v2 的 rrule 行：规则整段转发，时区从 DTSTART 里取出来补上', async () => {
+  const row = {
+    id: 'schedule-rrule',
+    kind: 'rrule',
+    title: '工作日早盘',
+    prompt: 'p',
+    rrule: 'DTSTART;TZID=Asia/Shanghai:20261109T090000\nRRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+    scheduledAt: '2026-11-09T01:00:00.000Z',
+    status: 'active',
+    target: { kind: 'session', sessionId: 'session-a' },
+    involvedSessionIds: ['session-a'],
+  };
+  await withHost({ catalog: () => [row] }, async (host) => {
+    const res = await host.get(`${BASE}/catalog`);
+    const entry = res.body.records[0];
+    assert.equal(entry.kind, 'rrule', 'rrule 不该再被当成不认识的 kind 丢掉');
+    assert.match(entry.rrule, /^DTSTART;TZID=Asia\/Shanghai:/);
+    assert.equal(entry.timeZone, 'Asia/Shanghai', '时区从 DTSTART 取，详情页那一行才有东西写');
+  });
+});
+
+test('list：v2 行按 target 里的会话筛得出来', async () => {
+  const rows = [
+    { id: 'schedule-a', kind: 'every', title: 'A', prompt: 'p', everySeconds: 60, scheduledAt: '2026-11-08T01:00:00.000Z', status: 'active', target: { kind: 'session', sessionId: 'session-a' } },
+    { id: 'schedule-b', kind: 'every', title: 'B', prompt: 'p', everySeconds: 60, scheduledAt: '2026-11-08T01:00:00.000Z', status: 'active', target: { kind: 'session', sessionId: 'session-b' } },
+  ];
+  await withHost({ catalog: () => rows }, async (host) => {
+    const res = await host.get(`${BASE}/list`, '?sessionId=session-a');
+    assert.deepEqual(res.body.records.map((r) => r.id), ['schedule-a']);
+  });
+});
+
+test('delete：v2 宿主走 edit({id, action})，没有 edit 才退回老的 delete', async () => {
+  await withHost({ v2: true }, async (host) => {
+    const res = await host.post(`${BASE}/delete`, { sessionId: 'session-a', id: 'schedule-weekly' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(host.calls.edit, [{ id: 'schedule-weekly', action: 'delete' }], 'v2 的删除入口在 edit 上');
+    assert.deepEqual(host.calls.delete, [], '有 edit 就不该再问 delete');
+    assert.deepEqual(res.body, { ok: true, id: 'schedule-weekly', deleted: true });
+  });
+
+  // 老宿主照旧：没有 edit 这个方法时退回 delete({sessionId, id})。
+  await withHost({}, async (host) => {
+    await host.post(`${BASE}/delete`, { sessionId: 'session-a', id: 'schedule-weekly' });
+    assert.deepEqual(host.calls.delete, [{ sessionId: 'session-a', id: 'schedule-weekly' }]);
+  });
 });

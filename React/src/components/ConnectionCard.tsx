@@ -10,7 +10,7 @@ import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
 
-import type { StatusView, TailcatStatus } from '../lib/api.ts'
+import type { P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone, type Tone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 
@@ -20,6 +20,8 @@ type Props = {
   onToggle: (enabled: boolean) => void
   /** 「管理」那颗：打开 Tailcat 隧道的弹窗（查看 / 开关 / 移除手机）。 */
   onManageTailcat: () => void
+  /** 「管理」那颗：打开 P2P 隧道的弹窗（只读现场）。 */
+  onManageP2P: () => void
 }
 
 /** 隧道此刻的状态 → 一行字的键。老宿主没有这一格时整行不画（见下面 `status.tailcat`）。 */
@@ -29,6 +31,30 @@ function tailcatTextKey(tailcat: TailcatStatus): string {
   if (tailcat.error) return 'panel.tailcat.error'
   if (tailcat.ready) return 'panel.tailcat.ready'
   return 'panel.tailcat.starting'
+}
+
+/**
+ * P2P 那一行字。
+ *
+ * **先看通没通、再看起没起**：这条通道起来只代表本机这半边准备好了，通了才是通了。
+ * 与上面 Tailcat 那条按 `ready` 说话的次序刻意不同 —— 那条起来了就基本等于能用。
+ */
+function p2pTextKey(p2p: P2PStatus): string {
+  if (!p2p.available) return 'panel.p2p.unavailable'
+  if (!p2p.enabled) return 'panel.p2p.disabled'
+  if (p2p.path === 'direct' && p2p.active) return 'panel.p2p.open'
+  if (p2p.error) return 'panel.p2p.error'
+  if (p2p.path === 'failed') return 'panel.p2p.blocked'
+  if (!p2p.ready) return p2p.started ? 'panel.p2p.punching' : 'panel.p2p.waiting'
+  if (p2p.path === 'waiting') return 'panel.p2p.waiting'
+  return 'panel.p2p.punching'
+}
+
+function p2pTone(p2p: P2PStatus): Tone {
+  if (!p2p.available || !p2p.enabled) return 'off'
+  if (p2p.path === 'direct' && p2p.active) return 'ok'
+  if (p2p.error || p2p.path === 'failed') return 'error'
+  return 'warn'
 }
 
 function tailcatTone(tailcat: TailcatStatus): Tone {
@@ -60,10 +86,11 @@ function tailcatTone(tailcat: TailcatStatus): Tone {
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, busy, onToggle, onManageTailcat }: Props) {
+export function ConnectionCard({ status, busy, onToggle, onManageTailcat, onManageP2P }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
   const tailcat = status.tailcat ?? null
+  const p2p = status.p2p ?? null
 
   return (
     <Card frame="solid">
@@ -111,6 +138,20 @@ export function ConnectionCard({ status, busy, onToggle, onManageTailcat }: Prop
               />
               <Button variant="ghost" size="sm" onClick={onManageTailcat}>
                 {t('panel.tailcat.manage')}
+              </Button>
+            </span>
+          </InfoRow>
+        ) : null}
+        {p2p ? (
+          <InfoRow label={t('panel.p2p.title')} tone={p2pTone(p2p)}>
+            <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
+              <ToneValue
+                tone={p2pTone(p2p)}
+                text={t(p2pTextKey(p2p))}
+                {...(p2p.error ? { detail: p2p.error } : {})}
+              />
+              <Button variant="ghost" size="sm" onClick={onManageP2P}>
+                {t('panel.p2p.manage')}
               </Button>
             </span>
           </InfoRow>

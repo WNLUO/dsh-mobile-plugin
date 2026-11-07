@@ -14,6 +14,8 @@
  *     图那一发 404。
  *  5. **坏档案按「这篇不在」处理**，不能让一份坏 JSON 把整个列表打不开。
  *  6. **工具那一侧与 HTTP 那一侧写的是同一个库**：模型写完，手机列表里立刻看得到。
+ *  7. **HTTP 入口不收 path、只收 {name, base64}**：手机给的本机路径读的是宿主机器上同名的
+ *     任意文件，所以 HTTP 这条要把 path 剥掉；工具那一侧（模型自己有读盘权）的 path 保留。
  *
  * 驱动真实 handler（起真 http 服务、走真 req/res），只有库根是临时目录。
  */
@@ -34,6 +36,7 @@ const {
   writeArticle,
   readArticle,
   rootDir,
+  httpImagesOnly,
 } = require('../lib/mobile/wechat.js');
 
 /** 一张最小的 PNG（1×1，透明）：媒体那条按魔术字节认类型，不认扩展名。 */
@@ -187,33 +190,35 @@ test('坏档案按「这篇不在」处理：一份坏 JSON 不让整个列表�
   await api.close();
 });
 
-test('图片可以直接给电脑上的路径：宿主自己读过来复制进 media，不用模型抄字节', async (t) => {
+test('工具那一侧可以直接给电脑上的路径：宿主自己读过来复制进 media，不用模型抄字节', async (t) => {
   const api = await serve(t);
   const png = Buffer.from(PNG_BASE64, 'base64');
   const filePath = path.join(os.tmpdir(), `dsh-wechat-src-${Date.now()}.png`);
   fs.writeFileSync(filePath, png);
   t.after(() => fs.rmSync(filePath, { force: true }));
 
-  const saved = await api.post('/wechat/article/save', {
+  // 直接调 writeArticle（工具那条 AI 路径背后就是它）：path 仍然生效，证明工具侧没被砍。
+  const { article, images, rejected } = await writeArticle({
     title: '路径给图',
     html: '<p><img src="media/cover.png"></p>',
     images: [{ name: 'cover.png', path: filePath }],
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.deepEqual(images, ['cover.png']);
+  assert.deepEqual(rejected, []);
 
-  const media = await api.get(`/wechat/media?id=${saved.body.id}&name=cover.png`);
+  const media = await api.get(`/wechat/media?id=${article.id}&name=cover.png`);
   assert.equal(media.status, 200);
   assert.equal(media.body.data, PNG_BASE64);
   await api.close();
 });
 
-test('路径指向的不是图片 / 读不到：那张图不收，正文照常写进去', async (t) => {
+test('工具那一侧给的路径指向的不是图片 / 读不到：那张图不收，正文照常写进去', async (t) => {
   const api = await serve(t);
   const txt = path.join(os.tmpdir(), `dsh-wechat-src-${Date.now()}.txt`);
   fs.writeFileSync(txt, '这不是图片');
   t.after(() => fs.rmSync(txt, { force: true }));
 
-  const saved = await api.post('/wechat/article/save', {
+  const { article, images, rejected } = await writeArticle({
     title: '坏图',
     html: '<p>正文</p>',
     images: [
@@ -221,11 +226,73 @@ test('路径指向的不是图片 / 读不到：那张图不收，正文照常�
       { name: 'b.png', path: path.join(os.tmpdir(), 'dsh-wechat-nope-does-not-exist.png') },
     ],
   });
-  assert.equal(saved.status, 200, JSON.stringify(saved.body));
-  const missing = await api.get(`/wechat/media?id=${saved.body.id}&name=a.png`);
+  assert.deepEqual(images, []);
+  assert.equal(rejected.length, 2);
+  const missing = await api.get(`/wechat/media?id=${article.id}&name=a.png`);
   assert.equal(missing.status, 404);
-  const read = await api.get(`/wechat/article?id=${saved.body.id}`);
-  assert.equal(read.body.article.html, '<p>正文</p>');
+  const read = await readArticle(article.id);
+  assert.equal(read.html, '<p>正文</p>');
+  await api.close();
+});
+
+test('httpImagesOnly 只留 {name, base64}：路径字段全剥，非数组 / 非对象都不抛', () => {
+  assert.deepEqual(
+    httpImagesOnly([{ name: 'a.png', path: '/etc/passwd' }]),
+    [{ name: 'a.png', base64: undefined }],
+  );
+  assert.deepEqual(
+    httpImagesOnly([{ name: 'b.png', base64: 'xx', filePath: '/x', localPath: '/y', src: '/z' }]),
+    [{ name: 'b.png', base64: 'xx' }],
+  );
+  assert.deepEqual(httpImagesOnly(null), []);
+  assert.deepEqual(httpImagesOnly({ name: 'a.png', base64: 'x' }), []);
+  assert.deepEqual(httpImagesOnly('nope'), []);
+  assert.deepEqual(
+    httpImagesOnly([null, 'x', 42, { name: 'c.png', base64: 'y' }]),
+    [{ name: 'c.png', base64: 'y' }],
+  );
+});
+
+test('HTTP 保存不收 path：带 {path} 的图一律当没给，不落盘', async (t) => {
+  const api = await serve(t);
+  const png = Buffer.from(PNG_BASE64, 'base64');
+  const filePath = path.join(os.tmpdir(), `dsh-wechat-src-${Date.now()}.png`);
+  fs.writeFileSync(filePath, png);
+  t.after(() => fs.rmSync(filePath, { force: true }));
+
+  const saved = await api.post('/wechat/article/save', {
+    title: '路径给图但走 HTTP',
+    html: '<p><img src="media/cover.png"></p>',
+    images: [{ name: 'cover.png', path: filePath }],
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  // 哪怕这个路径在宿主上真实存在且是张合法 PNG，HTTP 这条路也不该去读它。
+  const media = await api.get(`/wechat/media?id=${saved.body.id}&name=cover.png`);
+  assert.equal(media.status, 404);
+  await api.close();
+});
+
+test('HTTP 保存：带 base64 的照常落盘，带 path 的那张被当没给', async (t) => {
+  const api = await serve(t);
+  const pngFile = path.join(os.tmpdir(), `dsh-wechat-src-${Date.now()}.png`);
+  fs.writeFileSync(pngFile, Buffer.from(PNG_BASE64, 'base64'));
+  t.after(() => fs.rmSync(pngFile, { force: true }));
+
+  const saved = await api.post('/wechat/article/save', {
+    title: '一张能用一张不行',
+    html: '<p>正文</p>',
+    images: [
+      { name: 'ok.png', base64: PNG_BASE64 },
+      { name: 'viapath.png', path: pngFile },
+    ],
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+
+  const ok = await api.get(`/wechat/media?id=${saved.body.id}&name=ok.png`);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.data, PNG_BASE64);
+  const viaPath = await api.get(`/wechat/media?id=${saved.body.id}&name=viapath.png`);
+  assert.equal(viaPath.status, 404);
   await api.close();
 });
 
