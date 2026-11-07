@@ -372,10 +372,13 @@ test('模型那组工具里没有任何一条能自己指定手机', () => {
     assert.doesNotMatch(shape, /shell|exec|command|cmd|bash/i, `${tool.name} 的参数里有像命令的口子`);
   }
   // 动作名与宿主服务那张表对得上（名字里 phone_ 前缀去掉之后是 action 的驼峰写法）
+  // 新增一条工具就要在这里加一个名字：这份名单是「模型手上到底有几个动作」的账，
+  // 少一条不会红、多一条会红，所以宁可每次扩能力面都改这里一次。
   const names = registered.map((tool) => tool.name).sort();
   assert.deepEqual(names, [
-    'phone_apps', 'phone_key', 'phone_open_app', 'phone_screen', 'phone_screenshot',
-    'phone_scroll', 'phone_tap', 'phone_target', 'phone_type',
+    'phone_apps', 'phone_gesture', 'phone_key', 'phone_open_app', 'phone_open_link',
+    'phone_screen', 'phone_screenshot', 'phone_scroll', 'phone_scroll_to', 'phone_steps',
+    'phone_tap', 'phone_target', 'phone_type', 'phone_wait',
   ]);
 });
 

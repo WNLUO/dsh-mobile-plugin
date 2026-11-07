@@ -43,6 +43,7 @@
     "locale/*.json",
     "icon.png",
     "assets/pets/**",
+    "knowledge/**/*.md",
     "extensions/**",
     "README.md"
   ],
