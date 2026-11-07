@@ -1,0 +1,3 @@
+[
+  {"file": "scripts/check_skill.py", "runnable": true, "needs": ["python3"]}
+]

@@ -440,6 +440,266 @@ test('内置包库的默认根在插件包自己的 assets/pets/；id 形状卡�
   assert.equal(ID_RE.test('a'.repeat(65)), false);
 });
 
+test('可选表现字段：bonus / timings / idlePool / reactions / hitBoxes / tiers.juggling / 元数据照原样透传', async (t) => {
+  const { builtinDir } = setup(t);
+  const files = {
+    'idle.png': PNG_BYTES,
+    'thinking.gif': Buffer.from('GIF89a', 'latin1'),
+    'music.gif': Buffer.from('GIF89a', 'latin1'),
+    'building.gif': Buffer.from('GIF89a', 'latin1'),
+    'hearts.gif': Buffer.from('GIF89a', 'latin1'),
+    'poke-left.gif': Buffer.from('GIF89a', 'latin1'),
+  };
+  makePack(builtinDir, 'deepy-whale', {
+    schema: 1, id: 'deepy-whale', name: 'Deepy 小鲸鱼',
+    author: 'DSH Mobile', license: '随本项目发布', source: 'https://example.com/pets/deepy',
+    pixelArt: true, scale: 5,
+    canvas: { w: 52, h: 52 },
+    anchor: { x: 28, baseline: 48 },
+    contentBox: { x: 12, y: 26, w: 36, h: 22 },
+    hitBoxes: {
+      default: { x: 12, y: 26, w: 33, h: 22 },
+      wide: { x: 8, y: 18, w: 44, h: 31 },
+      sleeping: { x: 7, y: 23, w: 39, h: 25 },
+      byAnim: { typing: { x: 0, y: 26, w: 52, h: 23 } },
+      wideAnims: ['typing', 'music'],
+      sleepingAnims: ['sleeping'],
+    },
+    states: {
+      idle: { file: 'idle.png' }, working: { file: 'idle.png' },
+      thinking: { file: 'thinking.gif' }, juggling: { file: 'music.gif' },
+    },
+    tiers: {
+      working: [{ min: 3, file: 'building.gif' }, { min: 1, file: 'idle.png' }],
+      juggling: [{ min: 2, file: 'music.gif' }, { min: 1, file: 'idle.png' }],
+    },
+    bonus: { attention: { anims: ['hearts.gif'], chance: 0.2 } },
+    timings: {
+      minDisplay: { attention: 5200, error: 4800 },
+      autoReturn: { attention: 5200, carrying: 3200 },
+    },
+    idlePool: {
+      everyMs: { mean: 120000, min: 45000, max: 300000 },
+      anims: [{ file: 'thinking.gif', ms: 6800, weight: 1 }],
+    },
+    reactions: { tapLeft: 'poke-left.gif', tapRight: 'poke-left.gif' },
+    roam: { anim: 'thinking.gif', faces: 'left' },
+    sleep: { afterMs: 60000 },
+  }, files);
+
+  const [pack] = listPacks();
+  assert.equal(pack.source, 'https://example.com/pets/deepy');
+  assert.equal(pack.pixelArt, true);
+  assert.equal(pack.scale, 5);
+  assert.deepEqual(pack.contentBox, { x: 12, y: 26, w: 36, h: 22 });
+  assert.deepEqual(pack.hitBoxes, {
+    default: { x: 12, y: 26, w: 33, h: 22 },
+    wide: { x: 8, y: 18, w: 44, h: 31 },
+    sleeping: { x: 7, y: 23, w: 39, h: 25 },
+    byAnim: { typing: { x: 0, y: 26, w: 52, h: 23 } },
+    wideAnims: ['typing', 'music'],
+    sleepingAnims: ['sleeping'],
+  });
+  assert.deepEqual(Object.keys(pack.states), ['idle', 'working', 'thinking', 'juggling'], '扩展态认得');
+  assert.deepEqual(pack.tiers.juggling.map((row) => row.min), [2, 1]);
+  assert.deepEqual(pack.bonus, { attention: { anims: ['hearts.gif'], chance: 0.2 } });
+  assert.deepEqual(pack.timings, {
+    minDisplay: { attention: 5200, error: 4800 },
+    autoReturn: { attention: 5200, carrying: 3200 },
+  });
+  assert.deepEqual(pack.idlePool, {
+    everyMs: { mean: 120000, min: 45000, max: 300000 },
+    anims: [{ file: 'thinking.gif', ms: 6800, weight: 1 }],
+  });
+  assert.deepEqual(pack.reactions, { tapLeft: 'poke-left.gif', tapRight: 'poke-left.gif' });
+  assert.deepEqual(pack.roam, { anim: 'thinking.gif', faces: 'left' });
+  assert.deepEqual(pack.sleep, { afterMs: 60000 }, '嵌套写法和顶层 sleepAfterMs 并存');
+
+  // 列表接口要带出去：App/原生靠这一份对齐，少一格就得再发一版插件。
+  const res = await callList();
+  const listed = res.body.packs[0];
+  for (const key of ['source', 'pixelArt', 'scale', 'contentBox', 'hitBoxes', 'bonus', 'timings', 'idlePool', 'reactions', 'roam', 'sleep']) {
+    assert.deepEqual(listed[key], pack[key], `${key} 没带出去`);
+  }
+  assert.deepEqual(listed.tiers.juggling.map((row) => row.min), [2, 1]);
+});
+
+test('可选表现字段：坏值逐项丢掉，包本身照常在（不是坏包）', (t) => {
+  const { builtinDir } = setup(t);
+  makePack(builtinDir, 'shrink', {
+    schema: 1, id: 'shrink', name: '收窄',
+    pixelArt: 'yes',
+    scale: -2,
+    source: '   ',
+    contentBox: { x: 1, y: 2, w: 0, h: 3 },
+    hitBoxes: {
+      default: { x: 1, y: 2, w: 3, h: 4 },
+      wide: { x: 1, y: 2, w: 3 },
+      byAnim: { typing: { x: 1, y: 2, w: 3, h: 4 }, '../nope': { x: 0, y: 0, w: 1, h: 1 } },
+      wideAnims: [42, 'typing', 'typing', '../nope'],
+      sleepingAnims: 'sleeping',
+    },
+    states: { idle: { file: 'idle.png' } },
+    tiers: {
+      working: [{ min: 1, file: 'idle.png' }, { min: 0, file: 'idle.png' }, { min: 2, file: '../escape.png' }],
+      juggling: [{ min: 1, file: 'ghost.gif' }],
+    },
+    bonus: {
+      attention: { anims: ['ghost.gif'], chance: 0.5 },
+      idle: { anims: ['idle.png'], chance: 2 },
+      nope: { anims: ['idle.png'], chance: 0.5 },
+      error: { anims: [], chance: 0.5 },
+    },
+    timings: { minDisplay: { attention: -5, nope: 1000, working: 900 }, autoReturn: 'fast' },
+    idlePool: {
+      everyMs: { mean: 120000, min: 300000, max: 45000 },
+      anims: [{ file: 'ghost.gif', ms: 100 }, { file: 'idle.png', ms: -1, weight: 0 }],
+    },
+    reactions: { tapLeft: 'ghost.gif', tapRight: '../escape.png', drag: 'idle.png' },
+    roam: { anim: 'ghost.gif', faces: 'left' },
+    sleep: { afterMs: -5 },
+  }, { 'idle.png': PNG_BYTES });
+
+  const [pack] = listPacks();
+  assert.ok(pack, '个别字段写坏不该让整只宠物消失');
+  assert.equal(pack.pixelArt, true, '不是布尔就按缺省「像素画」');
+  assert.equal(pack.scale, 1, '不是正数就按缺省 1:1');
+  assert.equal(pack.source, undefined, '空白串按「没填」处理');
+  assert.equal(pack.contentBox, undefined, 'w 为 0 的框没有意义');
+  assert.deepEqual(pack.hitBoxes, {
+    default: { x: 1, y: 2, w: 3, h: 4 },
+    byAnim: { typing: { x: 1, y: 2, w: 3, h: 4 } },
+    wideAnims: ['typing'],
+  }, '缺字段的 wide 丢掉；byAnim 里带斜杠的键进不来；wideAnims 只留合规名字、去重；sleepingAnims 不是数组就不收');
+  assert.deepEqual(pack.tiers.working.map((row) => row.file), ['idle.png'], 'min<1 与包里没有的图都丢掉');
+  assert.equal(pack.tiers.juggling, undefined);
+  assert.deepEqual(pack.bonus, { idle: { anims: ['idle.png'], chance: 1 } }, 'chance 夹到 1；空列表、未知状态、引用不存在的图全丢');
+  assert.deepEqual(pack.timings, { minDisplay: { working: 900 } }, '不认识的键与负数都丢掉，autoReturn 不是对象就当没填');
+  assert.deepEqual(pack.idlePool, { anims: [{ file: 'idle.png' }] }, 'ms/weight 不是正数就只留文件名');
+  assert.deepEqual(pack.reactions, { drag: 'idle.png' });
+  assert.equal(pack.roam, undefined, 'roam 引用的图不在包里就整格丢掉');
+  assert.equal(pack.sleep, undefined, 'afterMs 不是正数就当没填');
+});
+
+test('roam：faces 只认 left / right / front，不在里面就整格丢掉；sleep.afterMs 与顶层 sleepAfterMs 并存', (t) => {
+  const { userRoot } = setup(t);
+  const base = { schema: 1, name: '游走测试', states: { idle: { file: 'idle.png' } }, sleepAfterMs: 90000 };
+  const write = (id, extra) => {
+    fs.mkdirSync(path.join(userRoot, id), { recursive: true });
+    fs.writeFileSync(path.join(userRoot, id, 'pack.json'), JSON.stringify({ ...base, id, ...extra }));
+    fs.writeFileSync(path.join(userRoot, id, 'idle.png'), PNG_BYTES);
+  };
+  write('front', { roam: { anim: 'idle.png', faces: 'front' } });
+  write('bad-face', { roam: { anim: 'idle.png', faces: 'sideways' } });
+  write('no-face', { roam: { anim: 'idle.png' } });
+  write('bad-anim', { roam: { anim: '../escape.png', faces: 'left' } });
+  write('nested-sleep', { sleep: { afterMs: 30000 } });
+  write('float-sleep', { sleep: { afterMs: 1500.6 } });
+
+  const packs = new Map(listPacks().map((pack) => [pack.id, pack]));
+  assert.deepEqual(packs.get('front').roam, { anim: 'idle.png', faces: 'front' });
+  assert.equal(packs.get('bad-face').roam, undefined, 'faces 不认识就整格丢');
+  assert.equal(packs.get('no-face').roam, undefined, 'faces 必填');
+  assert.equal(packs.get('bad-anim').roam, undefined, '不是包里单层图就丢');
+  assert.deepEqual(packs.get('nested-sleep').sleep, { afterMs: 30000 });
+  assert.equal(packs.get('nested-sleep').sleepAfterMs, 90000, '顶层老写法不受影响，两者并存');
+  assert.deepEqual(packs.get('float-sleep').sleep, { afterMs: 1501 }, '毫秒取整');
+});
+
+test('老包兼容：没有可选字段时它们不出现，一份老包照旧能列、能取图', async (t) => {
+  const { userRoot } = setup(t);
+  makePack(userRoot, 'old', goodPack('old'), { 'idle.png': PNG_BYTES });
+
+  const [pack] = listPacks();
+  for (const key of ['source', 'contentBox', 'bonus', 'timings', 'idlePool', 'reactions', 'hitBoxes', 'roam', 'sleep']) {
+    assert.equal(pack[key], undefined, `${key} 在老包里该是「没填」`);
+  }
+  assert.equal(pack.pixelArt, true, '老包没有 pixelArt 时按像素画（与原来一致）');
+  assert.equal(pack.scale, 1, '老包没有 scale 时按 1:1（与原来一致）');
+  assert.deepEqual(pack.tiers, {}, '老包没有分档时 tiers 是空对象，与原来一致');
+
+  const res = await callList();
+  const listed = res.body.packs[0];
+  assert.equal(listed.source, undefined);
+  assert.equal(listed.bonus, undefined);
+  assert.equal((await callFile('old', 'idle.png')).status, 200);
+});
+
+test('可选字段里的文件名同样过单层 + 真在包里的判据：路径穿越拿不到任何东西', (t) => {
+  const { builtinDir } = setup(t);
+  const directory = makePack(builtinDir, 'deepy-whale', {
+    schema: 1, id: 'deepy-whale', name: '穿越测试',
+    states: { idle: { file: 'idle.png' } },
+    bonus: { attention: { anims: ['../secret.png', 'sub/inner.png', '/etc/passwd.png'], chance: 0.5 } },
+    reactions: { tapLeft: '../secret.png', tickle: 'sub/inner.png' },
+    hitBoxes: { default: { x: 0, y: 0, w: 10, h: 10 } },
+  }, { 'idle.png': PNG_BYTES });
+  fs.writeFileSync(path.join(builtinDir, 'secret.png'), PNG_BYTES);
+  fs.mkdirSync(path.join(directory, 'sub'));
+  fs.writeFileSync(path.join(directory, 'sub', 'inner.png'), PNG_BYTES);
+
+  const [pack] = listPacks();
+  assert.equal(pack.bonus, undefined, '彩蛋里全是非法名：整格丢掉，而不是留下一串读不到的路径');
+  assert.equal(pack.reactions, undefined);
+  assert.equal(readPackFile('deepy-whale', 'secret.png'), null);
+  assert.equal(readPackFile('deepy-whale', 'sub/inner.png'), null);
+  assert.deepEqual(pack.files.map((file) => file.path), ['idle.png'], '子目录里的图不进包清单');
+  // 体积上限也还是原来那几条：新增字段不放宽任何一条。
+  assert.equal(isImageName('../secret.png'), false);
+});
+
+test('写包工具：新字段经 pet_pack_write 整份落盘，再读回来一字不差', async (t) => {
+  const { userRoot } = setup(t);
+  const { installPetTools } = require('../lib/mobile/pet-tools.js');
+  const registered = [];
+  installPetTools({ inject: (_deps, scoped) => scoped({ tools: { register: (tool) => registered.push(tool) } }) });
+  const write = registered.find((tool) => tool.name === 'pet_pack_write');
+
+  const out = await write.execute({
+    id: 'mine',
+    pack: {
+      name: '我做的',
+      pixelArt: true,
+      scale: 1,
+      source: '自己画的',
+      contentBox: { x: 1, y: 2, w: 3, h: 4 },
+      states: { idle: { file: 'idle.png' }, juggling: { file: 'idle.png' } },
+      tiers: { juggling: [{ min: 2, file: 'idle.png' }] },
+      bonus: { attention: { anims: ['idle.png'], chance: 0.3 } },
+      timings: { minDisplay: { attention: 3000 } },
+      idlePool: { everyMs: { mean: 1000, min: 500, max: 2000 }, anims: [{ file: 'idle.png', ms: 800, weight: 2 }] },
+      reactions: { tickle: 'idle.png' },
+      hitBoxes: { default: { x: 0, y: 0, w: 10, h: 10 }, wideAnims: ['idle'], sleepingAnims: ['idle'] },
+      roam: { anim: 'idle.png', faces: 'front' },
+      sleep: { afterMs: 45000 },
+    },
+    files: [{ path: 'idle.png', base64: PNG_BASE64 }],
+  });
+  assert.equal(out.id, 'mine');
+  assert.deepEqual(out.written, ['idle.png']);
+
+  const [pack] = listPacks();
+  assert.equal(pack.source, '自己画的');
+  assert.deepEqual(pack.contentBox, { x: 1, y: 2, w: 3, h: 4 });
+  assert.deepEqual(pack.tiers.juggling, [{ min: 2, file: 'idle.png' }]);
+  assert.deepEqual(pack.bonus, { attention: { anims: ['idle.png'], chance: 0.3 } });
+  assert.deepEqual(pack.timings, { minDisplay: { attention: 3000 } });
+  assert.deepEqual(pack.idlePool, { everyMs: { mean: 1000, min: 500, max: 2000 }, anims: [{ file: 'idle.png', ms: 800, weight: 2 }] });
+  assert.deepEqual(pack.reactions, { tickle: 'idle.png' });
+  assert.deepEqual(pack.hitBoxes, {
+    default: { x: 0, y: 0, w: 10, h: 10 },
+    wideAnims: ['idle'],
+    sleepingAnims: ['idle'],
+  });
+  assert.deepEqual(pack.roam, { anim: 'idle.png', faces: 'front' });
+  assert.deepEqual(pack.sleep, { afterMs: 45000 });
+
+  // 档案里同样落了盘（不是只在内存里凑出来的）。
+  const onDisk = JSON.parse(fs.readFileSync(path.join(userRoot, 'mine', 'pack.json'), 'utf8'));
+  assert.deepEqual(onDisk.bonus, { attention: { anims: ['idle.png'], chance: 0.3 } });
+  assert.equal(onDisk.source, '自己画的');
+});
+
 test('两个工具真的注册得上（schema 能被 dsh-tools 编译），没有 tools 注入时静默跳过', async (t) => {
   const { userRoot } = setup(t);
   const { installPetTools } = require('../lib/mobile/pet-tools.js');

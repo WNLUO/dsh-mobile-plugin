@@ -4,6 +4,7 @@ display: 哔哩哔哩
 description: 视频社区，看视频、弹幕与评论
 packages: ["tv.danmaku.bili"]
 aliases: ["哔哩哔哩", "B站", "bilibili", "b站"]
+sites: ["bilibili.com"]
 open: 哔哩哔哩
 pace: careful
 ---

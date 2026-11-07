@@ -4,6 +4,7 @@ display: 知乎
 description: 问答与专栏
 packages: ["com.zhihu.android"]
 aliases: ["知乎", "Zhihu", "zhihu"]
+sites: ["zhihu.com"]
 open: 知乎
 pace: careful
 ---

@@ -44,6 +44,7 @@
     "icon.png",
     "assets/pets/**",
     "knowledge/**/*.md",
+    "skills/**",
     "extensions/**",
     "README.md"
   ],

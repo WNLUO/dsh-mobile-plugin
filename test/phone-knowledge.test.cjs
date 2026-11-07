@@ -290,40 +290,50 @@ test('知识路由只读：列出 App、包名与命中状态', async () => {
 
 /* ── 网站知识（knowledge/sites） ─────────────────────────────────────────── */
 
-/** 网站知识目录下的全部 .md 文件。 */
+/** 网站知识：每条是 `sites/<域名>/SITE.md`（目录结构），兼容残留的平铺 `.md`。 */
 function siteFiles() {
-  return fs
-    .readdirSync(SITES_DIR)
-    .filter((name) => name.endsWith('.md'))
-    .map((name) => ({ name, file: path.join(SITES_DIR, name) }));
+  const out = [];
+  for (const name of fs.readdirSync(SITES_DIR)) {
+    const entryPath = path.join(SITES_DIR, name);
+    const stat = fs.statSync(entryPath);
+    if (stat.isDirectory()) {
+      const file = path.join(entryPath, 'SITE.md');
+      if (fs.existsSync(file)) out.push({ name, file });
+    } else if (name.endsWith('.md')) {
+      out.push({ name: name.replace(/\.md$/, ''), file: entryPath });
+    }
+  }
+  return out;
 }
 
-test('网站知识 6 条起步，且都是 .md', () => {
+test('网站知识 6 条起步，且都是目录下的 SITE.md', () => {
   const files = siteFiles();
   assert.ok(files.length >= 6, `网站知识只有 ${files.length} 条，起步要求 6 条`);
 });
 
-test('每份网站知识 frontmatter 必需字段齐全，name 与文件名一致', () => {
+test('每份网站知识 frontmatter 必需字段齐全，name 与目录名一致', () => {
   for (const { name, file } of siteFiles()) {
     const { front } = splitRaw(fs.readFileSync(file, 'utf8'));
     assert.ok(front, `${name} 缺 frontmatter`);
     const meta = parseFront(front);
-    for (const key of ['name', 'display', 'description', 'sites', 'aliases']) {
+    for (const key of ['name', 'display', 'description', 'domains', 'aliases']) {
       assert.ok(meta[key] !== undefined && meta[key] !== '', `${name} 缺字段 ${key}`);
     }
-    assert.ok(Array.isArray(meta.sites) && meta.sites.length > 0, `${name} 的 sites 不是非空数组`);
+    assert.ok(Array.isArray(meta.domains) && meta.domains.length > 0, `${name} 的 domains 不是非空数组`);
     assert.ok(Array.isArray(meta.aliases), `${name} 的 aliases 不是数组`);
-    assert.equal(meta.name, name.replace(/\.md$/, ''), `${name} 的 name 与文件名不一致`);
+    assert.equal(meta.name, name, `${name} 的 name 与目录名不一致`);
   }
 });
 
-test('每份网站知识正文分四节且不超过 2500 字', () => {
+test('每份网站知识正文分六节且不超过 6000 字', () => {
+  // 字数上限 2500→6000 是决策变化：六节版本新增「页面与网址」「接口」，URL 模板与接口字段
+  // 天然占字；长字段表已拆进 references/，正文留 6000 足够覆盖、又能挡注水。不是放宽实现。
   for (const { name, file } of siteFiles()) {
     const { body } = splitRaw(fs.readFileSync(file, 'utf8'));
     const text = body.trim();
     assert.ok(text.length > 0, `${name} 正文为空`);
-    assert.ok(text.length <= 2500, `${name} 正文 ${text.length} 字，超过 2500`);
-    for (const heading of ['## 是什么', '## 界面', '## 功能', '## 已知现象']) {
+    assert.ok(text.length <= 6000, `${name} 正文 ${text.length} 字，超过 6000`);
+    for (const heading of ['## 是什么', '## 页面与网址', '## 界面', '## 功能', '## 接口', '## 已知现象']) {
       assert.ok(text.includes(heading), `${name} 缺小节「${heading}」`);
     }
   }
@@ -343,7 +353,7 @@ test('网站域名格式合法且互不重复', () => {
   for (const { name, file } of siteFiles()) {
     const { front } = splitRaw(fs.readFileSync(file, 'utf8'));
     const meta = parseFront(front);
-    for (const site of meta.sites) {
+    for (const site of meta.domains) {
       assert.match(site, DOMAIN_RE, `${name} 的域名「${site}」不合法`);
       assert.ok(!seen.has(site), `域名「${site}」同时出现在 ${seen.get(site)} 和 ${name}`);
       seen.set(site, name);
@@ -351,7 +361,7 @@ test('网站域名格式合法且互不重复', () => {
   }
 });
 
-test('listSites 列出全部网站且带 name/display/sites/aliases，不带正文', () => {
+test('listSites 列出全部网站且带 name/display/domains/aliases，不带正文', () => {
   const sites = knowledge.listSites();
   assert.ok(sites.length >= 6);
   const names = sites.map((site) => site.name);
@@ -360,7 +370,7 @@ test('listSites 列出全部网站且带 name/display/sites/aliases，不带正�
   }
   for (const site of sites) {
     assert.ok(site.display);
-    assert.ok(Array.isArray(site.sites) && site.sites.length > 0);
+    assert.ok(Array.isArray(site.domains) && site.domains.length > 0);
     assert.ok(Array.isArray(site.aliases));
     assert.equal(site.body, undefined, 'listSites 不该带正文');
   }

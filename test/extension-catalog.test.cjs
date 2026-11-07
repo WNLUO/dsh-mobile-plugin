@@ -298,13 +298,17 @@ test('取文件的拒绝口径：越界一律 400、没登记/包没了 404、�
   }
 });
 
-test('包内那份 catalog.json 现在没有审核过的扩展，handler 走真目录也回空表', async () => {
+test('包内 catalog.json 登记的都下发给手机（handler 走真目录）', async () => {
+  // 2026-11-08：这里不再是「空清单」——首批真实扩展（magpie）已随插件发布。判据改成
+  // 「登记即下发」：catalog.json 里登记的每个 slug，若目录里有 manifest.json 与 index.html，
+  // 就必须出现在列表里；没登记的一个都不能冒出来。少登记/缺入口页由 preflight 拦，这里只对账。
   const declared = JSON.parse(fs.readFileSync(path.join(catalogRoot(), 'catalog.json'), 'utf8'));
-  assert.deepEqual(declared.packages, [], '初始态不放假扩展');
   const res = fakeRes();
   await handleCatalog(null, fakeGet('/api/mobile/v1/extension/catalog'), res);
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body.packages, []);
+  const declaredSlugs = declared.packages.map((row) => row.slug).sort();
+  const servedSlugs = res.body.packages.map((row) => row.slug).sort();
+  assert.deepEqual(servedSlugs, declaredSlugs, '登记即下发：登记的 slug 都该在，未登记的不出现');
 });
 
 test('两条路由紧跟扩展 dev 那两条之后注册', () => {
