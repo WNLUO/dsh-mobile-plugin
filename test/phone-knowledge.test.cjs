@@ -19,6 +19,10 @@ const knowledge = require('../lib/mobile/phone-knowledge.js');
 const routes = require('../lib/mobile/phone/routes.js');
 
 const APPS_DIR = path.join(__dirname, '..', 'knowledge', 'apps');
+const SITES_DIR = path.join(__dirname, '..', 'knowledge', 'sites');
+
+/** 合法的站点域名：至少两段、每段字母数字或连字符。 */
+const DOMAIN_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 
 /** 正文里禁止出现的行为规则词（这些属于审批层，不属于知识）。 */
 const FORBIDDEN_PHRASES = [
@@ -282,4 +286,114 @@ test('知识路由只读：列出 App、包名与命中状态', async () => {
   const plainPayload = JSON.parse(plainRes.body);
   assert.equal(plainPayload.matched, '');
   assert.equal(plainPayload.apps.filter((app) => app.hit).length, 0);
+});
+
+/* ── 网站知识（knowledge/sites） ─────────────────────────────────────────── */
+
+/** 网站知识目录下的全部 .md 文件。 */
+function siteFiles() {
+  return fs
+    .readdirSync(SITES_DIR)
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => ({ name, file: path.join(SITES_DIR, name) }));
+}
+
+test('网站知识 6 条起步，且都是 .md', () => {
+  const files = siteFiles();
+  assert.ok(files.length >= 6, `网站知识只有 ${files.length} 条，起步要求 6 条`);
+});
+
+test('每份网站知识 frontmatter 必需字段齐全，name 与文件名一致', () => {
+  for (const { name, file } of siteFiles()) {
+    const { front } = splitRaw(fs.readFileSync(file, 'utf8'));
+    assert.ok(front, `${name} 缺 frontmatter`);
+    const meta = parseFront(front);
+    for (const key of ['name', 'display', 'description', 'sites', 'aliases']) {
+      assert.ok(meta[key] !== undefined && meta[key] !== '', `${name} 缺字段 ${key}`);
+    }
+    assert.ok(Array.isArray(meta.sites) && meta.sites.length > 0, `${name} 的 sites 不是非空数组`);
+    assert.ok(Array.isArray(meta.aliases), `${name} 的 aliases 不是数组`);
+    assert.equal(meta.name, name.replace(/\.md$/, ''), `${name} 的 name 与文件名不一致`);
+  }
+});
+
+test('每份网站知识正文分四节且不超过 2500 字', () => {
+  for (const { name, file } of siteFiles()) {
+    const { body } = splitRaw(fs.readFileSync(file, 'utf8'));
+    const text = body.trim();
+    assert.ok(text.length > 0, `${name} 正文为空`);
+    assert.ok(text.length <= 2500, `${name} 正文 ${text.length} 字，超过 2500`);
+    for (const heading of ['## 是什么', '## 界面', '## 功能', '## 已知现象']) {
+      assert.ok(text.includes(heading), `${name} 缺小节「${heading}」`);
+    }
+  }
+});
+
+test('网站知识正文里不出现行为规则词', () => {
+  for (const { name, file } of siteFiles()) {
+    const { body } = splitRaw(fs.readFileSync(file, 'utf8'));
+    for (const phrase of FORBIDDEN_PHRASES) {
+      assert.ok(!body.includes(phrase), `${name} 正文出现行为规则「${phrase}」`);
+    }
+  }
+});
+
+test('网站域名格式合法且互不重复', () => {
+  const seen = new Map();
+  for (const { name, file } of siteFiles()) {
+    const { front } = splitRaw(fs.readFileSync(file, 'utf8'));
+    const meta = parseFront(front);
+    for (const site of meta.sites) {
+      assert.match(site, DOMAIN_RE, `${name} 的域名「${site}」不合法`);
+      assert.ok(!seen.has(site), `域名「${site}」同时出现在 ${seen.get(site)} 和 ${name}`);
+      seen.set(site, name);
+    }
+  }
+});
+
+test('listSites 列出全部网站且带 name/display/sites/aliases，不带正文', () => {
+  const sites = knowledge.listSites();
+  assert.ok(sites.length >= 6);
+  const names = sites.map((site) => site.name);
+  for (const expected of ['x.com', 'youtube.com', 'github.com', 'bilibili.com', 'zhihu.com', 'xiaohongshu.com']) {
+    assert.ok(names.includes(expected), `listSites 少了 ${expected}`);
+  }
+  for (const site of sites) {
+    assert.ok(site.display);
+    assert.ok(Array.isArray(site.sites) && site.sites.length > 0);
+    assert.ok(Array.isArray(site.aliases));
+    assert.equal(site.body, undefined, 'listSites 不该带正文');
+  }
+});
+
+test('matchBySite 按主机名命中，子域也算，未命中回空串', () => {
+  assert.ok(knowledge.matchBySite('https://www.youtube.com/watch?v=abc').includes('YouTube'));
+  assert.ok(knowledge.matchBySite('https://m.youtube.com').includes('YouTube'), '子域应命中');
+  assert.ok(knowledge.matchBySite('youtube.com').includes('YouTube'), '不带协议也应命中');
+  assert.ok(knowledge.matchBySite('https://x.com/home').includes('X'));
+  assert.ok(knowledge.matchBySite('https://twitter.com/foo').includes('X'), '旧域名 twitter.com 也应命中 X');
+  assert.ok(knowledge.matchBySite('https://github.com/a/b').includes('GitHub'));
+  assert.ok(knowledge.matchBySite('https://www.bilibili.com/video/BV1').includes('哔哩哔哩'));
+  assert.ok(knowledge.matchBySite('https://www.zhihu.com/question/1').includes('知乎'));
+  assert.ok(knowledge.matchBySite('https://www.xiaohongshu.com/explore/1').includes('小红书'));
+
+  assert.equal(knowledge.matchBySite('https://www.example.com'), '');
+  assert.equal(knowledge.matchBySite(''), '');
+  assert.equal(knowledge.matchBySite(null), '');
+});
+
+test('知识路由返回里带 sites 清单', async () => {
+  const makeRes = () => {
+    const res = {
+      writeHead(status, headers) { res.status = status; res.headers = headers; },
+      end(body) { res.body = String(body); },
+    };
+    return res;
+  };
+  const res = makeRes();
+  await routes.handlePhoneKnowledge({}, {}, { url: '/api/mobile/v1/phone/knowledge' }, res);
+  const payload = JSON.parse(res.body);
+  assert.ok(Array.isArray(payload.sites) && payload.sites.length >= 6, '返回里应有 sites 清单');
+  const yt = payload.sites.find((site) => site.name === 'youtube.com');
+  assert.ok(yt && yt.sites.includes('youtube.com'));
 });
