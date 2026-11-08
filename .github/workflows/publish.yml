@@ -101,17 +101,28 @@ jobs:
       # 回答上一版（2026-11-07 实测：0.5.23、0.5.24 两版都因此把成功的发布标成失败，各红
       # 在最后一步）。直接问 /<包名>/<版本> 没有这层缓存，200 就是真的在；重试只为等注册表
       # 同步，不替缓存兜底。
+      #
+      # **窗口按时间算，不按次数算**（2026-11-08 实测）：0.5.30 那次 `npm publish` 在
+      # 10:06 就成功了，而注册表上查到它已经是 10:09:52 —— 比当时「20 次 × 15 秒 = 5 分钟」
+      # 的窗口晚了一截，于是最后一步红、一条成功的发布被记成失败。次数写死时窗口跟着
+      # 重试间隔走，改间隔就会悄悄改窗口；现在只写一个截止时间，间隔管等待粒度。
+      # 15 分钟是照着「同步比 5 分钟还慢」那次留的余量：它只在上游真慢时才耗满，
+      # 正常几十秒就退出。
       - name: 核对注册表版本
         run: |
           want=$(node -p "require('./package.json').version")
-          for i in $(seq 1 20); do
+          start=$(date +%s)
+          deadline=$(( start + 900 ))
+          attempt=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            attempt=$((attempt + 1))
             code=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/dsh-mobile-plugin/$want?t=$(date +%s)")
             if [ "$code" = "200" ]; then
-              echo "注册表已有 $want"
+              echo "注册表已有 $want（查了 $attempt 次，用时 $(( $(date +%s) - start )) 秒）"
               exit 0
             fi
-            echo "第 $i 次：registry.npmjs.org/dsh-mobile-plugin/$want 回 $code，等 15 秒再查"
+            echo "第 $attempt 次：registry.npmjs.org/dsh-mobile-plugin/$want 回 $code，等 15 秒再查"
             sleep 15
           done
-          echo "5 分钟内注册表上仍取不到 $want（最后一次 HTTP $code）" >&2
+          echo "15 分钟内注册表上仍取不到 $want（最后回 $code，共查 $attempt 次，用时 $(( $(date +%s) - start )) 秒）" >&2
           exit 1
