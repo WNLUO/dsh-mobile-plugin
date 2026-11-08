@@ -345,7 +345,7 @@ body:not(.side-nav) #nav button[data-view="groups"], body.side-nav .rt-togroups 
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1024px) {
   body.web .top {
     height: auto; min-height: 48px; flex-wrap: wrap; gap: 4px 8px;
-    padding: calc(6px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+    padding: calc(6px + var(--dsh-safe-top, env(safe-area-inset-top))) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
   }
   body.web .top .brand, body.web .top .actions { min-height: 40px; align-items: center; }
   body.web .top #nav {
@@ -4248,7 +4248,7 @@ body.panel .modal { padding: 16px 12px; }
   body.web .connect .val { height: auto; min-height: 44px; }
   body.web input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
   body.web textarea, body.web select { font-size: 16px; min-height: 44px; }
-  body.web .modal { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  body.web .modal { padding: max(8px, var(--dsh-safe-top, env(safe-area-inset-top))) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
   body.web .modal .editor.framed > .ebody, body.web .editor { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 12px; }
   body.web .editor label { text-align: left; padding-top: 8px; }
   body.web .editor .segs { max-width: 100%; flex-wrap: wrap; }

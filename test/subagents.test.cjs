@@ -322,7 +322,8 @@ test('子代理：entries 不是数组时回空目录（不是错误）', async 
   }
 });
 
-test('子代理：按 id 去重保留先出现的，条数封顶 100', async () => {
+test('子代理：按 id 去重保留先出现的，两百多条照原样全给', async () => {
+  // 长程会话实测派到两百多个（反馈 #19 / #20），上限必须让它们全部过得去。
   const many = Array.from({ length: 300 }, (_, i) => child({ id: `c-${i}` }));
   const host = await serve(() => okValue({
     entries: [child({ id: 'dup', label: 'first' }), child({ id: 'dup', label: 'second' }), ...many],
@@ -330,11 +331,22 @@ test('子代理：按 id 去重保留先出现的，条数封顶 100', async () 
   }));
   try {
     const body = await (await fetch(host.url('?sessionId=s'))).json();
-    assert.equal(body.entries.length, 100);
+    assert.equal(body.entries.length, 301);
     assert.equal(body.entries[0].id, 'dup');
     assert.equal(body.entries[0].label, 'first');
     assert.equal(body.entries[1].id, 'c-0');
-    assert.equal(body.entries[99].id, 'c-98');
+    assert.equal(body.entries[300].id, 'c-299');
+  } finally {
+    await host.close();
+  }
+});
+
+test('子代理：异常宿主给出天文数字时仍有兜底上限', async () => {
+  const many = Array.from({ length: 2005 }, (_, i) => child({ id: `c-${i}` }));
+  const host = await serve(() => okValue({ entries: many, parentAvailable: true }));
+  try {
+    const body = await (await fetch(host.url('?sessionId=s'))).json();
+    assert.equal(body.entries.length, 2000);
   } finally {
     await host.close();
   }

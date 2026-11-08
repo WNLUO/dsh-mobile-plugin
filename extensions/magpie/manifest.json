@@ -19,7 +19,7 @@
     }
   ],
   "id": "com.dsh.mobile.extension.magpie",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "apiVersion": "1",
   "main": "index.html",
   "description": "在手机上打开 magpie 的完整界面（Agents / Providers / Routing / Usage / Settings）。按需下载，数据经宿主取。",

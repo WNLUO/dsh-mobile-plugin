@@ -4,7 +4,7 @@
       "slug": "magpie",
       "description": "在手机上打开 magpie 的完整界面（Agents / Providers / Routing / Usage / Settings）。前端整份按需下载，数据经宿主代取。",
       "author": "DSH Mobile",
-      "releaseNotes": "首个版本：把 magpie 网页版前端做成随插件发布的扩展。"
+      "releaseNotes": "手机上不再顶出一条状态栏高度的空白：顶部安全区统一由 App 让，页面不再自己再让一次。"
     }
   ]
 }
