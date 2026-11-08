@@ -100,6 +100,21 @@ test('面板与终端共用同一份载荷，装配层不再自己拼一遍', ()
   assert.match(cliSource, /require\('\.\.\/relay\/pairing-payload\.cjs'\)/);
 });
 
+// 二维码里塞的东西越多人越扫不出来：码点一密，相机和相册就开始整片认不出，而界面上
+// 那几秒什么都不说（用户读作「点了没反应」）。`lanCandidates` 与 `lanUrls` 是同一个数组、
+// App 侧从来没读过它（`parsePairingInvite` 只取 `lanUrls`），所以它不该继续占着码里的位置。
+test('二维码不带重复的那份局域网候选（App 不读，白占码点）', () => {
+  const source = fs.readFileSync(PAYLOAD_MODULE, 'utf8');
+  const { pairingPayload } = require(PAYLOAD_MODULE);
+  const { payload } = pairingPayload({
+    name: 'host', instanceId: 'a0c64d5c', pairingCode: '123456', pairingTicket: 'x'.repeat(43),
+    relayUrl: 'https://relay.example.com', lanEnabled: true, lanPort: 18787,
+  }, 18787);
+  assert.equal(payload.lanCandidates, undefined, '这一格已经删了，别再加回来');
+  assert.ok(Array.isArray(payload.lanUrls), '地址仍要走 lanUrls 那一格');
+  assert.ok(!/lanCandidates:\s*urls/.test(source), '载荷里不许再出现 lanCandidates: urls');
+});
+
 test('命令随包发布：bin 注册了它，files 也带得上', () => {
   const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf8'));
   assert.equal(pkg.bin['dsh-mobile-plugin-pair'], 'lib/cli/pair.cjs');
