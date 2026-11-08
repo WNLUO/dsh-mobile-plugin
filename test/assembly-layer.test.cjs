@@ -61,7 +61,12 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 2026-11-07 +2：会合那一步要把 `p2p` 门面交给移动端路由表（一行转交、一行注释）——
   // 手机要把它自己的打洞候选报上来换电脑的地址，没有这一发两端连不上。实现在
   // `lib/p2p/rendezvous.cjs`，装配层只是把它挂上去。
-  assert.ok(lines <= 581, `lib/impl.js 回到 ${lines} 行了；超过 581 说明实现又被搬回装配层`);
+  // 2026-11-08 +11：中转地址从单值扩成列表（schema 一项与注释、`configOf` 三行、`update`
+  // 里一次收敛调用与注释、`buildConfig` 一格）。收敛规则本身在 `relay/core.js` 的
+  // `applyRelayAddressPatch` / `normalizeRelayAddresses`，没有一行搬回装配层。
+  // 2026-11-08 +3：择路成功后把主用地址写回配置（一个 require、一行挂订阅、一行注释）。
+  // 判断与写盘规则在 `relay/route-adopt.cjs`（宿主是 relay.json 唯一写方），装配层只是挂上去。
+  assert.ok(lines <= 596, `lib/impl.js 回到 ${lines} 行了；超过 596 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

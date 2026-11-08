@@ -20,8 +20,11 @@ const { join } = require('node:path')
 
 const worker = readFileSync(join(__dirname, '..', 'lib', 'sidecar-facade-worker.cjs'), 'utf8')
 
+// 切片从 `openTunnel(` 开始到 `startLan()` 之前：择路那三个函数（relayRoutePlan /
+// adoptRoute / raceTunnels）与 `startTunnel` 是同一条路，必须一起 eval —— 只抠
+// openTunnel 会让它依赖的 `raceTunnels` 在闭包里不存在。
 const START_TUNNEL_BODY = worker.slice(
-  worker.indexOf('function openTunnel() {'),
+  worker.indexOf('function openTunnel('),
   worker.indexOf('function startLan() {'),
 )
 assert.ok(START_TUNNEL_BODY.length > 0, '应能在 worker 源码里定位 openTunnel() / startTunnel()')
@@ -52,6 +55,8 @@ function bootWorker() {
     let tunnel = null;
     let tunnelState = 'off';
     let tunnelError = null;
+    let tunnelRoute = null;
+    let pendingAttempt = null;
     // 与 lib/sidecar-facade-worker.cjs 的 stopTunnel() 逐行同义。
     const stopTunnel = () => {
       if (tunnel) tunnel.stop();
@@ -70,7 +75,7 @@ function bootWorker() {
       pairingCode: '123456', name: 'LAN Test', upstreamPort: 19387,
       lanEnabled: true, lanSecret: 's',
     },
-    core: { tunnelWsUrl: (u) => u, signLanToken: () => 'tok', MOBILE_BEARER_TTL_SEC: 60 },
+    core: { tunnelWsUrl: (u) => u, normalizeRelayUrl: (u) => String(u || '').trim(), signLanToken: () => 'tok', MOBILE_BEARER_TTL_SEC: 60 },
     RelayTunnel: StubRelayTunnel,
     upstream: () => ({}),
     lanUrls: () => [],
@@ -110,7 +115,9 @@ function bootWorker() {
     // 守卫可以就在同一行（`onRegistered: () => { if (tunnel !== current) return; …`），
     // 也可以是紧挨着的上一行。两处都算。
     const near = `${lines[i - 1] || ''}${line}`
-    writers.push({ line: i + 1, text: line.trim().slice(0, 58), guarded: /tunnel (===|!==) current/.test(near) })
+    // `\btunnel\s` 而不是 `tunnel `：择路那笔账叫 `tunnelRoute`，它出现在 `onRegistered`
+    // 那一行的先头时不该被当成身份守卫（更要紧的是别被当成「有守卫」）。
+    writers.push({ line: i + 1, text: line.trim().slice(0, 58), guarded: /\btunnel\s*(===|!==)\s*current\b/.test(near) })
   }
   assert.ok(writers.length >= 3, `回调里应至少找到 3 处状态写入，实际 ${writers.length}`)
   for (const w of writers) {
@@ -185,7 +192,9 @@ function bootWorker() {
 {
   const define = worker.slice(worker.indexOf('function publishState() {'), worker.indexOf('function send(res, code, value) {'))
   assert.ok(define.includes('type: \'state\''), 'publishState 必须发一条 type=state 的 IPC 消息')
-  assert.match(define, /tunnel: \{ state: tunnelState, error: tunnelError, mirror: relayMirror \}/, '状态消息必须带真实 tunnel 状态（含对端存不存镜像的口径）')
+  // 三个字段缺一不可；`route` 是这一轮择路的账（可选、在状态字段之后展开），
+  // 所以正则以那三个字段打头、不把右括号钉死。
+  assert.match(define, /tunnel: \{ state: tunnelState, error: tunnelError, mirror: relayMirror/, '状态消息必须带真实 tunnel 状态（含对端存不存镜像的口径）')
   assert.match(define, /process\.send\?\.\(/, '必须走 IPC（没有父进程时要能静默跳过）')
   // 三处状态跳变（connecting / connected / error）都得上报，少一处就回到「滞后 10s」。
   const publishes = START_TUNNEL_BODY.match(/publishState\(\)/g) || []
@@ -213,6 +222,18 @@ function bootWorker() {
   assert.equal(w.log.resets, 2, '当前实例注册成功必须清账，否则连错几次后永远停在 30s 退避上')
   second.opts.onClose(1006, 'gone')
   assert.equal(w.log.publishes, 5, '断线必须立刻上报 error（宿主据此停止推镜像，而不是再撞 10s 超时）')
+}
+
+// 中途被关掉（enabled 转 false）那一条早退必须把这笔择路账清掉。
+//
+// `pendingAttempt` 的用途是「还在等这一次注册结果，所以 onClose 闭嘴」。留着它不请，
+// 那条隧道的 close 会被当成「还在等」，于是下一次真正的掉线报不出来 —— 状态永远停在
+// connecting，宿主不再推镜像，手机上看到的是「一直连不上」而没有任何错误。
+{
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'lib', 'sidecar-facade-worker.cjs'), 'utf8');
+  const body = source.slice(source.indexOf('async function raceTunnels('), source.indexOf('function startLan() {'));
+  assert.match(body, /if \(!config\.enabled\)\s*\{\s*pendingAttempt = null;\s*return false\s*\}/,
+    'enabled 转 false 的早退必须清掉 pendingAttempt，否则下一次真实掉线会被 onClose 静默吞掉');
 }
 
 console.log('tunnel state guard tests passed')
