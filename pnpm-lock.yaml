@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@agentclientprotocol/sdk':
-        specifier: 2.4.0
-        version: 2.4.0(zod@4.6.5)
       '@deepseek-ai/cordis':
         specifier: '>=4.0.1'
         version: 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
@@ -35,9 +32,6 @@ importers:
       ws:
         specifier: 8.18.0
         version: 8.18.0
-      zod:
-        specifier: 4.6.5
-        version: 4.6.5
     devDependencies:
       '@deepseek-ai/dsh-host-directory-picker-browse':
         specifier: ^0.2.1-rc.3
@@ -69,15 +63,6 @@ importers:
         version: 1.1.1
 
 packages:
-
-  '@agentclientprotocol/sdk@2.4.0':
-    resolution: {integrity: sha512-7qJ8nnyj7WesC5ve185ioTpB2/svQoeGV4HA4nLEhgDUrcmBe54/08VcXc/oL4p14tDbxxECZzdYmUYQ+4l+Wg==}
-    peerDependencies:
-      '@modelcontextprotocol/server': ^2.4.0
-      zod: ^3.25.76 || ^4.0.0
-    peerDependenciesMeta:
-      '@modelcontextprotocol/server':
-        optional: true
 
   '@deepseek-ai/cordis-plugin-include@1.0.9':
     resolution: {integrity: sha512-Xmekm7u5Kpeym6nABL4T1/Mg6aQYFZxsipB0WycmCctvX1DqAv8nCFwRmg2XMx/f7EbZgNEbXQwJfabcMu8zxQ==}
@@ -974,10 +959,6 @@ packages:
         optional: true
 
 snapshots:
-
-  '@agentclientprotocol/sdk@2.4.0(zod@4.6.5)':
-    dependencies:
-      zod: 4.6.5
 
   '@deepseek-ai/cordis-plugin-include@1.0.9(@deepseek-ai/cordis-plugin-loader@1.0.5)(@deepseek-ai/cordis@4.0.4)':
     dependencies:

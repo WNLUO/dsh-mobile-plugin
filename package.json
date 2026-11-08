@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.31",
+  "version": "0.5.32",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -58,10 +58,8 @@
     "release:check": "node scripts/preflight-release.mjs"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "2.4.0",
     "qrcode": "1.5.4",
-    "ws": "8.18.0",
-    "zod": "4.6.5"
+    "ws": "8.18.0"
   },
   "optionalDependencies": {
     "dsh-mobile-tailcat-darwin-arm64": "1.1.1",
