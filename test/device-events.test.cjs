@@ -267,3 +267,30 @@ test('开场补发撞上写缓冲时等 drain，不许掐流', async () => {
   assert.equal(fromMux.length, 1, '补发没等到 drain，实时循环的第一帧就丢了');
   assert.equal(res.ended, true);
 });
+
+// 总管播报的出口：插件把几条会话的动静合成一句，这条流负责把它推给手机
+// （帧形状 `{type:'supervisor/broadcast', text, at}`，App 只认这一种）。它同样必须
+// 直订 + 收尾注销，否则一句播报会一直挂在这条连接的总线上。
+test('总管播报：总线上一句话就推一帧，收尾注销订阅', async () => {
+  const { broadcastSignal } = require('../lib/mobile/supervisor-broadcast.js');
+  const res = response();
+  const ctx = { apiProxy: { events: { mux: async function* () {
+    // 先让流把订阅挂上、补发跑完，再广播一句。
+    yield { payload: { type: 'host/ping' } };
+    broadcastSignal.emit('跑迁移报错了，修侧栏跑完了。', 1_700_000_000_123);
+    yield { payload: { type: 'host/ping' } };
+  } } } };
+  await handleDeviceStream(ctx, request(), res);
+
+  const frames = framesFrom(res).filter((frame) => frame.payload && frame.payload.type === 'supervisor/broadcast');
+  assert.equal(frames.length, 1, '广播了一句，流上却没推帧');
+  assert.deepEqual(frames[0].payload, {
+    type: 'supervisor/broadcast',
+    text: '跑迁移报错了，修侧栏跑完了。',
+    at: 1_700_000_000_123,
+  });
+  // 收尾之后总线上一句都不该再写进这条已经关掉的连接。
+  const before = res.chunks.length;
+  broadcastSignal.emit('收尾之后的一句。');
+  assert.equal(res.chunks.length, before, '收尾没注销订阅：还在往关掉的连接上写');
+});

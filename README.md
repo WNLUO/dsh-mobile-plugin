@@ -3,7 +3,7 @@
 ![AI-HUB：手机和平板上的 DeepSeek Harness 会话界面](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/banner.jpg)
 
 <p align="center">
-  <a href="https://app.wnluo.com/public/apps/14"><img alt="安卓 分发下载" src="https://img.shields.io/badge/%E5%AE%89%E5%8D%93-%E5%88%86%E5%8F%91%E4%B8%8B%E8%BD%BD-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://app.wnluo.com/api/public/apps/14/download-latest"><img alt="安卓 分发下载" src="https://img.shields.io/badge/%E5%AE%89%E5%8D%93-%E5%88%86%E5%8F%91%E4%B8%8B%E8%BD%BD-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
   <a href="https://github.com/WNLUO/dsh-mobile-plugin/releases/latest/download/ai-hub-android.apk"><img alt="安卓 GitHub 下载" src="https://img.shields.io/badge/%E5%AE%89%E5%8D%93-GitHub%E4%B8%8B%E8%BD%BD-181717?style=for-the-badge&logo=github"></a>
   <a href="https://apps.apple.com/us/app/ai-hub/id6821681438"><img alt="App Store" src="https://img.shields.io/badge/App_Store-%E4%B8%8B%E8%BD%BD-black?style=for-the-badge&logo=appstore&logoColor=white"></a>
   <a href="https://testflight.apple.com/join/4fn5PCMD"><img alt="苹果测试版 下载" src="https://img.shields.io/badge/%E8%8B%B9%E6%9E%9C%E6%B5%8B%E8%AF%95%E7%89%88-%E4%B8%8B%E8%BD%BD-0D96F6?style=for-the-badge&logo=apple&logoColor=white"></a>

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://app.wnluo.com/public/apps/14"><img alt="Android download" src="https://img.shields.io/badge/Android-Download-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://app.wnluo.com/api/public/apps/14/download-latest"><img alt="Android download" src="https://img.shields.io/badge/Android-Download-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
   <a href="https://github.com/WNLUO/dsh-mobile-plugin/releases/latest/download/ai-hub-android.apk"><img alt="Android GitHub" src="https://img.shields.io/badge/Android-GitHub-181717?style=for-the-badge&logo=github"></a>
   <a href="https://apps.apple.com/us/app/ai-hub/id6821681438"><img alt="App Store" src="https://img.shields.io/badge/App_Store-Download-black?style=for-the-badge&logo=appstore&logoColor=white"></a>
   <a href="https://testflight.apple.com/join/4fn5PCMD"><img alt="iOS beta" src="https://img.shields.io/badge/iOS_Beta-Download-0D96F6?style=for-the-badge&logo=apple&logoColor=white"></a>

@@ -396,6 +396,7 @@ test('清理前补采：归档会话的用量在排队删除前全部入账，�
   ledger.forgetLedger();
   try {
     let historyReads = 0;
+    let previewReads = 0;
     const archivedSessionIds = ['session-a', 'session-b', 'session-c'];
     const items = archivedSessionIds.map((sessionId, index) => ({
       sessionId,
@@ -422,9 +423,11 @@ test('清理前补采：归档会话的用量在排队删除前全部入账，�
               },
             };
           },
-          // 补采跳过预览：这条一被调到就说明又把省下来的时间花在读日志上了。
-          history: async () => {
-            historyReads += 1;
+          // 折叠本身要读一次事件窗；「最后一句」预览是另一条（maxMessages=10）历史读，
+          // 清理前补采必须跳过它。这里按窗口大小区分这两种调用。
+          history: async (request) => {
+            if (request.payload.maxMessages <= 10) previewReads += 1;
+            else historyReads += 1;
             return { result: { ok: true, value: { events: [] } } };
           },
         },
@@ -445,7 +448,8 @@ test('清理前补采：归档会话的用量在排队删除前全部入账，�
     await handleClearArchived(ctx, req, res);
 
     assert.equal(res.status, 200);
-    assert.equal(historyReads, 0, '清理前补采不许读会话日志');
+    assert.equal(previewReads, 0, '清理前补采不许读「最后一句」预览');
+    assert.ok(historyReads > 0, '折叠照常读一次事件窗（数字靠它）');
     const book = ledger.readLedger();
     assert.deepEqual(Object.keys(book.sessions).sort(), archivedSessionIds, '归档里的每一条都要入账');
     assert.equal(book.sessions['session-a'].billed.uncachedInputTokens, 10);

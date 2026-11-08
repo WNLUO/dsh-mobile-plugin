@@ -52,7 +52,7 @@ type Props = {
 /**
  * 配对与二维码。
  *
- * 二维码 SVG 由宿主生成（`QRCode.toString`，280px、纠错 M），这里只负责摆放：网页端自己画
+ * 二维码 SVG 由宿主生成（`QRCode.toString`，512px、纠错 M），这里只负责摆放：网页端自己画
  * 要多带一个依赖，而且会和手机端拿到的图不一致。未启用远程控制时宿主回 409 并给一句中文，
  * 这里照原样显示。
  *
@@ -123,22 +123,25 @@ export function PairingCard({
       ) : null}
 
       <div className="mt-3 flex flex-col gap-4 sm:flex-row">
-        {/* 二维码这一格**尺寸固定**：遮着是 280 的占位、揭开是同一块白底，两种状态上下都不动。
-            白底用 `size-full` + `p-2` 撑满这一格，里面再 `size-full` 缩放 —— 别给内层写死
-            256px，那样白底会比占位高出边框加内边距那一圈，整张卡跟着长两像素。 */}
+        {/* 二维码这一格**尺寸固定**：遮着是同一尺寸的占位、揭开是同一块白底，两种状态上下都不动。
+            白底用 `size-full` + `p-2` 撑满这一格，里面再 `size-full` 缩放 —— 别给内层写死像素，
+            那样白底会比占位高出边框加内边距那一圈，整张卡跟着长两像素。
+            **360 而不是 280**（2026-11-09）：一台机器同时带中转、局域网、几条 IPv6 时码能密到
+            一百多个模块，280 摆下来一个模块只剩两像素多，手机一举就认不出来。尺寸与下面的
+            占位、放大弹窗同源，改一处改全部。 */}
         <div className="flex shrink-0 flex-col items-center">
-          <div className="relative size-[280px]">
+          <div className="relative size-[360px] max-w-full">
             {/*
               白底是必须的：二维码是黑白的，暗色主题下要保证扫得出来。
               遮上时**整块换成一个占位**，不是把里面的 SVG 用样式盖住：隐藏态的页面里
               根本不存在那张图，截屏工具、开发者工具、页面另存为都拿不到它。
             */}
             {!shown.qr && pairing?.svg ? (
-              <div className="flex size-[280px] flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
+              <div className="flex size-[360px] max-w-full flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
                 <span className="text-xs">{t('panel.pairing.qrHidden')}</span>
                 <RevealButton what={t('panel.pairing.qr')} label={t('panel.common.show')} onClick={() => toggle('qr')} />
               </div>
-            ) : (<div className="flex size-[280px] items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2">
+            ) : (<div className="flex size-[360px] max-w-full items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2">
                 {pairing?.svg ? (
                   // 点码本身就能放大：手指落在图上的人不会先去找一颗按钮。
                   <button
@@ -147,7 +150,7 @@ export function PairingCard({
                     onClick={() => setQrZoom(true)}
                     aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
                   >
-                    {/* 宿主生成的 SVG（带 280px 固定宽高），内嵌后必须被这里压到方框大小；
+                    {/* 宿主生成的 SVG（带 512px 固定宽高），内嵌后必须被这里压到方框大小；
                         不是用户输入，没有注入面。 */}
                     <div
                       className="size-full [&_svg]:h-full [&_svg]:w-full"
@@ -273,7 +276,7 @@ export function PairingCard({
         屏幕缩放、显示器离得远、手机举着不方便时，这块比把卡片撑大管用。
       */}
       <Dialog open={qrZoom} onOpenChange={setQrZoom}>
-        <DialogContent className="w-[min(560px,92vw)] max-w-none" closeLabel={t('panel.common.close')}>
+        <DialogContent className="w-[min(680px,94vw)] max-w-none" closeLabel={t('panel.common.close')}>
           <DialogHeader>
             <DialogTitle>{t('panel.pairing.qr')}</DialogTitle>
           </DialogHeader>
@@ -281,7 +284,7 @@ export function PairingCard({
             <div className="flex items-center justify-center rounded-md bg-white p-4">
               {pairing?.svg ? (
                 <div
-                  className="size-[min(70vh,440px)] [&_svg]:h-full [&_svg]:w-full"
+                  className="size-[min(72vh,600px)] [&_svg]:h-full [&_svg]:w-full"
                   dangerouslySetInnerHTML={{ __html: pairing.svg }}
                 />
               ) : null}

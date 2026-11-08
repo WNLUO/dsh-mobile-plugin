@@ -217,11 +217,22 @@ test('配对二维码 payload 两格都在：老手机读 relayUrl，新手机�
 
   const legacy = pairingPayload({ ...base, relayUrl: A }, 18787).payload;
   assert.equal(legacy.relayUrl, A);
-  assert.deepEqual(legacy.relayUrls, [A], '状态里没有列表时退化到单条，不是空数组');
+  // **决策变了（2026-11-09）**：只有一条中转时二维码里**不写** `relayUrls`。
+  // 原来这里断言「退化到单元素数组」，但那个数组与上面的 `relayUrl` 逐字相同 ——
+  // 同一串地址在码里出现两遍，白占七八个模块，而扫码能不能成几乎全看码有多密。
+  // 「老手机读 relayUrl、新手机优先读数组」那条契约没变：数组缺席时新手机本来就会退化到单条
+  // （App 侧 `parsePairingInvite` 的 `declared.length ? declared : first ? [first] : []`）。
+  assert.equal(legacy.relayUrls, undefined, '单中转时不写数组，省掉重复的那一串');
+  const listed = pairingPayload({ ...base, relayUrl: A, relayUrls: [A, B] }, 18787).payload;
+  assert.deepEqual(listed.relayUrls, [A, B], '真有第二条时才写数组');
 
   const none = pairingPayload({ ...base, relayUrl: '', relayUrls: [] }, 18787).payload;
   assert.equal(none.relayUrl, '');
-  assert.deepEqual(none.relayUrls, [], '真的没有中转时两格都空，别造一条假地址出来');
+  // 没有中转时同样不写数组（与单条时同一个判据：`relayUrls.length > 1` 才写）。
+  // 这条要保住的意图是「别造一条假地址出来」—— 见下面断言：数组要么缺席、要么非空。
+  assert.ok(none.relayUrls === undefined || none.relayUrls.length === 0,
+    '真的没有中转时两格都空，别造一条假地址出来');
+  assert.ok(!none.lanUrls.length, '局域网关着时也不该冒出地址');
 });
 
 /** 装一次移动端路由表，取出指定的那一条。 */

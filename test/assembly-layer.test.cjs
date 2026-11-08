@@ -66,7 +66,9 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // `applyRelayAddressPatch` / `normalizeRelayAddresses`，没有一行搬回装配层。
   // 2026-11-08 +3：择路成功后把主用地址写回配置（一个 require、一行挂订阅、一行注释）。
   // 判断与写盘规则在 `relay/route-adopt.cjs`（宿主是 relay.json 唯一写方），装配层只是挂上去。
-  assert.ok(lines <= 596, `lib/impl.js 回到 ${lines} 行了；超过 596 说明实现又被搬回装配层`);
+  // 2026-11-09 +4：通话总管的两块（总管工具、两本账）各一 require 一 mount，实现都在
+  // `mobile/supervisor-tools.js` 与 `mobile/supervisor-memory/`，没有一行搬回装配层。
+  assert.ok(lines <= 600, `lib/impl.js 回到 ${lines} 行了；超过 600 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

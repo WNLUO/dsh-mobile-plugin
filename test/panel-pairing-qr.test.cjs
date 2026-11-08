@@ -19,16 +19,17 @@ const read = (name) => fs.readFileSync(path.join(src, name), 'utf8');
 test('引导页二维码放大并保留白色边框', () => {
   const page = read('Onboarding.tsx');
   assert.match(page, /const qrSvg = pairing\?\.svg \?\? ''/);
-  assert.match(page, /size-\[280px\] rounded-lg bg-white p-3 \[&_svg\]:h-full \[&_svg\]:w-full/);
+  assert.match(page, /size-\[320px\] max-w-full rounded-lg bg-white p-3 \[&_svg\]:h-full \[&_svg\]:w-full/);
   assert.match(page, /dangerouslySetInnerHTML=\{\{ __html: qrSvg \}\}/);
 });
 
 test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () => {
   const card = read('components/PairingCard.tsx');
   assert.match(card, /useState\(\{ qr: false, relay: false \}\)/);
-  assert.match(card, /!shown\.qr && pairing\?\.svg \? \([\s\S]*?size-\[280px\][\s\S]*?\) : \(<div className="[^"]*bg-white p-2"/);
-  // 白底与占位是同一块 280 见方的格子，里面再撑满：遮着 / 揭开两种状态卡片高度必须一致。
-  assert.match(card, /className="flex size-\[280px\] items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2"/);
+  assert.match(card, /!shown\.qr && pairing\?\.svg \? \([\s\S]*?size-\[360px\][\s\S]*?\) : \(<div className="[^"]*bg-white p-2"/);
+  // 白底与占位是同一块 360 见方的格子，里面再撑满：遮着 / 揭开两种状态卡片高度必须一致。
+  // 2026-11-09 从 280 放大到 360：码密到一百多个模块时，280 摆下来一个模块只剩两像素多。
+  assert.match(card, /className="flex size-\[360px\] max-w-full items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2"/);
   assert.match(card, /className="size-full \[&_svg\]:h-full \[&_svg\]:w-full"/);
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
 });
@@ -37,11 +38,11 @@ test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且
   const card = read('components/PairingCard.tsx');
   const page = read('Onboarding.tsx');
   // 主页：点码本身开弹窗（2026-11-02 起不再单独摆一颗「看大图」按钮），弹窗里按视口高度
-  // 放大（440px 上限），白底。
+  // 放大（600px 上限，2026-11-09 从 440 抬高），白底。
   assert.match(card, /const \[qrZoom, setQrZoom\] = React\.useState\(false\)/);
   assert.match(card, /onClick=\{\(\) => setQrZoom\(true\)\}[\s\S]{0,400}dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
   assert.match(card, /<Dialog open=\{qrZoom\} onOpenChange=\{setQrZoom\}>/);
-  assert.match(card, /size-\[min\(70vh,440px\)\] \[&_svg\]:h-full \[&_svg\]:w-full/);
+  assert.match(card, /size-\[min\(72vh,600px\)\] \[&_svg\]:h-full \[&_svg\]:w-full/);
   // 那颗按钮撤了：码本身就够点，遮着的时候也不该有一处点了只看见空白的地方。
   // 现在 `panel.pairing.qrZoom` 只剩码自己那个 `aria-label` 一处。
   assert.equal(

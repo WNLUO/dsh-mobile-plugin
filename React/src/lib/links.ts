@@ -46,7 +46,7 @@ export const DOWNLOAD_CHANNELS: { platform: DownloadPlatform; channels: Download
       {
         nameKey: 'panel.links.distPlatform',
         hintKey: 'panel.links.domesticRecommended',
-        url: 'https://app.wnluo.com/public/apps/14',
+        url: 'https://app.wnluo.com/api/public/apps/14/download-latest',
       },
       {
         name: 'GitHub',

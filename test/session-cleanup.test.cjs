@@ -125,6 +125,8 @@ test('delete：删之前先把这批会话的用量采进统计账本', withHome
               }
               : {},
           }),
+          // 事件流窗口：这一刀只关心「用量别丢」，日志里没有事件就全走 history（无日期）。
+          history: async () => envelope({ events: [] }),
         },
         workspace: {
           list: async () => envelope({ archivedSessionIds: ['session-a'] }),
@@ -139,11 +141,81 @@ test('delete：删之前先把这批会话的用量采进统计账本', withHome
     const book = statsLedger.readLedger();
     assert.equal(book.sessions['session-a'].billed.uncachedInputTokens, 120, '删除前的用量进了账本');
     assert.equal(book.sessions['session-a'].billed.turns, 2);
-    const dayOutput = Object.values(book.days).reduce((sum, day) => sum + day.outputTokens, 0);
-    assert.equal(dayOutput, 30, '按天的账也记上了');
+    // 决策：首采那笔（这条会话是第一次被采到）不进按天账 —— 它没有日期，只进累计与 history。
+    // 以前记到「最后活动日」，安装 / 升级当天就是一根几十倍的尖柱。
+    assert.equal(book.sessions['session-a'].history.outputTokens, 30, '历史那一格记着这 30');
+    assert.equal(
+      Object.values(book.days).reduce((sum, day) => sum + day.outputTokens, 0),
+      0,
+      '首采不写按天账，删除补采也一样',
+    );
+    assert.equal(
+      statsLedger.summarize(book, 'all', Date.now()).kpi.outputTokens,
+      30,
+      'all 那档仍等于这条会话的累计',
+    );
   } finally {
     statsLedger.forgetLedger();
   }
+}));
+
+test('启动删队列：真删日志之前先定向补采那批会话（入队到启动之间可能隔着一次重启）', withHome(async (home) => {
+  // 入队那一刻的一刀补采发生在进程活着的时候，而日志要到下次启动才删。中间这段时间里
+  // 会话完全可能继续被用，那一截用量只有删除这一刻才采得到 —— 漏了它，删完就永远丢了。
+  writeSession(home, 'session-doomed');
+  writeSession(home, 'session-untracked');
+  queueArchivedClearIds(['session-doomed']);
+  const statsLedger = require('../lib/mobile/stats-ledger.cjs');
+  statsLedger.forgetLedger();
+  const projectCalls = [];
+  const ctx = {
+    apiProxy: {
+      sessions: {
+        list: async () => envelope({
+          items: [
+            { sessionId: 'session-doomed', cwd: '/home/node', updatedAt: Date.now() },
+            { sessionId: 'session-untracked', cwd: '/home/node', updatedAt: Date.now() },
+          ],
+        }),
+        projections: async (request) => {
+          projectCalls.push(request.payload.sessionId);
+          return envelope({
+            values: request.payload.sessionId === 'session-doomed'
+              ? {
+                tokenUsage: { uncachedInputTokens: 77, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 7 },
+                sessionStats: { turns: 1, steps: 1, llmMs: 0, toolMs: 0 },
+              }
+              : {
+                tokenUsage: { uncachedInputTokens: 999, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 99 },
+                sessionStats: { turns: 1, steps: 1, llmMs: 0, toolMs: 0 },
+              },
+          });
+        },
+        // 日志里没有事件：这一刀只关心用量别丢，全走 history（无日期）。
+        history: async () => envelope({ events: [] }),
+      },
+      workspace: { list: async () => envelope({ archivedSessionIds: [] }) },
+    },
+  };
+
+  try {
+    const sweep = await deleteQueuedArchivedSessions(undefined, ctx);
+    assert.deepEqual(sweep.deleted, ['session-doomed']);
+    assert.deepEqual(projectCalls, ['session-doomed'], '只采队里真有日志的那条，别为别的会话白花预算');
+    const book = statsLedger.readLedger();
+    assert.equal(book.sessions['session-doomed'].billed.uncachedInputTokens, 77, '删之前的最后一截进了账本');
+    assert.equal(book.sessions['session-doomed'].lastText, '', '这一刀同样跳过预览：时间要花在数字上');
+  } finally {
+    statsLedger.forgetLedger();
+  }
+}));
+
+test('启动删队列：没有宿主能力（ctx 缺失）时补采跳过，删除照做', withHome(async (home) => {
+  const doomed = writeSession(home, 'session-doomed');
+  queueArchivedClearIds(['session-doomed']);
+  const sweep = await deleteQueuedArchivedSessions();
+  assert.deepEqual(sweep.deleted, ['session-doomed']);
+  assert.equal(fs.existsSync(doomed), false, '补采是旁路，它缺了不该挡住删除');
 }));
 
 test('启动删队列：Windows 上目录被宿主的锁文件占住（ENOTEMPTY）时，日志已删就算删成', withHome(async (home) => {

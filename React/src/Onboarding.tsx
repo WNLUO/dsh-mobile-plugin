@@ -365,11 +365,11 @@ export function Onboarding({ onDone }: Props) {
       ) : null}
 
       <Card frame="solid" className="w-full max-w-4xl">
-        <div className="grid items-center gap-6 px-4 pb-2 md:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)]">
+        <div className="grid items-center gap-6 px-4 pb-2 md:grid-cols-[minmax(320px,1fr)_minmax(0,1fr)]">
           <div className="flex flex-col items-center gap-2 md:col-start-1 md:row-start-1">
             {/* 标题这一行常驻（有没有码都占着），放大那颗小图标就挂在它右边 ——
                 既不另外占一行，也让「这块是扫码用的」在两种状态下说的是同一句话。 */}
-            <div className="flex h-5 w-full max-w-[280px] items-center justify-center gap-1.5">
+            <div className="flex h-5 w-full max-w-[320px] items-center justify-center gap-1.5">
             <p className="text-sm font-medium leading-5 text-foreground-strong">
               {t('panel.onboarding.pairingHint')}
             </p>
@@ -403,18 +403,18 @@ export function Onboarding({ onDone }: Props) {
               aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
             >
               <div
-                className="size-[280px] rounded-lg bg-white p-3 [&_svg]:h-full [&_svg]:w-full"
+                className="size-[320px] max-w-full rounded-lg bg-white p-3 [&_svg]:h-full [&_svg]:w-full"
                 // 宿主自己吐的 SVG，不是用户输入。
                 dangerouslySetInnerHTML={{ __html: qrSvg }}
               />
             </button>
           ) : (
-            <div className="flex size-[280px] items-center justify-center rounded-lg border border-border-muted text-xs text-foreground-muted">
+            <div className="flex size-[320px] max-w-full items-center justify-center rounded-lg border border-border-muted text-xs text-foreground-muted">
               {busy ? <Spinner /> : t('panel.onboarding.noQr')}
             </div>
           )}
           {/* 一行固定高度的提示位：中转还没连上时在这一格说；空着也占位，左栏不会跟着抽动。 */}
-          <p className="min-h-4 max-w-[280px] text-center text-xs leading-4 text-foreground-muted">
+          <p className="min-h-4 max-w-[320px] text-center text-xs leading-4 text-foreground-muted">
             {!readyNow && qrSvg ? t('panel.onboarding.relayNotConnected') : ''}
           </p>
           </div>
@@ -526,7 +526,7 @@ export function Onboarding({ onDone }: Props) {
 
       {/* 放大二维码：与卡片里那颗是同一份 SVG，只是给到能凑近扫的尺寸。 */}
       <Dialog open={qrZoomOpen} onOpenChange={setQrZoomOpen}>
-        <DialogContent className="w-[min(560px,92vw)] max-w-none" closeLabel={t('panel.common.close')}>
+        <DialogContent className="w-[min(680px,94vw)] max-w-none" closeLabel={t('panel.common.close')}>
           <DialogHeader>
             <DialogTitle>{t('panel.pairing.qr')}</DialogTitle>
           </DialogHeader>
@@ -535,7 +535,7 @@ export function Onboarding({ onDone }: Props) {
               <div className="flex items-center justify-center rounded-md bg-white p-4">
                 {qrSvg ? (
                   <div
-                    className="size-[min(70vh,440px)] [&_svg]:h-full [&_svg]:w-full"
+                    className="size-[min(72vh,600px)] [&_svg]:h-full [&_svg]:w-full"
                     dangerouslySetInnerHTML={{ __html: qrSvg }}
                   />
                 ) : null}
