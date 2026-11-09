@@ -269,7 +269,7 @@ test('开场补发撞上写缓冲时等 drain，不许掐流', async () => {
 });
 
 // 总管播报的出口：插件把几条会话的动静合成一句，这条流负责把它推给手机
-// （帧形状 `{type:'supervisor/broadcast', text, at}`，App 只认这一种）。它同样必须
+// （帧形状 `{type:'supervisor/broadcast', text, speech, at}`，App 只认这一种）。它同样必须
 // 直订 + 收尾注销，否则一句播报会一直挂在这条连接的总线上。
 test('总管播报：总线上一句话就推一帧，收尾注销订阅', async () => {
   const { broadcastSignal } = require('../lib/mobile/supervisor-broadcast.js');
@@ -284,9 +284,11 @@ test('总管播报：总线上一句话就推一帧，收尾注销订阅', async
 
   const frames = framesFrom(res).filter((frame) => frame.payload && frame.payload.type === 'supervisor/broadcast');
   assert.equal(frames.length, 1, '广播了一句，流上却没推帧');
+  // speech 是播报稿，text 仍是屏幕摘要：两格都要在，少一格 App 就当未知帧丢掉。
   assert.deepEqual(frames[0].payload, {
     type: 'supervisor/broadcast',
     text: '跑迁移报错了，修侧栏跑完了。',
+    speech: '跑迁移报错了，修侧栏跑完了。',
     at: 1_700_000_000_123,
   });
   // 收尾之后总线上一句都不该再写进这条已经关掉的连接。

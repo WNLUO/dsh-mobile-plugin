@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
 import { installProcessGuard } from './lib/host-guard.cjs'
 import { DIRECTORY_PICKER_ROW, TOOL_ROWS, pinInsertedRows, syncPresetDir } from './lib/host-compat.cjs'
+import { setCapabilityReport } from './lib/host-capabilities.cjs'
 import { dropBareNameSelfMounts } from './lib/host-patches.cjs'
 import {
   auditStartupEntries as assertEntriesActivated,
@@ -139,10 +140,19 @@ try {
   }
 
   const pinnedRows = new Map()
+  // 这一轮「少了什么」的台账：解析不到同代那份的行、入口本身没了的行都记进来，
+  // 启动后由 `/api/mobile/v1/status` 报给手机（见 lib/host-capabilities.cjs）。
+  // 记下来的理由只有一个：这一层坏掉的样子是**静默降级** —— 宿主照样起来、手机照样连上，
+  // 用户进了会话才发现「模型说没有这个工具」。不记，就没有任何地方会说出这句话。
+  const missingCapabilities = []
   for (const { id, name } of [...TOOL_ROWS, DIRECTORY_PICKER_ROW]) {
     const hit = resolveGeneration('运行时', runtimeRequire, name)
       ?? resolveGeneration('本包自带', bundledRequire, name)
-    if (hit) pinnedRows.set(id, hit)
+    if (hit) {
+      pinnedRows.set(id, hit)
+    } else {
+      missingCapabilities.push({ id, name, reason: 'no-compatible-generation' })
+    }
     process.stderr.write(
       hit
         ? `${BIN_NAME}: ${name} → 用${hit.scope}的 ${hit.version}\n`
@@ -159,9 +169,14 @@ try {
     runtimeRequire?.resolve(listAgentsEntry)
   } catch {
     listAgentsRowGone = true
+    missingCapabilities.push({ id: 'tool-subagent-list-agents', name: listAgentsEntry, reason: 'entry-removed' })
     process.stderr.write(`${BIN_NAME}: 这一代运行时没有 ${listAgentsEntry}（该工具已并在主包里），预设副本里那一行不再挂\n`)
   }
   const dropPresetIds = listAgentsRowGone ? ['tool-subagent-list-agents'] : []
+
+  // 对齐结论在这里落账，早于 boot()：装载期一旦抛错（那一行真把宿主带走了），
+  // 也已经记下了「本来是哪一行的问题」，否则日志里只剩一个与版本无关的栈。
+  setCapabilityReport({ runtimeVersion, missing: missingCapabilities })
 
   // 预设里的两行默认按裸名写：Loader 从它自己的位置解析，命中哪一份不由我们决定。
   // 解析到了同代的那份就改写一份副本给它，路径写死成那一份的入口。

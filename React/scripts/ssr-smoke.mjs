@@ -308,10 +308,16 @@ const { SHELL } = await server.ssrLoadModule('/src/lib/i18n/messages/shell.ts')
   }
 }
 
-// 四个保存入口（中转地址 / 端口 / 配对策略 / 优先地址，引导页那一发也是中转地址）**都还在
-// 打那条路由**：谁把它换成别的写法，上面那条判定就再也盖不到它了。按各自提交的字段认，
-// 不按出现次数认 —— 少一处就是有一项保存悄悄不走这条判定了。
-const SAVE_FIELDS = ['patch', '{ pairingPolicy }', '{ lanPort: port }', '{ preferredLanAddress: address }']
+// 五个保存入口（中转地址 / 端口 / 配对策略 / 优先地址 / 审批自动审阅档，引导页那一发也是
+// 中转地址）**都还在打那条路由**：谁把它换成别的写法，上面那条判定就再也盖不到它了。
+// 按各自提交的字段认，不按出现次数认 —— 少一处就是有一项保存悄悄不走这条判定了。
+const SAVE_FIELDS = [
+  'patch',
+  '{ pairingPolicy }',
+  '{ lanPort: port }',
+  '{ preferredLanAddress: address }',
+  '{ approvalAutoReview: enabled }',
+]
 for (const [file, fields] of [['App.tsx', SAVE_FIELDS], ['Onboarding.tsx', ['patch']]]) {
   const text = await readFile(new URL(`../src/${file}`, import.meta.url), 'utf8')
   const lost = fields.filter((field) => !text.includes(`apiPost<StatusView>('/api/relay/config', ${field})`))

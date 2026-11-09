@@ -33,6 +33,7 @@ test.after(() => fs.rmSync(home, { recursive: true, force: true }));
 const binding = require('../lib/mobile/phone/binding.js');
 const registry = require('../lib/mobile/stream-registry.js');
 const confirm = require('../lib/mobile/phone/confirm.js');
+const access = require('../lib/mobile/phone/access.js');
 const { installPhoneTools } = require('../lib/mobile/phone/tools.js');
 
 const DEVICE = 'dev-confirm';
@@ -41,6 +42,9 @@ const SESSION = 'sess-confirm';
 /**
  * 每一条用例都从「这条会话绑着这台手机、而那台手机开着流」开始 —— 后者就是审批卡
  * 能不能被看见的判据（工具层靠它决定要不要去问人）。
+ *
+ * 这几条用例只测付款 / 不可逆 / 预算，不测按 App 授权：所以把用到的前台包设成 allow，
+ * 免得默认的「ask」在每个动作前先弹一张 App 授权卡，污染审批计数。
  */
 function freshBinding() {
   fs.rmSync(binding.stateFile(), { force: true });
@@ -48,6 +52,8 @@ function freshBinding() {
   registry.reset();
   binding.setBinding(SESSION, DEVICE);
   registry.track(DEVICE, { end() {}, destroy() {} });
+  fs.rmSync(access.storePath(), { force: true });
+  access.writeState({ version: 2, mode: { 'com.example.app': 'allow', 'com.tencent.mm': 'allow' }, shareAllowed: [] });
 }
 
 test.after(() => registry.reset());
@@ -110,11 +116,12 @@ const callOf = () => ({ agent: { id: SESSION }, signal: undefined, callId: 'call
 
 /* ── 判定：谁能进确认 ─────────────────────────────────────────────────── */
 
-test('needsConfirmation 只认 payment：发送 / 提交 / 删除不拦', () => {
+// 决策变了：不可逆动作里 payment 与 delete（收钱 / 毁数据）都强制人工；send / submit 仍不拦。
+test('needsConfirmation 认 payment 与 delete：收钱 / 毁数据要人工，send / submit 不拦', () => {
   assert.equal(confirm.needsConfirmation({ irreversible: true, kind: 'payment' }), true);
+  assert.equal(confirm.needsConfirmation({ irreversible: true, kind: 'delete' }), true);
   assert.equal(confirm.needsConfirmation({ irreversible: true, kind: 'send' }), false);
   assert.equal(confirm.needsConfirmation({ irreversible: true, kind: 'submit' }), false);
-  assert.equal(confirm.needsConfirmation({ irreversible: true, kind: 'delete' }), false);
   assert.equal(confirm.needsConfirmation({ irreversible: false, kind: 'none' }), false);
   assert.equal(confirm.needsConfirmation(null), false);
 });
@@ -231,18 +238,22 @@ test('付款：用户拒绝 → 不执行', async () => {
   assert.equal(service.calls.filter((c) => c.action === 'tap').length, 0);
 });
 
-test('发送 / 删除不拦：不发起审批，照常执行', async () => {
+// 决策变了：delete 并入强制人工（收钱或毁数据），不再和 send / submit 一样直接放行。
+test('发送不拦；删除现在要走一次人工确认（拒绝则不执行）', async () => {
   freshBinding();
   const service = fakeService();
-  let asked = 0;
-  const approval = { request: async () => { asked += 1; return 'rejected'; } };
+  const asked = [];
+  const approval = { request: async (req) => { asked.push(req); return 'rejected'; } };
   const ctx = mountTools({ service, approval, agents: { get: () => ({ session: {} }) } });
   const tap = ctx.registered.get('phone_tap');
   const sent = await tap.execute({ ref: 'e5', target: '发送' }, callOf());
   assert.equal(sent.ok, true, '发送不该被拦');
+  assert.equal(asked.length, 0, '发送不该去问审批');
   const removed = await tap.execute({ ref: 'e6', target: '删除' }, callOf());
-  assert.equal(removed.ok, true, '删除不该被拦');
-  assert.equal(asked, 0, '这两种都不该去问审批');
+  assert.equal(removed.ok, false, '删除要人工确认，用户拒绝就不执行');
+  assert.equal(removed.blocked, 'payment-confirmation');
+  assert.equal(asked.length, 1, '删除要走一次确认');
+  assert.equal(service.calls.filter((c) => c.action === 'tap').length, 1, '只有发送那一下真的点了，删除被拦下');
 });
 
 /* ── 批：付款停在它之前 ─────────────────────────────────────────────────── */

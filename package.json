@@ -25,10 +25,19 @@
   },
   "keywords": [
     "dsh",
+    "dsh-plugin",
     "deepseek-harness",
+    "deepseek-harness-plugin",
+    "cordis-plugin",
     "plugin",
     "mobile",
-    "relay"
+    "remote-control",
+    "headless",
+    "relay",
+    "tunnel",
+    "lan",
+    "android",
+    "ios"
   ],
   "files": [
     "host.js",

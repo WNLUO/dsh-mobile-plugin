@@ -37,6 +37,7 @@ import {
   type PairingPolicy,
   type RevokeResult,
   type StatusView,
+  type Tier,
   type WebAccessState,
 } from './lib/api.ts'
 import { useNotify } from './lib/notify.ts'
@@ -278,6 +279,31 @@ export function App() {
       notify('soft', t(pairingPolicy === 'code' ? 'panel.shell.deviceAllowed' : 'panel.shell.deviceDenied'))
     })
 
+  /**
+   * 新配对设备的权限档位（只读 / 可答审批 / 全权）。
+   *
+   * 它也是同一份配置（`pairingTier`），所以同样从 `/api/relay/config` 写、拿回来的 `status`
+   * 直接顶掉旧的 —— 配对卡那一行读的就是这个字段，不会各说各的。真正的档位校验在宿主侧。
+   */
+  const savePairingTier = (pairingTier: Tier) =>
+    act('tier', async () => {
+      setStatus(await apiPost<StatusView>('/api/relay/config', { pairingTier }))
+      notify('soft', t('panel.shell.configSaved'))
+    })
+
+  /**
+   * 审批「自动审阅档」（默认关）。
+   *
+   * 同一份配置、同一条写入路径；拿回来的 `status` 顶掉旧的，配对卡那颗开关读的就是这个字段。
+   * **不写乐观值**：老宿主不认这一格时开关必须原样弹回去 —— 它管的是「要不要替你放行」，
+   * 显示成开着的而实际没开，比多一次往返糟得多。
+   */
+  const saveAutoReview = (enabled: boolean) =>
+    act('autoReview', async () => {
+      setStatus(await apiPost<StatusView>('/api/relay/config', { approvalAutoReview: enabled }))
+      notify('soft', t(enabled ? 'panel.shell.autoReviewOn' : 'panel.shell.autoReviewOff'))
+    })
+
   // 局域网端口走同一个 /api/relay/config，只是从它自己的弹窗提交：改完端口、监听会重绑，
   // 手机那边的地址跟着变，所以顺手把配对信息重取一次。
   const saveLanPort = (port: number) =>
@@ -353,6 +379,8 @@ export function App() {
             restartError={status.sidecar.restartError}
             onOpenConfig={() => setConfigOpen(true)}
             onChangePolicy={(policy) => void savePolicy(policy)}
+            onChangeTier={(tier) => void savePairingTier(tier)}
+            onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
             onOpenSelfCheck={() => setSelfCheckOpen(true)}
             onReconnect={() => void reconnect()}
             onSavePreferred={(address) => void savePreferredLanAddress(address)}

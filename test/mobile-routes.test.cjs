@@ -46,6 +46,10 @@ test('App 的 apiPaths.ts 在（对齐的前提是这张表能被读到）', { s
 const RELAY_SERVED = new Map([
   // 2026-10-22：中转回归纯转发后，`deviceCredentialRevoke` 改由插件自己应答
   //（`lib/routes/mobile-api.js`），所以从这里拿掉了——它不再是「中转代答」的路径。
+  // 2026-11-10：`/blob` 是宿主离线时唯一能由中转代答的只读路径——它只回电脑侧事先封好的
+  // 密文 blob（HK 加密、密钥不进中转），中转不持钥、不解密，能力面只到「取一段密文」。
+  // 这是本轮唯一有意破例的「中转代答」，见 docs/decisions.md 2026-11-10 那条。
+  ['blob', '宿主离线时由中转回事先封好的历史密文 blob；中转不持密钥、不解密，只按设备凭据摘要放行取密文'],
 ]);
 
 /**
@@ -130,16 +134,30 @@ test('已审核扩展清单的两条：两侧同名，清单在前、取文件�
   assert.match(app, /^\s{2}\w+:\s*'\/extension\/catalog\/file',?$/m, "App 侧 apiPaths.ts 得声明一条 '/extension/catalog/file'");
 });
 
+test('邮箱三条：两侧同名、与 docs/mail-app.md 契约对得上', { skip: SKIP_NO_APP }, () => {
+  const registered = pluginPaths();
+  // 插件的三条路由（走 route() 即 guarded）。路径字面量按契约 §1 写死，不跟着 App 的 key 名走。
+  for (const sub of ['/mail/status', '/mail', '/mail/draft']) {
+    assert.ok(registered.has(`${API_BASE}${sub}`), `插件侧没注册 ${API_BASE}${sub}`);
+  }
+  // App 侧同样按**值**对账：这三条是这一轮新开的，App 常量必须声明同样的路径。
+  const app = fs.readFileSync(APP_PATHS, 'utf8');
+  for (const sub of ['/mail/status', '/mail', '/mail/draft']) {
+    assert.ok(app.includes(`'${sub}'`), `App 侧 apiPaths.ts 得声明一条 '${sub}'`);
+  }
+});
+
 test('由中转提供的路径清单本身没腐化（App 里那把钥匙还在）', { skip: SKIP_NO_APP }, () => {
   const all = fs.readFileSync(APP_PATHS, 'utf8');
   for (const [key, why] of RELAY_SERVED) {
     assert.ok(new RegExp(`^\\s{2}${key}:`, 'm').test(all), `RELAY_SERVED 里的 ${key} 在 apiPaths.ts 里已经不存在了，请删掉这条豁免`);
     assert.ok(why.length > 20, `RELAY_SERVED 里的 ${key} 得写清为什么由中转提供`);
   }
-  // 2026-10-22 之后中转不再代答任何移动端路径：它是纯转发，所有路径都落到插件。
-  // 将来真出现「只能由中转回答」的路径，把这条数改回去并写明理由——这个数字就是
-  // 提醒你别在不知不觉中让中转重新开始管业务。
-  assert.equal(RELAY_SERVED.size, 0, '中转已经不带业务；若确需新增，请先确认它真的不该由宿主回答');
+  // 2026-10-22 之后中转不再代答业务路径：它是纯转发，所有路径都落到插件。
+  // 2026-11-10 起唯一例外是 `/blob`：只回电脑侧封好的密文（HK 加密、密钥不进中转），
+  // 中转只做「按设备凭据放行取一段密文」，不解密、不解释业务。再出现别的一律先确认它
+  // 真的不该由宿主回答。
+  assert.equal(RELAY_SERVED.size, 1, '中转代答只允许 /blob 这一条密文路径；确需新增请先确认它真的不该由宿主回答');
 });
 
 test('保留的旧客户端路由清单本身没腐化', { skip: SKIP_NO_APP }, () => {
@@ -198,6 +216,18 @@ test('心跳里必须带 P2P 那一格（否则 App 永远显示「未配置」�
   const body = statusBlock.slice(0, statusBlock.indexOf('}) })'));
   assert.match(body, /p2p\s*:/, '/status 的回包里必须有 p2p 这一格');
   assert.match(body, /p2p\.status\(\)/, '这一格要直接取门面的 status()，不要另算一套');
+});
+
+test('心跳里必须带「这一代少了什么」那一格（否则容量退化又是静默的）', () => {
+  // 与上一条同一个病：官方工具解析不到同代那份时，宿主不失败、手机照常连上，只是某个
+  // 工具不见了，模型只会说「不可用」。这一格是 App 唯一能说出「这几项现在用不了」的来源。
+  // 它必须走 readCapabilityReport()（「没检查」要能和「检查了没问题」分开），
+  // 不能在路由层另拼一个空数组。
+  const table = readRouteTable();
+  const statusBlock = table.slice(table.indexOf("path: '/api/mobile/v1/status'"));
+  const body = statusBlock.slice(0, statusBlock.indexOf('}) })'));
+  assert.match(body, /capabilities\s*:/, '/status 的回包里必须有 capabilities 这一格');
+  assert.match(body, /readCapabilityReport\(\)/, '这一格要取那份活体台账，不要在路由里另算一套');
 });
 
 test('公开路由清单本身没腐化', () => {

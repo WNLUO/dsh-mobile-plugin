@@ -12,6 +12,41 @@ import { t } from './i18n/index.ts'
 export type PairingPolicy = 'code' | 'deny'
 
 /**
+ * 按设备发放的权限档位（见宿主 `lib/mobile/permissions.js` 的 TIERS）：
+ * `readonly` 只看 / 读文件，`approve` 再加上答审批，`full` 全权（缺省）。
+ * 新配对设备用哪一档在电脑侧选（`/api/relay/config` 的 `pairingTier`），
+ * 已绑定设备的档位可逐台改（`/api/relay/devices/permissions`）。
+ */
+export type Tier = 'readonly' | 'approve' | 'full'
+
+/**
+ * 面板上「这台设备现在拿到的是什么档」——三档之外再加一个展示态 `none`。
+ *
+ * `none` 由**显式空数组**推出来：设备行的权限位是 `[]` 意味着明确什么都不给（连 view 都没有），
+ * 跟「只读」不是一回事。它**只是显示态**，不是可下发的档位：面板改档只发下面那三档
+ * （电脑侧本来就能提权 / 降权），所以别把 `TierView` 塞进接口参数。
+ */
+export type TierView = Tier | 'none'
+
+/**
+ * 一组权限位反推回档位 / 展示态，给设备清单显示用。
+ *
+ * 判据与宿主 TIERS 逐项对齐：`null`（老凭据没这一格）= 全权；**空数组 = 什么都不给（`none`）**；
+ * 含 `input` 等全权才有的位 = 全权；有 `approve` 但不含全权位 = 可答审批；
+ * 其余（只有 view + files.read）= 只读。
+ */
+export function tierOfPermissions(permissions: string[] | null | undefined): TierView {
+  if (!Array.isArray(permissions)) return 'full'
+  if (permissions.length === 0) return 'none'
+  const set = new Set(permissions)
+  if (['input', 'dispatch', 'operate', 'files.write', 'transfer', 'manage', 'config'].some((p) => set.has(p))) {
+    return 'full'
+  }
+  if (set.has('approve')) return 'approve'
+  return 'readonly'
+}
+
+/**
  * 手机直连隧道（Tailcat）此刻的状态（宿主 `lib/tailcat/session.cjs` 的 `status()`）。
  *
  * `available` = 这台机器上有没有隧道助手；没有它这条通道整条不可用（别的通道照旧）。
@@ -76,6 +111,15 @@ export type StatusView = {
   relayUrl: string
   name: string
   pairingPolicy: PairingPolicy
+  /**
+   * 新配对设备的权限档位（缺省 `full`）。老宿主没有这个字段，读成 undefined 时按全权处理。
+   */
+  pairingTier?: Tier
+  /**
+   * 审批「自动审阅档」开着没有（默认关，见宿主 `lib/mobile/auto-review.js`）。
+   * 老宿主不回这一格，读成 undefined 时按关处理 —— 那正是它的默认值。
+   */
+  approvalAutoReview?: boolean
   os: string
   platform: string
   osVersion: string
@@ -215,6 +259,8 @@ export type PairingInfo = {
   pairingCode: string
   lanPort: number
   lanPortAdjusted: boolean
+  /** 这次配对会用的权限档位；老宿主没有这个字段。 */
+  pairingTier?: Tier
   /** 这次取码有没有顺带开出一条隧道段；老宿主没有这个字段。 */
   tailcat?: PairingTailcat | null
   svg: string
@@ -304,6 +350,12 @@ export type RelayDevice = {
   legacy: boolean
   /** 这条会话走加密（带设备密钥的记录才走逐请求签名）。 */
   encrypted: boolean
+  /**
+   * 这台设备实际拿到的权限位；`null` = 全权（老凭据、或升级前没写这一格的记录），
+   * 空数组 = 明确什么都不给。
+   * 面板据此反推显示的档位 / 展示态（见 `tierOfPermissions`），不是再存一份档位。
+   */
+  permissions: string[] | null
   expiresAt: number
 }
 
@@ -319,6 +371,14 @@ export type DeviceRevokeResult = {
   ok: boolean
   revoked: number
   closed: number
+}
+
+/** `POST /api/relay/devices/permissions` 的回答：落定的档位、展开后的权限位、改了几条记录。 */
+export type DevicePermissionResult = {
+  ok: boolean
+  tier: Tier
+  permissions: string[]
+  updated: number
 }
 
 /**
@@ -353,6 +413,13 @@ export type ConfigPatch = {
   lanPort?: number
   name?: string
   pairingPolicy?: PairingPolicy
+  /** 新配对设备的权限档位（只在电脑侧设定）。 */
+  pairingTier?: Tier
+  /**
+   * 审批「自动审阅档」（默认关）。只认布尔值：老宿主不认这一格，写进去也读不回来，
+   * 界面上的开关就会原样弹回去，而不是假装开了。
+   */
+  approvalAutoReview?: boolean
   /**
    * 手机优先用哪条地址（IPv4 字面量）。空串是合法值，表示「不指定，按宿主自己的排序」——
    * 所以它跟 `name` 不一样，不会被宿主当成「没填」丢掉。
@@ -499,6 +566,30 @@ function throwIfApplyFailed(payload: unknown): void {
   const applyError = (payload as { applyError?: unknown } | null)?.applyError
   if (typeof applyError !== 'string' || !applyError) return
   throw new ApiError(t('panel.shell.applyFailed', { message: applyError }), 'apply_failed', 200)
+}
+
+/**
+ * 改「新配对设备的权限档位」。写的是 `/api/relay/config`，回来的整份 `StatusView` 直接顶掉旧的
+ * （与改配对策略同一条路）。档位校验在宿主侧，枚举外会被 400 拒掉。
+ */
+export function updatePairingTier(tier: Tier): Promise<StatusView> {
+  return apiPost<StatusView>('/api/relay/config', { pairingTier: tier })
+}
+
+/**
+ * 改「审批自动审阅档」。写的是 `/api/relay/config`，回来的整份 `StatusView` 直接顶掉旧的
+ * （与改配对策略同一条路）。开关真值由宿主落进 relay.json，默认关。
+ */
+export function updateApprovalAutoReview(enabled: boolean): Promise<StatusView> {
+  return apiPost<StatusView>('/api/relay/config', { approvalAutoReview: enabled })
+}
+
+/**
+ * 改某台已绑定设备的权限档位（电脑侧授予 / 提权 / 降权）。
+ * 成功回 `{ ok, tier, permissions, updated }`；设备不在了是 404。
+ */
+export function updateDevicePermission(deviceId: string, tier: Tier): Promise<DevicePermissionResult> {
+  return apiPost<DevicePermissionResult>('/api/relay/devices/permissions', { deviceId, tier })
 }
 
 /** 界面上的错误一律走这里：网络层自己抛的 TypeError 也得变成一句人话。 */

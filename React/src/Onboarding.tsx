@@ -31,6 +31,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DownloadChannelsGrid } from './components/DownloadAppButton.tsx'
 import { FirewallDialog } from './components/FirewallDialog.tsx'
 import { InfoList, InfoRow, ToneValue } from './components/InfoRow.tsx'
+import { QuestionMark } from './components/QuestionMark.tsx'
 import {
   apiGet,
   apiPost,
@@ -574,16 +575,5 @@ export function Onboarding({ onDone }: Props) {
         </DialogContent>
       </Dialog>
     </main>
-  )
-}
-
-/** 那一行末尾的「?」：16px 描边圆圈加一个问号，与面板其它图标同重量。 */
-function QuestionMark() {
-  return (
-    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.2" />
-      <path d="M6.3 6.1a1.75 1.75 0 0 1 3.4.55c0 1.15-1.7 1.35-1.7 2.55" />
-      <path d="M8 11.5h.01" />
-    </svg>
   )
 }

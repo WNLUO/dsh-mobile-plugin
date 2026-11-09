@@ -231,3 +231,22 @@ test('settleOutcome：assistant 必须是本轮已落定的那条', () => {
   assert.equal(settleOutcome({ turn: 1, end, assistant: { seq: 9, data: {} } }).status, 'incomplete');
   assert.equal(settleOutcome({ turn: 1, end, assistant: { seq: 4, data: { interrupted: true } } }).status, 'incomplete');
 });
+
+// ── 上一轮事实要落盘（2026-11-10）──────────────────────────────
+// 手机侧的离线补投判据要的是「这一轮什么时候结束的、成没成」。这张表按 ctx 隔离、进程一换
+// 就空，不落盘的话电脑重启之后 `/monitor` 不再带 `lastTurn`，补投整段失效 —— 而「电脑和
+// 手机一起重启」正是最常见的场景。这里钉住「折叠时落盘」与「新进程从盘上补回」两头。
+test('折出一轮事实时同时落盘，换一个新 ctx（等于宿主重启）仍读得到', () => {
+  const sessionId = 'session-restart';
+  const ctx = {};
+  recordLastTurn(ctx, sessionId, { turn: 5, endedAt: 9_000, status: 'completed' });
+  assert.equal(lastTurnOf(ctx, sessionId).turn, 5, '本进程内直接读得到');
+
+  // 新 ctx = 内存表是空的（宿主重启）：事实必须从盘上补回来。
+  const freshCtx = {};
+  const restored = lastTurnOf(freshCtx, sessionId);
+  assert.equal(restored?.turn, 5, '重启后要能从圆盘台账补回上一轮事实');
+  assert.equal(restored?.status, 'completed');
+  assert.equal(restored?.endedAt, 9_000);
+  assert.equal(readReceipt.turnOf(sessionId).turn, 5, '台账里也要有这一笔');
+});

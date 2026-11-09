@@ -329,6 +329,52 @@ test('凭据不对一律拒', async () => {
   service.close();
 });
 
+test('只读档设备连动作通道被拒（403，不握手）', async () => {
+  // 升级路由不过 guarded，所以权限位必须在服务里判：一条只验凭据的通道等于
+  // 「只看会话的设备也能让 AI 操作手机」，那是实打实的越权。
+  const permissions = require('../lib/mobile/permissions.js');
+  const readonly = { permissions: permissions.permissionsForTier('readonly') };
+  const service = createPhoneService({
+    authorized: () => true,
+    permission: {
+      resolve: permissions.resolvePermission,
+      has: permissions.hasPermission,
+      recordOf: () => readonly,
+    },
+  });
+  const { server, url } = await listen(service);
+  const phone = new WebSocket(url, { headers: { 'x-dsh-device': 'd1', 'x-dsh-device-credential': 'ok' } });
+  const outcome = await new Promise((resolve) => {
+    phone.once('error', (error) => resolve({ failed: true, message: error.message }));
+    phone.once('open', () => resolve({ failed: false }));
+  });
+  assert.equal(outcome.failed, true, '只读档不该握手成功');
+  assert.match(outcome.message, /403/);
+  assert.equal(service.isOnline('d1'), false, '被拒的设备一条连接都不许登记');
+  closeAll(server);
+  service.close();
+});
+
+test('有 operate 位的设备照常连上动作通道', async () => {
+  const permissions = require('../lib/mobile/permissions.js');
+  const service = createPhoneService({
+    authorized: () => true,
+    permission: {
+      resolve: permissions.resolvePermission,
+      has: permissions.hasPermission,
+      recordOf: () => ({ permissions: permissions.permissionsForTier('full') }),
+    },
+  });
+  const { server, url } = await listen(service);
+  const phone = await connectPhone(url, 'd2', () => ({ data: {} }));
+  await waitOnline(service, 'd2');
+  assert.equal(service.isOnline('d2'), true, 'operate 位在就该连得上');
+  phone.close();
+  await new Promise((r) => setTimeout(r, 20));
+  closeAll(server);
+  service.close();
+});
+
 // ── 三、工具的参数表 ─────────────────────────────────────────────────────────
 
 /**

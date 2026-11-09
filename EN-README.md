@@ -20,7 +20,9 @@
 
 <p align="center">Pick up on your phone where your desktop left off.</p>
 
-**The mobile-side plugin for AI-HUB.** Install it on the computer and the phone app reaches your DeepSeek Harness through a relay tunnel or a LAN pairing — browse sessions, keep chatting, manage files and workspaces, with progress synced live. It also runs on a server without a desktop shell, as a headless host.
+**The mobile-side plugin for AI-HUB.** Install it on the computer and the phone app reaches your DeepSeek Harness through a relay tunnel or a LAN pairing — browse sessions, keep chatting, manage files and workspaces, with progress synced live.
+
+One thing that sets it apart from most DSH plugins: **it needs no desktop shell and no Electron**. The same package runs on a server with no display, as a headless host — the phone talks to a machine that has no screen at all.
 
 <p align="center">
   <picture>
@@ -66,6 +68,8 @@ Installing the app is only half of it; the plugin on this side is what connects 
 ### DSH desktop
 
 In DSH, open **Settings → Plugins**, install `dsh-mobile-plugin`, then open **Settings → Mobile → Open configuration page** to pair. The plugin marketplace handles update checks and installation; an update usually does not need a DSH restart.
+
+After that, **the entry point is DSH's "Settings → Mobile"**: click "Open configuration page" for the pairing QR code, the current listening address and the relay status. Everything the phone does starts from that page.
 
 ### Headless host (Linux)
 
@@ -129,13 +133,24 @@ That made two constraints hard. One is networking: no public IP, no port forward
 
 **The mobile apps from AI assistant vendors**: those run on the vendor's servers, and your sessions, files, and quota live there. This connects to the DSH on your own computer, with models you configured and files on your own disk.
 
+## Known limitations
+
+What is written here is what we genuinely do not do yet, not a polished to-do list.
+
+- **No real background notifications on iOS.** The system does not let the app stay resident, so task-completion notifications only work on Android; without offline push configured, iOS gets nothing once it is in the background.
+- **The relay sees plaintext.** The link is WSS / HTTPS encrypted but not end-to-end encrypted — the same model as frp / ngrok. Session bodies are not persisted on the relay, but the relay process itself can decrypt them.
+- **The relay does not authenticate tunnels by default**: whoever can reach the relay port can take over the tunnel. To use it on the public internet, enable the relay console's restricted mode, or expose the port only to a trusted network.
+- **No uninstall from the phone.** Third-party plugins can be installed and upgraded, but there is no uninstall entry — an uninstall only takes effect the next time DSH starts on the computer, and a button that does not take effect immediately only misleads. Uninstall from the computer.
+
 ## Contact
 
 <p align="center">
   <img src="assets/wechat-group.png" alt="WeCom group QR code" width="180">
 </p>
 
-Scan the code above to join our WeCom group. If that is awkward, email <admin@wnluo.com> or <wnluo2@gmail.com>. If it works well for you, a star on the repository is the most concrete way to help.
+Scan the code above to join our WeCom group. **This code was updated on 2026-11-09; if it will not scan or says it has expired**, the code has been rotated — email <admin@wnluo.com> for a fresh one, or open an issue.
+
+If that is awkward, email <admin@wnluo.com> or <wnluo2@gmail.com>. If it works well for you, a star on the repository is the most concrete way to help.
 
 Privacy policy: [PRIVACY.md](PRIVACY.md). Support and FAQ: [SUPPORT.md](SUPPORT.md).
 

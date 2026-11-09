@@ -112,3 +112,62 @@ test('条数按 readAt 截断到上限，保留最新的', () => {
   assert.equal(snapshot.readAt['session-599'], 1599);
   assert.equal(snapshot.readAt['session-0'], undefined);
 });
+
+// ── 「上一轮事实」也落盘（2026-11-10）────────────────────────────
+// 手机侧的离线补投判据要的是「这一轮什么时候结束的、成没成」，而宿主那张 lastTurnFacts
+// 只在内存里：电脑一重启就不再带 `lastTurn`，补投整段失效。所以事实与已读水位存进同一个
+// 文件的两段 —— 两段必须一起读写，各写各的会把对方那段抹掉。
+test('recordTurn 落盘、只前进不后退，换实例（冷启动）仍读得到', () => {
+  const home = makeHome();
+  const receipt = fresh(home);
+
+  assert.equal(receipt.turnOf('session-a'), undefined);
+  assert.equal(receipt.recordTurn('session-a', { turn: 3, endedAt: 1000, status: 'completed' }), true);
+  assert.deepEqual(receipt.turnOf('session-a'), { turn: 3, endedAt: 1000, status: 'completed' });
+
+  // 更旧的轮次 / 同一轮更早的结束时刻都丢弃：同一轮会被列表、监控、事件流各折一次。
+  assert.equal(receipt.recordTurn('session-a', { turn: 2, endedAt: 900, status: 'completed' }), false);
+  assert.equal(receipt.recordTurn('session-a', { turn: 3, endedAt: 900, status: 'completed' }), false);
+  // 同一轮、结束时刻更新：接受（宿主换了实例的那种情况）。
+  assert.equal(receipt.recordTurn('session-a', { turn: 3, endedAt: 1200, status: 'failed' }), true);
+  assert.deepEqual(receipt.turnOf('session-a'), { turn: 3, endedAt: 1200, status: 'failed' });
+
+  // 冷启动：事实还在。
+  assert.deepEqual(fresh(home).turnOf('session-a'), { turn: 3, endedAt: 1200, status: 'failed' });
+});
+
+test('已读水位与上一轮事实共用一份文件，互不覆盖', () => {
+  const home = makeHome();
+  const receipt = fresh(home);
+  receipt.recordRead('session-a', 1234);
+  receipt.recordTurn('session-b', { turn: 7, endedAt: 5000, status: 'completed' });
+
+  const reloaded = fresh(home);
+  assert.equal(reloaded.readAtOf('session-a'), 1234, '写事实不许抹掉已读水位');
+  assert.equal(reloaded.turnOf('session-b').turn, 7, '写水位不许抹掉事实');
+
+  reloaded.recordRead('session-c', 2000);
+  const again = fresh(home);
+  assert.equal(again.turnOf('session-b').turn, 7, '再写一次水位，事实仍要在');
+});
+
+test('形状不对的上一轮事实一律丢弃，不抛错', () => {
+  const home = makeHome();
+  const file = path.join(home, 'read-receipts.json');
+  fs.writeFileSync(file, JSON.stringify({
+    lastTurn: {
+      good: { turn: 2, endedAt: 100, status: 'completed' },
+      noTurn: { endedAt: 100, status: 'completed' },
+      noEnd: { turn: 2, status: 'completed' },
+      noStatus: { turn: 2, endedAt: 100 },
+      badStatus: { turn: 2, endedAt: 100, status: 42 },
+      zeroEnd: { turn: 2, endedAt: 0, status: 'completed' },
+    },
+  }));
+  const receipt = fresh(home);
+  // 只留合法的那一条；其余形状不对的一律当没有（台账是旁路，读不动不能让补投跟着炸）。
+  assert.deepEqual(receipt.turnOf('good'), { turn: 2, endedAt: 100, status: 'completed' });
+  for (const bad of ['noTurn', 'noEnd', 'noStatus', 'badStatus', 'zeroEnd']) {
+    assert.equal(receipt.turnOf(bad), undefined, `${bad} 应当被丢弃`);
+  }
+});

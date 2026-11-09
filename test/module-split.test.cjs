@@ -272,7 +272,10 @@ test('按 ctx 隔离的可变状态只在 session-cache.js 与 rpc.js 里', () =
   // 归档清理新增 deletedSessionIds，避免宿主旧列表快照复活已删除会话。
   // 其它表覆盖模型目录 / 列表响应 / 预览 / 预览在途 / 预览时钟 / 镜像历史 / 完成态 /
   // 完成代际 / 上一轮事实 / 发送幂等 / 写操作幂等 / 工作区列表短路 / 代发续写的已发轮次。
-  assert.equal(owners.get('session-cache.js'), 15, '会话侧的十五张表（含已删除会话 ID、上一轮事实、代发轮次与直播过程副本）：状态均按 ctx 隔离');
+  // 2026-11-10：加进第十六张表 —— 隔离工作树自动回收的节流状态（上次跑的时刻 + 在途标记）。
+  // 它按 ctx 隔离的理由与其它表一样：回收那一发挂在会话列表刷新上，每台宿主各有一份节流，
+  // 串了就等于「A 宿主跑过一次，B 宿主这一轮就跳过」。
+  assert.equal(owners.get('session-cache.js'), 16, '会话侧的十六张表（含已删除会话 ID、上一轮事实、代发轮次、直播过程副本与隔离树回收节流）：状态均按 ctx 隔离');
   // session-cache.js 是叶子：它不许反过来依赖任何会话模块。
   assert.doesNotMatch(read(path.join(MOB, 'session-cache.js')), /require\(/);
   // 对外路径不变：这五个访问器仍从 sessions.js 转出。
@@ -358,6 +361,7 @@ test('sessions.js 只剩会话列表，每个子模块各守一个领域', () =>
     'attachments.js': ['resolveEventAttachments'],
     'completion.js': ['observeCompletionEvent', 'updateCompletionStates', 'confirmCompletionFromHistory'],
     'session-last-turn.js': ['settleOutcome', 'recordLastTurn', 'lastTurnOf'],
+    'recent-failures.js': ['mergeFailedTurn', 'pendingFailedTurns'],
     'session-models.js': ['buildModelsSnapshot', 'handleModels', 'handleSelectModel', 'safeModelsValue'],
     'session-search.js': ['sanitizeSearchQuery', 'handleSessionSearch'],
     'session-send.js': ['promptOnce', 'handleSend', 'handleCommands', 'handleFork', 'handleSessionAttachment'],
@@ -370,6 +374,7 @@ test('sessions.js 只剩会话列表，每个子模块各守一个领域', () =>
   };
   const CEILING = {
     'attachments.js': 160, 'completion.js': 150, 'session-last-turn.js': 130, 'session-models.js': 220,
+    'recent-failures.js': 90,
     'session-search.js': 120, 'session-send.js': 330, 'session-snapshot.js': 200,
     'session-head.js': 100,
     'session-stats.js': 80,

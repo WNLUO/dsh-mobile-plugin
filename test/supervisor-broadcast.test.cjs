@@ -22,6 +22,7 @@ const {
   planBroadcast,
   eventOf,
   spokenOf,
+  speechOf,
   BROADCAST_WINDOW_MS,
   BROADCAST_MAX_CHARS,
 } = require('../lib/mobile/supervisor-broadcast.js');
@@ -213,8 +214,8 @@ test('折算：子代理与中间帧不播，报错/完成/等人答认得出来
 
 // 出口：判据只说「这一句」，说给谁听由 sink 定。真出口是把这一句放进广播总线，设备级流
 // （`mobile/events.js`）订阅它推给手机 —— 帧形状定死 `{type:'supervisor/broadcast',
-// text, at}`，App 那边只认这一种。坏法同样是无声的：帧形状歪了手机直接当未知帧丢掉，
-// 一句话都不会念，宿主侧却一切正常。
+// text, speech, at}`，`text` 留在屏幕上、`speech` 是嘴上念的稿子，App 那边只认这一种。
+// 坏法同样是无声的：帧形状歪了手机直接当未知帧丢掉，一句话都不会念，宿主侧却一切正常。
 test('出口：sink 收到的就是合并后那一句，帧形状对', async () => {
   const frames = [];
   const listeners = [];
@@ -242,7 +243,8 @@ test('出口：sink 收到的就是合并后那一句，帧形状对', async () 
   assert.equal(frames.length, 1, `两条会话的动静应只推一帧，实际 ${frames.length} 帧`);
   const frame = frames[0];
   // 形状定死：多一个字段、少一个字段 App 都可能认不出来。
-  assert.deepEqual(Object.keys(frame).sort(), ['at', 'text', 'type']);
+  // speech 是嘴上念的播报稿，text 仍是留在屏幕上的那份摘要 —— 两格永远都在。
+  assert.deepEqual(Object.keys(frame).sort(), ['at', 'speech', 'text', 'type']);
   assert.equal(frame.type, 'supervisor/broadcast');
   assert.equal(typeof frame.at, 'number');
   assert.ok(frame.at > 0);
@@ -250,6 +252,8 @@ test('出口：sink 收到的就是合并后那一句，帧形状对', async () 
   assert.match(frame.text, /跑迁移/);
   assert.match(frame.text, /修侧栏/);
   assert.equal(frame.text.split('。').filter(Boolean).length, 1);
+  // 这一批只合成了一句，嘴上也该是完整的那一句。
+  assert.equal(frame.speech, frame.text);
 
   off();
 });
@@ -262,4 +266,62 @@ test('出口：空句子不推帧（策略层说不说，这里不再编一句�
   assert.equal(frames.length, 0);
   assert.equal(sink('跑完了。'), true);
   assert.equal(frames[0].text, '跑完了。');
+  // 帧上永远有 speech，哪怕调用方只给了 text。
+  assert.equal(frames[0].speech, '跑完了。');
+});
+
+// 分层播报稿：屏幕那份可以长，嘴上那份只念前两句 —— **先出声的是要紧的那句**，
+// 后面那半留给眼睛。这两格不能合成一格：合成一格就回到「整段念」。
+test('分层：屏幕那份更长，嘴上那份只念前两句', () => {
+  const text = '跑迁移报错了，修侧栏跑完了。补接口跑完了。写文档跑完了。';
+  const speech = speechOf(text);
+  assert.equal(speech, '跑迁移报错了，修侧栏跑完了。补接口跑完了。');
+  assert.ok(text.startsWith(speech), '嘴上那份必须是屏幕那份的开头（同一个顺序）');
+  assert.ok(speech.length <= BROADCAST_MAX_CHARS);
+});
+
+test('分层：只有一句时两份一样，不硬裁出一个半句', () => {
+  const text = '跑迁移报错了。';
+  assert.equal(speechOf(text), text);
+  // 末尾没有句读的长句整句念，不截出半个词。
+  const noStop = '跑迁移报错了但没有别的';
+  assert.equal(speechOf(noStop), noStop);
+});
+
+test('分层：播报稿也不带代码、表格、链接（出口就洗，不等手机）', () => {
+  const speech = speechOf([
+    '## 结果',
+    '```js',
+    'const a = 1;',
+    '```',
+    '| 键 | 值 |',
+    '看这里 [文档](https://example.com/doc) 和 https://example.com/x 。',
+    '`inline` 与 **粗体** 都念内容。',
+  ].join('\n'));
+  assert.doesNotMatch(speech, /const|https?:|\||```/);
+  assert.match(speech, /文档/);
+  assert.match(speech, /粗体/);
+});
+
+test('分层：plan 同时给 text 与 speech，speech 从 text 里裁', () => {
+  const now = 80_000;
+  const old = now - BROADCAST_WINDOW_MS - 1;
+  const plan = planBroadcast({
+    events: [
+      ev('error', '跑迁移', old, 's1'),
+      ev('done', '修侧栏', old, 's2'),
+      ev('done', '补接口', old, 's3'),
+      ev('done', '写文档', old, 's4'),
+    ],
+    now,
+    maxItems: 3,
+  });
+  assert.equal(plan.speak, true);
+  assert.match(plan.text, /还有一件/);
+  assert.ok(plan.speech.length > 0);
+  assert.ok(plan.text.startsWith(plan.speech), `speech 应是 text 的开头：text=${plan.text} speech=${plan.speech}`);
+  // 空档时两格都是空串，不是 undefined —— App 那边只判真假。
+  const quiet = planBroadcast({ events: [], now });
+  assert.equal(quiet.text, '');
+  assert.equal(quiet.speech, '');
 });

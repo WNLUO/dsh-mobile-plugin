@@ -465,6 +465,63 @@ test('mode=webapp：只放行宿主自己的 web 端口，其它端口与主机�
 })
 
 /**
+ * 权限位：预览是一条**升级**路由，不过 `guarded`，所以「这台设备有没有 view」必须在服务里
+ * 自己判。不判的话 `permissions: []`（明确什么都不给）的设备照样能把一条连接接进这台电脑
+ * 的本地端口。
+ */
+test('没有 view 位的设备连预览被拒（403，不握手）', async () => {
+  const permissions = require('../lib/mobile/permissions.js')
+  const dev = startDevServer()
+  const devPort = await listen(dev.server)
+  const service = createPreviewService({
+    authorized: () => true,
+    protectedPorts: () => new Set(),
+    permission: {
+      resolve: permissions.resolvePermission,
+      has: permissions.hasPermission,
+      recordOf: () => ({ permissions: [] }),
+    },
+    onLog: () => {},
+  })
+  const front = await startFront(service)
+  try {
+    const outcome = await pipe(front.port, devPort, { request: null, settleMs: 800 })
+    assert.match(String(outcome.handshakeError), /403/, '没有 view 位必须 403')
+    assert.equal(outcome.text, '', '拒绝发生在握手之前，不该有回程字节')
+    assert.equal(dev.seen.length, 0, '被拒的那一条不该被拨到')
+  } finally {
+    await front.close()
+    await new Promise((resolve) => dev.server.close(resolve))
+    service.close()
+  }
+})
+
+test('只读档（带 view）照常可以用预览', async () => {
+  const permissions = require('../lib/mobile/permissions.js')
+  const dev = startDevServer()
+  const devPort = await listen(dev.server)
+  const service = createPreviewService({
+    authorized: () => true,
+    protectedPorts: () => new Set(),
+    permission: {
+      resolve: permissions.resolvePermission,
+      has: permissions.hasPermission,
+      recordOf: () => ({ permissions: permissions.permissionsForTier('readonly') }),
+    },
+    onLog: () => {},
+  })
+  const front = await startFront(service)
+  try {
+    const outcome = await pipe(front.port, devPort, { request: httpGet(`localhost:${devPort}`) })
+    assert.ok(outcome.text.includes('<h1>dev ok</h1>'), '只读档本来就该能看，这条不能收紧成砖')
+  } finally {
+    await front.close()
+    await new Promise((resolve) => dev.server.close(resolve))
+    service.close()
+  }
+})
+
+/**
  * 白名单与拨号计划是这条管道的能力边界，写成纯函数直接钉边界值——走真握手只能挑两三个
  * 地址验，段边界（100.63 / 100.128、172.15 / 172.32、fe80 / fec0）得靠这张表。
  */

@@ -20,10 +20,11 @@ import {
   DialogTitle,
 } from '@appica/ui-react/dialog'
 import { Spinner } from '@appica/ui-react/spinner'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@appica/ui-react/select'
 import { Switch } from '@appica/ui-react/switch'
 import * as React from 'react'
 
-import type { AddressBook, PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
+import type { AddressBook, PairingInfo, PairingPolicy, StatusView, Tier } from '../lib/api.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { DownloadAppButton } from './DownloadAppButton.tsx'
 import { InfoList, InfoRow } from './InfoRow.tsx'
@@ -41,6 +42,10 @@ type Props = {
   onOpenConfig: () => void
   /** 准入总闸（`status.pairingPolicy`）：`'code'` 收新设备、`'deny'` 一律拒。 */
   onChangePolicy: (policy: PairingPolicy) => void
+  /** 新配对设备的权限档位（`status.pairingTier`）：改的是 `/api/relay/config` 的 `pairingTier`。 */
+  onChangeTier: (tier: Tier) => void
+  /** 审批「自动审阅档」（`status.approvalAutoReview`）：改的是同一个 `/api/relay/config`。 */
+  onChangeAutoReview: (enabled: boolean) => void
   /** 「检查网络」：开的是「连接自检」那个弹窗（与卡片里那行「自检」是同一件事）。 */
   onOpenSelfCheck: () => void
   onReconnect: () => void
@@ -73,6 +78,8 @@ export function PairingCard({
   restartError,
   onOpenConfig,
   onChangePolicy,
+  onChangeTier,
+  onChangeAutoReview,
   onOpenSelfCheck,
   onReconnect,
   onSavePreferred,
@@ -80,6 +87,10 @@ export function PairingCard({
 }: Props) {
   const idle = busy !== ''
   const pairingAllowed = status.pairingPolicy === 'code'
+  /** 新配对设备的档位：老宿主没这个字段时按全权（与宿主缺省一致）。 */
+  const pairingTier: Tier = status.pairingTier ?? 'full'
+  /** 审批自动审阅档：老宿主没这个字段时按关（与宿主缺省一致）。 */
+  const autoReview = status.approvalAutoReview === true
   /** 「中转地址」那行的明文：默认遮上。 */
   const relayUrl = pairing?.relayUrl || status.relayUrl || '—'
   /**
@@ -181,6 +192,50 @@ export function PairingCard({
                 disabled={idle}
                 onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
                 aria-label={t('panel.devices.allowTitle')}
+              />
+            </InfoRow>
+            {/*
+              新配对设备的权限档位：默认全权。它只在电脑侧选，配对时写进凭据记录；
+              已绑定设备各自的档位在「已绑定的设备」卡里逐台改。
+              `itemToStringLabel` 是必须的：下拉框收起时显示的是「选中值」本身，
+              没有它就会把 `full` 这个内部字面量照抄出来（界面上突然变成英文）。
+            */}
+            <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
+              <Select
+                size="sm"
+                value={pairingTier}
+                disabled={idle}
+                itemToStringLabel={(next) => tierLabel(next as Tier)}
+                onValueChange={(next) => {
+                  if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
+                }}
+              >
+                <SelectTrigger className="min-w-32" aria-label={t('panel.pairing.tier')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIER_OPTIONS.map((tier) => (
+                    <SelectItem key={tier} value={tier}>
+                      {tierLabel(tier)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </InfoRow>
+            {/*
+              审批「自动审阅档」，默认关。开着时：没人看着的会话里那一档「在工作区里改文件」
+              会经一次只读判定后直接放行，越界动作照旧推卡；判定拿不准一律拒绝。
+              与上面两行一样是**点了就存**（不等一颗保存按钮）。
+            */}
+            <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
+              <Switch
+                size="sm"
+                checked={autoReview}
+                disabled={idle}
+                aria-label={t('panel.pairing.autoReview')}
+                onCheckedChange={(next) => {
+                  if (next !== autoReview) onChangeAutoReview(next)
+                }}
               />
             </InfoRow>
             <InfoRow label={t('panel.connection.relayUrl')}>
@@ -328,4 +383,14 @@ export function PairingCard({
 function phoneHintAddress(book: AddressBook | null, pairing: PairingInfo | null): string {
   if (book && book.lan.length + book.public.length > 0) return 'book'
   return pairing?.lanUrls?.[0] ?? ''
+}
+
+/** 三档的显示顺序：从最窄到最宽，与「收紧往左、放开往右」的直觉一致。 */
+export const TIER_OPTIONS: readonly Tier[] = ['readonly', 'approve', 'full']
+
+/** 档位 → 人说得出名字的那一档（走字典）。 */
+export function tierLabel(tier: Tier): string {
+  if (tier === 'readonly') return t('panel.pairing.tierReadonly')
+  if (tier === 'approve') return t('panel.pairing.tierApprove')
+  return t('panel.pairing.tierFull')
 }

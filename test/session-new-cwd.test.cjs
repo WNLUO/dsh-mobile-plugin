@@ -162,3 +162,39 @@ test('工作区清单读不到：502 如实回，不当成「没有工作区」'
   assert.equal(res.body.error.message, '宿主工作区清单超时');
   assert.equal(ctx.calls.create.length, 0);
 });
+
+// ── 隔离工作目录（2026-11-10） ──────────────────────────────────────────────
+// `isolate: true` 是唯一一条不走「cwd 必须在已登记工作区里」的路，但它**不是**放开任意
+// 路径：App 只发一个布尔，目录由插件在项目仓库里自己开一棵 git worktree。所以这几条钉的是
+// 「方向正确 + 失败不退化」：不是仓库就 400，绝不退回「就在原目录建会话」（那样用户以为
+// 隔离了、实际还在跟别人抢文件）。
+
+test('隔离：项目不是 Git 仓库 → 400 not-a-git-repo，且一次 create 都不发', async () => {
+  // 临时目录不是仓库（也不用真仓库：`describeProjectGit` 找不到 `.git` 就回 isRepo:false）。
+  const plain = await require('node:fs/promises').mkdtemp(path.join(os.tmpdir(), 'dsh-plain-'));
+  const ctx = makeCtx({ workspaces: [plain] });
+  const res = await post(ctx, { workspaceId: 'w1', isolate: true });
+
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.error.code, 'not-a-git-repo');
+  assert.equal(ctx.calls.create.length, 0, '建不出工作树就不要建会话');
+});
+
+test('隔离：既没 workspaceId 也没 cwd → 400，且不去问宿主', async () => {
+  const ctx = makeCtx({ workspaces: [WS] });
+  const res = await post(ctx, { isolate: true });
+
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, 'bad-request');
+  assert.equal(ctx.calls.create.length, 0);
+  assert.equal(ctx.calls.workspaceList, 0);
+});
+
+test('隔离：非布尔的 isolate 不生效（照旧走 workspaceId 那条路）', async () => {
+  const ctx = makeCtx({ workspaces: [WS] });
+  const res = await post(ctx, { workspaceId: 'w-any', isolate: 'yes' });
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(ctx.calls.create[0], { workspaceId: 'w-any' });
+});

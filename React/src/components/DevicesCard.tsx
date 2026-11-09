@@ -33,13 +33,47 @@ import {
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
+import { Radio } from '@appica/ui-react/radio'
+import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useState } from 'react'
 
-import { apiGet, apiPost, errorText, type DeviceList, type DeviceRevokeResult, type RelayDevice } from '../lib/api.ts'
+import {
+  apiGet,
+  apiPost,
+  errorText,
+  tierOfPermissions,
+  updateDevicePermission,
+  type DeviceList,
+  type DeviceRevokeResult,
+  type RelayDevice,
+  type Tier,
+  type TierView,
+} from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 import { Dot } from './InfoRow.tsx'
+import { tierLabel, TIER_OPTIONS } from './PairingCard.tsx'
 import { useNotify } from '../lib/notify.ts'
+
+/**
+ * 档位（或展示态）→ 这一行上摆的文案。
+ *
+ * `'none'` 是这台设备拿到的是**显式空数组**（连 view 都没有），跟「只读」不是一回事，
+ * 所以说「什么都不允许」而不是「只读」。它只出现在显示处：改档对话框永远只列三档。
+ */
+function tierViewLabel(tier: TierView): string {
+  return tier === 'none' ? t('panel.devices.tierNone') : tierLabel(tier)
+}
+
+/**
+ * 改档对话框里预选哪一档。
+ *
+ * 对话框只有三档（服务端也只认三档）：设备现在是「什么都不允许」时预选最窄的那一档，
+ * 别预选全权 —— 那样一按「应用」就等于凭空提权。
+ */
+function tierForDialog(tier: TierView): Tier {
+  return tier === 'none' ? 'readonly' : tier
+}
 
 /** 多久没连过就不算在线了。 */
 export const ONLINE_WINDOW_MS = 5 * 60 * 1000
@@ -109,6 +143,11 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
   /** 正在等确认的那台设备：null = 确认框关着。 */
   const [pending, setPending] = useState<RelayDevice | null>(null)
   const [revoking, setRevoking] = useState(false)
+  /** 正在调权限的那台设备：null = 权限框关着。 */
+  const [permPending, setPermPending] = useState<RelayDevice | null>(null)
+  /** 权限框里临时选中的档位（还没提交）。 */
+  const [permTier, setPermTier] = useState<Tier>('full')
+  const [savingPerm, setSavingPerm] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -174,6 +213,21 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
     }
   }
 
+  /** 提交权限档位：成功后立刻重拉（别等下一轮 3 秒），并把结果说清楚。 */
+  async function savePermissions(device: RelayDevice, tier: Tier) {
+    setSavingPerm(true)
+    try {
+      await updateDevicePermission(device.deviceId, tier)
+      setPermPending(null)
+      await load()
+      notify('soft', t('panel.devices.permissionsDone', { name: nameOf(device), tier: tierLabel(tier) }))
+    } catch (error) {
+      notify('error', t('panel.devices.permissionsFailed', { message: errorText(error) }))
+    } finally {
+      setSavingPerm(false)
+    }
+  }
+
   // 没有设备（或还没读到）：整卡不摆。见文件头「为什么整卡会消失」。
   if (devices.length === 0) return null
 
@@ -217,6 +271,11 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
                       {t('panel.devices.extraBindings', { count: device.bindings - 1 })}
                     </Badge>
                   ) : null}
+                  {/* 这台设备当前的权限档位：由实际权限位反推，不是另存一份档位。
+                      老凭据（permissions 为 null）就是全权；显式空数组是「什么都不允许」。 */}
+                  <Badge variant="secondary" size="xs">
+                    {tierViewLabel(tierOfPermissions(device.permissions))}
+                  </Badge>
                   <span className="text-xs text-foreground-muted">
                     {platformText(device.platform)}
                     {device.osVersion ? ` ${device.osVersion}` : ''}
@@ -236,9 +295,21 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
                 </div>
               </div>
 
-              <Button variant="outline" size="sm" onClick={() => setPending(device)}>
-                {t('panel.devices.unbind')}
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPermTier(tierForDialog(tierOfPermissions(device.permissions)))
+                    setPermPending(device)
+                  }}
+                >
+                  {t('panel.devices.permissions')}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setPending(device)}>
+                  {t('panel.devices.unbind')}
+                </Button>
+              </div>
             </div>
           )
         })}
@@ -282,6 +353,59 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
                 </span>
               ) : (
                 t('panel.devices.unbind')
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 调权限：电脑侧给这台设备换档位（授予 / 提权 / 降权）。选中后按「应用」才提交，
+          不会点一下就地改 —— 权限收放都留一次确认。 */}
+      <AlertDialog
+        open={permPending !== null}
+        onOpenChange={(open) => {
+          if (!open && !savingPerm) setPermPending(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('panel.devices.permissionsTitle')}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogBody className="flex flex-col gap-3 text-sm">
+            <AlertDialogDescription>{t('panel.devices.permissionsHint')}</AlertDialogDescription>
+            <RadioGroup
+              className="flex flex-col gap-2"
+              value={permTier}
+              onValueChange={(next) => {
+                if (typeof next === 'string') setPermTier(next as Tier)
+              }}
+            >
+              {TIER_OPTIONS.map((tier) => (
+                <label key={tier} className="flex cursor-pointer items-center gap-2">
+                  <Radio value={tier} />
+                  <span>{tierLabel(tier)}</span>
+                </label>
+              ))}
+            </RadioGroup>
+          </AlertDialogBody>
+          <AlertDialogFooter className="flex justify-end gap-2">
+            <Button variant="outline" disabled={savingPerm} onClick={() => setPermPending(null)}>
+              {t('panel.devices.cancel')}
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={savingPerm}
+              onClick={() => {
+                if (permPending) void savePermissions(permPending, permTier)
+              }}
+            >
+              {savingPerm ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Spinner />
+                  {t('panel.devices.permissionsApply')}
+                </span>
+              ) : (
+                t('panel.devices.permissionsApply')
               )}
             </Button>
           </AlertDialogFooter>

@@ -200,13 +200,51 @@ function issue(instanceId, device, hostToken, ttlMs = DEFAULT_TTL_MS, extra = {}
   const keyId = typeof extra?.keyId === 'string' ? extra.keyId : '';
   if (deviceKey) record.deviceKey = deviceKey;
   if (keyId) record.keyId = keyId;
+  // 按设备发放的权限子集（`lib/mobile/permissions.js` 是唯一真源）。
+  // **只在真给了数组时才写这一格**：不写 = 全权，这是老记录与现网设备的兼容命门，
+  // 绝不能在这里补一个默认数组把「没设置」变成「设置成某个子集」。
+  if (Array.isArray(extra?.permissions)) record.permissions = extra.permissions.slice();
   prune(now);
   records.push(record);
   rebuildIndex();
   save();
   // 刚写过盘，所以接下来一分钟内的 `touch` 不必再写一次（节流基准跟着这次写走）。
   lastTouchFlushAt = now;
-  return { credential, deviceId, expiresAt, ...(keyId ? { keyId } : {}) };
+  return {
+    credential,
+    deviceId,
+    expiresAt,
+    ...(keyId ? { keyId } : {}),
+    ...(Array.isArray(record.permissions) ? { permissions: record.permissions.slice() } : {}),
+  };
+}
+
+/**
+ * 改一台设备名下所有活记录的权限集合（电脑侧授予 / 手机侧自助降档都走它）。
+ *
+ * 只改 `permissions` 这一格：凭据串本身不动（库按整串哈希查，改一个字节手机上那枚就对不上，
+ * 只能重新签发、也就是重新扫码）。同一台手机名下可能有好几条活记录（重配、升级留下的），
+ * 一起改，否则「这台是只读」只对最新那条生效、旧的那枚照样全权。
+ *
+ * @returns {number} 改了几条
+ */
+function setDevicePermissions(instanceId, deviceId, permissions) {
+  load();
+  if (readOnly) {
+    const error = new Error('凭据库的只读副本不能改权限；旁路子进程请经 IPC 交给主进程');
+    error.code = 'READ_ONLY';
+    throw error;
+  }
+  if (!Array.isArray(permissions)) return 0;
+  const wanted = permissions.slice();
+  let count = 0;
+  for (const record of records) {
+    if (record.instanceId !== instanceId || record.deviceId !== deviceId || !isLive(record)) continue;
+    record.permissions = wanted.slice();
+    count += 1;
+  }
+  if (count) save();
+  return count;
 }
 
 /**
@@ -414,6 +452,7 @@ function listDevices(instanceId) {
         legacy: false,
         encrypted: false,
         expiresAt: 0,
+        permissions: null,
       };
       rows.set(key, row);
     }
@@ -435,6 +474,13 @@ function listDevices(instanceId) {
     if (!record.deviceKey) row.legacy = true;
     // 带设备密钥的记录才走逐请求签名；只带 6 位码配对的那个版本永远是明文。
     if (record.deviceKey) row.encrypted = true;
+    // 权限子集取最新一条**真设过**的记录（老记录没这一格，不覆盖）；一条都没设过就保持
+    // null = 全权，面板据此显示「全权」。`tags` 不像机型号那样按时间比，是因为它只有
+    // 「设过 / 没设过」两种：降档会写全部活记录（见 setDevicePermissions）。
+    if (Array.isArray(record.permissions) && createdAt >= (row.permissionsAt || 0)) {
+      row.permissions = record.permissions.slice();
+      row.permissionsAt = createdAt;
+    }
   }
   // 撞名才编号：分组用的正是面板拿来当标题的那一格 —— **机型优先，没有机型才用名字**。
   // 两台都叫「iPhone 15 Pro」时「· 1 / · 2」是人认得出的；挂着机器号后四位则不是。
@@ -452,7 +498,7 @@ function listDevices(instanceId) {
   }
   const out = [];
   for (const row of rows.values()) {
-    const { modelAt, nameAt, platformAt, osVersionAt, appVersionAt, lastSeenFrom, ...rest } = row;
+    const { modelAt, nameAt, platformAt, osVersionAt, appVersionAt, lastSeenFrom, permissionsAt, ...rest } = row;
     out.push(rest);
   }
   // 最近连着的排前面；从没连过的按绑定时间倒序垫后。
@@ -507,6 +553,7 @@ module.exports = {
   isReadOnly,
   listActive,
   listDevices,
+  setDevicePermissions,
   activeDigests,
   revoke,
   revokeDevice,

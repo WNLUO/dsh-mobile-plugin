@@ -18,6 +18,16 @@
 const { Readable } = require('node:stream');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// 已读水位与上一轮事实都会落到 $DSH_HOME 的台账里：指到临时目录。不隔离的话，同一个进程里
+// 前一条用例写的已读水位会串到后一条（`recordSessionRead` 之后 lastTurn 会带上 readAt），
+// 也会往真实的家目录写东西。
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-monitor-'));
+process.env.DSH_HOME = home;
+test.after(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const { handleMonitor } = require('../lib/mobile/monitor.js');
 const { resetArchivedSessionIdsForTest } = require('../lib/mobile/session-flags.js');
@@ -479,4 +489,32 @@ test('待处理的那条把卡片本身也带上（回前台不必等流重连�
   } finally {
     cleanup();
   }
+});
+
+test('离线期间跑坏过的那几轮随 lastTurn 下发（先失败后成功也收得到）', async () => {
+  // 用户口径：离线期间同一会话「先失败、后又跑成功」的，那次失败不能因为只剩最新一轮就没了。
+  // 事实表只留最新一轮，所以失败另记一笔失败账（recent-failures.js），随 lastTurn 下发；
+  // 已经读过的那几轮不再带出去（判据与 readAt 同一个与设备无关的水位）。
+  // 用独立的会话 id：同一个进程里前面的用例会写下已读水位，共用 s1 会把它串过来
+  // （lastTurn 一旦带上 readAt，失败账就被判成「已经读过、不必补」）。
+  const sid = 's-backlog';
+  const ctx = makeCtx([session(sid, { updatedAt: 2_000 })]);
+  // 这个假宿主的 history 永远回第 1 轮「完成」—— 它会把下面那次失败折成完成。这里要钉的是
+  // 「失败账跟着事实一起下发」，所以让 history 读不到（真实里那几条读不到时同样走这条）。
+  ctx.state.historyFails = true;
+  recordLastTurn(ctx, sid, { turn: 1, endedAt: 5_000, status: 'failed', code: 'E1', message: '炸了' });
+  recordLastTurn(ctx, sid, { turn: 2, endedAt: 6_000, status: 'completed' });
+  const body = await get(ctx, URL_);
+  assert.equal(body.items[0].lastTurn.status, "completed", "最新一轮照旧是完成");
+  assert.deepEqual(
+    body.items[0].lastTurn.failedTurns.map((item) => item.turn),
+    [1],
+    '中间那次失败要一起带上',
+  );
+  assert.equal(body.items[0].lastTurn.failedTurns[0].code, 'E1');
+
+  // 读过之后不再带：那一轮已经有人看过了。
+  recordSessionRead(ctx, sid, 7_000);
+  const after = await get(ctx, URL_);
+  assert.equal(after.items[0].lastTurn.failedTurns, undefined, '读过的那几轮不该再补');
 });
