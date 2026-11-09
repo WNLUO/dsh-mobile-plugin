@@ -71,7 +71,9 @@ test('控制面：代理转发来的一律不算本机（即使它长得和本�
   // 隧道与局域网代理都从宿主本机连出：socket 对端是回环地址，host 还被补成
   // `127.0.0.1:<上游端口>`。不带实例头、不带 cookie 的转发请求因此能骗过所有
   // 「像不像本机」的判据 —— 实测 `POST /api/relay/config` 就是这样被执行的。
-  for (const via of ['relay', 'lan']) {
+  // `tunnel` 是隧道落点代理（`lib/relay/tunnel-forwarder.cjs`）写的值：局域网关着时
+  // 两条隧道都经它进来，它同样只是个转发标记，必须一起挡。
+  for (const via of ['relay', 'lan', 'tunnel']) {
     const res = fakeRes();
     await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(
       { headers: { 'x-dsh-via': via, host: '127.0.0.1:19387' }, socket: { remoteAddress: '127.0.0.1' }, method: 'GET' },

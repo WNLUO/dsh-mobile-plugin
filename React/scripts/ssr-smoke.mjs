@@ -1,6 +1,7 @@
 // 冒烟渲染：在 node 里把各张卡与配置弹窗渲染一遍，抓运行期崩（不依赖浏览器）。
 // Base UI 的弹窗走 portal，SSR 渲染出来是空字符串，弹窗要另用浏览器验收。
 import { ToastProvider } from '@appica/ui-react/toast'
+import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { createElement as h } from 'react'
 import { renderToString } from 'react-dom/server'
@@ -238,6 +239,87 @@ for (const [label, element, must] of cases) {
     failed += 1
     console.log(`FAIL ${label}: ${err && err.message}`)
     console.log(String((err && err.stack) || '').split('\n').slice(1, 4).join('\n'))
+  }
+}
+
+// ── 保存配置：宿主回了 200 但「没下发成功」时，界面必须当失败处理 ──────────────
+//
+// 宿主是**先落盘、再重启 sidecar**，所以 200 只说明存上了；隧道没注册上时原因在
+// `applyError` 里（`lib/routes/control-plane.js` 那条路由的注释写明这一发是用户填完地址
+// 之后唯一的反馈）。面板从前不读它，于是「改坏了、手机当场连不上」被说成「配置已保存」
+// 还顺手关了窗。判据收在 `apiPost` 那一层，四个保存入口都从那一条走，所以冒烟它就够。
+const realFetch = globalThis.fetch
+
+/** 让下一次 `fetch` 回一份给定的 JSON（200，与宿主那条路由同形）。 */
+function stubFetchJson(payload) {
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => payload,
+  })
+}
+
+const api = await server.ssrLoadModule('/src/lib/api.ts')
+const { t } = await server.ssrLoadModule('/src/lib/i18n/index.ts')
+
+stubFetchJson({ ...status, applyError: 'tunnel register: ECONNREFUSED' })
+try {
+  await api.apiPost('/api/relay/config', { relayUrl: 'https://bad.example' })
+  failed += 1
+  console.log('FAIL 保存配置：宿主回了 applyError，apiPost 却当成成功（界面会报「已保存」并关窗）')
+} catch (err) {
+  const text = String((err && err.message) || err)
+  // 期望的形状 = 字典里 `{message}` 前后那两截 + 宿主那句原话。
+  const [head, tail] = t('panel.shell.applyFailed', { message: '\u0000' }).split('\u0000')
+  const shaped = text.startsWith(head) && text.includes('tunnel register: ECONNREFUSED') && text.endsWith(tail)
+  if (!shaped) {
+    failed += 1
+    console.log(`FAIL 保存配置：错误里没按字典拼上宿主的原因，拿到的是「${text}」`)
+  } else {
+    console.log('ok   保存配置：applyError 翻成一次失败，原因带在消息里')
+  }
+}
+
+// 没有 applyError 时照旧成功 —— 别把每一发都当失败。
+stubFetchJson({ ...status, applyError: null })
+try {
+  const view = await api.apiPost('/api/relay/config', { relayUrl: 'https://good.example' })
+  if (view.relayUrl !== status.relayUrl) throw new Error('回来的不是宿主那份状态')
+  console.log('ok   保存配置：没有 applyError 时照旧成功')
+} catch (err) {
+  failed += 1
+  console.log(`FAIL 保存配置：没有 applyError 却被判成失败（${err && err.message}）`)
+} finally {
+  globalThis.fetch = realFetch
+}
+
+// 那句失败文案十门语言都得在，占位符也得一样。`panel.shell.*` 住在 shell.ts，
+// 而键集对齐那条守卫（`test/panel-i18n.test.cjs`）按文件名把它跳过了 —— 漏一门就没人报。
+const { SHELL } = await server.ssrLoadModule('/src/lib/i18n/messages/shell.ts')
+{
+  const own = Object.entries(SHELL).map(([language, table]) => [language, table['panel.shell.applyFailed']])
+  const missing = own.filter(([, text]) => !text).map(([language]) => language)
+  const wrongPlaceholder = own.filter(([, text]) => text && !text.includes('{message}')).map(([language]) => language)
+  if (missing.length > 0 || wrongPlaceholder.length > 0) {
+    failed += 1
+    console.log(`FAIL panel.shell.applyFailed：缺 ${missing.join(',') || '无'}；不带 {message} 的 ${wrongPlaceholder.join(',') || '无'}`)
+  } else {
+    console.log(`ok   panel.shell.applyFailed 十门齐（${own.length} 门，都带 {message}）`)
+  }
+}
+
+// 四个保存入口（中转地址 / 端口 / 配对策略 / 优先地址，引导页那一发也是中转地址）**都还在
+// 打那条路由**：谁把它换成别的写法，上面那条判定就再也盖不到它了。按各自提交的字段认，
+// 不按出现次数认 —— 少一处就是有一项保存悄悄不走这条判定了。
+const SAVE_FIELDS = ['patch', '{ pairingPolicy }', '{ lanPort: port }', '{ preferredLanAddress: address }']
+for (const [file, fields] of [['App.tsx', SAVE_FIELDS], ['Onboarding.tsx', ['patch']]]) {
+  const text = await readFile(new URL(`../src/${file}`, import.meta.url), 'utf8')
+  const lost = fields.filter((field) => !text.includes(`apiPost<StatusView>('/api/relay/config', ${field})`))
+  if (lost.length > 0) {
+    failed += 1
+    console.log(`FAIL ${file} 这些保存不走 apiPost('/api/relay/config') 了：${lost.join(' / ')}`)
+  } else {
+    console.log(`ok   ${file} 的 ${fields.length} 个保存入口都还走 apiPost('/api/relay/config')`)
   }
 }
 

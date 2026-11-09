@@ -476,7 +476,29 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
     body: JSON.stringify(body ?? {}),
   })
   if (!response.ok) throw await toApiError(response)
-  return (await response.json()) as T
+  const payload = await response.json()
+  throwIfApplyFailed(payload)
+  return payload as T
+}
+
+/**
+ * 200 里带了 `applyError` 的那一发其实**失败了**，当场翻成错误。
+ *
+ * `/api/relay/config` 是先落盘、再重启 sidecar，所以 200 只说明存上了；隧道没注册上时宿主
+ * 把原因放在这一格（见插件 `lib/routes/control-plane.js` 那条路由 —— 注释写明这一发是用户填完
+ * 地址之后唯一的反馈）。面板从前不读它，于是「改坏了、手机当场连不上」被说成「配置已保存」
+ * 还顺手关了窗，用户找不到是自己刚改的那一项干的。
+ *
+ * 收在这一层而不是四个调用点：中转地址 / 局域网端口 / 配对策略 / 优先地址都从 `apiPost` 走，
+ * 各写一遍判据迟早漏一处。抛出也正好对上 `act` 的收口 —— 关窗、重取配对、报成功全在 await
+ * 之后，失败时一步都不做，窗还开着、用户填的值还在，能就地改回去。
+ *
+ * 网络本身失败（`fetch` 抛错）走的是另一条路，口径不变。
+ */
+function throwIfApplyFailed(payload: unknown): void {
+  const applyError = (payload as { applyError?: unknown } | null)?.applyError
+  if (typeof applyError !== 'string' || !applyError) return
+  throw new ApiError(t('panel.shell.applyFailed', { message: applyError }), 'apply_failed', 200)
 }
 
 /** 界面上的错误一律走这里：网络层自己抛的 TypeError 也得变成一句人话。 */

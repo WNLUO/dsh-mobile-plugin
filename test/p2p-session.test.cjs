@@ -9,7 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const { createP2PSession, STATE, P2P_PORT } = require('../lib/p2p/session.cjs');
-const { mountP2P, chooseP2PTarget } = require('../lib/p2p/wiring.cjs');
+const { mountP2P } = require('../lib/p2p/wiring.cjs');
 
 /** 一个假助手：把写进来的命令记下来，事件由用例自己喂。 */
 function fakeHost() {
@@ -618,33 +618,35 @@ test('会合：落点端口取门面给的，不是硬编码的局域网端口�
   assert.equal(opened[0].targetPort, 19485, '必须用门面给的落点端口，局域网关着时它才是 webServer.port');
 });
 
-test('挂载层：落点端口跟局域网开关走（局域网开着转局域端口，关着转 web 端口）', async () => {
+test('挂载层：落点端口跟局域网开关走（局域网开着转局域端口，关着转落点代理）', async () => {
   // 样板是直连隧道的 `chooseTailcatTarget`，判据一模一样：两条隧道最终都转给
-  // 「手机上那个 API」，只是局域网关着时它住在宿主 web 端口上。
+  // 「手机上那个 API」，只是局域网关着时中间要隔一层打标记的落点代理 —— 裸转 web 端口
+  // 是纯 TCP 透传，控制面会把一台已配对的手机当成本机设置页（见 tunnel-forwarder.cjs）。
   let lanOn = true;
-  const target = chooseP2PTarget({
-    lanEnabled: () => lanOn,
-    lanPort: () => 18787,
-    webPort: () => 19485,
-  });
   const door = mountP2P({
     mount: (_label, fn) => fn(),
     warn: () => {},
     state: {},
     saveState: () => {},
     localPort: () => 18787,
-    targetPort: target,
+    lanEnabled: () => lanOn,
+    lanPort: () => 18787,
+    webPort: () => 19485,
     ctx: { effect: (fn) => fn() },
     name: 'test',
     // 同上：钉住「本机没装助手」，别真拉一个子进程起来。
     resolveBinary: () => null,
   });
   assert.equal(door.targetPort(), 18787, '局域网开着：与一台 LAN 手机走同一条路');
+  // 落点代理的端口是 `listen(0)` 拿的，等一拍。
+  await new Promise((done) => setTimeout(done, 50));
   lanOn = false;
-  assert.equal(door.targetPort(), 19485, '局域网关着：那个口没人听，必须转宿主 web 端口');
+  const fallback = door.targetPort();
+  assert.ok(fallback > 0, '局域网关着：必须有落点代理接手，否则隧道无路可走');
+  assert.notEqual(fallback, 19485, '绝不能裸转宿主 web 端口：那是一条不带转发标记的透传');
 });
 
-test('挂载层：没给 targetPort 时退回 localPort（老形状，行为不变）', () => {
+test('挂载层：没给局域网那几格时退回 localPort（老形状，行为不变）', () => {
   const door = mountP2P({
     mount: (_label, fn) => fn(),
     warn: () => {},
