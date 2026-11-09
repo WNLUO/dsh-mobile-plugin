@@ -50,8 +50,12 @@ const questionCard = (overrides = {}) => ({
     {
       id: 'q1',
       question: '选哪个方案？',
+      // 默认夹具要能挂出按钮，所以选项**不带 description**：`push-notify.js` 的
+      // `isAnswerable` 只给「单题、单选、1..3 个无描述选项」发 `dsh.question`，
+      // 带描述的一律退回 `dsh.pending`（原生那边也挂不出按钮，点了是 400）。
+      // 要验「带描述退回 pending」的那条用 overrides 自己给。
       options: [
-        { label: '方案 A', description: '更快' },
+        { label: '方案 A' },
         { label: '方案 B' },
       ],
       multiSelect: false,
