@@ -11,7 +11,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { noteLiveEvent, liveStepsOf, drainLiveSteps, liveStepOf } = require('../lib/mobile/live-steps.js');
+const { noteLiveEvent, liveStepsOf, drainLiveSteps, liveStepOf, clearLiveSteps } = require('../lib/mobile/live-steps.js');
 
 const CTX = {};
 const SESSION = 's-live';
@@ -34,6 +34,8 @@ function feed(events) {
 }
 
 function fresh() {
+  // 直播副本与「谁在写」都是按会话存的模块态：这里连同写入者一起清掉，用例之间不串。
+  clearLiveSteps(CTX, SESSION);
   noteLiveEvent(CTX, SESSION, { type: 'turn/start', data: {} });
   drainLiveSteps(CTX, SESSION);
 }
@@ -200,3 +202,69 @@ test('换轮（漏了 turn/start）不把上一轮拼进来', () => {
   assert.equal(steps.length, 1);
   assert.equal(steps[0].step.kind, 'think');
 });
+
+// ── 同一会话的多条流：只认一个写入者 ─────────────────────────────────────────
+// 直播副本是进程级、按会话共享的一份。同一个聊天页被开着两屏（屏栈下层保留挂载）、或重连
+// 那一刻旧连接还没在电脑那头断干净时，同一条会话会同时有多条流；每条都往里写的话，每段推理
+// 会被接两遍，用户点开「思考」看到逐 token 翻倍的正文（`TheThe proxy proxy …`）。
+const { claimLiveWriter, releaseLiveWriter, attachLiveSteps, broadcastLiveSteps } = require('../lib/mobile/live-steps.js');
+
+test('两条流同时喂：只有写入者累加，正文不翻倍', () => {
+  fresh();
+  const writer = 'stream-1';
+  const reader = 'stream-2';
+  assert.equal(claimLiveWriter(CTX, SESSION, writer), true);
+  assert.equal(claimLiveWriter(CTX, SESSION, reader), false, '写入权已被占，第二条流当只读');
+  // 两条流收到的是同一份增量（真实情形：各自一条 SSE，内容一样）
+  const increments = ['The', ' proxy', ' should'];
+  for (const text of increments) {
+    noteLiveEvent(CTX, SESSION, reasoning(0, text), writer);
+    noteLiveEvent(CTX, SESSION, reasoning(0, text), reader);
+  }
+  const think = liveStepOf(CTX, SESSION, { kind: 'think', index: 0 });
+  assert.equal(think.text, 'The proxy should', '只读的流不许再累加一遍');
+});
+
+test('写入者走了之后，下一个连进来的流接棒', () => {
+  fresh();
+  const first = 'stream-1';
+  const second = 'stream-2';
+  claimLiveWriter(CTX, SESSION, first);
+  noteLiveEvent(CTX, SESSION, reasoning(0, '第一段'), first);
+  releaseLiveWriter(CTX, SESSION, first);
+  assert.equal(claimLiveWriter(CTX, SESSION, second), true, '写入者走了就该让位');
+  noteLiveEvent(CTX, SESSION, reasoning(0, '第二段'), second);
+  assert.equal(liveStepOf(CTX, SESSION, { kind: 'think', index: 0 }).text, '第一段第二段');
+});
+
+test('晚到的旧流释放写入权不会把新写入者顶掉', () => {
+  fresh();
+  claimLiveWriter(CTX, SESSION, 'old');
+  releaseLiveWriter(CTX, SESSION, 'old');
+  claimLiveWriter(CTX, SESSION, 'new');
+  // 旧流收尾比新流晚（重连时旧连接断得慢）
+  releaseLiveWriter(CTX, SESSION, 'old');
+  assert.equal(claimLiveWriter(CTX, SESSION, 'new'), true, '新写入者仍占着');
+  assert.equal(claimLiveWriter(CTX, SESSION, 'other'), false);
+});
+
+test('只读的流照样收到清单增量（靠写入者广播）', () => {
+  fresh();
+  const writer = 'stream-1';
+  const reader = 'stream-2';
+  claimLiveWriter(CTX, SESSION, writer);
+  const seen = [];
+  const readerSink = (frame) => seen.push(frame);
+  const writerSink = () => { throw new Error('写入者自己那份就地写，不该广播给自己'); };
+  attachLiveSteps(CTX, SESSION, readerSink);
+  attachLiveSteps(CTX, SESSION, writerSink);
+  noteLiveEvent(CTX, SESSION, reasoning(0, '先看目录'), writer);
+  const drained = drainLiveSteps(CTX, SESSION, writer);
+  assert.equal(drained.length, 1);
+  const frame = { type: 'session/live-steps', sessionId: SESSION, full: false, turn: null, steps: drained };
+  broadcastLiveSteps(CTX, SESSION, frame, writerSink);
+  assert.deepEqual(seen, [frame], '另一屏要跟着收到同一份增量');
+  // 只读的流不许把写入者该发的那几步抢走
+  assert.equal(drainLiveSteps(CTX, SESSION, reader).length, 0);
+});
+
