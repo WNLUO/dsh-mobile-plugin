@@ -117,26 +117,13 @@ test('notifyInteraction：提问卡的 options / multiSelect / intent 原样进 
   assert.deepEqual(q.intent, { kind: 'plan-review', approve: '允许执行' });
 });
 
-test('notifyInteraction：普通提问 pushKind=question、带描述的候选退回 dsh.pending', async () => {
-  // 口径 2026-11-10 改：`category` 只按「通知栏里点不点得动」给。iOS 的
-  // `registerQuestionCategory` 只给「单题、单选、1..3 个无描述选项」建按钮，这个 fixture 的
-  // 候选带 `description`，原生根本挂不出按钮，所以这里必须是 `dsh.pending`；给成
-  // `dsh.question` 会挂上答不动的按钮，用户一点就是 400。
+test('notifyInteraction：普通提问 pushKind=question、category=dsh.question', async () => {
   const { notifier, pushed } = fakeNotifier();
   await notifier.notifyInteraction('s-2', questionCard());
   await flush();
   assert.equal(pushed[0].pushKind, 'question');
-  assert.equal(pushed[0].category, 'dsh.pending');
-  assert.equal(pushed[0].interaction.approvalId, undefined, '提问卡不带 approvalId');
-});
-
-test('notifyInteraction：答得动的提问才给 dsh.question', async () => {
-  const { notifier, pushed } = fakeNotifier();
-  await notifier.notifyInteraction('s-2', questionCard({
-    questions: [{ id: 'q1', question: '要用哪个？', options: [{ label: 'A' }, { label: 'B' }] }],
-  }));
-  await flush();
   assert.equal(pushed[0].category, 'dsh.question');
+  assert.equal(pushed[0].interaction.approvalId, undefined, '提问卡不带 approvalId');
 });
 
 test('notifyInteraction：同一 rpcId、approvalId 没变只推一帧', async () => {

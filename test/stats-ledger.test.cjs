@@ -1317,3 +1317,75 @@ test('读盘：老账本 daily 缺 requests 时不补 0，撤销才能按 steps 
   });
   assert.equal(fresh.sessions.s2.daily[day].requests, 3, '新账本的 requests 原样读回');
 });
+
+// ── 2026-11-10：记录池淘汰先删「日志还在」的那些 ────────────────────────────────
+// 用户反馈「归档之后有时还会删除，删掉之后那些数据就没了」。`gone` 的记录背后已经
+// 没有任何日志，删了就是永久丢；活着的会话删了还能从日志重采。所以淘汰顺序换成
+// 「先删活的、最老先走」，`gone` 只在超过一半上限时才开始动。
+test('记录池淘汰：先删活的记录，已删除会话（gone）排在后面', () => {
+  const book = { version: 1, updatedAt: 0, days: {}, sessions: {}, composition: null };
+  const baseAt = Date.UTC(2026, 9, 1);
+  const half = ledger.MAX_RECORDS;
+  // 一半 gone（日志已经没有了，删了就永久丢）+ 一半活的，都塞到超上限。
+  for (let index = 0; index < half; index += 1) {
+    ledger.applyDelta(book, { sessionId: `gone${index}`, at: baseAt + index * 60000, delta: usage({ uncachedInputTokens: 1 }) });
+    book.sessions[`gone${index}`].gone = true;
+  }
+  for (let index = 0; index < half + 12; index += 1) {
+    ledger.applyDelta(book, { sessionId: `live${index}`, at: baseAt + index * 60000, delta: usage({ uncachedInputTokens: 1 }) });
+  }
+  const total = Object.keys(book.sessions).length;
+  assert.ok(total > ledger.MAX_RECORDS, '先确认这一轮确实超了上限');
+
+  ledger.trim(book);
+
+  assert.equal(Object.keys(book.sessions).length, ledger.MAX_RECORDS, '仍然只留上限那么多条');
+  const remaining = Object.keys(book.sessions);
+  assert.equal(remaining.filter((id) => id.startsWith('live')).length, 0,
+    '活的记录先被删干净（它们有日志，删了还能重采）');
+  assert.equal(remaining.filter((id) => id.startsWith('gone')).length, ledger.MAX_RECORDS,
+    'gone 的记录一条不动：它们的日志已经没了，删掉就是永久丢');
+  assert.ok(book.sessions.gone0, '最老的 gone 也留着');
+  assert.equal(book.sessions.live0, undefined, '最老的活的先走');
+});
+
+// 全账本都是 gone 时仍要有个封顶，否则长期使用会被永不变化的记录填满。
+test('记录池淘汰：gone 超过一半上限时才开始按最老先删，且留住最新的那一半', () => {
+  const book = { version: 1, updatedAt: 0, days: {}, sessions: {}, composition: null };
+  const baseAt = Date.UTC(2026, 9, 1);
+  const total = ledger.MAX_RECORDS + 100;
+  for (let index = 0; index < total; index += 1) {
+    ledger.applyDelta(book, { sessionId: `g${index}`, at: baseAt + index * 60000, delta: usage({ uncachedInputTokens: 1 }) });
+    book.sessions[`g${index}`].gone = true;
+  }
+
+  ledger.trim(book);
+
+  assert.equal(Object.keys(book.sessions).length, ledger.MAX_RECORDS, '按上限留');
+  const kept = Object.keys(book.sessions).map((id) => Number(id.slice(1))).sort((a, b) => a - b);
+  assert.equal(kept[0], total - ledger.MAX_RECORDS, '留下的是最新的那批，最老的先走');
+});
+
+// ── 2026-11-10：`seenSeq` 落盘 ───────────────────────────────────────────────
+// 采集靠「`lastSeq` 追上 `seenSeq`」判断这条会话真没有新事件，才允许跳过。这个字段
+// 必须读盘后还在，否则重启一次就退化成「没有可信游标」，等于每轮都白读一遍历史。
+test('seenSeq 落盘并读回：老账本没有这一栏按 0 处理（升级后第一轮必真读）', () => {
+  const day = '2026-11-10';
+  const book = ledger.sanitizeLedger({
+    version: 1,
+    days: {},
+    sessions: {
+      fresh: { billed: {}, daily: {}, lastSeq: 42, seenSeq: 42 },
+      // 升级前写的记录：只有 lastSeq，没有 seenSeq。
+      old: { billed: {}, daily: {}, lastSeq: 900 },
+    },
+    models: {},
+    composition: null,
+  });
+  assert.equal(book.sessions.fresh.seenSeq, 42, 'seenSeq 原样读回');
+  assert.equal(book.sessions.old.seenSeq, 0, '缺这一栏就是 0（没有可信游标，不跳过）');
+  assert.equal(book.sessions.old.lastSeq, 900, 'lastSeq 不受影响');
+  // 空记录的初始形状也要带上它。
+  assert.equal(ledger.emptySession(Date.now()).seenSeq, 0, 'emptySession 带这一栏');
+  assert.equal(day === '2026-11-10', true);
+});

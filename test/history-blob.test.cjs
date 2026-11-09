@@ -110,24 +110,22 @@ test('creds 形状：只取 sha256 hex 串，丢对象外壳与 expiresAt', () =
   assert.deepEqual(plain.messages, [{ seq: 3, role: 'user', text: 'hi' }]);
 });
 
-test('会话一律入 blob，只有显式标记未加密才跳过', () => {
-  // blob 里装的都是 HK 密文，真正的门是「设备有没有 HK」；消息快照不带协议标记，
-  // 所以这里不再有 proto 判据。唯一保留的钩子是「显式说了未加密」。
-  assert.equal(isBlobEligible({ ok: true, items: [], encrypted: false }), false);
+test('proto1 会话一律不入 blob，v2 与未标协议的照常入', () => {
+  assert.equal(isBlobEligible({ ok: true, items: [], proto: 1 }), false);
+  assert.equal(isBlobEligible({ ok: true, items: [], proto: '1' }), false);
   assert.equal(isBlobEligible({ ok: true, items: [] }), true);
-  assert.equal(isBlobEligible({ ok: true, items: [], proto: 1 }), true);
-  assert.equal(isBlobEligible({ ok: true, items: [], encrypted: true }), true);
+  assert.equal(isBlobEligible({ ok: true, items: [], proto: 2 }), true);
 
   const hk = newHk();
   const payload = {
     sessions: { items: [{ sessionId: 'v2', updatedAt: 1 }, { sessionId: 'old', updatedAt: 2 }] },
     messages: {
       v2: { ok: true, items: [{ seq: 1 }], lastSeq: 1 },
-      old: { ok: true, items: [{ seq: 1 }], lastSeq: 1 },
+      old: { ok: true, items: [{ seq: 1 }], lastSeq: 1, proto: 1 },
     },
   };
   const frames = buildBlobPuts(payload, hk, []);
-  assert.deepEqual(frames.map((f) => f.key), ['v2', 'old'], '两个会话都该入 blob');
+  assert.deepEqual(frames.map((f) => f.key), ['v2'], 'proto1 的 old 必须被跳过');
   // 读不到正文（ok:false / 无 items）的会话也不该硬造一条空 blob。
   const noBody = buildBlobPuts({ messages: { x: { ok: false } } }, hk, []);
   assert.deepEqual(noBody, []);
@@ -216,4 +214,77 @@ test('没有 HK 时镜像照推、但一条 blobPut 都不发（关/无钥行为
   const { pushed, blobs } = await pushOnce({ getHistoryKey: () => '' });
   assert.ok(pushed.length > 0, '没有 HK 不许影响镜像推送');
   assert.equal(blobs.length, 0, '没有 HK 时不该发任何 blobPut');
+});
+
+/* ── 缺导出时的自保：一轮里只留一行诊断，镜像照推 ─────────────────── */
+
+/**
+ * 这条钉的是「blob 引擎的辅助函数没导出时，pushHistoryBlobs 不许把那一轮跑成每 tick 一次的
+ * 报错、也不许把镜像推送带下去」。`history-blob.cjs` 今天确实只导出信封与候选那几样，正文 /
+ * 文件两路的辅助函数在那边还没有实现（文件 scope 见 decisions 里 d2838e82 那条）。照写的样子
+ * 调用会拿到 `undefined`，第一发抛 TypeError；外层虽然兜住了，但每轮都要白跑一趟、还会把诊断
+ * 刷出来。
+ *
+ * 做法：把 `history-blob.cjs` 的导出临时抹掉那几个函数，重新 require 一份 pusher（解构发生在
+ * 它加载时），跑一轮镜像推送，然后把模块缓存与导出原样还回去。
+ */
+test('辅助函数缺导出时 pusher 不抛错，镜像照推、诊断只留一行', async () => {
+  const hbPath = require.resolve('../lib/mirror/history-blob.cjs');
+  const pusherPath = require.resolve('../lib/mirror/pusher.cjs');
+  const hb = require(hbPath);
+  const saved = { ...hb };
+  const lines = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => { lines.push(String(chunk)); return realWrite.call(process.stderr, chunk, ...rest); };
+  try {
+    for (const name of ['digestListOf', 'messagesBlobFingerprint', 'buildMessagesBlobPut', 'sessionUpdatedAt', 'collectFileBlobSources', 'statFileSource', 'fileBlobFingerprint', 'readFileSource', 'buildFileBlobPut', 'FILE_MAX_PLAIN_BYTES']) {
+      delete hb[name];
+    }
+    delete require.cache[pusherPath];
+    const fresh = require(pusherPath);
+    assert.equal(typeof fresh.createMirrorPusher, 'function');
+
+    const hk = newHk();
+    const pushed = [];
+    const blobs = [];
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-history-blob-missing-'));
+    const previousHome = process.env.DSH_HOME;
+    process.env.DSH_HOME = home;
+    try {
+      const pusher = fresh.createMirrorPusher({
+        ctx: fakeCtx({ items: [mkItem({ sessionId: 'sess-gap', running: true, updatedAt: Date.now() })] }),
+        tunnelConnected: () => true,
+        getSidecar: () => ({
+          pushSync: async (payload) => { pushed.push(payload); },
+          pushBlob: async (frame) => { blobs.push(frame); },
+        }),
+        credentialDigests: () => [{ hash: sha256('dshc_x') }],
+        getHistoryKey: () => hk,
+      });
+      await pusher.pushMirror();
+      await flush();
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+      if (previousHome === undefined) delete process.env.DSH_HOME;
+      else process.env.DSH_HOME = previousHome;
+    }
+
+    assert.ok(pushed.length > 0, '缺导出不许影响镜像推送');
+    assert.equal(blobs.length, 0, '辅助函数缺席时一条 blobPut 都发不出去（不是「发了半截」）');
+    const diagnostics = lines.filter((line) => line.includes('history blob'));
+    assert.equal(diagnostics.length, 1, `一轮只留一行诊断，实际 ${diagnostics.length} 行：${diagnostics.join('')}`);
+    // 判据是「这条路自己判了能力」而不是「靠外层 catch 兜住一个 TypeError」：外层那条兜底
+    // 记的是 `round: … is not a function`，出现它就说明闸门没生效、每轮都在白扔一次异常。
+    assert.match(diagnostics[0], /impl-missing/, '应当由能力闸门自己记一行，而不是外层 catch 兜出来的');
+    assert.ok(!diagnostics[0].includes('round:'), `不许靠外层 catch 兜 TypeError：${diagnostics[0]}`);
+    assert.match(diagnostics[0], /digestListOf/, '诊断要点名缺的是哪一个');
+    assert.match(diagnostics[0], /正文/, '要说清跳过了哪一段（正文）');
+    assert.match(diagnostics[0], /文件/, '要说清跳过了哪一段（文件）');
+    assert.match(diagnostics[0], /尚未就绪/, '这句要读得懂：不是设备/网络问题，是镜像侧实现没跟上');
+  } finally {
+    process.stderr.write = realWrite;
+    Object.assign(hb, saved);
+    delete require.cache[pusherPath];
+    require(pusherPath);
+  }
 });
