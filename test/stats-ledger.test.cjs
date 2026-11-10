@@ -684,6 +684,33 @@ test('路由：range 归一化，返回 { ok, overview }', async () => {
   assert.equal(normalizeRange('3d'), '3d');
 });
 
+test('路由：一发请求把六档全带回去（切标签不再发请求）', async () => {
+  await withHome(async () => {
+    const now = Date.now();
+    const ctx = fakeCtx({ items: [{ sessionId: 's1', title: 'x', cwd: '/tmp/p', updatedAt: now }], projectionsById: { s1: tokenProjection(6, 3) } });
+    await collectStats(ctx, { force: true });
+    const req = { url: '/api/mobile/v1/stats/overview?range=today' };
+    const res = { status: null, body: null, writeHead(status) { this.status = status; }, end(payload) { this.body = JSON.parse(payload); } };
+    await handleStatsOverview(ctx, req, res);
+
+    assert.equal(res.body.overview.range, 'today');
+    assert.ok(res.body.ranges && typeof res.body.ranges === 'object', '必须带上 ranges');
+    assert.deepEqual(
+      Object.keys(res.body.ranges).sort(),
+      ['30d', '3d', '7d', 'all', 'today', 'yesterday'],
+      '六档一档都不许少：少一档，App 切到它就还得再发一次请求',
+    );
+    // 请求那一档与顶层 overview 是同一份（经过序列化后比内容，不是比引用）。
+    assert.deepEqual(res.body.ranges.today, res.body.overview, 'ranges 里那一档就是顶层那份，不另折一遍');
+    for (const key of Object.keys(res.body.ranges)) {
+      assert.equal(res.body.ranges[key].range, key, `${key} 那一份自己的 range 要对得上`);
+    }
+    // 窗口确实不一样：今天一天，近 30 天是三十天。
+    assert.equal(res.body.ranges.today.days.length, 1);
+    assert.equal(res.body.ranges['30d'].days.length, 30);
+  });
+});
+
 test('采集失败不影响出数：账本还在就照常回', async () => {
   await withHome(async () => {
     const good = fakeCtx({ items: [{ sessionId: 's1', title: 'x', updatedAt: Date.now() }], projectionsById: { s1: tokenProjection(9, 1) } });
