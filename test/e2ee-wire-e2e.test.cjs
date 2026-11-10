@@ -43,11 +43,9 @@ const SKIP_NO_APP = loadTsFromApp ? false : '主仓的 app/ 不在场（单独�
 // App 侧的随机数走原生安全随机口；这里给一串固定字节，让断言可复现。
 registerStub('react-native', {
   Platform: { OS: 'ios', select: (options) => options.ios },
-  // 两个注册名都给：真机上 Android 是 `VoiceModule`、iOS 走 `DSHVoice`，
-  // App 侧取哪一个会随两边接线变动；假体同时提供，免得测试因为改名而假红。
+  // 注册名与 App 侧取的一致（`DSHCipher`，两端同一个名字）。
   NativeModules: {
-    VoiceModule: { randomBytes: async (size) => Buffer.alloc(size, 0x33).toString('base64') },
-    DSHVoice: { randomBytes: async (size) => Buffer.alloc(size, 0x33).toString('base64') },
+    DSHCipher: { randomBytes: async (size) => Buffer.alloc(size, 0x33).toString('base64') },
   },
 });
 const appEnvelope = loadTsFromApp ? loadTsFromApp('src/services/e2ee-envelope') : null;
