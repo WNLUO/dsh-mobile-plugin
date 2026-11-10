@@ -30,11 +30,16 @@ type InfoRowProps = {
  *
  * 用 `<dl>` 的语义，但每一行自己成对，方便按接口字段拼装——
  * 原来的设置页签也是这么排的，所以字段顺序照抄，别按自己的喜好重排。
+ *
+ * **标签可以收缩、可以折行**：原先写的是 `shrink-0`，遇到德语 / 法语 / 葡语那种长标签
+ * （"Berechtigungsstufe"、"Niveau de permissions"）时它会一点都不让，把右边的值挤到
+ * 卡片外面被裁掉 —— 1024 两栏时那一栏只有 210px，现场是法语「权限档位」只露出「Com」。
+ * 现在标签按比例分宽度、放不下就折行，值那边仍是 `break-all` 兜底，两边都留在卡里。
  */
 export function InfoRow({ label, hint, tone, mono, children }: InfoRowProps) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-border-muted py-2 last:border-b-0">
-      <dt className="shrink-0 text-sm text-foreground-muted">
+      <dt className="min-w-0 flex-1 text-sm text-foreground-muted">
         {hint ? (
           <span className="inline-flex items-center gap-1">
             {label}
@@ -48,7 +53,7 @@ export function InfoRow({ label, hint, tone, mono, children }: InfoRowProps) {
                     type="button"
                     aria-label={hint}
                     title={hint}
-                    className="cursor-pointer text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none motion-reduce:transition-none"
+                    className="shrink-0 cursor-pointer text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none motion-reduce:transition-none"
                   >
                     <QuestionMark />
                   </button>
@@ -65,7 +70,7 @@ export function InfoRow({ label, hint, tone, mono, children }: InfoRowProps) {
       </dt>
       <dd
         className={cn(
-          'min-w-0 text-right text-sm break-all',
+          'min-w-0 shrink-0 text-right text-sm break-all',
           mono ? 'font-mono text-xs text-foreground-strong' : 'text-foreground',
           tone && toneText[tone],
         )}

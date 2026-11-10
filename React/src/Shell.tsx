@@ -12,14 +12,26 @@
  *
  * 两个入口（`main.tsx` 与 `demo/main.tsx`）都渲染这一个组件，别各写一份。
  */
+import { useEffect } from 'react'
+
 import { JoinGroupButton } from './components/JoinGroupButton.tsx'
+import { SponsorButton } from './components/SponsorButton.tsx'
 import { TopRightActions } from './components/TopRightActions.tsx'
+import { t } from './lib/i18n/index.ts'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
 import { Root } from './Root.tsx'
 
 export function Shell() {
   // 订阅语言状态：换语言时这一层重渲，下面的页面跟着整棵重绘。
-  usePanelLanguage()
+  const language = usePanelLanguage()
+  // 浏览器标签页上那行字与 `<html lang>` 也归语言管：标题写死在 HTML 里的话，切到英文
+  // 标签页还叫中文；`lang` 不对，读屏软件会按中文的调读德语，断词和朗读都是错的。
+  // 只改这两处，版式一个像素都不动。
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.documentElement.lang = language
+    document.title = t('panel.shell.title')
+  }, [language])
   // 调试页是嵌在 DSH 那个弹窗里的一窗（宽约一千），右上角那组「日夜 / 语言」与右下角
   // 「加入交流群」都会压到读数或那排操作按钮上；它们是给「人从浏览器打开这一页」准备的，
   // 调试图不挂。主题跟随系统，够用。
@@ -33,6 +45,8 @@ export function Shell() {
           2026-10-26 用户要求引导页也放一颗，与其在两页各挂一次（各写一个坐标、
           迟早错开），不如跟着外壳渲染一次。 */}
       {debugPage ? null : <JoinGroupButton />}
+      {/* 「赞助」排在群按钮上面一格：同属右下角那串悬浮件，调试图同样不挂。 */}
+      {debugPage ? null : <SponsorButton />}
     </>
   )
 }

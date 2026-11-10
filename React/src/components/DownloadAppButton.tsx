@@ -105,9 +105,14 @@ export function DownloadAppButton({ size = 'md' }: Props) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl" closeLabel={t('panel.common.close')} initialFocus={dialogRef}>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2.5">
+            {/*
+              标题必须能折行、必须让出右上角关闭按钮的位置：库给标题的是一行（`clip`），
+              德语的「AI-HUB herunterladen」在 390 宽下会正好压在关闭按钮上（实测重叠 8px），
+              日语也只剩 1px。`pr-8` 是给那颗按钮留的落脚点。
+            */}
+            <DialogTitle className="flex flex-wrap items-center gap-2.5 pr-8">
               <img src={appLogo} alt="" className="size-8 rounded-lg bg-white p-0.5" />
-              {t('panel.download.title')}
+              <span className="min-w-0 break-words">{t('panel.download.title')}</span>
             </DialogTitle>
           </DialogHeader>
 

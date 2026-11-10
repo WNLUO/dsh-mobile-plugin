@@ -1,6 +1,6 @@
 /** 一点点展示用的纯函数，和接口无关。 */
 
-import { t } from './i18n/index.ts'
+import { panelLanguage, t } from './i18n/index.ts'
 
 export function cn(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(' ')
@@ -23,12 +23,24 @@ export const toneText: Record<Tone, string> = {
   off: 'text-foreground-muted',
 }
 
-/** 时间戳（毫秒）与 ISO 字符串都吃；空值给一个破折号，别让界面出现 NaN。 */
+/**
+ * 时间戳（毫秒）与 ISO 字符串都吃；空值给一个破折号，别让界面出现 NaN。
+ *
+ * 日期格式跟着**界面语言**走，不钉 `zh-CN`：德语看到 `10.11.2026`、英语看到 `11/10/2026`，
+ * 中文照旧 `2026/11/10`。这一页的时间只在渲染时拼，所以换语言之后重绘一次就全对——
+ * 别把结果缓存到模块级常量里。时钟制仍按 24 小时，与原来那份一致。
+ *
+ * `Intl` 认不出这门标签时（极老的浏览器）退回默认语言，不让一个日期把整块渲染搞崩。
+ */
 export function timeText(value: number | string | null | undefined): string {
   if (value === null || value === undefined || value === 0 || value === '') return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString('zh-CN', { hour12: false })
+  try {
+    return date.toLocaleString(panelLanguage(), { hour12: false })
+  } catch {
+    return date.toLocaleString(undefined, { hour12: false })
+  }
 }
 
 /** 隧道状态：state 是宿主给的英文枚举，配一句中文。 */

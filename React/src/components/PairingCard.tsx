@@ -210,7 +210,14 @@ export function PairingCard({
                   if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
                 }}
               >
-                <SelectTrigger className="min-w-32" aria-label={t('panel.pairing.tier')}>
+                {/*
+                  下拉框**不许**设最小宽度：这一行是「长标签 + 间距 + 控件」挤在卡片右半栏
+                  （1024 两栏时只有 210px），德法葡西俄那几门的标签本身就要 130~165px，
+                  再加一条 `min-w-32` 就顶出卡片、被 `overflow-hidden` 真裁掉 —— 现场是
+                  法语只显示成「Com」。让它跟着这一行分配到的宽度缩，控件里的字自己出省略号，
+                  版式不散。
+                */}
+                <SelectTrigger className="min-w-0 max-w-full" aria-label={t('panel.pairing.tier')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

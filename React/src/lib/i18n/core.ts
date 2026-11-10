@@ -133,6 +133,33 @@ let preference: LanguagePreference | null = null
 let detected: PanelLanguage | null = null
 const listeners = new Set<() => void>()
 
+/**
+ * 系统语言在页面开着的时候换了（macOS / 安卓改语言、浏览器改首选语言），
+ * 跟随浏览器这一档要当场跟着变，不能等下次刷新。
+ *
+ * 挂在浏览器自己的 `languagechange` 上，不轮询：这个事件就是为这件事存在的。
+ * 只在**跟随浏览器**时重算并通知 —— 用户手动钉了一门的时候，系统怎么变都不该盖掉他的选择。
+ * 装不上（没有 `window`、老浏览器）就当没有这件事，语言仍是打开那一刻算出来的那一门。
+ */
+let watching = false
+function watchSystemLanguage(): void {
+  if (watching) return
+  const view = typeof window === 'undefined' ? null : window
+  if (!view || typeof view.addEventListener !== 'function') return
+  watching = true
+  try {
+    view.addEventListener('languagechange', () => {
+      if (preferenceOnce() !== 'system') return
+      const next = detectLanguage()
+      if (next === detected) return
+      detected = next
+      for (const listener of listeners) listener()
+    })
+  } catch {
+    /* 挂不上就算了：只是「要刷新一次才生效」，不影响其他任何事 */
+  }
+}
+
 function preferenceOnce(): LanguagePreference {
   if (preference === null) preference = readPreference()
   return preference
@@ -151,6 +178,7 @@ export function panelLanguage(): PanelLanguage {
   const pref = preferenceOnce()
   if (pref !== 'system') return pref
   if (!detected) detected = detectLanguage()
+  watchSystemLanguage()
   return detected
 }
 

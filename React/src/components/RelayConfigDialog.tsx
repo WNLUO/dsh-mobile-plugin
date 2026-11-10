@@ -177,7 +177,9 @@ export function RelayConfigDialog({
               <div className="flex flex-col gap-4">
                 <Field>
                   {/* 清单收进弹窗：公用中转以后会变多，摊在主窗里会把整页撑长。 */}
-                  <div className="flex items-center justify-between gap-3">
+                  {/* 允许折行：手机宽度下这行标签是三五个词（葡语 "Endereço do relay"），
+                      按钮那边也是整句，并排一行会顶出弹窗右沿、和旁边的字叠在一起。 */}
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-url">{t('panel.connection.relayUrl')}</FieldLabel>
                     {/* 光写「公用中转」看着像标题；带上动词才知道它是颗按钮。 */}
                     <Button variant="ghost" size="sm" onClick={() => setRelayPickerOpen(true)}>
@@ -210,7 +212,7 @@ export function RelayConfigDialog({
               <div className="flex flex-col gap-4">
                 <Field>
                   {/* 地址可能好几条：可以从清单里挑，也可以直接敲一条（机器多网卡时用得上）。 */}
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
                     <Button variant="ghost" size="sm" onClick={() => setLanPickerOpen(true)}>
                       {t('panel.onboarding.chooseAddress')}
