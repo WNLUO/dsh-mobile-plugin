@@ -251,3 +251,47 @@ test('路由表里紧跟扩展那三条之后，挂着这两条', () => {
   assert.ok(devIndex > actionIndex && fileIndex > actionIndex, '注册位置要紧跟扩展那三条');
   assert.ok(fileIndex > devIndex, 'list 在前、取文件在后');
 });
+
+/**
+ * 清单里那一格 `devServer`：map 直接加载作者的开发服务器，所以宽松写法的后果是「白屏」，
+ * 更坏的是把一个公网站点塞进扩展页的 WebView。判据收在宿主这一侧，App 再判一次。
+ */
+test('devServer 只认私网 / 回环的 http 地址，其余一律当没写', () => {
+  const home = makeHome();
+  const previous = process.env.DSH_HOME;
+  try {
+    const root = devRoot();
+    const manifestWith = (value) => ({ name: 'demo', version: '1.0.0', apiVersion: '1', devServer: value });
+
+    const cases = [
+      ['http://192.168.1.5:5288', 'http://192.168.1.5:5288/'],
+      ['http://127.0.0.1:5173', 'http://127.0.0.1:5173/'],
+      ['http://10.0.0.2:8080', 'http://10.0.0.2:8080/'],
+      ['http://172.20.0.1:3000', 'http://172.20.0.1:3000/'],
+      ['http://localhost:5173', 'http://localhost:5173/'],
+      ['http://macbook.local:5173', 'http://macbook.local:5173/'],
+      // 下面这些都该被拒：公网、https、带路径 / 查询串、非字符串、空串。
+      ['http://example.com:5173', null],
+      ['http://8.8.8.8:5173', null],
+      ['https://192.168.1.5:5288', null],
+      ['http://192.168.1.5:5288/app/', null],
+      ['http://192.168.1.5:5288/?a=1', null],
+      [42, null],
+      ['', null],
+    ];
+
+    cases.forEach(([value, expected], index) => {
+      const slug = `probe${index}`;
+      makePackage(root, slug, manifestWith(value), { 'index.html': '<html></html>' });
+      const listed = listPackages(root).find((row) => row.slug === slug);
+      assert.ok(listed, `包 ${slug} 应该被列出来`);
+      assert.equal(listed.devServer, expected, `devServer=${JSON.stringify(value)} 的收窄结果不对`);
+    });
+
+    // 没写这一格的老包：照旧能列，`devServer` 是 null（页面走本地那份）。
+    makePackage(root, 'plain', { name: 'plain', version: '1.0.0', apiVersion: '1' }, { 'index.html': '<html></html>' });
+    assert.equal(listPackages(root).find((row) => row.slug === 'plain').devServer, null);
+  } finally {
+    restoreHome(previous, home);
+  }
+});

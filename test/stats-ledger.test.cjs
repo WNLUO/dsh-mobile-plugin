@@ -919,11 +919,7 @@ test('老账本升级：没有 lastSeq 的记录按事件重算一遍，不叠�
 });
 
 test('老账本升级：模型按天明细落在事件真实日，窄范围里与 KPI 同数', async () => {
-  // 价目从真表里取一条（具体数字随快照变，这里只当「一行有价」用）。
-  const table = require('../lib/mobile/model-prices-table.cjs');
-  const pricedKey = Object.keys(table.BY_PROVIDER_MODEL)[0];
-  const split = pricedKey.indexOf('/');
-  const priced = { provider: pricedKey.slice(0, split), providerName: '渠道', model: pricedKey.slice(split + 1), modelName: '模型' };
+  const priced = { provider: 'p1', providerName: '渠道', model: 'm1', modelName: '模型' };
   await withHome(async (home) => {
     const now = Date.now();
     const oldAt = now - 20 * 86400000;
@@ -967,8 +963,6 @@ test('老账本升级：模型按天明细落在事件真实日，窄范围里�
     assert.equal(week.kpi.uncachedInputTokens, 1_000_000, '7d 只有两天前那一笔');
     assert.equal(week.models.length, 1, '模型行照常出现');
     assert.equal(week.models[0].billedTokens, 1_000_000, '模型行与 KPI 同一个数，不是整段累计');
-    assert.equal(week.cost.pricedBilled, 1_000_000, '金额只覆盖窗口里的量');
-    assert.equal(week.cost.unpricedBilled, 0);
     const all = ledger.summarize(book, 'all', now);
     assert.equal(all.models[0].billedTokens, 10_000_000, '全部那档仍是累计，一笔不少');
   });
@@ -1065,63 +1059,20 @@ test('模型卡排序：计费量降序，相同再按最后活动时间降序',
   assert.deepEqual(rows.map((row) => row.model), ['m2', 'm1', 'm3']);
 });
 
-test('成本：按模型桶的四档价折算，合计只含有价的那些行，没价的落进 unpricedBilled', () => {
-  // 价目从真表里取一条：具体数字会随快照变，所以只拿「这一条自己」当基准。
-  const table = require('../lib/mobile/model-prices-table.cjs');
-  const key = Object.keys(table.BY_PROVIDER_MODEL)[0];
-  const split = key.indexOf('/');
-  const price = table.BY_PROVIDER_MODEL[key];
-  const priced = { provider: key.slice(0, split), providerName: '渠道', model: key.slice(split + 1), modelName: '模型' };
-  const unpriced = { provider: 'route-model-a', providerName: '', model: 'nobody-knows-this-one', modelName: '' };
-
+test('成本估算已经拆掉：总览与模型行都不再带金额字段', () => {
   const now = Date.UTC(2026, 9, 22, 6, 0);
-  // 走 `applyDelta`（按天账 + 会话 + 模型三件事一起记）：`unpricedBilled` 是拿按天总账减去
-  // 有价的那几行算出来的，只往模型表里写、按天账空着，这个差就没有意义。
   const book = bookWith([
     {
       sessionId: 's1',
       at: now,
-      model: priced,
+      model: { provider: 'deepseek', providerName: '渠道', model: 'deepseek-chat', modelName: '模型' },
       delta: usage({ uncachedInputTokens: 1e6, outputTokens: 1e6, cacheReadTokens: 1e6, cacheWriteTokens: 1e6 }),
     },
-    {
-      sessionId: 's2',
-      at: now,
-      model: unpriced,
-      delta: usage({ uncachedInputTokens: 500 }),
-    },
   ]);
-
-  const overview = ledger.summarize(book, '7d', now);
-  const pricedRow = overview.models.find((row) => row.model === priced.model);
-  const unpricedRow = overview.models.find((row) => row.model === unpriced.model);
-  const expected = Math.round((price[0] + price[1] + price[2] + price[3]) * 1e6) / 1e6;
-
-  assert.equal(pricedRow.cost, expected, '四档各乘各的价、除以一百万');
-  assert.equal('cost' in unpricedRow, false, '查不到价的模型不画一个 0');
-  assert.equal(overview.cost.currency, 'USD');
-  assert.equal(overview.cost.total, expected);
-  assert.equal(overview.cost.pricedBilled, 4e6);
-  assert.equal(overview.cost.unpricedBilled, 500, '没价的那一截 token 要单独说出来');
-  assert.match(overview.cost.asOf, /^\d{4}-\d{2}-\d{2}$/, '页面要写清按哪天的价估的');
-  const rowsTotal = overview.models
-    .filter((row) => typeof row.cost === 'number')
-    .reduce((sum, row) => sum + row.cost, 0);
-  assert.ok(Math.abs(rowsTotal - overview.cost.total) < 1e-6, '合计就是各行之合');
-  assert.equal(JSON.stringify(book).includes('"cost"'), false, '金额不落盘（价格变了下次出数就该跟着变）');
-});
-
-test('成本：一台机器一个模型都查不到价时，整项不给（页面据此不画）', () => {
-  const now = Date.UTC(2026, 9, 22, 6, 0);
-  const book = bookWith([]);
-  ledger.applyModelUsage(book, {
-    model: { provider: 'route-model-a', providerName: '', model: 'nobody-knows-this-one', modelName: '' },
-    day: ledger.dayKeyOf(now),
-    usage: usage({ uncachedInputTokens: 5, outputTokens: 5 }),
-  });
   const overview = ledger.summarize(book, '7d', now);
   assert.equal(overview.models.length, 1);
-  assert.equal('cost' in overview, false, '没有一行有价时整项不出，别给一个 $0');
+  assert.equal('cost' in overview, false, '总览不再带估算金额');
+  assert.equal('cost' in overview.models[0], false, '模型行也不再带金额');
 });
 
 test('读盘清洗：坏模型桶与坏 record.model 丢掉，老账本缺这两块按空处理', () => {

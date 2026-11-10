@@ -14,7 +14,7 @@
  * 抓完直接覆盖快照；跟着跑一遍 `node --test dsh-mobile-plugin/test/model-meta.test.cjs`。
  *
  * 三条口径写在这里：
- *   - **键是折叠后的模型名**（小写、只留字母数字，与 `model-prices` 的 `foldKey` 逐字一致）：
+ *   - **键是折叠后的模型名**（小写、只留字母数字，与 `model-meta.js` 的 `foldKey` 逐字一致）：
  *     同一份资料在聊天里可能写成 `Claude-Sonnet-4.5`、`anthropic/claude-sonnet-4-5`、
  *     `claude_sonnet_4_5 (中转)`，折叠之后落到同一个键上。不猜后缀、不做模糊匹配 ——
  *     宁可查不到、让用户自己填，也不把另一个模型的上下文塞进去。
@@ -33,7 +33,7 @@ const SOURCES = {
 
 const OUT_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'lib', 'mobile', 'model-meta-table.cjs');
 
-/** 与 `lib/mobile/model-prices.cjs` 的 `foldKey` 必须逐字一致，否则两边查的是两张表。 */
+/** 与 `lib/mobile/model-meta.js` 的 `foldKey` 必须逐字一致，否则两边查的是两张表。 */
 function foldKey(value) {
   if (typeof value !== 'string') return '';
   const flat = value.trim().toLowerCase();
@@ -167,7 +167,7 @@ const header = `'use strict';
  * 模型参数快照（自动生成，别手改；重新生成见 \`scripts/build-model-meta.mjs\`）。
  *
  * 来源 models.dev 与 LiteLLM（都是 MIT）。键是**折叠后的模型名**（小写、只留字母数字），
- * 与 \`model-prices.cjs\` 的 \`foldKey\` 逐字一致；一行里只有这几个字段：
+ * 与 \`model-meta.js\` 的 \`foldKey\` 逐字一致；一行里只有这几个字段：
  *
  *   - \`n\`：公开名字（弹窗列表上给人看的）；
  *   - \`c\`：上下文窗口；

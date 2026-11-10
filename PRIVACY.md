@@ -1,6 +1,6 @@
 # 隐私政策 · AI-HUB 移动端（dsh-mobile-plugin）
 
-生效日期：2026-10-24。适用对象：AI-HUB 手机 App（`com.dsh.mobile`，iOS / Android）以及配套的
+生效日期：2026-11-11。适用对象：AI-HUB 手机 App（`com.dsh.mobile`，iOS / Android）以及配套的
 `dsh-mobile-plugin` 宿主插件。
 
 ## 一句话
@@ -45,26 +45,17 @@ AI-HUB 是你自己电脑上 DeepSeek Harness 的手机客户端 —— 它把�
   「连不上 / 很慢」这类问题。**不含会话正文，也不含凭据明文。**
 - 手机上另有一份本地连接诊断记录（最近的通道、耗时、错误），只在 App 内展示，你可以随时清空。
 
-### 1.5 语音输入（涉及第三方）
-
-- 语音输入是**可选**功能，不主动开始就不会用。
-- 音频在设备上录制后，会发给转写用的语音服务 —— 当前是**微信输入法的私有接口**
-  （`wetype.weixin.qq.com`，由腾讯运营）—— 以转成文字。**该音频会离开你的设备**，并按腾讯的隐私政策
-  处理；涉及跨境传输的情形（例如欧盟用户使用该服务）请注意这一点。
-- 不想这样的话不要使用语音输入，其余功能不受影响。转写结果只落进手机上的消息草稿，之后与普通文字
-  一样发往你自己的电脑。
-
-### 1.6 内购（仅商店版）
+### 1.5 内购（仅商店版）
 
 - **商店版**（App Store / Google Play）：首次启动后有 7 天试用期，之后按月订阅或一次性买断。
   支付完全由苹果或谷歌处理，我们看不到也存不了你的姓名、支付方式或卡号；App 只从商店拿到
   「有没有有效购买、是哪个商品、订阅到期日」，并缓存在本机以便离线可用。
 - **直装版**（国内分发平台与 GitHub 那个包）：**没有任何内购**，永久免费，界面上不出现收费相关内容。
 
-### 1.7 权限与本地数据
+### 1.6 权限与本地数据
 
-- 权限用途：**相机**扫二维码；**相册**选图发给电脑；**通知**用于任务完成提醒；**本地网络**用于
-  访问同一局域网内的电脑。
+- 权限用途：**相机**扫二维码；**相册**选图发给电脑；**麦克风**用于内置浏览器打开电脑上的预览页面时，
+  页面里的网页应用可能需要麦克风；**通知**用于任务完成提醒；**本地网络**用于访问同一局域网内的电脑。
 - App 本地保存：设备列表与备注、会话与列表缓存、主题偏好、下载的热更包。卸载 App 即全部删除。
 
 ## 2. 我们不做什么
@@ -109,11 +100,6 @@ tracking. When your phone and computer are not on the same network, traffic is r
 relay server: conversation content is forwarded and cached **in memory only** (never written to disk).
 Our update platform (`app.wnluo.com`) receives app version, platform, build numbers and a device
 identifier for update delivery and statistics — never conversation content.
-
-**Voice input** is optional and off unless you start it. Audio is recorded on the device and sent to
-the transcription service — currently WeChat Input Method (`wetype.weixin.qq.com`, operated by
-Tencent) — so it leaves your device and is handled under Tencent's privacy policy. Do not use voice
-input if you do not want this; everything else works without it.
 
 **Purchases** exist only in the App Store and Google Play builds (7-day trial, then a yearly
 subscription or a one-time purchase). Payment is handled entirely by Apple or Google; the app only
