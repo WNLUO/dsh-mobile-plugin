@@ -117,8 +117,8 @@ test('BASE / 已知 / 未分类的解析', () => {
   assert.equal(P.resolvePermission('/api/mobile/v1/desktop-view'), 'view');
   assert.equal(P.resolvePermission('/api/mobile/v1/not/in/table'), 'unknown', '未登记路由 fail-closed');
   // 同路径不同方法分读写
-  assert.equal(P.resolvePermission('/api/mobile/v1/supervisor/tasks', 'GET'), 'view');
-  assert.equal(P.resolvePermission('/api/mobile/v1/supervisor/tasks', 'POST'), 'files.write');
+  assert.equal(P.resolvePermission('/api/mobile/v1/narration', 'GET'), 'view');
+  assert.equal(P.resolvePermission('/api/mobile/v1/narration', 'POST'), 'files.write');
   // relay/config 的 POST 是保存（改地址 / 密钥 / 配对策略），归 manage；只有 GET 是只读自查。
   assert.equal(P.resolvePermission('/api/mobile/v1/relay/config', 'GET'), 'view');
   assert.equal(P.resolvePermission('/api/mobile/v1/relay/config', 'POST'), 'manage');

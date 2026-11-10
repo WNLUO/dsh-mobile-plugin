@@ -12,6 +12,10 @@
  *  - 太小 / 客户端没声明 → 发明文（绝不能赌客户端会解压）；
  *  - 中转和局域网的两条「读本地快照直接回」的捷径也走同一份实现（它们才是最大的那几份）。
  *
+ * 2026-11-10 起压缩是异步的（`zlib.gzip` 的回调版）：同步压几百 KB 会把插件单线程整段占住，
+ * 期间所有移动 API 请求排队。所以 `sendJson` / `encodeJsonBody` 都返回 Promise，这里的
+ * 用例一律 await；「最小那条路同步写完」不在这里断（它是实现细节，形状不变就够了）。
+ *
  * 运行：node --test test/json-gzip.test.cjs
  */
 
@@ -35,10 +39,10 @@ function response(acceptEncoding) {
 
 const bigBody = () => ({ ok: true, items: Array.from({ length: 200 }, (_, i) => ({ sessionId: `s-${i}`, title: '会话标题'.repeat(4) })) });
 
-test('客户端声明 gzip 且响应够大时压缩，解压后与原文一致', () => {
+test('客户端声明 gzip 且响应够大时压缩，解压后与原文一致', async () => {
   const res = response('gzip, deflate, br');
   const body = bigBody();
-  sendJson(res, 200, body);
+  await sendJson(res, 200, body);
   assert.equal(res.status, 200);
   assert.equal(res.headers['content-encoding'], 'gzip', '够大的 JSON 必须压');
   assert.equal(res.headers.vary, 'accept-encoding', '压缩与否取决于请求头，必须声明 vary（前面还有 CDN）');
@@ -46,24 +50,24 @@ test('客户端声明 gzip 且响应够大时压缩，解压后与原文一致',
   assert.deepEqual(JSON.parse(zlib.gunzipSync(res.body).toString('utf8')), body);
 });
 
-test('客户端没声明 gzip 时发原文', () => {
+test('客户端没声明 gzip 时发原文', async () => {
   const res = response('');
-  sendJson(res, 200, bigBody());
+  await sendJson(res, 200, bigBody());
   assert.equal(res.headers['content-encoding'], undefined, '没声明就不能压：赌客户端会解压，赌输就是乱码');
   assert.ok(Array.isArray(JSON.parse(res.body.toString('utf8')).items));
 });
 
-test('小响应不压', () => {
+test('小响应不压', async () => {
   const raw = Buffer.from(JSON.stringify({ ok: true }));
   assert.ok(raw.length < JSON_GZIP_MIN_BYTES);
-  const encoded = encodeJsonBody(raw, 'gzip');
+  const encoded = await encodeJsonBody(raw, 'gzip');
   assert.equal(encoded.gzip, false, '压小响应的头部与 CPU 换不回字节');
   assert.deepEqual(encoded.body, raw);
 });
 
-test('body 为 undefined 时照旧发空，不抛', () => {
+test('body 为 undefined 时照旧发空，不抛', async () => {
   const res = response('gzip');
-  assert.doesNotThrow(() => sendJson(res, 204, undefined));
+  await sendJson(res, 204, undefined);
   assert.equal(res.status, 204);
   assert.equal(res.body.length, 0);
 });

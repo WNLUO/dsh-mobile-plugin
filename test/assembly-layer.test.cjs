@@ -64,6 +64,7 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 判断与写盘规则在 `relay/route-adopt.cjs`（宿主是 relay.json 唯一写方），装配层只是挂上去。
   // 2026-11-09 +4：通话总管的两块（总管工具、两本账）各一 require 一 mount，实现都在
   // `mobile/supervisor-tools.js` 与 `mobile/supervisor-memory/`，没有一行搬回装配层。
+  // 2026-11-10 -3：通话整条链下线（总管工具 / 播报 / 运行期 / 两本账各一 require 一处 mount 撤掉）。
   // 2026-11-10 -2：悬浮宠物下线（一个 require 与一处 mount 一起撤掉）。
   // 2026-11-10 +9：推送出口接线（`createPushNotifier` 一 require 一实例化、晚绑定壳两行、
   // 传给镜像调度器一格、交给路由表一格、两个 `setPushNotifier` 各一行）；组帧、去重与
