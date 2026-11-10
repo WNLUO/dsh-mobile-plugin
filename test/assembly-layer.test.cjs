@@ -48,8 +48,6 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 候选的合并逻辑在 `relay/lan-network.cjs` 的 `withManualIpv6Candidate`，没有搬回装配层。
   // 2026-11-04 +4：终端 / CLI 与「操作手机」各两行（一个 require、一个把服务交给路由表），
   // 实现分别在 `mobile/services.js` 与 `mobile/phone/`，没有一行搬回装配层。
-  // 2026-11-05 +2：悬浮宠物的两个工具（一个 require、一个 mount），实现在
-  // `mobile/pet-tools.js`，包目录与三条路由在 `mobile/pets.js`，没有一行搬回装配层。
   // 2026-11-06 +3：直连隧道的两个依赖转交（status 视图一格、移动端路由一格与注释），实现在
   // `lib/tailcat/`。
   // 2026-11-06 +8：直连隧道的挂载（一个 require、一次 `mountTailcat`、依赖表一行与注释）；
@@ -66,10 +64,11 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 判断与写盘规则在 `relay/route-adopt.cjs`（宿主是 relay.json 唯一写方），装配层只是挂上去。
   // 2026-11-09 +4：通话总管的两块（总管工具、两本账）各一 require 一 mount，实现都在
   // `mobile/supervisor-tools.js` 与 `mobile/supervisor-memory/`，没有一行搬回装配层。
+  // 2026-11-10 -2：悬浮宠物下线（一个 require 与一处 mount 一起撤掉）。
   // 2026-11-10 +9：推送出口接线（`createPushNotifier` 一 require 一实例化、晚绑定壳两行、
   // 传给镜像调度器一格、交给路由表一格、两个 `setPushNotifier` 各一行）；组帧、去重与
   // 投递都在 `mobile/push-notify.js`，装配层只是把它接上。
-  assert.ok(lines <= 612, `lib/impl.js 回到 ${lines} 行了；超过 612 说明实现又被搬回装配层`);
+  assert.ok(lines <= 610, `lib/impl.js 回到 ${lines} 行了；超过 610 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

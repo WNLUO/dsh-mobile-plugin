@@ -100,8 +100,8 @@ test('手工注册的路由也进对账（含两条 WebSocket 升级路由）', 
   assert.ok(paths.includes('/api/mobile/v1/pair'));
   // 升级路由：它们不过 guarded，权限位只能由服务自己判 —— 但必须在这张表里有分类，
   // 否则「是不是漏了一条」这件事永远查不出来。
-  assert.equal(P.isClassified('/api/mobile/v1/phone/control'), true, '动作通道必须在权限表里');
-  assert.equal(P.resolvePermission('/api/mobile/v1/phone/control'), 'operate');
+  // 2026-11-10「操作手机」整块下线，`/phone/control` 动作通道随之删除，这条断言一并去掉；
+  // 升级路由只剩 preview 一条。
   assert.equal(P.isClassified('/api/mobile/v1/preview'), true);
   assert.equal(P.resolvePermission('/api/mobile/v1/preview'), 'view');
   // 公开那两条按约定不进权限表，但它们必须仍在 PUBLIC_ROUTES 那份豁免里。
