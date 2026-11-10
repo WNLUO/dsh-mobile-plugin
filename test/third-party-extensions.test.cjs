@@ -260,3 +260,62 @@ test('取文件那条也认第三方插件的 slug，不认识的仍回 404', as
     fs.rmSync(pluginsRoot, { recursive: true, force: true });
   }
 });
+
+/**
+ * 数据服务声明（`dshMobileDataServices`）：这一节钉的是「第三方插件能不能把自己的接口
+ * 登记给宿主代取」—— 没有它，插件自带的扩展页永远读不到数据。
+ */
+test('数据服务声明：只认最窄的写法，坏项单独丢、不连坐', () => {
+  assert.deepEqual(thirdParty.parseDataServices({}), []);
+  assert.deepEqual(thirdParty.parseDataServices(null), []);
+  assert.deepEqual(thirdParty.parseDataServices({ dshMobileDataServices: 'nope' }), [], '不是数组就是没声明');
+  assert.deepEqual(
+    thirdParty.parseDataServices({ dshMobileDataServices: [{ service: 'dsh-email', allow: ['/api/dsh-email/'] }] }),
+    [{ service: 'dsh-email', allow: ['/api/dsh-email/'] }],
+  );
+  // 空服务名 / 非法字符 / 没有 allow 都是坏项。
+  assert.deepEqual(thirdParty.parseDataServices({ dshMobileDataServices: [{ service: '', allow: ['/api/'] }] }), []);
+  assert.deepEqual(thirdParty.parseDataServices({ dshMobileDataServices: [{ service: 'a b', allow: ['/api/'] }] }), []);
+  assert.deepEqual(thirdParty.parseDataServices({ dshMobileDataServices: [{ service: 'ok' }] }), []);
+  // 一个坏项不影响同包另一个好项。
+  assert.deepEqual(
+    thirdParty.parseDataServices({
+      dshMobileDataServices: [{ service: 'bad name', allow: ['/api/'] }, { service: 'good', allow: ['/api/good/'] }],
+    }).map((entry) => entry.service),
+    ['good'],
+  );
+});
+
+test('数据服务声明：allow 只认本源绝对路径前缀，URL 与协议相对写法一律拒', () => {
+  const parsed = thirdParty.parseDataServices({
+    dshMobileDataServices: [{
+      service: 'x',
+      allow: ['/api/x/', 'http://evil.com/', '//evil.com', 'api', '', '/api/x/', '/ok/'],
+    }],
+  });
+  assert.deepEqual(parsed, [{ service: 'x', allow: ['/api/x/', '/ok/'] }], '外站与相对写法都进不来，重复去掉');
+});
+
+test('数据服务发现：扫 profile，只认声明过的，同名按包名排序先扫到的优先', () => {
+  const pluginsRoot = makeTmp();
+  try {
+    makePlugin(pluginsRoot, 'dsh-email-plugin', {
+      dshMobileExtensions: 'extensions',
+      dshMobileDataServices: [{ service: 'dsh-email', allow: ['/api/dsh-email/'] }],
+    }, {});
+    makePlugin(pluginsRoot, 'another-plugin', {
+      dshMobileDataServices: [{ service: 'dsh-email', allow: ['/api/other/'] }, { service: 'own', allow: ['/api/own/'] }],
+    }, {});
+    makePlugin(pluginsRoot, 'no-services', {}, {});
+    const found = thirdParty.discoverDataServices(pluginsRoot);
+    const byName = Object.fromEntries(found.map((entry) => [entry.service, entry]));
+    // 顺序按包名排（`another-plugin` 在 `dsh-email-plugin` 之前），所以前者赢 —— 判的是
+    // 「有确定的顺序」，不是「谁该赢」。
+    assert.deepEqual(byName['dsh-email'].allow, ['/api/other/'], '同名按包名排序，先扫到的优先');
+    assert.deepEqual(byName.own.allow, ['/api/own/']);
+    assert.equal(found.length, 2, '没声明服务的插件不贡献任何一项');
+    assert.deepEqual(thirdParty.discoverDataServices(null), [], '取不到 profile 目录就是空');
+  } finally {
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+  }
+});

@@ -57,7 +57,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice, Dbg] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Spn, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice, Dbg] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -66,6 +66,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Toggle, Picker, Inbox, Dl
   server.ssrLoadModule('/src/App.tsx'),
   server.ssrLoadModule('/src/Onboarding.tsx'),
   server.ssrLoadModule('/src/components/JoinGroupButton.tsx'),
+  server.ssrLoadModule('/src/components/SponsorButton.tsx'),
   server.ssrLoadModule('/src/components/ThemeToggle.tsx'),
   server.ssrLoadModule('/src/components/AddressPicker.tsx'),
   server.ssrLoadModule('/src/components/InboxCard.tsx'),
@@ -200,6 +201,9 @@ const cases = [
   // 悬浮那颗「加入交流群」独立于两张卡，单独过一遍：它要贴住右下角（`fixed`）、
   // 文字和微信图标都得在。点开之后是什么还没定，所以只看按钮在不在。
   ['JoinGroupButton', h(Join.JoinGroupButton, {}), '加入交流群'],
+  // 赞助那颗悬浮按钮：按钮文字与网络说明都得在；弹窗同样走 portal，SSR 是空串，
+  // 收款地址 / 二维码要真浏览器点开看。
+  ['SponsorButton', h(Spn.SponsorButton, {}), '赞助'],
   // 右上角那组按钮（日夜 + 界面语言）：SSR 里没有 ThemeProvider（`useTheme` 回空值），
   // 只冒烟「两颗按钮都在、无障碍名给的是下一步」；图标换不换、贴没贴住要看真浏览器。
   ['ThemeToggle', h(Toggle.ThemeToggle, {}), 'aria-label="切换到夜间模式"'],

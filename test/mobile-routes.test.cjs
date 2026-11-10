@@ -134,19 +134,6 @@ test('已审核扩展清单的两条：两侧同名，清单在前、取文件�
   assert.match(app, /^\s{2}\w+:\s*'\/extension\/catalog\/file',?$/m, "App 侧 apiPaths.ts 得声明一条 '/extension/catalog/file'");
 });
 
-test('邮箱三条：两侧同名、与 docs/mail-app.md 契约对得上', { skip: SKIP_NO_APP }, () => {
-  const registered = pluginPaths();
-  // 插件的三条路由（走 route() 即 guarded）。路径字面量按契约 §1 写死，不跟着 App 的 key 名走。
-  for (const sub of ['/mail/status', '/mail', '/mail/draft']) {
-    assert.ok(registered.has(`${API_BASE}${sub}`), `插件侧没注册 ${API_BASE}${sub}`);
-  }
-  // App 侧同样按**值**对账：这三条是这一轮新开的，App 常量必须声明同样的路径。
-  const app = fs.readFileSync(APP_PATHS, 'utf8');
-  for (const sub of ['/mail/status', '/mail', '/mail/draft']) {
-    assert.ok(app.includes(`'${sub}'`), `App 侧 apiPaths.ts 得声明一条 '${sub}'`);
-  }
-});
-
 test('由中转提供的路径清单本身没腐化（App 里那把钥匙还在）', { skip: SKIP_NO_APP }, () => {
   const all = fs.readFileSync(APP_PATHS, 'utf8');
   for (const [key, why] of RELAY_SERVED) {

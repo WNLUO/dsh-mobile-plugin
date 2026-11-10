@@ -51,7 +51,6 @@
     "dsh-mobile-credentials",
     "locale/*.json",
     "icon.png",
-    "knowledge/**/*.md",
     "skills/**",
     "extensions/**",
     "README.md"

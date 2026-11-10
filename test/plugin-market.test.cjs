@@ -7,9 +7,9 @@
  * 那个页面背后的同一个服务）。所以钉的是五件事：
  *  1. **args 键名与宿主 descriptor 逐字一致** —— 多一个少一个宿主都回 arguments-invalid，
  *     而这类失败在手机上只表现成「点了没反应」；
- *  2. **承载 App 连接的那个包不给停用**，而且这条得在调网关**之前**拒掉，不能先打一发
- *     再拦。卸载没有这条保护位可言 —— 界面上根本没有这个入口（卸载要重启电脑上的 DSH，
- *     手机上做不合适），插件侧也不再注册那条路由；
+ *  2. **承载 App 连接的那个包不给停用 / 卸载**，而且不卸这条得在调网关**之前**拒掉，
+ *     不能先打一发再拦；卸载另有两条闸：宿主说 `removable:false` 的不给卸、没装上的不给卸
+ *     （2026-11-11 用户要求加卸载，判据仍以宿主清单为准，插件侧不另立白名单）；
  *  3. 装 / 升都是**异步任务**：立即回 202 + requestId，进度另开一条轮询；失败要落进
  *     那条记录里，不能吞掉；
  *  4. 升级的语义是「卸载再装」（DSH 自己的规矩），官方按需插件用宿主给的确切目标版本，
@@ -35,6 +35,8 @@ const {
   handlePluginMarketProgress,
   handlePluginMarketCancel,
   handlePluginMarketEnabled,
+  handlePluginMarketDetail,
+  handlePluginMarketRemove,
   normalizeBundle,
   operationView,
   updateTargetOf,
@@ -455,6 +457,109 @@ test('升级一个本地来源的插件：明确回 no-update-target，不打网
 });
 
 // ---------------------------------------------------------------------------
+// 卸载（2026-11-11 加）：只听宿主的 removable
+// ---------------------------------------------------------------------------
+
+test('卸载：可卸的包转给 removeBundle，立即回 202 + requestId', async () => {
+  const gateway = makeGateway({
+    'pluginManager/listBundles': () => [bundle({ name: 'dsh-foo', removable: true })],
+    'pluginManager/removeBundle': () => ({ changed: true, application: 'applied', stage: 'remove', target: 'dsh-foo' }),
+  });
+  const res = makeRes();
+  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ name: 'dsh-foo', requestId: 'rm-1' }), res);
+  assert.equal(res.status, 202);
+  assert.equal(res.body.requestId, 'rm-1');
+  const task = await settle(require('../lib/mobile/plugin-market.js').tasks.get('rm-1'));
+  assert.equal(task.result.ok, true);
+  assert.equal(task.result.operation.application, 'applied');
+  const removeCall = gateway.calls.find((call) => call.method === 'removeBundle');
+  assert.deepEqual(removeCall.args, { name: 'dsh-foo' }, 'args 键名与宿主 descriptor 逐字一致');
+});
+
+test('卸载承载手机连接的那个包：403 self-protected，且一次网关都不打', async () => {
+  const gateway = makeGateway();
+  const res = makeRes();
+  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ name: SELF_NAME }), res);
+  assert.equal(res.status, 403);
+  assert.equal(res.body.error.code, 'self-protected');
+  assert.equal(gateway.calls.length, 0, '要在调网关之前拒掉');
+});
+
+test('卸载 DSH 自带 / 安装提供的包：400 not-removable，removeBundle 一次都不打', async () => {
+  const gateway = makeGateway({
+    'pluginManager/listBundles': () => [bundle({ name: 'official-x', official: true, removable: false })],
+  });
+  const res = makeRes();
+  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ name: 'official-x' }), res);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, 'not-removable');
+  assert.equal(gateway.calls.filter((call) => call.method === 'removeBundle').length, 0);
+});
+
+test('卸载一个清单里没有的包：404 unknown-plugin', async () => {
+  const gateway = makeGateway({ 'pluginManager/listBundles': () => [] });
+  const res = makeRes();
+  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ name: 'nope' }), res);
+  assert.equal(res.status, 404);
+  assert.equal(res.body.error.code, 'unknown-plugin');
+});
+
+test('卸载失败要落进那条记录里，不能吞掉', async () => {
+  const gateway = makeGateway({
+    'pluginManager/listBundles': () => [bundle({ name: 'dsh-foo', removable: true })],
+    'pluginManager/removeBundle': () => ({ changed: false, application: 'failed', error: { code: 'bundle-in-use' } }),
+  });
+  const res = makeRes();
+  await handlePluginMarketRemove(makeCtx(gateway), makeReq({ name: 'dsh-foo', requestId: 'rm-2' }), res);
+  const task = await settle(require('../lib/mobile/plugin-market.js').tasks.get('rm-2'));
+  assert.equal(task.result.operation.error.code, 'bundle-in-use');
+});
+
+// ---------------------------------------------------------------------------
+// 说明文档：Markdown 原样转出
+// ---------------------------------------------------------------------------
+
+test('说明文档：宿主给 found 就把 Markdown 原样转出去，不转 HTML', async () => {
+  const gateway = makeGateway({
+    'pluginManager/readBundleDetail': (request) => ({
+      status: 'found',
+      origin: 'readme',
+      path: 'README.md',
+      markdown: `# ${request.args.name}\n\n- 一\n- 二`,
+    }),
+  });
+  const res = makeRes();
+  await handlePluginMarketDetail(
+    makeCtx(gateway),
+    makeReq(undefined, '/api/mobile/v1/plugin/market/detail?name=dsh-foo&language=zh-CN'),
+    res,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, 'found');
+  assert.equal(res.body.origin, 'readme');
+  assert.ok(res.body.markdown.includes('# dsh-foo'), 'Markdown 原样过去，由 App 自己渲染');
+  assert.ok(!res.body.markdown.includes('<h1'), '不许在插件侧转成 HTML');
+  const call = gateway.calls.find((item) => item.method === 'readBundleDetail');
+  assert.deepEqual(call.args, { name: 'dsh-foo', language: 'zh-CN' });
+});
+
+test('说明文档：宿主回 none 不是错，就报 none', async () => {
+  const gateway = makeGateway({ 'pluginManager/readBundleDetail': () => ({ status: 'none' }) });
+  const res = makeRes();
+  await handlePluginMarketDetail(makeCtx(gateway), makeReq(undefined, '/api/mobile/v1/plugin/market/detail?name=dsh-foo'), res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, 'none');
+});
+
+test('说明文档：缺 name 就是 400，不打网关', async () => {
+  const gateway = makeGateway();
+  const res = makeRes();
+  await handlePluginMarketDetail(makeCtx(gateway), makeReq(undefined, '/api/mobile/v1/plugin/market/detail'), res);
+  assert.equal(res.status, 400);
+  assert.equal(gateway.calls.length, 0);
+});
+
+// ---------------------------------------------------------------------------
 // 结果投影与接线
 // ---------------------------------------------------------------------------
 
@@ -468,11 +573,13 @@ test('动作结果只认宿主那五个 application，别的按失败算', () =>
   assert.equal(withError.error.message, '需要 0.3');
 });
 
-test('接线：该有的八条都挂在移动端路由表里，卸载那条不在', () => {
+test('接线：该有的十条都挂在移动端路由表里', () => {
   const table = readSource('lib/routes/mobile-api.js');
   for (const suffix of [
     '/plugin/market',
     '/plugin/market/registries',
+    '/plugin/market/detail',
+    '/plugin/market/remove',
     '/plugin/market/inspect',
     '/plugin/market/install',
     '/plugin/market/update',
@@ -482,9 +589,9 @@ test('接线：该有的八条都挂在移动端路由表里，卸载那条不�
   ]) {
     assert.ok(table.includes(`route('/api/mobile/v1${suffix}'`), `${suffix} 没注册（App 打过去必然 404）`);
   }
-  // 手机上不做卸载（那要重启电脑上的 DSH）：路由与 handler 一起拿掉，别留一条没人该打的路。
-  assert.ok(!table.includes("'/api/mobile/v1/plugin/market/remove'"), '卸载那条不该还注册着');
-  assert.ok(!readSource('lib/mobile/plugin-market.js').includes('handlePluginMarketRemove'), '卸载 handler 的导出也该一起删掉');
+  const source = readSource('lib/mobile/plugin-market.js');
+  assert.ok(source.includes('handlePluginMarketRemove'), '卸载 handler 要导出来（2026-11-11 起有这个入口）');
+  assert.ok(source.includes('handlePluginMarketDetail'), '说明文档那条 handler 要导出来');
 });
 
 test('契约：不借道 shell / 不自己跑包管理器（能力面收在 pluginManager 上）', () => {

@@ -30,6 +30,7 @@ import { Switch } from '@appica/ui-react/switch'
 import { useCallback, useEffect, useState } from 'react'
 
 import { errorText } from '../lib/api.ts'
+import { timeText } from '../lib/format.ts'
 import { useNotify } from '../lib/notify.ts'
 import {
   MarketError,
@@ -71,11 +72,9 @@ const SOFT_CODES = new Set(['OPERATION_BUSY', 'RELEASE_TOO_FRESH', 'VERSION_UNCH
 type UpdateView = MarketUpdate & { checkedAt?: string | null }
 
 /** 时间戳（宿主给的是 ISO 串）→ 本机可读；给不出就直说「还没」。 */
-function timeText(value: string | null | undefined, fallback: string): string {
+function stampText(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
-  const at = new Date(value)
-  if (Number.isNaN(at.getTime())) return value
-  return at.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return timeText(value)
 }
 
 /** 把「装完了」这件事说成一句人话。 */
@@ -407,10 +406,10 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
               {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
             <InfoRow label={t('panel.update.lastCheck')}>
-              {timeText(update?.checkedAt ?? host.marketLastCheckedAt, t('panel.update.notChecked'))}
+              {stampText(update?.checkedAt ?? host.marketLastCheckedAt, t('panel.update.notChecked'))}
             </InfoRow>
             <InfoRow label={t('panel.update.lastApply')}>
-              {host.lastApply ? timeText(host.appliedAt, t('panel.update.neverUpdated')) : t('panel.update.neverUpdated')}
+              {host.lastApply ? stampText(host.appliedAt, t('panel.update.neverUpdated')) : t('panel.update.neverUpdated')}
             </InfoRow>
           </InfoList>
 
