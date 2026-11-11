@@ -14,12 +14,14 @@
  *   1. 在哪个检出里跑：必须有主仓的 `app/`，否则跨仓对账这一层查不了
  *   2. 版本号与 tag：三段都在 `0..999`、这个 tag 没打过、不比上一版低
  *   3. 工作区干净：发出去的必须是提交里的那一份，不能是测完又改过的工作区
- *   4. 面板产物跟得上源码：拿当前源码真重建一次，与盘上那份对不上就停在这一步
- *   5. 整套测试（在主仓里跑才包含跨仓对账）
- *   6. 真打一次包：关键产物在不在、有没有把源码和测试带出去、版本号对不对；
+ *   4. 作者文档/样例跟来源仓库一致：唯一来源是独立仓库 dsh-mobile-extensions，
+ *      本机没有那个检出时跳过（公开仓库单独检出与跨仓对账同一口径）
+ *   5. 面板产物跟得上源码：拿当前源码真重建一次，与盘上那份对不上就停在这一步
+ *   6. 整套测试（在主仓里跑才包含跨仓对账）
+ *   7. 真打一次包：关键产物在不在、有没有把源码和测试带出去、版本号对不对；
  *      随包的扩展清单里每个登记包有没有 manifest.json 与 index.html（入口页固定叫这个，
  *      缺了的话包装到用户手机上能装却打不开）
- *   7. 公开仓库的 issue：列出来给人看（只提醒，连不上就跳过，不挡发版）
+ *   8. 公开仓库的 issue：列出来给人看（只提醒，连不上就跳过，不挡发版）
  *
  * 跑完打印接下来那三步。README 的发版流程第一步就是它。
  */
@@ -59,7 +61,7 @@ const FORBIDDEN_PREFIXES = ['React/', 'test/', 'scripts/', 'node_modules/'];
 /** 用户提 issue 的地方：插件在 npm 上的公开仓库。 */
 const PUBLIC_REPO = 'WNLUO/dsh-mobile-plugin';
 
-const TOTAL = 7;
+const TOTAL = 8;
 
 class Stop extends Error {
   constructor(reason, hint) {
@@ -171,8 +173,28 @@ function checkClean() {
   );
 }
 
+function checkAuthorDocs() {
+  step(`4/${TOTAL} 作者文档与样例`);
+  // 唯一来源是独立仓库 dsh-mobile-extensions；本包 docs/ 是它同步过来的副本，随 npm 包发。
+  // 两边对不上就说明改了源码没同步（或改了插件包里那份手抄本）。本机没有来源检出时该脚本
+  // 自己跳过、这里不拦（公开仓库单独检出跑不到这条，与跨仓对账同一口径）。
+  const result = spawnSync('node', ['scripts/sync-author-docs.mjs', '--check'], {
+    cwd: PLUGIN,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    const out = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+    throw new Stop(
+      '作者文档/样例与 dsh-mobile-extensions 来源对不上',
+      '跑 node scripts/sync-author-docs.mjs 把它们同步进本包 docs/，再把改动一起提交'
+      + `（别手改插件包里那两份，下次同步会覆盖）。${out ? `\n${out}` : ''}`,
+    );
+  }
+  ok('作者文档与样例跟来源一致（本机没有来源检出时已跳过）');
+}
+
 function checkPanelArtifact() {
-  step(`4/${TOTAL} 面板产物`);
+  step(`5/${TOTAL} 面板产物`);
   if (!fs.existsSync(path.join(PLUGIN, PANEL_ARTIFACT))) {
     throw new Stop(
       `包里缺 ${PANEL_ARTIFACT}`,
@@ -206,7 +228,7 @@ function checkPanelArtifact() {
 }
 
 function runTests() {
-  step(`5/${TOTAL} 整套测试`);
+  step(`6/${TOTAL} 整套测试`);
   const result = spawnSync('npm', ['test'], { cwd: PLUGIN, stdio: 'inherit' });
   if (result.status !== 0) {
     throw new Stop(
@@ -218,7 +240,7 @@ function runTests() {
 }
 
 function checkPackage(version) {
-  step(`6/${TOTAL} 真打一次包`);
+  step(`7/${TOTAL} 真打一次包`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-release-'));
   try {
     const packed = sh('npm', ['pack', '--json', '--pack-destination', dir], { cwd: PLUGIN });
@@ -295,7 +317,7 @@ function fetchOpenIssues() {
 }
 
 function checkPublicIssues() {
-  step(`7/${TOTAL} 公开仓库的 issue（只提醒，不挡发版）`);
+  step(`8/${TOTAL} 公开仓库的 issue（只提醒，不挡发版）`);
   const issues = fetchOpenIssues();
   if (issues === null) {
     process.stdout.write('  · 连不上 GitHub 或本机没有 gh，跳过这一条\n');
@@ -327,6 +349,7 @@ function main() {
   checkCheckout();
   const version = checkVersionAndTag();
   checkClean();
+  checkAuthorDocs();
   checkPanelArtifact();
   runTests();
   checkPackage(version);

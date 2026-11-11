@@ -57,7 +57,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Spn, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice, Dbg] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Spn, Star, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice, Dbg] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -67,6 +67,7 @@ const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Spn, Toggle, Picker, Inbo
   server.ssrLoadModule('/src/Onboarding.tsx'),
   server.ssrLoadModule('/src/components/JoinGroupButton.tsx'),
   server.ssrLoadModule('/src/components/SponsorButton.tsx'),
+  server.ssrLoadModule('/src/components/StarButton.tsx'),
   server.ssrLoadModule('/src/components/ThemeToggle.tsx'),
   server.ssrLoadModule('/src/components/AddressPicker.tsx'),
   server.ssrLoadModule('/src/components/InboxCard.tsx'),
@@ -204,6 +205,10 @@ const cases = [
   // 赞助那颗悬浮按钮：按钮文字与网络说明都得在；弹窗同样走 portal，SSR 是空串，
   // 收款地址 / 二维码要真浏览器点开看。
   ['SponsorButton', h(Spn.SponsorButton, {}), '赞助'],
+  // 「给个 Star」：一颗直跳 GitHub 的链接（不是弹窗），所以 href 本身就值得钉 ——
+  // 相对地址在桌面壳里会变成 `dsh-app://`，壳只把 http(s) 交给系统浏览器，点了没反应。
+  ['StarButton', h(Star.StarButton, {}), '给个 Star'],
+  ['StarButton（是绝对外链）', h(Star.StarButton, {}), 'href="https://github.com/WNLUO/dsh-mobile-plugin"'],
   // 右上角那组按钮（日夜 + 界面语言）：SSR 里没有 ThemeProvider（`useTheme` 回空值），
   // 只冒烟「两颗按钮都在、无障碍名给的是下一步」；图标换不换、贴没贴住要看真浏览器。
   ['ThemeToggle', h(Toggle.ThemeToggle, {}), 'aria-label="切换到夜间模式"'],

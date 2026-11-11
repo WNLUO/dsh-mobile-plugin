@@ -40,7 +40,6 @@ Your phone talks to **the DeepSeek Harness running on your own computer**, not t
 - Create, resume, rename, and search sessions — or fork any of them into a branch that runs on its own.
 - Create, rename, delete, pin, and archive workspaces from the phone; the order you set there syncs back to the desktop.
 - Replies stream in chunk by chunk, so you see the text while it is still being written, and tool calls land in real time.
-- Idle sessions archive themselves, dropping out of the list without deleting their logs.
 - Reading a session on the phone clears its unread dot on the desktop; sidebar expansion state syncs to the phone, so both sides show the same shape.
 
 ### Everything you would otherwise walk back for
@@ -51,7 +50,7 @@ Your phone talks to **the DeepSeek Harness running on your own computer**, not t
 - **Files**: browse directories, read files, and send files from the phone back to the computer, where they land in a fixed inbox directory.
 - **Plugins**: search, install, update, and remove plugins from the marketplace on the phone; the plugin can also upgrade itself.
 - **Models**: switch models at any time, see which channels and models are available, and configure locally defined channels from the phone.
-- **Schedules and subagents**: list scheduled tasks and drop the ones you no longer need; watch running subagents, interrupt one, or send it a line.
+- **Schedules and subagents**: list scheduled tasks, create and edit them, pause, resume, run one now, or delete it; watch running subagents, interrupt one, or send it a line.
 
 ### Connection
 
@@ -137,10 +136,10 @@ That made two constraints hard. One is networking: no public IP, no port forward
 
 What is written here is what we genuinely do not do yet, not a polished to-do list.
 
-- **No real background notifications on iOS.** The system does not let the app stay resident, so task-completion notifications only work on Android; without offline push configured, iOS gets nothing once it is in the background.
+- **Background notifications on iOS are not always prompt.** The system does not let the app stay resident, so task-completion notifications rely on polling while the app is in the background plus occasional system wake-ups — if the system freezes the app or the background budget runs out, they can arrive late or not at all. With offline push configured there is a reliable fallback; without it, notifications only land while the app is in the foreground or still has background budget.
 - **The relay sees plaintext.** The link is WSS / HTTPS encrypted but not end-to-end encrypted — the same model as frp / ngrok. Session bodies are not persisted on the relay, but the relay process itself can decrypt them.
 - **The relay does not authenticate tunnels by default**: whoever can reach the relay port can take over the tunnel. To use it on the public internet, enable the relay console's restricted mode, or expose the port only to a trusted network.
-- **No uninstall from the phone.** Third-party plugins can be installed and upgraded, but there is no uninstall entry — an uninstall only takes effect the next time DSH starts on the computer, and a button that does not take effect immediately only misleads. Uninstall from the computer.
+- **The plugin carrying the phone connection cannot be uninstalled from the phone.** Third-party plugins can be installed, upgraded, and removed on the phone, but removing `dsh-mobile-plugin` itself would cut this phone off for good, so the button is not offered; and anything uninstalled there only takes effect the next time DSH starts on the computer.
 
 ## Contact
 

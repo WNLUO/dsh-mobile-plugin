@@ -407,7 +407,7 @@ hex 还是 base64），先修到全绿再联调。
 - `/api/mobile/v1/model-meta`、`/model-meta/apply`
 - `/api/mobile/v1/channels`、`/channels/discover`、`/channels/save`、`/channels/delete`
 - `/api/mobile/v1/deepseek-account`、`/credentials`、`/credentials/set`、`/credentials/unset`
-- `/api/mobile/v1/skills`、`/session-log`、`/magpie/web`
+- `/api/mobile/v1/skills`、`/session-log`
 
 **子代理与引用**
 
@@ -436,10 +436,9 @@ hex 还是 base64），先修到全绿再联调。
 - `/api/mobile/v1/extension/dev/packages`、`/dev/file`
 - `/api/mobile/v1/extension/catalog`、`/catalog/file`、`/catalog/archive`
 
-**上传、画布、收件箱**
+**上传、收件箱**
 
 - `/api/mobile/v1/upload/begin`、`/chunk`、`/finish`、`/abort`
-- `/api/mobile/v1/canvas/manifest`、`/manifest/save`、`/canvas/file`
 - `/api/mobile/v1/inbox/status`、`/clear`、`/auto`
 
 **其它**

@@ -64,6 +64,8 @@
   "scripts": {
     "start": "node host.js",
     "test": "node --test test/*.test.cjs && node test/lan-direct-e2e.cjs && node test/sidecar-facade.cjs",
+    "sync:author-docs": "node scripts/sync-author-docs.mjs",
+    "check:author-docs": "node scripts/sync-author-docs.mjs --check",
     "release:check": "node scripts/preflight-release.mjs"
   },
   "dependencies": {

@@ -353,13 +353,12 @@ window.addEventListener('dsh-extension-reply', (event) => {
 
 ```json
 "capabilities": ["content.read", "card.write", "host.data"],
-"hostData": { "service": "magpie", "match": ["/api/"] }
+"hostData": { "service": "dsh-email", "match": ["/api/dsh-email/"] }
 ```
 
-`service` 必须是一个**电脑上登记过的服务名**。两类来源：
-
-- 内置的几个（例如 `magpie`）随移动端插件一起走，不归你管；
-- **你自己的服务**：在插件自己的 `package.json` 里声明，宿主扫插件时就会登记：
+`service` 必须是一个**电脑上登记过的服务名**——服务都由插件自己声明：在插件自己的
+`package.json` 里登记，宿主扫插件时就会认（例如 magpie 就是由独立插件 `dsh-magpie-plugin`
+这样声明 `dsh-magpie` 服务的）：
 
   ```json
   { "dshMobileDataServices": [{ "service": "dsh-email", "allow": ["/api/dsh-email/"] }] }
@@ -370,7 +369,7 @@ window.addEventListener('dsh-extension-reply', (event) => {
   卸载就没了，不用去改 App 或移动端插件的代码。
 
   **服务名全局唯一**，撞了以后扫到的优先（按包名排序），所以起名前加个前缀（`dsh-email`
-  而不是 `mail`）。内置服务优先于任何第三方声明 —— 你用一个同名声明顶不掉 `magpie`。
+  而不是 `mail`）。
 
 `match` 是路径前缀，命中的请求才交给宿主，别的照旧由页面自己发。**两个都要写**：
 `manifest` 里的 `hostData.service` 要与 `package.json` 里的 `dshMobileDataServices[].service`
@@ -381,7 +380,7 @@ window.addEventListener('dsh-extension-reply', (event) => {
 `.arrayBuffer()` / `.headers.get()` 都能用。也有显式入口：
 
 ```js
-await window.__dshHostFetch('magpie', '/api/state', { method: 'GET' });
+await window.__dshHostFetch('dsh-email', '/api/dsh-email/state', { method: 'GET' });
 ```
 
 几条要知道的：
@@ -607,8 +606,12 @@ body {
    就不会去你的包里找扩展 —— 插件里的 `extensions/` 目录名太常见，不声明我们一律不扫。
 3. 如果扩展页要读你自己后台的数据，再加一格 `dshMobileDataServices`（见第 5.5 节），并让
    扩展的 `manifest.json` 里 `hostData` 与它对上。只做纯本地的页面可以不加。
-4. 把插件发布到你自己的 npm 包或仓库，让用户按正常方式装进他自己的 DSH。装了之后，他那台
-   手机连上电脑，扩展页里就会出现你带的扩展。
+4. 把插件发布到你自己的 npm 包或仓库，让用户按正常方式装进他自己的 DSH。**装完重启一次
+   DSH**（插件第一次装载要重启才生效），手机那侧在扩展页下拉刷新一次，你带的扩展就出现在
+   可安装清单里了。
+
+清单只来自手机当前连着的那台电脑：插件装在哪台，手机连哪台才看得见。这一步最容易踩空，
+逐条对照见第 8.5 节。
 
 手机把 slug 拼成「插件名.扩展目录名」（`@scope/name` 里的 `@`、`/` 换成点），这样两个插件
 即使有同名目录也不会打架；slug 总长不超过 64 个字符。你那边的目录名照常起就行。
@@ -624,10 +627,38 @@ body {
 
 - `manifest.json` 是你写的自述（能力、版本、入口、`hostData`）；逐文件的 `size` 与
   `sha256` 由宿主扫目录现算，不是你填的，别混。
-- 官方扩展（Office 预览、magpie）仍随 `dsh-mobile-plugin` 发布、登记在它自己的
+- 官方扩展（Office 预览等）仍随 `dsh-mobile-plugin` 发布、登记在它自己的
   `extensions/catalog.json` 里，和第三方这条是两档；两档来源在 `extension-market.md` 里写清了。
 - 作者自己写、自己在手机上边改边看的那条调试路（第 9 节）与发布是两回事：那条走电脑上的
   本地目录，不经过插件包，也不带声明。
+
+## 8.5 做出来了，手机上却看不到？
+
+这是最常见的一步踩空：东西做完了，手机上扩展页里没有，右栏也没有。手机那份清单**只来自
+它当前连着的那台电脑**，所以先按顺序过一遍：
+
+1. **扩展放进插件包里了吗？** 一个裸的扩展目录（`manifest.json` + `index.html`）放在电脑
+   某个文件夹里，手机是看不见的 —— 只有「本地开发」那条调试路能读它，而那条路要你先打开
+   开发者模式，见第 9 节。要让扩展出现在**正常的可安装清单**里，它必须在你自己的插件包里，
+   并且插件的 `package.json` 里写了 `"dshMobileExtensions"`（第 8 节第 2 步）。
+2. **那个插件装在这台电脑上了吗？** 宿主扫的是**这台电脑** profile 里已装的插件。你的
+   插件发到了 npm、或者装在了另一台电脑上，手机连的这台没装，就一个扩展都看不到。
+   装完**重启一次 DSH**（插件首次装载要重启才生效），再让手机刷新。
+3. **手机连的是这台电脑吗？** 换一台电脑，可安装列表跟着换。看 App 当前选中的设备对不对。
+4. **扩展页下拉刷新了吗？** 清单不是实时推的，装完插件后在扩展页下拉一次。
+5. **包过不过机械判据？** 缺 `manifest.json`、缺 `index.html`、整包超 20 MB、文件数超 400、
+   单文件超 8 MB —— 判不过的包**不会列出来，也不解释原因**（第 8 节末尾那几条）。
+
+前两条是最容易踩的：**扩展是插件的附属物，不是独立分发的东西。** 这句话反过来也成立 ——
+你不需要把扩展提交到我们仓库、不需要登记、不需要审核，只要它在你自己的插件包里、那个插件
+装在了用户连着的电脑上。
+
+**右栏没有那一格，是另一回事。** 右栏入口只在你写了 `entry` 时才出现（第 3.5 节）；没写就只
+从扩展页进。写了但名字撞了 App 内置入口（比如「浏览器」「目录」）也不会画那一格 —— 扩展照常
+能装、能从扩展页打开。
+
+> 做样板：本仓库的 `plugin/` 目录就是一个能直接装的最小插件包，带的正是那三个示例扩展。
+> 想看「插件带扩展」长什么样，照它抄。
 
 ## 9. 调试
 

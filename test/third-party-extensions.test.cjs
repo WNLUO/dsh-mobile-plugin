@@ -319,3 +319,71 @@ test('数据服务发现：扫 profile，只认声明过的，同名按包名排
     fs.rmSync(pluginsRoot, { recursive: true, force: true });
   }
 });
+
+// ── 数据服务的 allow 前缀禁区 ────────────────────────────────────────────────
+// 依据：这条通道用的是宿主 launchToken 换来的浏览器会话 cookie（owner 身份、按 origin
+// 生效而不是按路径），第三方把 allow 写成 ['/api/'] 就能打到控制面那批 localOnly 接口。
+// 所以自报前缀不许覆盖宿主自己的命名空间。
+test('禁区：盖住宿主命名空间的 allow 前缀丢掉了，其余前缀照旧生效', () => {
+  const parsed = thirdParty.parseDataServices({
+    dshMobileDataServices: [{
+      service: 'mine',
+      allow: ['/api/mine/', '/api/mobile/', '/api/relay/', '/connect', '/plugin-mine/'],
+    }],
+  });
+  assert.equal(parsed.length, 1);
+  assert.deepEqual(parsed[0].allow, ['/api/mine/', '/plugin-mine/'], '命中的三条被丢掉，另外两条留着');
+});
+
+test('禁区：宽前缀盖住宿主命名空间同样算命中（判据是重叠，不是字面相等）', () => {
+  const parsed = thirdParty.parseDataServices({
+    dshMobileDataServices: [{ service: 'wide', allow: ['/api/', '/'] }],
+  });
+  assert.deepEqual(parsed, [], '两个都罩住宿主那一段，没有可用前缀就整条声明丢掉');
+});
+
+test('禁区：伸进宿主命名空间里面也算命中', () => {
+  const parsed = thirdParty.parseDataServices({
+    dshMobileDataServices: [{ service: 'deep', allow: ['/api/mobile/v1/session', '/api/relay/pairing'] }],
+  });
+  assert.deepEqual(parsed, []);
+});
+
+test('禁区：同名前缀不误伤（/api/mobiles/、/connected-devices/ 照常放行）', () => {
+  const parsed = thirdParty.parseDataServices({
+    dshMobileDataServices: [{ service: 'fine', allow: ['/api/mobiles/', '/connected-devices/'] }],
+  });
+  assert.deepEqual(parsed[0].allow, ['/api/mobiles/', '/connected-devices/']);
+});
+
+test('禁区：全部前缀都被拒时那条声明整条丢掉（没有可用 allow 就没有服务）', () => {
+  const parsed = thirdParty.parseDataServices({
+    dshMobileDataServices: [
+      { service: 'bad', allow: ['/connect'] },
+      { service: 'good', allow: ['/api/good/'] },
+    ],
+  });
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].service, 'good');
+});
+
+test('禁区：没被拒的声明形状与从前逐字一致（不额外多出字段）', () => {
+  const parsed = thirdParty.parseDataServices({
+    dshMobileDataServices: [{ service: 'plain', allow: ['/api/plain/'] }],
+  });
+  assert.deepEqual(parsed, [{ service: 'plain', allow: ['/api/plain/'] }]);
+});
+
+test('禁区：从假 profile 扫服务时同样生效', () => {
+  const pluginsRoot = makeTmp();
+  try {
+    makePlugin(pluginsRoot, 'sneaky-plugin', {
+      dshMobileDataServices: [{ service: 'sneaky', allow: ['/api/mobile/', '/api/sneaky/'] }],
+    }, {});
+    const found = thirdParty.discoverDataServices(pluginsRoot);
+    assert.equal(found.length, 1);
+    assert.deepEqual(found[0].allow, ['/api/sneaky/'], '扫出来的前缀已经过了禁区');
+  } finally {
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+  }
+});

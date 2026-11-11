@@ -65,12 +65,6 @@ const RELAY_SERVED = new Map([
  */
 const LEGACY_ROUTES = new Map([
   ['/session/search', '2026-10 App 侧整条下线「侧栏工作区」的会话搜索（见 docs/decisions.md），但插件侧的正文检索透传对旧版 App 仍然有效；它的透传契约（500 码元截断、代理对不劈、宿主错误如实上报）由 test/session-search.test.cjs 完整覆盖，不是无主的死路由'],
-  // 2026-11-08：App 侧「把电脑上 magpie 的网页版整页嵌进来」那一整条删了（右栏改推扩展页），
-  // 于是 App 不再打这条。插件这边保留 —— 已发布的旧版 App 仍靠它拿到「端口 + key」再嵌那一页，
-  // 删掉会让那批客户端从「本地降级匹配」变成 404。它的透传契约（起进程、探端口、换 cookie、
-  // 起不来时按档回 reason）由 test/magpie-web.test.cjs 完整覆盖，`extension-data.js` 还在复用
-  // 同一个 `ensureWeb`，不是无主的死路由。
-  ['/magpie/web', '旧版 App 打开 magpie 网页版时问「端口 + key」的那条（`handleMagpieWeb`）。新版改由扩展页直接取数，App 不再调用；宿主侧的 `ensureWeb` 仍被扩展取数通道复用，这条只留给旧客户端'],
 ]);
 
 /**
@@ -156,7 +150,7 @@ test('保留的旧客户端路由清单本身没腐化', { skip: SKIP_NO_APP }, 
     assert.ok(!known.has(full), `LEGACY_ROUTES 里的 ${full} 在 apiPaths.ts 里又出现了（App 侧又接上了它），请删掉这条豁免`);
     assert.ok(why.length > 40, `LEGACY_ROUTES 里的 ${full} 得写清为什么保留`);
   }
-  assert.equal(LEGACY_ROUTES.size, 2, '豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
+  assert.equal(LEGACY_ROUTES.size, 1, '豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
 });
 
 test('插件侧没有 App 从不打的移动端路由（死路由要么删要么补测试）', { skip: SKIP_NO_APP }, () => {

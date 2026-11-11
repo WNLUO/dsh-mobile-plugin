@@ -16,6 +16,7 @@ import { useEffect } from 'react'
 
 import { JoinGroupButton } from './components/JoinGroupButton.tsx'
 import { SponsorButton } from './components/SponsorButton.tsx'
+import { StarButton } from './components/StarButton.tsx'
 import { TopRightActions } from './components/TopRightActions.tsx'
 import { t } from './lib/i18n/index.ts'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
@@ -47,6 +48,10 @@ export function Shell() {
       {debugPage ? null : <JoinGroupButton />}
       {/* 「赞助」排在群按钮上面一格：同属右下角那串悬浮件，调试图同样不挂。 */}
       {debugPage ? null : <SponsorButton />}
+      {/* 「给个 Star」再上移一格（`bottom-[10.5rem]`）：三颗同一串，从下往上是交流群 /
+          赞助 / 这颗。求 star 是这个仓库最实在的支持，但它排在人家已经愿意掏钱的那颗
+          上面一格、最不打扰的位置——顺手才点，不点也不挡任何事。 */}
+      {debugPage ? null : <StarButton />}
     </>
   )
 }

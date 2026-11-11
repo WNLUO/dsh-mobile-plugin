@@ -822,9 +822,9 @@ test('字典覆盖两张界面，中英一一对应', () => {
   const dict = env.dictionaries.get(NS);
   assert.ok(dict, `${NS} 字典必须注册`);
   assert.deepEqual(Object.keys(dict.zh).sort(), Object.keys(dict.en).sort());
-  // 键集逐个钉死：两张薄卡（配置页 / 画布）+ 一颗图标 + 那张诊断窗，不长成第二个管理面板。
+  // 键集逐个钉死：一张薄卡（配置页）+ 一颗图标 + 那张诊断窗，不长成第二个管理面板。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
-    'canvasHint', 'cardCanvas', 'cardPanel',
+    'cardPanel',
     'consoleBack', 'consoleEntryConsole', 'consoleEntryConsoleHint', 'consoleEntryDebug',
     'consoleEntryDebugHint', 'consoleEntryLead', 'consoleEntryTitle',
     'consoleFrameless', 'consoleLead', 'consoleOpenBrowser', 'consolePopupBlocked', 'consoleTitle',
@@ -838,7 +838,7 @@ test('字典覆盖两张界面，中英一一对应', () => {
     'diagSummaryLoadFailed', 'diagSummaryLoadMissing', 'diagSummaryNoError',
     'diagSummaryOpenFailed', 'diagSummaryRestored', 'diagSummaryUnreachable', 'diagTitleLoad',
     'diagTitleOpen', 'footerLoadMissing', 'footerOpen', 'footerPending', 'footerPublicConfirm',
-    'heading', 'loadFailed', 'nav', 'openCanvas', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending'
+    'heading', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending'
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
 });
@@ -857,12 +857,11 @@ test('设置项只是一张薄卡：旧的整块设置界面没有跟着回来',
 test('设置项：还没读到地址时不挂死链，卡上说清在等什么', () => {
   const env = materialize();
   const tree = env.renderSettings();
-  // 两张薄卡：配置页（标题/说明/一颗按钮）+ 画布（标题/说明/一颗按钮）。
+  // 一张薄卡：配置页（标题/说明/一颗按钮）。
   assert.deepEqual(classNames(tree).filter((name) => name.startsWith('dshm_')), [
     'dshm_root', 'dshm_heading',
     'dshm_card', 'dshm_cardTitle', 'dshm_note', 'dshm_actions', 'dshm_btn dshm_btnPrimary',
-    'dshm_card', 'dshm_cardTitle', 'dshm_note', 'dshm_actions', 'dshm_btn dshm_btnPrimary',
-  ], '配置页一张卡 + 画布一张卡，各是标题 / 说明 / 那一颗按钮');
+  ], '配置页一张卡，标题 / 说明 / 那一颗按钮');
   const button = findByClass(tree, 'dshm_btnPrimary');
   assert.equal(button.props.href, undefined);
   assert.equal(button.props['aria-disabled'], 'false', '没地址也照样能点：点了会自己去开窗再取地址');

@@ -37,7 +37,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': '修改',
     'panel.shell.loading': '正在读取插件状态…',
     'panel.language.open': '界面语言',
-    'panel.canvas.open': '打开画布',
     'panel.language.system': '跟随浏览器',
   },
   'zh-Hant': {
@@ -63,7 +62,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': '修改',
     'panel.shell.loading': '正在讀取外掛狀態…',
     'panel.language.open': '介面語言',
-    'panel.canvas.open': '開啟畫布',
     'panel.language.system': '跟隨瀏覽器',
   },
   en: {
@@ -89,7 +87,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': 'Change',
     'panel.shell.loading': 'Reading plugin status…',
     'panel.language.open': 'Language',
-    'panel.canvas.open': 'Open canvas',
     'panel.language.system': 'Follow browser',
   },
   ja: {
@@ -115,7 +112,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': '変更',
     'panel.shell.loading': 'プラグインの状態を読み込み中…',
     'panel.language.open': '表示言語',
-    'panel.canvas.open': 'キャンバスを開く',
     'panel.language.system': 'ブラウザに合わせる',
   },
   ko: {
@@ -141,7 +137,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': '변경',
     'panel.shell.loading': '플러그인 상태를 불러오는 중…',
     'panel.language.open': '표시 언어',
-    'panel.canvas.open': '캔버스 열기',
     'panel.language.system': '브라우저 설정 따르기',
   },
   de: {
@@ -167,7 +162,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': 'Ändern',
     'panel.shell.loading': 'Plugin-Status wird gelesen…',
     'panel.language.open': 'Sprache',
-    'panel.canvas.open': 'Canvas öffnen',
     'panel.language.system': 'Browser folgen',
   },
   es: {
@@ -193,7 +187,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': 'Cambiar',
     'panel.shell.loading': 'Leyendo el estado del complemento…',
     'panel.language.open': 'Idioma',
-    'panel.canvas.open': 'Abrir lienzo',
     'panel.language.system': 'Seguir al navegador',
   },
   fr: {
@@ -219,7 +212,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': 'Modifier',
     'panel.shell.loading': 'Lecture de l\'état du greffon…',
     'panel.language.open': 'Langue',
-    'panel.canvas.open': 'Ouvrir le canevas',
     'panel.language.system': 'Suivre le navigateur',
   },
   pt: {
@@ -245,7 +237,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': 'Alterar',
     'panel.shell.loading': 'Lendo o status do plugin…',
     'panel.language.open': 'Idioma',
-    'panel.canvas.open': 'Abrir tela',
     'panel.language.system': 'Seguir o navegador',
   },
   ru: {
@@ -271,7 +262,6 @@ export const COMMON: PanelMessages = {
     'panel.common.edit': 'Изменить',
     'panel.shell.loading': 'Чтение состояния плагина…',
     'panel.language.open': 'Язык',
-    'panel.canvas.open': 'Открыть холст',
     'panel.language.system': 'Как в браузере',
   },
 }

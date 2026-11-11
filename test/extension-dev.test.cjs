@@ -23,6 +23,7 @@ const {
   listPackages,
   handleDevPackages,
   handleDevFile,
+  handleDevArchive,
   MAX_PACKAGE_BYTES,
   MAX_PACKAGE_FILES,
   MAX_FILE_BYTES,
@@ -291,6 +292,55 @@ test('devServer 只认私网 / 回环的 http 地址，其余一律当没写', (
     // 没写这一格的老包：照旧能列，`devServer` 是 null（页面走本地那份）。
     makePackage(root, 'plain', { name: 'plain', version: '1.0.0', apiVersion: '1' }, { 'index.html': '<html></html>' });
     assert.equal(listPackages(root).find((row) => row.slug === 'plain').devServer, null);
+  } finally {
+    restoreHome(previous, home);
+  }
+});
+
+test('整包：现打一个 zip 回 base64，解出来的文件与目录逐字节一致', async () => {
+  const previous = process.env.DSH_HOME;
+  const home = makeHome();
+  try {
+    const root = devRoot();
+    makePackage(root, 'demo', { name: '演示' }, { 'index.html': '<h1>你好</h1>', 'libs/a.js': 'export default 1' });
+
+    const res = fakeRes();
+    await handleDevArchive(null, fakeGet('/api/mobile/v1/extension/dev/archive?slug=demo'), res);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.slug, 'demo');
+    assert.ok(res.body.size > 0, '整包不该是空的');
+
+    // 真的解开验一遍：用系统 unzip（宿主打包时也用同一套工具，不引库）。
+    const zipPath = path.join(home, 'archive.zip');
+    fs.writeFileSync(zipPath, Buffer.from(res.body.content, 'base64'));
+    const outDir = path.join(home, 'unzipped');
+    fs.mkdirSync(outDir, { recursive: true });
+    require('node:child_process').execFileSync('unzip', ['-q', zipPath, '-d', outDir]);
+    assert.equal(fs.readFileSync(path.join(outDir, 'index.html'), 'utf8'), '<h1>你好</h1>');
+    assert.equal(fs.readFileSync(path.join(outDir, 'libs', 'a.js'), 'utf8'), 'export default 1');
+    // 包内路径必须是相对路径：解出来不能多一层 `demo/`，否则手机对不上清单。
+    assert.ok(!fs.existsSync(path.join(outDir, 'demo')), '整包里不该带 slug 外层目录');
+  } finally {
+    restoreHome(previous, home);
+  }
+});
+
+test('整包拒绝口径：slug 不合法 400，包不存在 404', async () => {
+  const previous = process.env.DSH_HOME;
+  const home = makeHome();
+  try {
+    const root = devRoot();
+    makePackage(root, 'demo', { name: '演示' }, { 'index.html': 'hi' });
+
+    const bad = fakeRes();
+    await handleDevArchive(null, fakeGet('/api/mobile/v1/extension/dev/archive?slug=../etc'), bad);
+    assert.equal(bad.status, 400);
+
+    const missing = fakeRes();
+    await handleDevArchive(null, fakeGet('/api/mobile/v1/extension/dev/archive?slug=nope'), missing);
+    assert.equal(missing.status, 404);
+    assert.equal(missing.body.error.code, 'dev-package-missing');
   } finally {
     restoreHome(previous, home);
   }

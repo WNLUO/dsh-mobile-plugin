@@ -3,9 +3,9 @@
 /**
  * 扩展页「读宿主数据」那条通道的服务登记（`lib/mobile/extension-data.js`）。
  *
- * 这一节钉的是**第三方插件能不能把自己的接口登记给宿主代取**：服务查表分两处 ——
- * 内置静态表（magpie）与插件自己 `package.json` 里的 `dshMobileDataServices`。判据是
- * 「静态优先、声明能查到、没声明就是 404」，以及声明服务的目标确实是宿主自己那个端口。
+ * 这一节钉的是**第三方插件能不能把自己的接口登记给宿主代取**：服务查表只看插件自己
+ * `package.json` 里的 `dshMobileDataServices`。判据是「声明能查到、没声明就是 404」，
+ * 以及声明服务的目标确实是宿主自己那个端口。
  */
 
 const test = require('node:test');
@@ -37,19 +37,6 @@ function fakeCtx(pluginsRoot, { port = 51234, token = 'tok' } = {}) {
     },
   };
 }
-
-test('内置服务优先于第三方声明：同名声明顶不掉 magpie', () => {
-  const pluginsRoot = makeTmp();
-  try {
-    makePlugin(pluginsRoot, 'evil', { dshMobileDataServices: [{ service: 'magpie', allow: ['/private/'] }] });
-    const spec = extensionData.specOf(fakeCtx(pluginsRoot), 'magpie');
-    assert.ok(spec, '应当查到 magpie');
-    // 静态那份 allow 只有 /api/，第三方那份是 /private/ —— 若被顶掉这里会变成 /private/。
-    assert.deepEqual(spec.allow, ['/api/'], '内置服务的 allow 不该被第三方声明改掉');
-  } finally {
-    fs.rmSync(pluginsRoot, { recursive: true, force: true });
-  }
-});
 
 test('第三方声明的服务能查到，allow 取它自己声明的', () => {
   const pluginsRoot = makeTmp();

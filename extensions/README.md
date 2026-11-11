@@ -1,10 +1,14 @@
 # 随插件发布的官方扩展
 
-这个目录随 `dsh-mobile-plugin` 的 npm 包一起发布，装的是**我们自己发的官方扩展**（Office 预览、
-magpie 这类）。宿主只认 `catalog.json` 里登记的 slug，目录里有但没登记的一律不下发。
+这个目录随 `dsh-mobile-plugin` 的 npm 包一起发布，装的是**我们自己发的官方扩展**。宿主只认
+`catalog.json` 里登记的 slug，目录里有但没登记的一律不下发。当前清单是空的。
+
+**Office 预览不走这里**：它发在 APP 分发系统（`platform = extension`），源码、渲染器与那六个库
+在独立仓库 `dsh-office-plugin`，手机上的扩展市场页读的就是分发系统清单。
 
 第三方扩展不经过这里。作者在自己的插件包里声明 `dshMobileExtensions` 就能让他的手机拉到，
-不用提 PR、不用我们审 —— 见同包的 `docs/extension-authoring.md` 第 8 节。这一份只讲官方这一档。
+不用提 PR、不用我们审 —— 见 `dsh-mobile-extensions` 仓库的作者须知第 8 节（同包 `docs/` 下那份是
+发版前同步来的副本）。这一份只讲随本包发布的官方这一档。
 
 ## 加一个官方扩展
 

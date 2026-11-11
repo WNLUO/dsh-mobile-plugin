@@ -13,6 +13,14 @@
  */
 export const RELAY_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-server'
 
+/**
+ * 插件自己的仓库（面板右下角那颗「给个 Star」指向这里）。
+ *
+ * 与上面那条不是同一个仓库：那条是「中转本体 + 部署说明」，这条是插件与 App 的源码仓库。
+ * 求 star 求的是这条 —— 仓库页一打开，右上角那颗 Star 就在原地。
+ */
+export const PLUGIN_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-plugin'
+
 /** 一个下载渠道：名字 + 一句话说明它是什么，`url` 是直链。 */
 export type DownloadChannel = {
   /** 品牌名，原样显示（GitHub / App Store / TestFlight 这类商标不翻）。 */

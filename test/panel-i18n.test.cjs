@@ -301,6 +301,8 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
   // 右下角那颗「加入交流群」也归外壳（2026-10-26 用户要求引导页也放一颗）：
   // 挂在外壳里渲染一次，引导页与主页都有，两处不会各写一个坐标。
   assert.match(shell, /<JoinGroupButton \/>/, '外壳里要渲染「加入交流群」');
+  // 「给个 Star」也是右下角那串之一，同样挂在外壳里（2026-11-11 用户要求加在赞助上面一格）。
+  assert.match(shell, /<StarButton \/>/, '外壳里要渲染「给个 Star」');
   assert.match(shell, /<TopRightActions \/>/, '外壳里要渲染右上角那组按钮');
   assert.match(shell, /usePanelLanguage\(\)/, '外壳必须订阅语言状态，否则切语言整页不重绘');
 
@@ -309,7 +311,7 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
     const text = read(...entry);
     assert.match(text, /from '\.{1,2}\/Shell\.tsx'/, `${entry.join('/')} 应当从 Shell 进来`);
     assert.match(text, /<Shell \/>/, `${entry.join('/')} 应当渲染 Shell`);
-    assert.equal((text.match(/<ThemeToggle|<LanguageMenu|<JoinGroupButton/g) ?? []).length, 0,
+    assert.equal((text.match(/<ThemeToggle|<LanguageMenu|<JoinGroupButton|<StarButton/g) ?? []).length, 0,
       `${entry.join('/')} 里别再单独挂按钮，位置归 TopRightActions`);
   }
 
