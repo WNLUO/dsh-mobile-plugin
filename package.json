@@ -79,10 +79,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.1",
-    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
     "@deepseek-ai/dsh-client-runtime": ">=0.1.1-rc.2",
-    "@deepseek-ai/dsh-settings": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
-    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "dsh": {
@@ -99,9 +99,9 @@
     }
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-host-directory-picker-browse": "^0.2.1-rc.3",
-    "@deepseek-ai/dsh-tool-ask-user": "^0.2.1-rc.3",
-    "@deepseek-ai/dsh-tool-present": "^0.2.1-rc.3",
+    "@deepseek-ai/dsh-host-directory-picker-browse": "^0.2.1-rc.3 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-tool-ask-user": "^0.2.1-rc.3 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-tool-present": "^0.2.1-rc.3 || ^0.2.2-rc.1",
     "yaml": "2.9.1"
   }
 }
