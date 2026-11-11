@@ -40,10 +40,11 @@
    直接 fetch 相对路径也会自动走这条路。细节见文档第 5.5 节，我不会再解释一遍。
 7. 要 App 替你办事（例如打开一条新对话），发 { kind: 'action', id, action, params }，
    动作名只能从 App 允许的那几个里挑，不能自己造。
-8. 根目录要附带一份 manifest.json：{ name, version, apiVersion: "1", main: "index.html",
-   capabilities: [...] }。要整页自绘（不要 App 那条顶栏）就再加 "chrome": "bare"，那时
-   顶部状态栏那一截要自己用 --dsh-safe-top 让开，出口自己画（点了发 { kind: 'close' }）。
-   要浮在对话页那张卡片里、能横滑划开侧栏，加 "placement": "panel"。
+8. 根目录要附带一份 manifest.json：{ name, version, apiVersion: "1", capabilities: [...] }。
+   入口页固定叫 index.html，不用写 main。要整页自绘（不要 App 那条顶栏）就再加
+   "chrome": "bare"，那时顶部状态栏那一截要自己用 --dsh-safe-top 让开，出口自己画
+   （点了发 { kind: 'close' }）。要浮在对话页那张卡片里、能横滑划开侧栏，加
+   "placement": "panel"。
 
 产物目录我会放到：<你的插件包里 extensions/<包名>/ 这个位置>
 我要做的功能是：<一句话说清>
@@ -64,14 +65,16 @@
 ## 2. 包长什么样
 
 ```
-manifest.json      自述：id / name / version / apiVersion / 可选 capabilities
+manifest.json      自述：name / version / apiVersion / 可选 capabilities
 index.html         入口页，固定叫这个名字
 libs/…             你自己的库、样式、字体，相对路径引用
 ```
 
-- **入口页固定是 `index.html`**。`manifest.json` 里没有 `main` 这一项，写了也不读 —— 手机
-  打开扩展时找的就是包目录下那一层 `index.html`。宿主在列包时会检查它在不在，缺了整个包
-  不会出现在清单里，别等装到手机上才发现打不开。
+- **入口页固定是 `index.html`**。手机打开扩展时找的就是包目录下那一层 `index.html`，所以
+  `main` 这一格可写可不写 —— 写了也不读，样例里带它只是为了照抄时形状眼熟。宿主在列包时
+  会检查 `index.html` 在不在，缺了整个包不会出现在清单里，别等装到手机上才发现打不开。
+- **这个扩展叫什么不由 `manifest.json` 决定**。真正标识它的是「插件名 + 扩展目录名」拼出来的
+  slug（第 8 节），`manifest.json` 里的 `name` 只是界面上显示的那行字。
 - **整个目录原样落盘**。清单里的 `path` 就是落盘路径，`index.html` 里用相对路径引用
   同目录的文件；别指望「拍平到一个目录」或者「从别处按绝对路径拿」。
 - **自包含，不许外链**。注释、脚本、样式、字体都得在包里。页面加载时是不透明源，
@@ -181,9 +184,12 @@ libs/…             你自己的库、样式、字体，相对路径引用
 装进来的扩展是 `file://` 加载的，不是 `http(s)://`。这不是配置问题，是「页面从哪儿来」
 决定的：
 
-- **本地存储可用**。`localStorage` / `sessionStorage` 都开着，放心用它们记界面偏好。
-  早期版本只给声明了取数的那种扩展开，2026-11-11 起一律打开 —— 那层限制封不住想干坏事的
-  人（页面能拿到的东西，一张图片照样能带出去），只挡住作者正当的用法。
+- **本地存储可用**。`localStorage` / `sessionStorage` 都开着。但它们挂在页面的来源上：
+  你换一版、目录一挪，那份数据就可能找不着，而且跟别的扩展挤在同一个来源里。所以**只拿它
+  放「丢了也无所谓、下次重画一遍」的东西**（当前滚到哪、临时展开的面板）；界面偏好、草稿
+  这类要留住的数据走第 5.7 节 App 那条存储通道。早期版本只给声明了取数的那种扩展开，
+  2026-11-11 起一律打开 —— 那层限制封不住想干坏事的人（页面能拿到的东西，一张图片照样能
+  带出去），只挡住作者正当的用法。
 - **真 Worker 起不来**。`importScripts` 会报 NetworkError。要 worker 就把它的代码当普通
   脚本引进来、在主线程上跑一个假 worker（Office 那份 pdf.js 就是这么做的）。
 - **`fetch` 本地资源受限**，`blob:` 地址同理。资源要么在包里、要么让 App 递给你。
@@ -308,7 +314,8 @@ window.__DSH_EXTENSION__.device;   // { deviceId: 'office-iMac' } 或 null
 
 两条通道，形状固定：
 
-**页面 → App**：`window.ReactNativeWebView.postMessage(JSON.stringify({...}))`。认这五种：
+**页面 → App**：`window.ReactNativeWebView.postMessage(JSON.stringify({...}))`。自己拼的话认
+这七种：
 
 ```js
 { kind: 'ready' }                                  // 起来了
@@ -317,7 +324,11 @@ window.__DSH_EXTENSION__.device;   // { deviceId: 'office-iMac' } 或 null
 { kind: 'request', id: 'r1', what: 'content' }     // 要这一次的内容
 { kind: 'card', title: '已发布', detail: '刚发出去' }   // 回写自己那张卡
 { kind: 'action', id: 'a1', action: 'publish', params: {} }  // 让宿主办事
+{ kind: 'fetch', id: 'f1', service, path, method }  // 让 App 代取一次数（见 5.5）
 ```
+
+挑文件、存文件、自己联网、存自己那份数据各有现成的入口（第 5.6 / 5.7 节），**用那几个
+方法，不要自己拼对应的消息** —— 它们底下多走了一道分批与回执，手拼容易只对上形状。
 
 - 认不出的消息、超过 64KB 的消息**一律被丢掉**，不会报错给你。大内容走 `request` 那条。
 - `action` 的动作名只允许字母数字点横线下划线，最长 64。没登记过就回
@@ -353,24 +364,27 @@ window.addEventListener('dsh-extension-reply', (event) => {
 
 ```json
 "capabilities": ["content.read", "card.write", "host.data"],
-"hostData": { "service": "magpie", "match": ["/api/"] }
+"hostData": { "service": "dsh-email", "match": ["/api/dsh-email/"] }
 ```
 
-`service` 必须是一个**电脑上登记过的服务名**。两类来源：
+`service` 必须是一个**电脑上登记过的服务名**，来源只有一条：**插件自己在
+`package.json` 里声明**。没有内置服务表，也没有「随插件走、不归你管」的那一档 —— 宿主
+只认扫到的声明：
 
-- 内置的几个（例如 `magpie`）随移动端插件一起走，不归你管；
-- **你自己的服务**：在插件自己的 `package.json` 里声明，宿主扫插件时就会登记：
+```json
+{ "dshMobileDataServices": [{ "service": "dsh-email", "allow": ["/api/dsh-email/"] }] }
+```
 
-  ```json
-  { "dshMobileDataServices": [{ "service": "dsh-email", "allow": ["/api/dsh-email/"] }] }
-  ```
+`allow` 是这个服务开放给扩展页的路径前缀，**只认本源的绝对路径**（以 `/` 开头；
+整条 URL、`//host`、相对写法都不认）。这个声明与你的插件同生共死：插件装了才有，
+卸载就没了，不用去改 App 或移动端插件的代码。
 
-  `allow` 是这个服务开放给扩展页的路径前缀，**只认本源的绝对路径**（以 `/` 开头；
-  整条 URL、`//host`、相对写法都不认）。这个声明与你的插件同生共死：插件装了才有，
-  卸载就没了，不用去改 App 或移动端插件的代码。
+**服务名全局唯一**，撞了以后扫到的优先（按包名排序），所以起名前加个前缀（`dsh-email`
+而不是 `mail`）。
 
-  **服务名全局唯一**，撞了以后扫到的优先（按包名排序），所以起名前加个前缀（`dsh-email`
-  而不是 `mail`）。内置服务优先于任何第三方声明 —— 你用一个同名声明顶不掉 `magpie`。
+**有些前缀写了也会被丢掉**：凡是盖到宿主自己命名空间的那几条（`/api/mobile`、`/api/relay`、
+`/connect` 这一段），一律拒绝 —— 这条通道带的是宿主自己的身份，够到移动 API 就等于拿到了
+宿主接口。声明里别的服务照旧生效，被拒的那条不影响你别的路径。
 
 `match` 是路径前缀，命中的请求才交给宿主，别的照旧由页面自己发。**两个都要写**：
 `manifest` 里的 `hostData.service` 要与 `package.json` 里的 `dshMobileDataServices[].service`
@@ -381,7 +395,7 @@ window.addEventListener('dsh-extension-reply', (event) => {
 `.arrayBuffer()` / `.headers.get()` 都能用。也有显式入口：
 
 ```js
-await window.__dshHostFetch('magpie', '/api/state', { method: 'GET' });
+await window.__dshHostFetch('dsh-email', '/api/dsh-email/state', { method: 'GET' });
 ```
 
 几条要知道的：
@@ -611,6 +625,9 @@ body {
    DSH**（插件第一次装载要重启才生效），手机那侧在扩展页下拉刷新一次，你带的扩展就出现在
    可安装清单里了。
 
+这个插件包本身怎么搭（`package.json` 每一格、入口导出、`cordis.patch.yml` 挂载行），
+见第 10 节。
+
 清单只来自手机当前连着的那台电脑：插件装在哪台，手机连哪台才看得见。这一步最容易踩空，
 逐条对照见第 8.5 节。
 
@@ -628,8 +645,9 @@ body {
 
 - `manifest.json` 是你写的自述（能力、版本、入口、`hostData`）；逐文件的 `size` 与
   `sha256` 由宿主扫目录现算，不是你填的，别混。
-- 官方扩展（Office 预览、magpie）仍随 `dsh-mobile-plugin` 发布、登记在它自己的
-  `extensions/catalog.json` 里，和第三方这条是两档；两档来源在 `extension-market.md` 里写清了。
+- 官方扩展（Office 预览）仍走另一条分发路：Office 发在 APP 分发系统（`platform = extension`），
+  手机上的扩展市场页读的就是那份清单。这与你自己发插件这条路互不影响 —— 你不用关心它，
+  也不用和它对齐版本。
 - 作者自己写、自己在手机上边改边看的那条调试路（第 9 节）与发布是两回事：那条走电脑上的
   本地目录，不经过插件包，也不带声明。
 
@@ -658,8 +676,8 @@ body {
 从扩展页进。写了但名字撞了 App 内置入口（比如「浏览器」「目录」）也不会画那一格 —— 扩展照常
 能装、能从扩展页打开。
 
-> 做样板：本仓库的 `plugin/` 目录就是一个能直接装的最小插件包，带的正是那三个示例扩展。
-> 想看「插件带扩展」长什么样，照它抄。
+> 做样板：`docs/extension-sample/` 那份就是能直接装的最小扩展，先把它跑起来，再照第 8 节
+> 那三步把它搬进你自己的插件包里。
 
 ## 9. 调试
 
@@ -671,8 +689,9 @@ body {
 - 电脑上的目录是 `~/.dsh/extension-dev/<包名>/`，每个装着一个扩展的目录就是一个包，目录名
   就是它的标识。里面照第 2 节的结构放 `manifest.json` 与 `index.html` 那一套，别的文件想
   带就带。
-- 手机上打开扩展页，最底下那段「本地开发」点一下刷新，就能看到电脑那边有哪些包。点「导入」
-  就装进来；装过的会显示版本，可以「覆盖重装」或删掉。
+- 手机上打开扩展页，在页面上**整页下拉刷新**一次，就能看到电脑那边有哪些包（「本地开发」那
+  一段没有单独的刷新按钮，下拉即刷新）。开发包这个列表要退出这一页再重新进来才是新的。点
+  「导入」就装进来；装过的会显示版本，可以「覆盖重装」或删掉。
 - 这条链路照样逐文件校验：传一半、被改过一字节，整包都不会落盘（不会留下半个能打开的包）。
 - 装进来的包标着「本地」，**不等于发布**：它只在你这台手机上看得见，随插件发版不会带走
   它，别的用户也拉不到。要让别人装上，走第 8 节那条——把它放进你自己插件的包里发一版。
@@ -683,7 +702,10 @@ body {
 问一次电脑「我这一份还是最新的吗」，发现内容变了就自己重装、自己重开。判据是文件内容
 （哈希），不是修改时间。
 
-电脑这边要配一条命令，让它在你每次保存时把新产物铺到那个目录：
+电脑这边要有个循环，在你每次保存时把新产物铺到那个目录。这个 `dev-watch.mjs` **不在手机
+插件包里**，`dsh-mobile-plugin` 里也没有它 —— 它是作者自己项目里的一条构建 / 同步脚本，
+照仓库里 `dsh-magpie-plugin`、`dsh-canvas-plugin` 的 `scripts/dev-watch.mjs` 抄一份，或者
+在你自己的项目里接一条同样的命令：
 
 ```
 node scripts/dev-watch.mjs        # 盯着改，边改边构建 + 同步；Ctrl-C 结束
@@ -727,23 +749,142 @@ node scripts/dev-watch.mjs --once # 只跑一次（等同于手动同步一次�
 两条路可以一起用：dev server 开着时走它（热更新）；不想开服务器时就 `dev-watch` 那条
 （构建 + 自动重装）。**第一次仍然要手动导入一次** —— 无论哪条路，手机得先知道有这个包。
 
-想看清页面里发生了什么，用本地包顶栏右上角那个调试入口（下一条）。
+想看清页面里发生了什么，去电脑端查日志或开发者工具 —— 顶栏那个调试入口已经砍掉了，见 9.3。
 
-本地包比正式扩展多一个调试入口（顶栏右上角）。打开后是一条时间线：
+### 9.3 看日志
 
-- 你在页面里 `console.log/warn/error` 打的东西、没接住的异常；
-- 你发给 App 的每一条消息；
-- **没被认出来的消息是哪一档原因**：太大、不是 JSON、类型不认识、字段不全；
-- App 给你的回执，以及被哪项能力挡了；
-- 这一页被注入的上下文：接口版本、版本号、拿到了哪几项能力。
+顶栏右上角那个调试面板已经砍掉了（2026-11-11），现在没有页面内的调试入口。要看页面里发生
+了什么，在电脑端查：
 
-同一条时间线上，消息顺序就是发生顺序，不用在页面上另写日志通道。面板上有「重载」（相当于
-关掉再开一次）与「清空」。
+- **App 与电脑之间的收发**：宿主日志里有每一对消息的去向与回执，页面发出去的、宿主回过来的
+  都能对上。
+- **页面自己的 `console.log/warn/error` 与没接住的异常**：走网页内核的日志，别指望 App 里
+  有地方看。平时开发页面挂在自己的 dev server（9.2）上、用浏览器那套开发者工具，最省事。
+- **分清「没被认出来」的那几档**：消息太大、不是 JSON、类型不认识、字段不全 —— 到宿主日志
+  里找对应的丢弃记录，或者按第 5 节的上限与白名单自己先判一遍。
 
-正式扩展没有这块面板：它平时不给作者打日志，别在发布版里靠它。
+正式扩展更不给作者留后门：别在发布版里指望靠某个面板打日志。
+
+### 9.4 页面打不开，先看是哪一种
 
 - 页面打不开时，先看 App 给的提示是哪一种：**没装** / **两版都校验不过** / **页面自己
   报了 error**。这三种的出路不一样。
 - 能力没授予时的表现是「点了没反应」，但页面会收到 `capability-denied`，打一条日志就能
   分清是能力问题还是页面自己的问题。
 - 下载与校验都在 App 那侧，页面里看不到进度；装完再进页面才是新的一版。
+
+## 10. 怎么造一个 DSH 插件包
+
+第 8 节说了把扩展放进插件包就能发。这一节把这个「插件包」本身摊开：它就是一个普通 DSH
+插件，额外带了一份给手机用的扩展。下面每一格都对着仓库里真发出去的插件
+（`dsh-magpie-plugin`、`dsh-canvas-plugin`）写，照它们的骨架抄就行。
+
+### 10.1 package.json
+
+一个能被装上、又能被手机认出来的插件包，`package.json` 至少长这样：
+
+```json
+{
+  "name": "dsh-email-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "engines": { "dsh": ">=0.2.0" },
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "dshMobileExtensions": "extensions",
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "lib/**/*.js",
+    "extensions/**",
+    "README.md",
+    "LICENSE"
+  ]
+}
+```
+
+逐格说：
+
+- `name`：包名，全局唯一。宿主按这个名字去 `node_modules` 里解析这个包，所以**它必须与
+  `cordis.patch.yml` 里那行 `name` 逐字一致**（见 10.3）。
+- `version`：插件版本。扩展的更新跟着它走 —— 扩展目录里的 `manifest.json` 抬了号，插件
+  也要发一版，用户升了插件，手机上的扩展才是新的。
+- `type: "module"`：入口按 ESM 写。
+- `main` 与 `exports`：指向入口文件，并且**把 `./package.json` 也导出**。宿主要读这份
+  `package.json` 才扫得到 `dshMobileExtensions` / `dshMobileDataServices`；`exports` 没把
+  `./package.json` 放出来，它就读不到，表现是「装了，但一个扩展都不出现」。
+- `engines.dsh`：**只写下限**，例如 `">=0.2.0"`。别写上界（`">=0.2.0 <0.4.0"` 这种）——
+  宿主升到 0.4，你这个包会被判成不兼容、**静默消失**：不报错、不提示，用户只觉得功能没了。
+  只有真依赖了某个新特性，才抬下限。
+- `dsh.bundle.patch`：指向挂载文件，说明这个包怎么插进 profile 的层栈。少了这一格，包在
+  `node_modules` 里躺着，但没有任何东西会去装载它。
+- `dshMobileExtensions`：声明「包里哪个目录是给手机用的扩展」，值是包内的相对路径（写
+  `true` 等于 `extensions`）。没有这一格，手机不扫你的包，扩展一个都列不出来。
+- `files`：npm 发版的白名单，**只列要发出去的东西**。`index.js`、挂载文件、`lib/`、你带的
+  `extensions/`、README 与 LICENSE 都写上；构建中间产物、测试、源码快照不进这个清单，
+  否则包大出一截。`extensions/**` 这一行不写，扩展根本不进包。
+- `repository`：可选，但**写上**。插件市场的关联、用户从哪儿看升级，都靠它；没有它，包在
+  市场里是个孤儿。
+
+**要读宿主数据的插件，还得自己声明 `dshMobileDataServices`**（第 5.5 节的规则）：服务名
+和允许的路径前缀都在这儿定，`match` 用你自己的专属前缀，别用 `/api/` 去撞宿主的保留区。
+最小一份：
+
+```json
+{ "dshMobileDataServices": [{ "service": "dsh-email", "allow": ["/api/dsh-email/"] }] }
+```
+
+只做纯本地页面的插件不需要这一格。
+
+### 10.2 入口：导出 name 与 apply
+
+入口 `index.js` 导出两样：`name`（与包名逐字一致）和 `apply(ctx)`。
+
+```js
+export const name = 'dsh-email-plugin'
+
+export function apply(ctx) {
+  // 插件启动时要做的事放这里。
+}
+```
+
+- 只是「让包存在、把扩展列出来」，`apply` 可以什么都不做、记一行日志就够。
+- 要注册自己的 HTTP 路由给扩展页取数（`host.data`）时，别在 `apply` 里直接
+  `ctx.get('webServer')`：插件常常比 `webServer` 先加载，那一刻拿到的还是 `undefined`，
+  路由就永远挂不上。导出 `inject = ['webServer']`，在 `ctx.inject(['webServer'], (scoped) => {
+  ... })` 里挂，服务发布后它会跑、服务被替换时会重跑。
+- **`apply` 里抛异常会拖垮整个 DSH 启动**。装载失败只记日志、别往外抛 —— 少一个插件不该让
+  宿主起不来。
+
+### 10.3 cordis.patch.yml：把包挂进 profile
+
+```yaml
+- insert:
+    - id: dsh-email
+      name: 'dsh-email-plugin'
+      config: {}
+```
+
+- `name` **必须逐字等于 `package.json` 的 `name`**。loader 按它去 `node_modules` 里解析包，
+  写歪了（大小写、少个后缀、多写 scope）**不报错**，只是这个插件永远载不进去 —— 表现就是
+  「装了，但没有它」。这是最难查的一类：装完先在宿主日志里找找有没有这个名字打出来。
+- `id` 是层栈里的标识，跟包名写成同一个最省心。
+- 这个文件要被 `package.json` 的 `dsh.bundle.patch` 指到、也要列进 `files`，否则发出去的
+  包里就没有它。
+
+### 10.4 装好之后：什么要重启，什么能热重载
+
+- **插件第一次装载要重启 DSH**：宿主的插件层是进程启动时铺的，新装的插件（尤其 `apply`
+  里要注册路由的那种）不重启不会跑。
+- **扩展清单不靠重启**：宿主是**每次请求现扫** profile 里各插件的 `package.json`，所以包
+  的文件已经落到 `node_modules` 之后，手机扩展页下拉一次就能看到你带的扩展。分开看：能不能
+  「列出来」取决于包在不在盘上，能不能「跑起来」才看有没有重启。
+- **`reload-dev` 只覆盖 `dsh-mobile-plugin` 自己**：它是我们这个插件自己开发时用的就地重载，
+  换得掉本插件 `lib/impl.js` 那一层，换不掉别的插件，也管不到你新装的第三方插件 —— 别人的
+  插件装完，老实重启。
+- 扩展页（`index.html`）的改动和上面两条都无关：本地开发包走第 9 节那条自动刷新，正式扩展
+  跟着插件发版更新。

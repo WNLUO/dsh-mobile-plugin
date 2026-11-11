@@ -8,6 +8,10 @@
  * 宿主扫目录现算，不信 catalog.json 里写的数字；③ 取文件被锁在包目录里，越界一律 400。
  *
  * 假目录走 listPackages(root) 与两个 handler 的可选 root 参数，不碰包里那份真 extensions/。
+ *
+ * 整包那条另钉两件事：第三方插件自己带的扩展在这台电脑上不会有预先打好的 `<slug>.zip`，所以
+ * 得由宿主把目录现打成一个 zip；现打那一档必须与官方档同一套体积闸门（超限 413），且不认识的
+ * slug 照旧 404 —— App 侧装第三方扩展只有整包一条路，这里 404 就等于装不上。
  */
 
 const test = require('node:test');
@@ -20,8 +24,10 @@ const path = require('node:path');
 const {
   catalogRoot,
   listPackages,
+  listThirdParty,
   handleCatalog,
   handleCatalogFile,
+  handleCatalogArchive,
   MAX_PACKAGE_BYTES,
   MAX_PACKAGE_FILES,
   MAX_FILE_BYTES,
@@ -51,6 +57,23 @@ function makePackage(root, slug, manifest, files) {
     fs.writeFileSync(full, content);
   }
   return directory;
+}
+
+/**
+ * 铺一个 profile 的 `node_modules`：`plugins` 是「插件名 → { manifest, extensions }」，
+ * `extensions` 里的每个子目录就是一个扩展包（判据与官方档同一份 `readPackage`）。
+ */
+function makePluginsRoot(plugins) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-extension-catalog-plugins-'));
+  for (const [name, { manifest, extensions }] of Object.entries(plugins)) {
+    const directory = path.join(root, name);
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name, version: '1.0.0', ...manifest }));
+    for (const [slug, { manifest: pkgManifest, files }] of Object.entries(extensions || {})) {
+      makePackage(path.join(directory, 'extensions'), slug, pkgManifest, files);
+    }
+  }
+  return root;
 }
 
 const sha256Of = (text) => crypto.createHash('sha256').update(text).digest('hex');
@@ -332,4 +355,142 @@ test('发版预检会拦下缺入口页的包，并要求清单文件真的进�
     '打包那一步要逐个验登记包带 index.html');
   assert.match(preflight, /badPackages\.length/,
     '缺文件的登记包要抛 Stop 挡住发版，不能只打一行日志');
+});
+
+test('第三方插件 slug 能打整包：目录现打一个 zip 回 base64，解出来逐字节一致', async () => {
+  const root = makeRoot();
+  const pluginsRoot = makePluginsRoot({
+    'dsh-email-plugin': {
+      manifest: { dshMobileExtensions: 'extensions' },
+      extensions: {
+        inbox: {
+          manifest: { name: '收件箱', versionName: '1.0.0' },
+          files: { 'index.html': '<h1>收件箱</h1>', 'libs/a.js': 'export default 1' },
+        },
+      },
+    },
+  });
+  try {
+    // 官方档里没有这个 slug，也没人给它打 `<slug>.zip` —— 这正是原先 404 的那条路。
+    writeCatalog(root, { packages: [] });
+
+    const res = fakeRes();
+    await handleCatalogArchive(null, fakeGet('/api/mobile/v1/extension/catalog/archive?slug=dsh-email-plugin.inbox'), res, root, pluginsRoot);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.slug, 'dsh-email-plugin.inbox');
+    assert.ok(res.body.size > 0, '整包不该是空的');
+    assert.equal(res.body.sha256, sha256Of(Buffer.from(res.body.content, 'base64')), 'sha256 是这份 zip 的');
+
+    // 真解开验一遍：宿主用系统 zip 打包，这里用同一套工具解。
+    const zipPath = path.join(root, 'archive.zip');
+    fs.writeFileSync(zipPath, Buffer.from(res.body.content, 'base64'));
+    const outDir = path.join(root, 'unzipped');
+    fs.mkdirSync(outDir, { recursive: true });
+    require('node:child_process').execFileSync('unzip', ['-q', zipPath, '-d', outDir]);
+    assert.equal(fs.readFileSync(path.join(outDir, 'index.html'), 'utf8'), '<h1>收件箱</h1>');
+    assert.equal(fs.readFileSync(path.join(outDir, 'libs', 'a.js'), 'utf8'), 'export default 1');
+    assert.ok(!fs.existsSync(path.join(outDir, 'inbox')), '整包里不该带扩展目录那一层，否则手机对不上清单');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+  }
+});
+
+test('整包的拒绝口径：不认识的 slug 仍 404，第三方超限仍 413', async () => {
+  const root = makeRoot();
+  const pluginsRoot = makePluginsRoot({
+    'dsh-email-plugin': {
+      manifest: { dshMobileExtensions: 'extensions' },
+      extensions: {
+        inbox: { manifest: { name: '收件箱' }, files: { 'index.html': '<h1/>' } },
+      },
+    },
+  });
+  try {
+    writeCatalog(root, { packages: [] });
+
+    const unknown = fakeRes();
+    await handleCatalogArchive(null, fakeGet('/api/mobile/v1/extension/catalog/archive?slug=nobody.knows'), unknown, root, pluginsRoot);
+    assert.equal(unknown.status, 404, '两档都不认识的 slug 一个字节都拿不到');
+    assert.equal(unknown.body.error.code, 'package-missing');
+
+    const badSlug = fakeRes();
+    await handleCatalogArchive(null, fakeGet('/api/mobile/v1/extension/catalog/archive?slug=../etc'), badSlug, root, pluginsRoot);
+    assert.equal(badSlug.status, 400);
+
+    // 超限：随机字节压不动，打出来的 zip 本身就顶过 20MB 的上限。
+    const huge = makePackage(path.join(pluginsRoot, 'dsh-email-plugin', 'extensions'), 'huge',
+      { name: '太大' }, { 'index.html': '<h1/>', 'blob.bin': crypto.randomBytes(MAX_PACKAGE_BYTES + 1024) });
+    assert.ok(fs.existsSync(huge));
+    const tooLarge = fakeRes();
+    await handleCatalogArchive(null, fakeGet('/api/mobile/v1/extension/catalog/archive?slug=dsh-email-plugin.huge'), tooLarge, root, pluginsRoot);
+    assert.equal(tooLarge.status, 413, '现打那一档要与官方档同一个体积闸门');
+    assert.equal(tooLarge.body.error.code, 'package-too-large');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+  }
+});
+
+test('官方那一档行为不变：有预先打好的 zip 就读现成，没有就回 404 archive-missing', async () => {
+  const root = makeRoot();
+  const pluginsRoot = makePluginsRoot({});
+  try {
+    makePackage(root, 'approved', { name: '审过的' }, { 'index.html': '<h1>ok</h1>' });
+    makePackage(root, 'no-zip', { name: '没打 zip' }, { 'index.html': '<h1/>' });
+    writeCatalog(root, { packages: [{ slug: 'approved' }, { slug: 'no-zip' }] });
+
+    // 产包脚本预先放好的那份 zip：内容刻意与目录不同，用来证明读的是盘上那份、不是现打。
+    const outFile = path.join(root, 'prebuilt.zip');
+    require('node:child_process').execFileSync('zip', ['-q', '-X', outFile, 'index.html'], { cwd: path.join(root, 'approved') });
+    const expected = fs.readFileSync(outFile);
+    fs.renameSync(outFile, path.join(root, 'approved.zip'));
+
+    const res = fakeRes();
+    await handleCatalogArchive(null, fakeGet('/api/mobile/v1/extension/catalog/archive?slug=approved'), res, root, pluginsRoot);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.sha256, sha256Of(expected));
+    assert.equal(res.body.content, expected.toString('base64'));
+
+    const missing = fakeRes();
+    await handleCatalogArchive(null, fakeGet('/api/mobile/v1/extension/catalog/archive?slug=no-zip'), missing, root, pluginsRoot);
+    assert.equal(missing.status, 404);
+    assert.equal(missing.body.error.code, 'archive-missing', '没打 zip 的老包仍回这一档，别改成现打');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+  }
+});
+
+test('devServer 透传：收窄口径与开发包那条一致，缺省 null', () => {
+  const root = makeRoot();
+  try {
+    makePackage(root, 'with-dev', { name: '带开发服务器', devServer: 'http://192.168.1.5:5173' }, { 'index.html': '<h1/>' });
+    makePackage(root, 'public-dev', { name: '公网地址', devServer: 'http://example.com:5173' }, { 'index.html': '<h1/>' });
+    makePackage(root, 'no-dev', { name: '没写' }, { 'index.html': '<h1/>' });
+    writeCatalog(root, { packages: [{ slug: 'with-dev' }, { slug: 'public-dev' }, { slug: 'no-dev' }] });
+
+    const listed = listPackages(root);
+    assert.equal(listed.find((entry) => entry.slug === 'with-dev').devServer, 'http://192.168.1.5:5173/');
+    assert.equal(listed.find((entry) => entry.slug === 'public-dev').devServer, null, '公网地址一律当没写');
+    assert.equal(listed.find((entry) => entry.slug === 'no-dev').devServer, null, '官方档本来就没有这一格');
+
+    const pluginsRoot = makePluginsRoot({
+      'dsh-email-plugin': {
+        manifest: { dshMobileExtensions: 'extensions' },
+        extensions: {
+          inbox: { manifest: { name: '收件箱', devServer: 'http://macbook.local:5173' }, files: { 'index.html': '<h1/>' } },
+        },
+      },
+    });
+    try {
+      const [pkg] = listThirdParty(pluginsRoot);
+      assert.equal(pkg.devServer, 'http://macbook.local:5173/', '第三方插件包也能带开发服务器地址');
+    } finally {
+      fs.rmSync(pluginsRoot, { recursive: true, force: true });
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
