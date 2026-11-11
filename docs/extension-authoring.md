@@ -353,12 +353,13 @@ window.addEventListener('dsh-extension-reply', (event) => {
 
 ```json
 "capabilities": ["content.read", "card.write", "host.data"],
-"hostData": { "service": "dsh-email", "match": ["/api/dsh-email/"] }
+"hostData": { "service": "magpie", "match": ["/api/"] }
 ```
 
-`service` 必须是一个**电脑上登记过的服务名**——服务都由插件自己声明：在插件自己的
-`package.json` 里登记，宿主扫插件时就会认（例如 magpie 就是由独立插件 `dsh-magpie-plugin`
-这样声明 `dsh-magpie` 服务的）：
+`service` 必须是一个**电脑上登记过的服务名**。两类来源：
+
+- 内置的几个（例如 `magpie`）随移动端插件一起走，不归你管；
+- **你自己的服务**：在插件自己的 `package.json` 里声明，宿主扫插件时就会登记：
 
   ```json
   { "dshMobileDataServices": [{ "service": "dsh-email", "allow": ["/api/dsh-email/"] }] }
@@ -369,7 +370,7 @@ window.addEventListener('dsh-extension-reply', (event) => {
   卸载就没了，不用去改 App 或移动端插件的代码。
 
   **服务名全局唯一**，撞了以后扫到的优先（按包名排序），所以起名前加个前缀（`dsh-email`
-  而不是 `mail`）。
+  而不是 `mail`）。内置服务优先于任何第三方声明 —— 你用一个同名声明顶不掉 `magpie`。
 
 `match` 是路径前缀，命中的请求才交给宿主，别的照旧由页面自己发。**两个都要写**：
 `manifest` 里的 `hostData.service` 要与 `package.json` 里的 `dshMobileDataServices[].service`
@@ -380,7 +381,7 @@ window.addEventListener('dsh-extension-reply', (event) => {
 `.arrayBuffer()` / `.headers.get()` 都能用。也有显式入口：
 
 ```js
-await window.__dshHostFetch('dsh-email', '/api/dsh-email/state', { method: 'GET' });
+await window.__dshHostFetch('magpie', '/api/state', { method: 'GET' });
 ```
 
 几条要知道的：
@@ -627,7 +628,7 @@ body {
 
 - `manifest.json` 是你写的自述（能力、版本、入口、`hostData`）；逐文件的 `size` 与
   `sha256` 由宿主扫目录现算，不是你填的，别混。
-- 官方扩展（Office 预览等）仍随 `dsh-mobile-plugin` 发布、登记在它自己的
+- 官方扩展（Office 预览、magpie）仍随 `dsh-mobile-plugin` 发布、登记在它自己的
   `extensions/catalog.json` 里，和第三方这条是两档；两档来源在 `extension-market.md` 里写清了。
 - 作者自己写、自己在手机上边改边看的那条调试路（第 9 节）与发布是两回事：那条走电脑上的
   本地目录，不经过插件包，也不带声明。
