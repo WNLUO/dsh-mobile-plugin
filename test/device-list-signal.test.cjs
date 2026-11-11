@@ -226,7 +226,8 @@ test('设备级 SSE 收尾时必须注销变更信号的观众', async () => {
     await flush();
     assert.equal(sharedListSignal.watching(), true);
     // 客户端断开（RN 侧切页面/重建连接）：流必须收尾，否则调度器永远以为有人在听。
-    req.emit('close');
+    // 断的是**响应**：`req` 的 close 只说请求读完了，见 events.js 那处监听。
+    res.emit('close');
     ctl.release();
     await pending;
     assert.equal(res.ended, true, '客户端断开后必须结束响应');

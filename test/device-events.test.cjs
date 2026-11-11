@@ -30,11 +30,16 @@ const SOURCE = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'even
 
 function response() {
   const chunks = [];
+  const listeners = {};
   return {
     chunks,
     writeHead(status, headers) { this.status = status; this.headers = headers; },
-    write(chunk) { chunks.push(String(chunk)); },
+    write(chunk) { chunks.push(String(chunk)); return true; },
     end() { this.ended = true; },
+    on(event, fn) { (listeners[event] ||= []).push(fn); },
+    once(event, fn) { const wrap = (...args) => { this.off(event, wrap); fn(...args); }; this.on(event, wrap); },
+    off(event, fn) { const list = listeners[event]; if (list) { const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); } },
+    emit(event, ...args) { for (const fn of [...(listeners[event] || [])]) fn(...args); },
   };
 }
 
@@ -111,14 +116,36 @@ test('aborts the mux subscription when the client disconnects', async () => {
   const ctx = { apiProxy: { events: { mux: async function* (_request, signal) {
     observedSignal = signal;
     yield { payload: { type: 'session/summary', sessionId: 's-1', summary: { sessionId: 's-1' } } };
-    await new Promise((resolve) => req.once('close', resolve));
+    await new Promise((resolve) => res.once('close', resolve));
+    // 断的是响应：`req` 的 'close' 只说「请求读完了」，一次普通 GET 走完就会响，拿它判死
+    // 会把一条好端端的流当场掐掉（见 events.js 里那处监听）。
     assert.equal(signal.aborted, true);
   } } } };
   const pending = handleDeviceStream(ctx, req, res);
-  setImmediate(() => req.emit('close'));
+  setImmediate(() => res.emit('close'));
   await pending;
   assert.equal(observedSignal.aborted, true);
   assert.equal(res.ended, true);
+});
+
+test('请求读完（req close）不算客户端断开', async () => {
+  const req = request();
+  let observedSignal;
+  const res = response();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const ctx = { apiProxy: { events: { mux: async function* (_request, signal) {
+    observedSignal = signal;
+    yield { payload: { type: 'session/summary', sessionId: 's-1', summary: { sessionId: 's-1' } } };
+    await gate;
+    release();
+  } } } };
+  const pending = handleDeviceStream(ctx, req, res);
+  setImmediate(() => req.emit('close'));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(observedSignal.aborted, false, 'req 的 close 不该把设备级流掐掉');
+  release();
+  await pending;
 });
 
 test('keeps debug metadata separate from application payload and credentials', async () => {

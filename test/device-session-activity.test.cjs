@@ -278,7 +278,8 @@ test('正文水位经镜像推送广播到设备级 SSE（先推镜像再广播�
   } finally {
     stop();
     // 客户端断开（RN 侧切页面 / 重建连接）：流必须收尾并注销水位订阅者。
-    req.emit('close');
+    // 断的是**响应**（req 的 close 只说请求读完，见 events.js 那处监听）。
+    res.emit('close');
     ctl.close();
     openGate();
     await flush();
@@ -352,7 +353,7 @@ test('隧道断开/局域网模式：正文水位照样广播，且不往 sideca
     assert.equal(activityOf(res).length, 2, '内容没变却又广播了一次正文水位');
   } finally {
     stop();
-    req.emit('close');
+    res.emit('close');
     ctl.close();
     openGate();
     await flush();

@@ -107,10 +107,11 @@ test('replay failure does not block the live stream', async () => {
   const ctx = { apiProxy: { events: { mux }, sessions: { history } } };
   await handleStream(ctx, req, res);
   const frames = dataFrames(res.chunks);
-  // 回放失败不阻塞实时流；末尾那一帧是循环正常结束时的 resync。
-  assert.equal(frames.length, 2);
-  assert.equal(frames[0].event?.seq ?? frames[0].seq, 2);
-  assert.equal(frames[1].type, 'session/resync-required');
+  // 回放失败不阻塞实时流；但**要报缺口**：这一段一条都没补上，静默接上实时流等于让客户端
+  // 以为中间没东西。末尾那一帧仍是循环正常结束时的 resync（带 final）。
+  assert.deepEqual(frames.map((f) => f.seq ?? f.type), ['session/resync-required', 2, 'session/resync-required']);
+  assert.equal(frames[0].final, undefined, '回放失败只补权威历史，不关流');
+  assert.equal(frames.at(-1).final, true);
 });
 
 test('signals an authoritative resync when replay history has a gap', async () => {
@@ -172,4 +173,10 @@ test('replay is byte-capped so a fat session cannot flood the stream', async () 
   const frames = dataFrames(res.chunks);
   const replayed = frames.filter((frame) => typeof frame.seq === 'number');
   assert.equal(replayed.length, 1, '超过字节封顶之后一条都不该再补');
+  // 截断必须报缺口：只发前缀而不说话，客户端会接着实时流往下走，缺掉那一截永远补不回来。
+  // 帧顺序与「回放缺口」那一支一致：前缀先写出去，缺口帧紧跟着那个前缀之后。
+  const gapFrame = frames.find((frame) => frame.type === 'session/resync-required' && frame.final === undefined);
+  assert.ok(gapFrame, '截断之后必须有一帧非 final 的 resync');
+  assert.equal(gapFrame.oldestSeq, 2, '缺口帧报出可回放的起点');
+  assert.equal(frames.at(-1).final, true);
 });
