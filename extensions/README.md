@@ -4,7 +4,7 @@
 magpie 这类）。宿主只认 `catalog.json` 里登记的 slug，目录里有但没登记的一律不下发。
 
 第三方扩展不经过这里。作者在自己的插件包里声明 `dshMobileExtensions` 就能让他的手机拉到，
-不用提 PR、不用我们审 —— 见 `docs/extension-authoring.md` 第 8 节。这一份只讲官方这一档。
+不用提 PR、不用我们审 —— 见同包的 `docs/extension-authoring.md` 第 8 节。这一份只讲官方这一档。
 
 ## 加一个官方扩展
 

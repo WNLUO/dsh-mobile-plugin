@@ -47,6 +47,12 @@ const REQUIRED_FILES = [
   'locale/zh.json',
   'locale/en.json',
   'extensions/catalog.json',
+  // 写扩展的人只装这个包，不会去翻维护者的仓库：作者文档与样例必须随包发出去。
+  // 它们住在包内的 `docs/`，不在仓库根（那里进不了包）。
+  'docs/extension-authoring.md',
+  'docs/extension-sample/README.md',
+  'docs/extension-sample/manifest.json',
+  'docs/extension-sample/index.html',
 ];
 /** 包内不该出现的东西：源码、测试、脚本、依赖树。 */
 const FORBIDDEN_PREFIXES = ['React/', 'test/', 'scripts/', 'node_modules/'];

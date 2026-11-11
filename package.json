@@ -53,6 +53,8 @@
     "icon.png",
     "skills/**",
     "extensions/**",
+    "docs/extension-authoring.md",
+    "docs/extension-sample/**",
     "README.md"
   ],
   "publishConfig": {

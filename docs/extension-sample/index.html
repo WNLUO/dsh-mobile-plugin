@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>示例扩展</title>
+<style>
+  /*
+   * 配色只用外壳下发的那组变量，不写死任何颜色 —— 这样 App 切到夜间，这一页跟着变。
+   * 变量名与含义见文档第 6.2 节；每个值都是 #rrggbb，透明度自己用 color-mix 叠。
+   */
+  :root {
+    --bg: var(--dsh-theme-background, #ffffff);
+    --surface: var(--dsh-theme-surface, #f7f7f8);
+    --border: var(--dsh-theme-border, #e5e5e7);
+    --text: var(--dsh-theme-text, #1c1c1e);
+    --muted: var(--dsh-theme-text-muted, #8a8a8e);
+    --primary: var(--dsh-theme-primary, #2f80ff);
+    --danger: var(--dsh-theme-danger, #ef4444);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    /* 顶栏由 App 画，安全区也已经让过；这里只管顶栏以下那块。 */
+    padding: 12px 16px max(16px, env(safe-area-inset-bottom));
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 0 0 16px; }
+  .row {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .who { font-weight: 600; }
+  .row .when { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--muted); font-size: 13px; padding: 24px 0; text-align: center; }
+  button {
+    font: inherit; color: var(--primary); background: none;
+    border: 1px solid var(--border); border-radius: 10px; padding: 8px 14px;
+  }
+  button:active { opacity: 0.6; }
+  .bar { display: flex; gap: 8px; margin-top: 20px; }
+  #err { color: var(--danger); font-size: 12px; margin-top: 12px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <h1 id="title">示例扩展</h1>
+  <p class="hint" id="hint">正在读 App 给的内容…</p>
+  <div id="list"><div class="empty">加载中…</div></div>
+  <div class="bar">
+    <button id="ask">让 App 打开一条对话</button>
+    <button id="pick">挑一份文件</button>
+    <button id="save">存一段文本</button>
+    <button id="remember">记住点了几次</button>
+  </div>
+  <p id="err"></p>
+
+<script>
+/*
+ * 一个最小可用的扩展页。三件事：
+ *   1. 读 App 注入的上下文（window.__DSH_EXTENSION__）—— 这一页的身份、能力、内容；
+ *   2. 向 App 要一次数据（要真能取数就在 manifest 里声明 hostData，见文档 5.5）；
+ *   3. 让 App 办一件事（动作名只能从 App 允许的那几个里挑）。
+ *
+ * 里面没有一行是「必须这么写」：换任何框架都行，只要最终产物是这一个目录。
+ */
+(function () {
+  var ctx = window.__DSH_EXTENSION__ || {};
+  var titleEl = document.getElementById('title');
+  var hintEl = document.getElementById('hint');
+  var listEl = document.getElementById('list');
+  var errEl = document.getElementById('err');
+
+  titleEl.textContent = (ctx.content && ctx.content.title) || '示例扩展';
+  hintEl.textContent = '能力：' + ((ctx.capabilities || []).join(', ') || '（没有）')
+    + ' · 版本 ' + (ctx.versionName || '?');
+  errEl.textContent = '';
+
+  /**
+   * 和 App 说话：发一条消息进来，等它按 id 回。
+   * 回执走 `dsh-extension-reply` 这个事件，不需要知道注入细节。
+   */
+  var seq = 0;
+  function askApp(message, timeoutMs) {
+    var id = (message.kind || 'm') + '-' + (++seq);
+    message.id = id;
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () {
+        window.removeEventListener('dsh-extension-reply', onReply);
+        reject(new Error('App 没有回应（' + message.kind + '）'));
+      }, timeoutMs || 5000);
+
+      function onReply(event) {
+        var detail = event.detail || {};
+        if (detail.id !== id) return;
+        clearTimeout(timer);
+        window.removeEventListener('dsh-extension-reply', onReply);
+        resolve(detail);
+      }
+      window.addEventListener('dsh-extension-reply', onReply);
+
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify(message));
+      } catch (error) {
+        clearTimeout(timer);
+        window.removeEventListener('dsh-extension-reply', onReply);
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * 取一次数据。声明了 hostData 的扩展可以直接 fetch 相对路径（App 装了拦截 shim）；
+   * 没声明的用显式的 __dshHostFetch。两条都在文档 5.5。
+   */
+  function load() {
+    var hostFetch = window.__dshHostFetch;
+    if (typeof hostFetch !== 'function') {
+      listEl.innerHTML = '<div class="empty">这一页没有向宿主取数。'
+        + '要取数就在 manifest 里声明 hostData，见文档 5.5。</div>';
+      return;
+    }
+    hostFetch('example-service', '/api/items')
+      .then(function (response) { return response.json(); })
+      .then(function (body) {
+        var items = (body && body.items) || [];
+        if (items.length === 0) {
+          listEl.innerHTML = '<div class="empty">没有内容</div>';
+          return;
+        }
+        listEl.innerHTML = items.map(function (item) {
+          return '<div class="row"><span class="who">' + escapeHtml(item.title) + '</span>'
+            + '<span class="when">' + escapeHtml(item.when || '') + '</span></div>';
+        }).join('');
+      })
+      .catch(function (error) {
+        listEl.innerHTML = '<div class="empty">取不到数据</div>';
+        errEl.textContent = String(error && error.message ? error.message : error);
+      });
+  }
+
+  /** 页面上的字一律转义再拼 —— 内容来自网络，不是自己的常量。 */
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  document.getElementById('ask').addEventListener('click', function () {
+    errEl.textContent = '';
+    // 动作名是 App 那边写死的白名单：写错一个字母就会被拒，回执里带 code。
+    // chat.draft 只摆一条新对话并预填，不会替你发送。
+    askApp({
+      kind: 'action',
+      action: 'chat.draft',
+      params: { text: '这条对话是示例扩展打开的。' }
+    }).then(function (detail) {
+      if (!detail.ok) {
+        var payload = detail.payload || {};
+        errEl.textContent = '被拒了：' + (payload.code || '未知原因');
+      }
+    }).catch(function (error) {
+      errEl.textContent = String(error && error.message ? error.message : error);
+    });
+  });
+
+  /**
+   * 挑文件 / 存文件：三样新能力（挑文件、存文件、自己联网）都在 `window.__dshExtension`
+   * 上，而且**只在对应能力被授予时才存在** —— 所以先判存在再画按钮，别写 undefined
+   * is not a function。见文档 5.6。
+   */
+  var pickBtn = document.getElementById('pick');
+  var saveBtn = document.getElementById('save');
+  var ext = window.__dshExtension || {};
+
+  if (typeof ext.pickFiles !== 'function') pickBtn.remove();
+  else pickBtn.addEventListener('click', function () {
+    errEl.textContent = '';
+    ext.pickFiles({ multiple: true }).then(function (files) {
+      if (files.length === 0) { errEl.textContent = '你取消了（这不是错误）'; return; }
+      listEl.innerHTML = files.map(function (file) {
+        return '<div class="row"><span class="who">' + escapeHtml(file.name) + '</span>'
+          + '<span class="when">' + Math.round(file.size / 1024) + ' KB</span></div>';
+      }).join('');
+    }).catch(function (error) {
+      errEl.textContent = '挑不了：' + (error && error.code ? error.code : error);
+    });
+  });
+
+  if (typeof ext.saveFile !== 'function') saveBtn.remove();
+  else saveBtn.addEventListener('click', function () {
+    errEl.textContent = '';
+    // btoa 只吃 latin1，中文要先编成 UTF-8 再来一遍。
+    var bytes = new TextEncoder().encode('这是示例扩展存下来的一段文本。');
+    var binary = '';
+    bytes.forEach(function (byte) { binary += String.fromCharCode(byte); });
+    ext.saveFile({ name: '示例.txt', base64: btoa(binary), mimeType: 'text/plain' })
+      .then(function (result) {
+        errEl.textContent = result && result.saved ? '已经存好了' : '你在对话框里取消了';
+      })
+      .catch(function (error) {
+        errEl.textContent = '存不了：' + (error && error.code ? error.code : error);
+      });
+  });
+
+  /**
+   * 存自己的数据：App 托管的仓库（文档 5.7）。与页面自己的 localStorage 的区别是
+   * 「数据放在哪」—— 换一版扩展、目录一挪，这份还在；卸载才跟着删。
+   * 收发都是字符串，对象自己 JSON 化。
+   */
+  var rememberBtn = document.getElementById('remember');
+  var storage = ext.storage;
+  if (!storage) rememberBtn.remove();
+  else rememberBtn.addEventListener('click', function () {
+    errEl.textContent = '';
+    storage.get('demo.clicks')
+      .then(function (raw) { return (raw ? Number(raw) : 0) + 1; })
+      .then(function (next) {
+        return storage.set('demo.clicks', String(next)).then(function () {
+          errEl.textContent = '这是你第 ' + next + ' 次点（关掉页面再进来还算数）';
+        });
+      })
+      .catch(function (error) {
+        errEl.textContent = '存不了：' + (error && error.code ? error.code : error);
+      });
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

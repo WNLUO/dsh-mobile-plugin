@@ -1,0 +1,13 @@
+{
+  "name": "示例扩展",
+  "version": "1.0.0",
+  "apiVersion": "1",
+  "main": "index.html",
+  "description": "最小可用的手机扩展：一个列表 + 一次宿主取数 + 一次宿主动作 + 挑文件、存文件与存自己的数据。抄这个目录起步。",
+  "capabilities": [
+    "content.read",
+    "file.pick",
+    "file.save",
+    "storage"
+  ]
+}
