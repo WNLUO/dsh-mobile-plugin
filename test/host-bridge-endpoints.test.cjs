@@ -310,3 +310,53 @@ test('两个打断接口都不存在时，报的是「宿主没有打断能力�
   assert.equal(envelope.result.error.code, 'host-unavailable');
   assert.match(envelope.result.error.message, /打断接口/);
 });
+
+/**
+ * 子代理目录的两发必须并发，不许排队（2026-11-12）。
+ *
+ * 2026-11-12 的真机记录里这一发 2664ms：`subagents.list` 先 `session.list` 扫一遍全部
+ * 会话日志、再开 `session.control` 读投影基线，两段串起来；而同一时刻 App 自己也在问
+ * 会话列表，等于把最贵的那次扫描跑了两遍。这两条互不依赖，`Promise.all` 发出去就行 ——
+ * 但「并发」这件事改回串行不会红任何功能用例（结果一模一样，只是慢一倍），所以单独钉。
+ *
+ * 判据是顺序而不是耗时：list 这一发**在流开出来之前不许返回**。串行写法下它永远等不到
+ * 流，于是只能由超时兜底成失败。
+ */
+test('子代理目录：会话列表与投影基线并发出去，不排队', async () => {
+  let streamStarted = false;
+  let resolveList = null;
+  const calls = [];
+  const gateway = {
+    invoke({ namespace, method }) {
+      calls.push(`${namespace}/${method}`);
+      if (namespace === 'session' && method === 'list') {
+        return new Promise((resolve, reject) => {
+          resolveList = () => resolve({ items: [{ sessionId: 'parent-1', agentAvailable: true }] });
+          const timer = setTimeout(() => {
+            reject(new Error(`session/list 等了 300ms 还没等到 session/control 开流：这两发被写成串行了（开流前 streamStarted=${streamStarted}）`));
+          }, 300);
+          resolveList = ((inner) => () => { clearTimeout(timer); inner(); })(resolveList);
+        });
+      }
+      return Promise.reject(new Error(`未预期的端点 ${namespace}/${method}`));
+    },
+    async stream({ method }) {
+      calls.push(`session/${method}`);
+      streamStarted = true;
+      // 流一开就让 list 那一发放行：并发的写法下此刻它正挂在 Promise.all 里等着。
+      if (resolveList) resolveList();
+      return require('node:stream').Readable.from([{ type: 'baseline', value: { projections: { 'parent-1': { values: { subagentCatalog: [{ id: 'child-1', mode: 'continuable' }] } } } } }]);
+    },
+  };
+  const ctx = {
+    get: (key) => (key === 'typertGateway' ? gateway : undefined),
+    logger: { warn() {} },
+  };
+  const api = createApiProxy(ctx);
+  const envelope = await api.subagents.list({ rpcId: 'mobile', payload: { parentSessionId: 'parent-1' } });
+
+  assert.equal(envelope.result.ok, true, `目录请求应当成功：${JSON.stringify(envelope.result)}`);
+  assert.deepEqual(envelope.result.value.entries.map((e) => e.id), ['child-1']);
+  assert.deepEqual(calls, ['session/list', 'session/control'], '两发的顺序固定：list 先发、基线随后；关键在它们同时在路上');
+  assert.equal(streamStarted, true, '必须真的去开了投影基线那条流');
+});
