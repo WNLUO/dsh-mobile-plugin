@@ -279,7 +279,10 @@ test('按 ctx 隔离的可变状态只在 session-cache.js 与 rpc.js 里', () =
   // 同一条会话可能同时挂着不止一条流（多开一屏 / 重连时旧连接没断干净），只让一个写入者
   // 累加，否则每段推理被接两遍、用户点开「思考」看到逐 token 翻倍的正文。两张表都按 ctx
   // 隔离的理由与其它表一样。
-  assert.equal(owners.get('session-cache.js'), 18, '会话侧的十八张表（含已删除会话 ID、上一轮事实、代发轮次、直播过程副本、写入者与清单接收器、隔离树回收节流）：状态均按 ctx 隔离');
+  // 2026-11-12：加进第十九张表 —— 交付声明补格的账（`presented-file-stats.js`）。它也是
+  // 宿主进程状态（这一台电脑上量到过的 size/mtime），按 ctx 隔离；桶内按「`deriveMessages`
+  // 交回来的数组」认，派生缓存对同一份输入交回同一个数组，同指纹的第二次调用就不再 stat。
+  assert.equal(owners.get('session-cache.js'), 19, '会话侧的十九张表（含已删除会话 ID、上一轮事实、代发轮次、直播过程副本、写入者与清单接收器、隔离树回收节流、交付声明补格）：状态均按 ctx 隔离');
   // session-cache.js 是叶子：它不许反过来依赖任何会话模块。
   assert.doesNotMatch(read(path.join(MOB, 'session-cache.js')), /require\(/);
   // 对外路径不变：这五个访问器仍从 sessions.js 转出。

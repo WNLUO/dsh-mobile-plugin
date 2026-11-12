@@ -359,11 +359,63 @@ export type RelayDevice = {
   expiresAt: number
 }
 
+/**
+ * `GET /api/relay/devices?history=1` 里的一行：**已经结束**的绑定，不是当前设备。
+ *
+ * 它回答的是「谁连过这台机器、后来怎么没的」。与 `RelayDevice` 是两个用途：那边每行都还
+ * 能用、能改权限、能踢，这边一行都不能动（已解绑的再解绑一次没有意义，过期的那本通行证
+ * 已经进不来了）。所以单独一个类型，别把两种状态塞进一个签名里。
+ *
+ * 同样**没有** `hash` / `hostToken` / `deviceKey`：宿主连历史也不往面板回凭据材料。
+ */
+export type RelayHistoryDevice = {
+  deviceId: string
+  /** 设备名。历史来源与 `RelayDevice.name` 一样乱，只在机型空着时兜底。 */
+  name: string
+  /** 机型；空串 = 那台手机当时没报过。 */
+  model: string
+  platform: string
+  osVersion: string
+  appVersion: string
+  /** 毫秒时间戳；这组记录里最早那条的绑定时刻。 */
+  boundAt: number
+  /** 毫秒时间戳；最后一次来过；0 = 从没连过。 */
+  lastSeenAt: number
+  /** `relay` / `lan` / 空串（最近那条记录没记通道）。 */
+  lastChannel: string
+  /** 毫秒时间戳；0 = 这组不是被吊销掉的（自然过期那种）。 */
+  revokedAt: number
+  /** 毫秒时间戳；0 = 没有到期时间。 */
+  expiresAt: number
+  /**
+   * 这组是怎么结束的：`revoked` = 有人亲手解除过绑定，`expired` = 通行证自然到期。
+   *
+   * 两种绝不合并成一句：一种是你踢的，一种是它自己到点，用户要知道是哪一种。
+   */
+  kind: 'revoked' | 'expired'
+  /** 这组里有几条已结束的凭据（同一台手机重配过几次就多几条）。 */
+  bindings: number
+}
+
+/** `GET /api/relay/devices?history=1` 的回答。`serverNow` 与设备清单同一台机器基准。 */
+export type DeviceHistoryList = {
+  ok: true
+  serverNow: number
+  devices: RelayHistoryDevice[]
+}
+
 /** `GET /api/relay/devices` 的回答。`serverNow` 是算「几分钟前」的同一台机器基准。 */
 export type DeviceList = {
   ok: true
   serverNow: number
   devices: RelayDevice[]
+  /**
+   * 历史里有几台（`?history=1` 那份的行数）。老宿主没有这一格，读的地方按 0 处理。
+   *
+   * 它只用来决定两件事：折叠行上那个台数、以及「一台活设备都没有时这张卡还摆不摆」——
+   * 踢掉最后一台手机之后，那条记录正是这一段要回答的事。
+   */
+  revokedCount: number
 }
 
 /** `POST /api/relay/devices/revoke` 的回答：吊销了几条凭据、断开了几条已建立的流。 */

@@ -6,8 +6,9 @@
  * 三条约定各有一次「看着没问题、实际在骗人」的失败模式，而且都**不在渲染结果里一眼看得
  * 出来**，所以按源码写法钉住：
  *
- *  1. **没有设备时整卡消失**：摆一张空卡等于告诉用户「这里本来该有东西」。判据必须是
- *     `devices.length === 0` 直接返回 null，不能只把列表渲染成空的。
+ *  1. **没有设备时整卡消失**：摆一张空卡等于告诉用户「这里本来该有东西」。判据是
+ *     `devices.length === 0 && revokedCount === 0` 才返回 null —— 只看活设备会让「踢掉最后
+ *     一台手机」之后整卡消失，而那条解绑记录正是这张卡要回答的事。
  *  2. **解除绑定的确认文案必须分两种**：`legacy` 为真的设备名下还有不带设备密钥的旧记录，
  *     单台吊销杀不掉那本旧通行证 —— 对它写「立即失效」就是给了一个做不到的承诺。所以这里
  *     逐字比对两句文案，并防止两句话被合并成一句。
@@ -44,10 +45,17 @@ function zh(key) {
 }
 
 test('设备卡：没有设备时整卡消失，不是渲染成空列表', () => {
-  assert.match(devices, /if \(devices\.length === 0\) return null/, '没有设备时必须整卡返回 null');
+  // 2026-11-12 决策变了：判据从「没有活设备」改成「活设备与历史同时为空」。
+  // 理由是「我上周从一台陌生设备上撤过权」正需要这张卡回答，而那时活设备恰好是零台；
+  // 照旧判据整张卡会消失，这个功能最核心的场景反而看不见。
+  assert.match(
+    devices,
+    /if \(devices\.length === 0 && revokedCount === 0\) return null/,
+    '活设备与历史都为空时才整卡返回 null；只看活设备会让「踢掉最后一台之后」看不到记录',
+  );
   // 判据不能写成「列表为空但卡片还在」：那样用户会看到一张只有标题的空卡。
   assert.ok(
-    devices.indexOf('if (devices.length === 0) return null') < devices.indexOf('<Card'),
+    devices.indexOf('if (devices.length === 0 && revokedCount === 0) return null') < devices.indexOf('<Card'),
     '整卡隐藏的判断要在渲染卡片之前',
   );
 });
@@ -57,7 +65,7 @@ test('设备卡：3 秒一轮，跟页面那份状态同一个节奏', () => {
   assert.match(devices, /document\.hidden/, '页面切到后台就别再问宿主');
   assert.match(devices, /\/api\/relay\/devices'/, '设备清单只从这条路由读');
   // 吊销成功后必须立刻重拉，不能等下一轮 3 秒。
-  const revoke = devices.slice(devices.indexOf('async function revoke'), devices.indexOf('if (devices.length === 0)'));
+  const revoke = devices.slice(devices.indexOf('async function revoke'), devices.indexOf('if (devices.length === 0'));
   assert.match(revoke, /await load\(\)/, '吊销成功后要立刻重拉设备清单');
   assert.match(revoke, /\/api\/relay\/devices\/revoke'/, '吊销要走那条专用路由');
 });
@@ -204,4 +212,116 @@ test('撞名靠序号，不靠机器号尾数；机型与旧绑定条数都要�
   assert.equal(zh('panel.devices.extraBindings'), '另有 {count} 条旧绑定');
   const rows = dict.split('panel.devices.extraBindings').length - 1;
   assert.ok(rows >= 5, `旧绑定那句只在 ${rows} 门语言里出现，五门都得有`);
+});
+
+test('历史 · 已解绑：收起零请求，展开只打一次 ?history=1，不另挂 interval', () => {
+  // 这一段是偶发的一问，不是每秒都在变的数据。收起时连一个请求都不该发出去。
+  assert.match(devices, /if \(!historyOpen\) return/, '收起时那个 effect 要直接返回，不发请求');
+  assert.match(
+    devices,
+    /apiGet<DeviceHistoryList>\('\/api\/relay\/devices\?history=1'\)/,
+    '展开时打的是同一路径的 history=1 分支（宿主没新开路由）',
+  );
+  // 取数只由 historyOpen 触发：依赖数组里多一个东西就等于跟着轮询重拉。
+  const effect = devices.slice(
+    devices.indexOf('展开才取一次'),
+    devices.indexOf('function endingText'),
+  );
+  assert.match(effect, /\}, \[historyOpen, loadHistory\]\)/, '这一发的依赖只有展开状态与取数函数，别跟着 3 秒轮询重拉');
+  assert.ok(!/setInterval/.test(effect), '历史那一块不许再挂一个 interval');
+  // 请求次数：源码里只有一处真的去取它（注释里提到不算）。
+  assert.equal((devices.match(/apiGet<DeviceHistoryList>/g) ?? []).length, 1, '?history=1 只该有一个调用点');
+  // 吊销成功后要补一发：展开着的时候台数已经变了，列表还停在打开那一刻那份就会「写 1 台、下面空着」。
+  const revokePath = devices.slice(devices.indexOf('async function revoke'), devices.indexOf('if (devices.length === 0'));
+  assert.match(revokePath, /if \(historyOpen\) void loadHistory\(\)/, '展开中吊销成功要重拉历史');
+
+  // 「吊销全部」走 App，本卡片只有 3 秒轮询能看见台数变了：那一发也要补，否则折叠行写着新台数、
+  // 摊开还是老几行，一直到用户自己收起再展开。
+  const polled = devices.slice(devices.indexOf('const load = useCallback'), devices.indexOf('const devices = list'));
+  assert.match(polled, /revokedCountRef/, '轮询要拿上一发看到的台数来比对');
+  assert.match(
+    polled,
+    /if \(changed && historyOpenRef\.current\) void loadHistory\(\)/,
+    '台数变了且展开着，轮询这一发要补一次历史',
+  );
+  // 只在真变了时补：相同就不补，否则每 3 秒白打一发。
+  assert.match(polled, /revokedCountRef\.current !== nextCount/, '台数相同不许补发');
+  // 关键：轮询那条 effect 的依赖里不许出现 historyOpen —— 那会每展开 / 收起一次就重建轮询、重起 interval。
+  const pollEffect = devices.slice(devices.indexOf('window.setInterval(tick, 3000)'), devices.indexOf('const devices = list'));
+  assert.match(pollEffect, /\}, \[load\]\)/, '轮询 effect 只依赖 load');
+  assert.ok(!/\}, \[load, historyOpen\]\)/.test(devices), '不许把 historyOpen 塞进轮询 effect 的依赖');
+  // 展开态走 ref 同步：load 的闭包才读得到当下的值。
+  assert.match(devices, /historyOpenRef\.current = historyOpen/, '展开态要同步进 ref');
+  // 接口类型在 api.ts 里，且历史行不含凭据材料。
+  assert.match(api, /export type RelayHistoryDevice/, '历史行要有自己的类型');
+  assert.match(api, /export type DeviceHistoryList/, '历史清单要有自己的回答类型');
+  for (const field of ['deviceId', 'name', 'model', 'platform', 'osVersion', 'appVersion', 'boundAt', 'lastSeenAt', 'lastChannel', 'revokedAt', 'expiresAt', 'bindings']) {
+    assert.match(api, new RegExp(`\\b${field}\\b`), `历史行少了契约字段 ${field}`);
+  }
+  assert.match(api, /kind: 'revoked' \| 'expired'/, '结局只有吊销与过期两种');
+  assert.match(api, /revokedCount: number/, '设备清单的回答要带历史台数');
+  // 老宿主没有这一格：读的地方必须兜成 0，否则 undefined 会让整卡判据失真。
+  assert.match(devices, /list\?\.revokedCount \?\? 0/, 'revokedCount 缺省按 0 处理');
+});
+
+test('历史行的结局按 kind 分叉：亲手解绑与自然到期是两句', () => {
+  assert.equal(zh('panel.devices.historyRevoked'), '已解绑 {time}');
+  assert.equal(zh('panel.devices.historyExpired'), '授权已到期 {time}');
+  assert.notEqual(zh('panel.devices.historyRevoked'), zh('panel.devices.historyExpired'));
+  // 两条不同的键按 kind 选，不许合并成一句「已失效」。
+  assert.match(
+    devices,
+    /t\(device\.kind === 'revoked' \? 'panel\.devices\.historyRevoked' : 'panel\.devices\.historyExpired', \{ time \}\)/,
+    '结局文案要按 kind 分叉到两个不同的键',
+  );
+  // 结局时刻：吊销看 revokedAt，过期看 expiresAt。
+  assert.match(devices, /device\.revokedAt \|\| device\.expiresAt/, '结局时刻按 revokedAt → expiresAt 取');
+  // 第二行那三件事与保留窗口也得走字典。
+  assert.equal(zh('panel.devices.historyBoundAt'), '首次绑定 {time}');
+  assert.equal(zh('panel.devices.historyLastSeen'), '最近连接 {time}');
+  assert.equal(zh('panel.devices.historyTitle'), '历史 · 已解绑');
+  assert.equal(zh('panel.devices.historyFailed'), '读不到历史');
+  assert.match(zh('panel.devices.historyRetention'), /最近 \{days\} 天/, '保留窗口那句的天数走占位符');
+  assert.match(devices, /HISTORY_RETENTION_DAYS/, '天数要来自一个具名常量');
+  assert.match(devices, /HISTORY_RETENTION_DAYS = 30/, '保留窗口是 30 天，与宿主 HISTORY_RETENTION_MS 对齐');
+  assert.match(devices, /HISTORY_RETENTION_MS/, '常量旁边要写明它对齐宿主那个名字');
+  // 从没连过就如实说「无记录」，不拿绑定时刻顶上。
+  assert.match(devices, /panel\.devices\.historyLastSeen[\s\S]{0,200}?panel\.devices\.noRecord/, '没连过要落到「无记录」');
+  // 十门都得有这几条。
+  for (const key of ['historyTitle', 'historyCount', 'historyBoundAt', 'historyLastSeen', 'historyRevoked', 'historyExpired', 'historyRetention', 'historyFailed']) {
+    const rows = dict.split(`panel.devices.${key}`).length - 1;
+    assert.ok(rows >= 10, `panel.devices.${key} 只在 ${rows} 门语言里出现，十门都得有`);
+  }
+});
+
+test('历史行没有动作按钮，也不跟主列表抢注意力', () => {
+  // 已解绑的再解绑一次没有意义，过期的那本通行证也已经进不来：这一块只读。
+  const block = devices.slice(devices.indexOf('panel.devices.historyTitle'), devices.indexOf('<AlertDialog'));
+  assert.ok(block.length > 0, '没找到历史那一块');
+  assert.ok(!/<Button/.test(block), '历史行不许有动作按钮');
+  assert.ok(!/setPending\(|setPermPending\(/.test(block), '历史行不许接解绑 / 改权限的入口');
+  // 视觉收得住：只用卡片里已有的字号与颜色档，不新造底色与圆角。
+  assert.ok(!/bg-/.test(block), '历史那一块不许加底色');
+  assert.ok(!/rounded/.test(block), '历史那一块不许加圆角');
+  assert.ok(!/font-(semibold|medium|bold)/.test(block), '历史那一块不许加粗');
+  assert.match(block, /text-xs text-foreground-muted/, '字号与颜色沿用 text-xs + 弱前景那一档');
+  // 折叠头不许自己新造动效：仓库里同类折叠是 transition-transform + group-open 那套，
+  // 没有额外的 duration 与 hover 变色。
+  const head = block.slice(0, block.indexOf('</button>'));
+  assert.ok(!/duration-/.test(head), '折叠头不许加 duration：动效沿用既有那套');
+  assert.ok(!/hover:/.test(head), '折叠头不许加 hover 变色');
+  assert.match(head, /transition-transform/, '箭头旋转保留（与既有折叠同一写法）');
+});
+
+test('老宿主没有 ?history=1 分支时，不许把活设备当成历史摆出来', () => {
+  // 老宿主的 handler 不认这个 query，会当普通设备清单答掉：回来的正是**活着的手机**，
+  // 那些行没有 kind。照渲染就是把正在连着的设备列进「已解绑」里，比不显示更糟。
+  assert.match(
+    devices,
+    /device\.kind === 'revoked' \|\| device\.kind === 'expired'/,
+    '历史行要按 kind 过滤：没有结局的行不是历史',
+  );
+  assert.match(devices, /historyUnreadable/, '整份对不上时按「读不到历史」处理');
+  // 台数徽标只数活设备：一台不剩时不画，否则「已绑定的设备 0」底下挂着解绑记录。
+  assert.match(devices, /\{devices\.length > 0 \? \(\s*<Badge variant="secondary" size="sm">/, '台数徽标只在有活设备时画');
 });

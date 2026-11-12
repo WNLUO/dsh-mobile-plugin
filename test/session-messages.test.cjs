@@ -5,14 +5,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const { handleMessages, buildMessagesSnapshot } = require('../lib/mobile/session-snapshot.js');
 const { thinEntryMessages } = require('../lib/mobile/history-derive.js');
+const artifacts = require('../lib/mobile/session-artifacts.js');
+const { withPresentedFileStats, PRESENTED_STAT_BUDGET_MS } = require('../lib/mobile/presented-file-stats.js');
 
 const ROUTE = '/api/mobile/v1/session/messages';
 const okValue = (value) => ({ result: { ok: true, value } });
 const errValue = (error) => ({ result: { ok: false, error } });
 
-async function serve({ sessionsHistory, subagentsHistory } = {}) {
+async function serve({ sessionsHistory, subagentsHistory, cwd, sessionId = 'root-1' } = {}) {
   const calls = [];
   const ctx = {
     apiProxy: {
@@ -21,6 +26,8 @@ async function serve({ sessionsHistory, subagentsHistory } = {}) {
           calls.push({ namespace: 'sessions', request, signal });
           return sessionsHistory ? sessionsHistory(request, signal) : okValue({ events: [], hasMore: false });
         },
+        // 会话工作区：交付声明的放行面要靠它判「在不在工作区里」。
+        list: async () => okValue({ items: [{ sessionId, cwd: cwd ?? null }] }),
       },
       subagents: {
         history: async (request, signal) => {
@@ -41,6 +48,7 @@ async function serve({ sessionsHistory, subagentsHistory } = {}) {
   const { port } = server.address();
   return {
     calls,
+    sessionId,
     url: (query = '') => `http://127.0.0.1:${port}${ROUTE}${query}`,
     close: () => new Promise((resolve) => server.close(resolve)),
   };
@@ -298,4 +306,225 @@ test('镜像正文快照读不到历史时如实回 ok:false，不抛', async ()
   const snap = await buildMessagesSnapshot(ctx, 'root-1', 2);
   assert.equal(snap.ok, false);
   assert.equal(snap.error.code, 'session-not-found');
+});
+
+// ── 交付声明的 size / mtime（presented-file-stats.js）──────────────────────
+//
+// 轮尾卡第二行要写「1.2 MB · 今天 14:32」：电脑侧在投影交付声明时顺手量一下，手机不额外请求。
+// 这一组的边界比功能重要 —— 能 stat 的路径必须与本来就能下载的完全重合，而 `/session/messages`
+// 是开屏与轮询的主路径，量一下不许把整页拖住。
+
+/** 一条交付声明事件（形状与宿主 dsh-tool-present 追加的那条一致）。 */
+function presented(turn, paths) {
+  return {
+    event: {
+      type: 'deliverables/presented',
+      seq: 100 + turn,
+      time: 1_700_000_000_000,
+      data: { turn, callId: `call-${turn}`, files: paths.map((item) => (typeof item === 'string' ? { path: item } : item)) },
+    },
+  };
+}
+
+/** 一条收尾答复：交付声明挂在它这一轮上。 */
+function answer(seq, turn, text = '好了。') {
+  return {
+    event: {
+      type: 'assistant/message',
+      seq,
+      time: 1_700_000_000_000 + seq,
+      data: { turn, step: 1, message: { role: 'assistant', content: [{ type: 'text', text }] } },
+    },
+  };
+}
+
+async function workspace(t) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-presented-'));
+  t.after(async () => { await fs.rm(dir, { recursive: true, force: true }); });
+  return dir;
+}
+
+/** 取这一页里某条消息的 presentedFiles。 */
+async function pageOf(host) {
+  const response = await fetch(host.url(`?sessionId=${host.sessionId}&limit=50`));
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
+test('投影出来的 presentedFiles 带 size / mtime，值与盘上的一致', async (t) => {
+  // 每条用例一个会话 id：派生缓存按会话分桶，同一份 seq/type 指纹在不同用例里会串。
+  const sid = 'presented-shape';
+  const dir = await workspace(t);
+  const body = '甲文件的内容\n';
+  await fs.writeFile(path.join(dir, 'a.md'), body, 'utf8');
+  const stat = await fs.stat(path.join(dir, 'a.md'));
+
+  const host = await serve({ sessionId: sid,
+    cwd: dir,
+    sessionsHistory: async () => okValue({ events: [presented(1, ['a.md']), answer(101, 1)], hasMore: false }),
+  });
+  try {
+    const body1 = await pageOf(host);
+    const presentedFiles = body1.items.flatMap((item) => item.presentedFiles || []);
+    assert.equal(presentedFiles.length, 1);
+    assert.equal(presentedFiles[0].path, 'a.md');
+    assert.equal(presentedFiles[0].size, Buffer.byteLength(body));
+    assert.equal(presentedFiles[0].mtime, Math.round(stat.mtimeMs));
+  } finally {
+    await host.close();
+  }
+});
+
+test('放行面没有放宽：声明里没有的路径量不到，与 /session/file 同一份判定', async (t) => {
+  const dir = await workspace(t);
+  const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-presented-out-'));
+  t.after(async () => { await fs.rm(outside, { recursive: true, force: true }); });
+  const secret = path.join(outside, 'secret.txt');
+  await fs.writeFile(secret, 'nope', 'utf8');
+
+  // 手上这份投影声称交付过一条工作区外的绝对路径，而**历史里没有那条声明**
+  // （旧缓存、或者声明已经滚出窗口）。作用域两条口子都不认，就不许量。
+  const ctx = {
+    apiProxy: {
+      sessions: {
+        list: async () => okValue({ items: [{ sessionId: 's1', cwd: dir }] }),
+        history: async () => okValue({ events: [], hasMore: false }),
+      },
+    },
+  };
+  const messages = [{ id: 'a1', role: 'assistant', text: '好了。', presentedFiles: [{ path: secret }] }];
+  const enriched = await withPresentedFileStats(ctx, 's1', messages);
+  assert.deepEqual(enriched[0].presentedFiles, [{ path: secret }], '认不了就是认不了：不许带出任何元信息');
+});
+
+test('stat 抛错 / 文件不存在：那一行只留 path，整页照常 200', async (t) => {
+  // 每条用例一个会话 id：派生缓存按会话分桶，同一份 seq/type 指纹在不同用例里会串。
+  const sid = 'presented-missing';
+  const dir = await workspace(t);
+  await fs.writeFile(path.join(dir, 'ok.md'), 'x', 'utf8');
+  const host = await serve({ sessionId: sid,
+    cwd: dir,
+    sessionsHistory: async () => okValue({
+      events: [presented(1, ['ok.md', 'gone.md']), answer(101, 1)],
+      hasMore: false,
+    }),
+  });
+  try {
+    const page = await pageOf(host);
+    const files = page.items.flatMap((item) => item.presentedFiles || []);
+    assert.equal(files.length, 2);
+    assert.equal(files[0].size, 1, '量得到的那条照旧带');
+    assert.equal(files[1].path, 'gone.md');
+    assert.equal('size' in files[1], false);
+    assert.equal('mtime' in files[1], false);
+  } finally {
+    await host.close();
+  }
+
+  // stat 整个抛错（网络盘掉线那种）：也只是一条都不补，页照旧是 200。
+  const host2 = await serve({ sessionId: `${sid}-throw`,
+    cwd: dir,
+    sessionsHistory: async () => okValue({ events: [presented(1, ['ok.md']), answer(101, 1)], hasMore: false }),
+  });
+  artifacts.__setStatForTests(async () => { throw new Error('disk gone'); });
+  try {
+    const page = await pageOf(host2);
+    assert.deepEqual(page.items.flatMap((item) => item.presentedFiles || []), [{ path: 'ok.md' }]);
+  } finally {
+    artifacts.__setStatForTests(null);
+    await host2.close();
+  }
+});
+
+test('整批 stat 超过总预算就放弃补齐，页面照常 200 返回', async (t) => {
+  // 每条用例一个会话 id：派生缓存按会话分桶，同一份 seq/type 指纹在不同用例里会串。
+  const sid = 'presented-timeout';
+  const dir = await workspace(t);
+  await fs.writeFile(path.join(dir, 'slow.md'), 'x', 'utf8');
+  const host = await serve({ sessionId: sid,
+    cwd: dir,
+    sessionsHistory: async () => okValue({ events: [presented(1, ['slow.md']), answer(101, 1)], hasMore: false }),
+  });
+  // 永远不回来的 stat：网络盘卡死那种。这一页不许等它。
+  artifacts.__setStatForTests(() => new Promise(() => {}));
+  try {
+    const startedAt = Date.now();
+    const page = await pageOf(host);
+    const elapsed = Date.now() - startedAt;
+    assert.deepEqual(page.items.flatMap((item) => item.presentedFiles || []), [{ path: 'slow.md' }]);
+    assert.ok(elapsed < PRESENTED_STAT_BUDGET_MS + 1500, `整页不该被 stat 拖住，实际 ${elapsed}ms`);
+  } finally {
+    artifacts.__setStatForTests(null);
+    await host.close();
+  }
+});
+
+test('stat 并发不超过 8', async (t) => {
+  // 每条用例一个会话 id：派生缓存按会话分桶，同一份 seq/type 指纹在不同用例里会串。
+  const sid = 'presented-concurrency';
+  const dir = await workspace(t);
+  const paths = [];
+  for (let index = 0; index < 40; index += 1) {
+    await fs.writeFile(path.join(dir, `f${index}.md`), 'x', 'utf8');
+    paths.push(`f${index}.md`);
+  }
+  const real = fs.stat;
+  let live = 0;
+  let peak = 0;
+  artifacts.__setStatForTests(async (target) => {
+    live += 1;
+    if (live > peak) peak = live;
+    try {
+      return await new Promise((resolve, reject) => setImmediate(() => real(target).then(resolve, reject)));
+    } finally {
+      live -= 1;
+    }
+  });
+  const host = await serve({ sessionId: sid,
+    cwd: dir,
+    sessionsHistory: async () => okValue({ events: [presented(1, paths), answer(101, 1)], hasMore: false }),
+  });
+  try {
+    const page = await pageOf(host);
+    assert.equal(page.items.flatMap((item) => item.presentedFiles || []).length, 40);
+    assert.ok(peak <= artifacts.ARTIFACT_STAT_CONCURRENCY, `并发峰值 ${peak} 超过了 ${artifacts.ARTIFACT_STAT_CONCURRENCY}`);
+    assert.equal(peak, artifacts.ARTIFACT_STAT_CONCURRENCY, `该并发的地方没并发起来（峰值只有 ${peak}）`);
+  } finally {
+    artifacts.__setStatForTests(null);
+    await host.close();
+  }
+});
+
+test('同一份投影第二次调用不再 stat（派生缓存 + 补格缓存都命中）', async (t) => {
+  // 每条用例一个会话 id：派生缓存按会话分桶，同一份 seq/type 指纹在不同用例里会串。
+  const sid = 'presented-cached';
+  const dir = await workspace(t);
+  await fs.writeFile(path.join(dir, 'a.md'), 'x', 'utf8');
+  const events = [presented(1, ['a.md']), answer(101, 1)];
+  const host = await serve({ sessionId: sid, cwd: dir, sessionsHistory: async () => okValue({ events, hasMore: false }) });
+  let statCalls = 0;
+  const real = fs.stat;
+  artifacts.__setStatForTests(async (target) => { statCalls += 1; return real(target); });
+  try {
+    const first = await pageOf(host);
+    const afterFirst = statCalls;
+    assert.equal(afterFirst, 1, '第一次该量一次');
+    const second = await pageOf(host);
+    assert.equal(statCalls, afterFirst, '同指纹的第二次不许再 stat');
+    assert.deepEqual(
+      second.items.flatMap((item) => item.presentedFiles || []),
+      first.items.flatMap((item) => item.presentedFiles || []),
+      '两次拿到的补齐结果必须一致',
+    );
+  } finally {
+    artifacts.__setStatForTests(null);
+    await host.close();
+  }
+});
+
+test('补格是纯函数形态：原数组不被就地改，没声明时原样返回', async () => {
+  const ctx = { apiProxy: { sessions: { list: async () => okValue({ items: [{ sessionId: 's1', cwd: null }] }) } } };
+  const messages = [{ id: 'a1', role: 'assistant', text: '没有交付声明' }];
+  const out = await withPresentedFileStats(ctx, 's1', messages);
+  assert.equal(out, messages, '一条声明都没有时不许造新数组');
 });

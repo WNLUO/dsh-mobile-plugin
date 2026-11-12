@@ -6,7 +6,8 @@
 //  ① **只挑读材料的三种工具**（web_fetch / read / read_image / web_search），别的工具
 //     （grep、glob、bash、write）一条都不出 —— 挑出来也回不到任何一份材料；
 //  ② **失败的那一次不算读过**：抓取报错、读文件被拒没留下材料；
-//  ③ **只给指针不带正文**：返回里没有一分正文，标题按类别取（网页给域名、文件给文件名）。
+//  ③ **只给指针不带正文**：返回里没有一分正文，标题按类别取（网页给域名、文件给文件名）；
+//  ④ **读过的材料照单全出**：折叠成几条是手机侧的事，插件只在极端条数上兜底。
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -70,14 +71,36 @@ test('同一个网址读两次只占一条，位置按最后一次', () => {
   assert.equal(hits[1].step, 3);
 });
 
+test('一轮读九份材料就出九条：手机侧自己折叠，插件不再按 6 条截断', () => {
+  const entries = [];
+  for (let i = 0; i < 9; i += 1) entries.push(step('web_fetch', `https://s${i}.example/x`));
+  const hits = answerSourcesOf(entries);
+  assert.equal(hits.length, 9);
+  assert.deepEqual(
+    hits.map((hit) => hit.place),
+    Array.from({ length: 9 }, (_, i) => `https://s${i}.example/x`),
+  );
+});
+
 test('至多 MAX_SOURCES 条，取最近读的那几条', () => {
   const entries = [];
   for (let i = 0; i < MAX_SOURCES + 3; i += 1) entries.push(step('web_fetch', `https://e${i}.example/x`));
   const hits = answerSourcesOf(entries);
   assert.equal(hits.length, MAX_SOURCES);
-  // 留下的是最后读的那几条（旧账本的 slice(-MAX_SOURCES) 口径）。
+  // 留下的是最后读的那几条。
   assert.equal(hits[hits.length - 1].place, `https://e${MAX_SOURCES + 2}.example/x`);
   assert.equal(hits.some((hit) => hit.place === 'https://e0.example/x'), false);
+});
+
+test('超过兜底上限时恰好留 MAX_SOURCES 条，且是从末尾往前数的那些', () => {
+  const total = MAX_SOURCES + 5;
+  const entries = [];
+  for (let i = 0; i < total; i += 1) entries.push(step('read', `/work/m${i}.md`));
+  const hits = answerSourcesOf(entries);
+  assert.equal(hits.length, MAX_SOURCES);
+  assert.equal(hits[0].place, '/work/m5.md');
+  assert.equal(hits[hits.length - 1].place, `/work/m${total - 1}.md`);
+  assert.equal(hits.some((hit) => hit.place === '/work/m4.md'), false);
 });
 
 test('返回的是指针形状：有 obsId / mediaIds，正文一个字都不带', () => {

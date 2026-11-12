@@ -15,6 +15,10 @@
  *
  * 写入只有一个方向：宿主主进程是唯一写方；旁路子进程拿的是只读副本，靠文件
  * mtime/size 变了就重载来跟住变化，签发与吊销走 IPC 交给主进程（`lib/impl.js`）。
+ *
+ * 设备清单（`listDevices`）只画还活着的；已解绑的那部分由 `listHistory` 聚合出来。
+ * 两份是同一趟扫描的两半（`scanDevices`）：键与「取最新有值」的口径只写一份，路由要两份时
+ * 也只扫一遍。历史那半与清理共用同一个保留窗口，纯读、不写盘。
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -26,6 +30,9 @@ const FILE = process.env.DEVICE_CREDENTIALS_FILE || path.join(process.env.DSH_HO
 const DEFAULT_TTL_MS = 365 * 24 * 3600 * 1000;
 /** 已吊销或过期超过这么久的记录，下次写入时整条删掉：别让每条请求扫一整年的账。 */
 const PRUNE_GRACE_MS = 30 * 24 * 3600 * 1000;
+/** 「已解绑」历史能回溯多久。取的就是清理窗口：面板说「只保留最近 N 天」，那个 N 必须
+ * 是库真正会留住的时长，另立一个数就会说出与库对不上的话。 */
+const HISTORY_RETENTION_MS = PRUNE_GRACE_MS;
 /** 剩余有效期超过这个比例就不续期：滑动续期只在过掉一半之后发生。 */
 const RENEW_BELOW_RATIO = 0.5;
 /** 设备元信息的落盘截断长度。名字 64 够放「某某的 iPhone 15 Pro Max」；其余是系统版本、 */
@@ -404,84 +411,129 @@ function listActive() {
 }
 
 /**
- * 面板要的那份设备清单。
+ * 两张设备清单共用的一趟扫描。
  *
- * 按 `deviceId` 聚成一行：同一台手机重配几次不该在列表里重复出现。机型号、名字、平台、
- * 系统版本、App 版本都取最新一条**有值的**记录（老记录这些字段是空的，空的不能覆盖有值的），
- * 绑定时间取最早，最近连接取最大，走哪条路取最近那条的。
+ * 面板要的两份东西 —— 还活着的设备、已解绑的历史 —— 键与字段口径是同一套：都按 `deviceId`
+ * 聚成一行，身份几格（名字 / 机型 / 平台 / 系统版本 / App 版本）都取最新一条**有值的**，
+ * 空的不覆盖有值的。各扫一遍就等于把这套判据抄两份，改一处忘另一处、两边迟早说出不一样的话；
+ * 而路由那一发本来就要两份同时要（活清单 + 历史条数），扫两遍纯属白跑。所以聚合只写一次，
+ * 两条分支各自决定哪些记录进自己那半。
  *
- * **`deviceId` 是这一页唯一的键**：它是手机第一次启动时自己生成的，配对那一刻交给宿主，
- * 之后每条请求都带着它。名字、机型、平台、版本一概不参与判重 —— 改个名字不该变成两台。
- *
- * `bindings` 是这台名下**还有几条活凭据**：同一台手机重配一次就多一条，旧的那条仍然能用。
- * 大于 1 时面板要把「另有几条旧绑定」摆出来，否则人只在解除绑定那一下看到「2 条凭据」，
- * 之前一直以为只有一份。
- *
- * `suffix` 只在**同一批设备里标题会撞**时给出序号（`1`、`2`…），其余是空串——分组用的就是
- * 面板拿来当标题的那一格：机型优先，机型空着才用名字。按绑定时间编号：早绑的是 1。
- * 序号是显示用的，不进库、也不回给手机。
- *
- * `legacy` 标的是「这个 deviceId 下还有不带设备密钥的活记录」：那种凭据的吊销杀不掉旧
- * Bearer，界面上的撤销文案必须区别对待，不能写「立即失效」。
- *
- * **不回 hash / hostToken / deviceKey**：那些是凭据与密钥材料，面板只是显示谁连着。
+ * 返回 `{ active, history }`：`active` 是活动清单的行，`history` 是已解绑的行。
  */
-function listDevices(instanceId) {
+function scanDevices(instanceId, now = Date.now()) {
   load();
-  const now = Date.now();
-  const rows = new Map();
+  const active = new Map();
+  const history = new Map();
+  /** 名下有过活记录的 deviceId：这种设备在活动清单里已经有一行，历史那半不能再出现它。 */
+  const living = new Set();
   for (const record of records) {
-    if (record.instanceId !== instanceId || !isLive(record, now)) continue;
+    if (record.instanceId !== instanceId) continue;
     const key = String(record.deviceId || '');
     const createdAt = Number(record.createdAt) || 0;
-    let row = rows.get(key);
+    if (isLive(record, now)) {
+      living.add(key);
+      let row = active.get(key);
+      if (!row) {
+        row = activeRow(key, createdAt);
+        active.set(key, row);
+      }
+      row.bindings += 1;
+      if (!record.deviceKey) row.legacy = true;
+      // 带设备密钥的记录才走逐请求签名；只带 6 位码配对的那个版本永远是明文。
+      if (record.deviceKey) row.encrypted = true;
+      // 权限子集取最新一条**真设过**的记录（老记录没这一格，不覆盖）；一条都没设过就保持
+      // null = 全权，面板据此显示「全权」。`tags` 不像机型号那样按时间比，是因为它只有
+      // 「设过 / 没设过」两种：降档会写全部活记录（见 setDevicePermissions）。
+      if (Array.isArray(record.permissions) && createdAt >= (row.permissionsAt || 0)) {
+        row.permissions = record.permissions.slice();
+        row.permissionsAt = createdAt;
+      }
+      accumulateDevice(row, record, createdAt);
+      continue;
+    }
+    // 与 `prune` 同口径：两次清理之间库里可能还留着一点边缘数据，查询自己再滤一遍，
+    // 免得「列表里算过的、历史里算不进去」对不上。
+    if (record.revokedAt && now - record.revokedAt > HISTORY_RETENTION_MS) continue;
+    if (record.expiresAt && record.expiresAt + HISTORY_RETENTION_MS < now) continue;
+    let row = history.get(key);
     if (!row) {
-      row = {
-        deviceId: key,
-        name: '',
-        model: '',
-        platform: '',
-        osVersion: '',
-        appVersion: '',
-        boundAt: createdAt,
-        lastSeenAt: 0,
-        lastChannel: '',
-        lastSeenFrom: 0,
-        bindings: 0,
-        suffix: '',
-        legacy: false,
-        encrypted: false,
-        expiresAt: 0,
-        permissions: null,
-      };
-      rows.set(key, row);
+      row = historyRow(key);
+      history.set(key, row);
     }
     row.bindings += 1;
-    if (createdAt && (!row.boundAt || createdAt < row.boundAt)) row.boundAt = createdAt;
-    // 机型号、名字、平台等取最新一条有值的：老记录没有这些字段，空不能覆盖有值。
-    if (record.model && createdAt >= (row.modelAt || 0)) { row.model = record.model; row.modelAt = createdAt; }
-    if (record.name && createdAt >= (row.nameAt || 0)) { row.name = record.name; row.nameAt = createdAt; }
-    if (record.platform && createdAt >= (row.platformAt || 0)) { row.platform = record.platform; row.platformAt = createdAt; }
-    if (record.osVersion && createdAt >= (row.osVersionAt || 0)) { row.osVersion = record.osVersion; row.osVersionAt = createdAt; }
-    if (record.appVersion && createdAt >= (row.appVersionAt || 0)) { row.appVersion = record.appVersion; row.appVersionAt = createdAt; }
-    const seenAt = Number(record.lastSeenAt) || 0;
-    if (seenAt >= row.lastSeenFrom) {
-      row.lastSeenFrom = seenAt;
-      row.lastSeenAt = seenAt;
-      if (record.lastChannel) row.lastChannel = record.lastChannel;
+    if (record.revokedAt) {
+      row.revokedAt = Math.max(row.revokedAt, Number(record.revokedAt) || 0);
+      row.kind = 'revoked';
     }
-    if (record.expiresAt) row.expiresAt = Math.max(row.expiresAt, Number(record.expiresAt) || 0);
-    if (!record.deviceKey) row.legacy = true;
-    // 带设备密钥的记录才走逐请求签名；只带 6 位码配对的那个版本永远是明文。
-    if (record.deviceKey) row.encrypted = true;
-    // 权限子集取最新一条**真设过**的记录（老记录没这一格，不覆盖）；一条都没设过就保持
-    // null = 全权，面板据此显示「全权」。`tags` 不像机型号那样按时间比，是因为它只有
-    // 「设过 / 没设过」两种：降档会写全部活记录（见 setDevicePermissions）。
-    if (Array.isArray(record.permissions) && createdAt >= (row.permissionsAt || 0)) {
-      row.permissions = record.permissions.slice();
-      row.permissionsAt = createdAt;
-    }
+    accumulateDevice(row, record, createdAt);
   }
+  return { active: activeOut(active), history: historyOut(history, living) };
+}
+
+/** 活动清单的一行。字段名与 `listDevices` 的返回一致；`modelAt` 那几格是内部临时值，最后剥掉。 */
+function activeRow(deviceId, createdAt) {
+  return {
+    deviceId,
+    name: '',
+    model: '',
+    platform: '',
+    osVersion: '',
+    appVersion: '',
+    boundAt: createdAt,
+    lastSeenAt: 0,
+    lastChannel: '',
+    lastSeenFrom: 0,
+    bindings: 0,
+    suffix: '',
+    legacy: false,
+    encrypted: false,
+    expiresAt: 0,
+    permissions: null,
+  };
+}
+
+/** 已解绑清单的一行。`kind` 先按到期摆着，组内出现过 `revokedAt` 就翻成 `revoked`。 */
+function historyRow(deviceId) {
+  return {
+    deviceId,
+    name: '',
+    model: '',
+    platform: '',
+    osVersion: '',
+    appVersion: '',
+    boundAt: 0,
+    lastSeenAt: 0,
+    lastChannel: '',
+    lastSeenFrom: 0,
+    revokedAt: 0,
+    expiresAt: 0,
+    kind: 'expired',
+    bindings: 0,
+  };
+}
+
+/**
+ * 两条分支共用的累加：绑定时间取这一组最早的，最近连接取最大并跟着取那一条的通道，
+ * 身份几格取最新一条有值的（老记录这些字段是空的，空不能覆盖有值）。只写这里一份。
+ */
+function accumulateDevice(row, record, createdAt) {
+  if (createdAt && (!row.boundAt || createdAt < row.boundAt)) row.boundAt = createdAt;
+  if (record.model && createdAt >= (row.modelAt || 0)) { row.model = record.model; row.modelAt = createdAt; }
+  if (record.name && createdAt >= (row.nameAt || 0)) { row.name = record.name; row.nameAt = createdAt; }
+  if (record.platform && createdAt >= (row.platformAt || 0)) { row.platform = record.platform; row.platformAt = createdAt; }
+  if (record.osVersion && createdAt >= (row.osVersionAt || 0)) { row.osVersion = record.osVersion; row.osVersionAt = createdAt; }
+  if (record.appVersion && createdAt >= (row.appVersionAt || 0)) { row.appVersion = record.appVersion; row.appVersionAt = createdAt; }
+  const seenAt = Number(record.lastSeenAt) || 0;
+  if (seenAt >= row.lastSeenFrom) {
+    row.lastSeenFrom = seenAt;
+    row.lastSeenAt = seenAt;
+    if (record.lastChannel) row.lastChannel = record.lastChannel;
+  }
+  if (record.expiresAt) row.expiresAt = Math.max(row.expiresAt, Number(record.expiresAt) || 0);
+}
+
+function activeOut(rows) {
   // 撞名才编号：分组用的正是面板拿来当标题的那一格 —— **机型优先，没有机型才用名字**。
   // 两台都叫「iPhone 15 Pro」时「· 1 / · 2」是人认得出的；挂着机器号后四位则不是。
   const groups = new Map();
@@ -504,6 +556,78 @@ function listDevices(instanceId) {
   // 最近连着的排前面；从没连过的按绑定时间倒序垫后。
   out.sort((a, b) => (b.lastSeenAt - a.lastSeenAt) || (b.boundAt - a.boundAt));
   return out;
+}
+
+function historyOut(rows, living) {
+  const out = [];
+  for (const [key, row] of rows) {
+    if (living.has(key)) continue;
+    const { modelAt, nameAt, platformAt, osVersionAt, appVersionAt, lastSeenFrom, ...rest } = row;
+    out.push(rest);
+  }
+  // 最近的结局排前面；同一刻按绑定时间倒序，同一台重配过几次的那条不至于跑到后面。
+  out.sort((a, b) => ((b.revokedAt || b.expiresAt) - (a.revokedAt || a.expiresAt)) || (b.boundAt - a.boundAt));
+  return out;
+}
+
+/**
+ * 面板要的那份设备清单：只画还活着的。
+ *
+ * 按 `deviceId` 聚成一行：同一台手机重配几次不该在列表里重复出现。机型号、名字、平台、
+ * 系统版本、App 版本都取最新一条**有值的**记录（老记录这些字段是空的，空的不能覆盖有值的），
+ * 绑定时间取最早，最近连接取最大，走哪条路取最近那条的。
+ *
+ * **`deviceId` 是这一页唯一的键**：它是手机第一次启动时自己生成的，配对那一刻交给宿主，
+ * 之后每条请求都带着它。名字、机型、平台、版本一概不参与判重 —— 改个名字不该变成两台。
+ *
+ * `bindings` 是这台名下**还有几条活凭据**：同一台手机重配一次就多一条，旧的那条仍然能用。
+ * 大于 1 时面板要把「另有几条旧绑定」摆出来，否则人只在解除绑定那一下看到「2 条凭据」，
+ * 之前一直以为只有一份。
+ *
+ * `suffix` 只在**同一批设备里标题会撞**时给出序号（`1`、`2`…），其余是空串——分组用的就是
+ * 面板拿来当标题的那一格：机型优先，机型空着才用名字。按绑定时间编号：早绑的是 1。
+ * 序号是显示用的，不进库、也不回给手机。
+ *
+ * `legacy` 标的是「这个 deviceId 下还有不带设备密钥的活记录」：那种凭据的吊销杀不掉旧
+ * Bearer，界面上的撤销文案必须区别对待，不能写「立即失效」。
+ *
+ * **不回 hash / hostToken / deviceKey**：那些是凭据与密钥材料，面板只是显示谁连着。
+ */
+function listDevices(instanceId) {
+  return scanDevices(instanceId).active;
+}
+
+/**
+ * 「谁连过这台电脑」：已解绑的那一半。
+ *
+ * `listDevices` 只画还活着的，吊销过的整行消失，于是「前天到底放过哪台手机进来」无从查起；
+ * 而库里本来就留着 `createdAt` / `lastSeenAt` / `revokedAt` / `expiresAt`。这里把它们按
+ * `deviceId` 聚成一行 —— 与活动清单同一把键、同一套取「最新一条有值」的规则，面板两边才能
+ * 对着看。
+ *
+ * **名下有活记录的直接跳过**（不是并进去）：那台设备在上面那张活动清单里已经有一行，
+ * 再在「已解绑」里出现一次就是在骗人 —— 它明明还连着。
+ *
+ * `bindings` 是这一组留下的实际条数（吊销过一次就是一条）。`kind` 按组内有没有过
+ * `revokedAt` 分：有过就是 `revoked`（人主动解的绑），否则 `expired`（自己到期的）。
+ *
+ * 保留窗口与 `prune` 同一个数：两次清理之间库里可能还留着一点边缘数据，查询自己再滤一遍，
+ * 免得「同一份数据列表里有、历史里却算不进去」。
+ *
+ * 纯读：不写盘、不清理，只读副本照常能读。**不回 hash / hostToken / deviceKey**。
+ */
+function listHistory(instanceId) {
+  return scanDevices(instanceId).history;
+}
+
+/**
+ * 设备清单与它的历史一起给：路由那一发要两份（活动清单 + `revokedCount` 的条数），
+ * 分两次调就是把同一份记录扫两遍。命中 `?history=1` 的那一发只调 `listHistory`：
+ * 它不需要活动那张表，别为了对称白建一遍。
+ */
+function listDevicesWithHistory(instanceId) {
+  const { active, history } = scanDevices(instanceId);
+  return { devices: active, history };
 }
 
 /**
@@ -540,6 +664,7 @@ module.exports = {
   FILE,
   DEFAULT_TTL_MS,
   MAX_ACTIVE_DIGESTS,
+  HISTORY_RETENTION_MS,
   prune,
   issue,
   find,
@@ -553,6 +678,8 @@ module.exports = {
   isReadOnly,
   listActive,
   listDevices,
+  listHistory,
+  listDevicesWithHistory,
   setDevicePermissions,
   activeDigests,
   revoke,

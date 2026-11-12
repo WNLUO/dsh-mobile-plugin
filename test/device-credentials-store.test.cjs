@@ -265,3 +265,94 @@ test('镜像摘要：只给活记录，吊销后立刻少一条', () => {
   credentials.revoke(a.credential, INSTANCE)
   assert.equal(credentials.activeDigests(INSTANCE).length, 1, '吊销的立刻从推送清单里消失')
 })
+
+test('历史：吊销的那台聚成一行，绑定 / 最近连接 / 结局三个时刻都对得上', () => {
+  reset();
+  const issued = credentials.issue(INSTANCE, { deviceId: 'h1', name: '旧手机', model: 'Pixel 9' }, '')
+  const record = credentials.lookup(issued.credential, INSTANCE)
+  credentials.touch(record, { channel: 'relay' })
+  const seenAt = record.lastSeenAt
+  credentials.revokeDevice(INSTANCE, 'h1')
+  // 还活着的那台不进历史：它在上面的活动清单里已经有一行。
+  credentials.issue(INSTANCE, { deviceId: 'live-1' }, '')
+
+  const rows = credentials.listHistory(INSTANCE)
+  assert.equal(rows.length, 1)
+  const [row] = rows
+  assert.equal(row.deviceId, 'h1')
+  assert.equal(row.kind, 'revoked')
+  assert.equal(row.boundAt, record.createdAt, '绑定时间取这一组的 createdAt')
+  assert.equal(row.lastSeenAt, seenAt, '最近连接取最大，touch 过的那一次')
+  assert.equal(row.lastChannel, 'relay')
+  assert.equal(row.revokedAt, record.revokedAt, '结局时刻就是吊销那一刻')
+  assert.equal(row.bindings, 1)
+  assert.equal(row.name, '旧手机')
+  assert.equal(row.model, 'Pixel 9')
+})
+
+test('历史：自己到期、没人吊销过的算 expired，不是 revoked', () => {
+  reset();
+  const issued = credentials.issue(INSTANCE, { deviceId: 'h2', name: '平板' }, '')
+  const record = credentials.lookup(issued.credential, INSTANCE)
+  record.expiresAt = Date.now() - 1000
+  const [row] = credentials.listHistory(INSTANCE)
+  assert.equal(row.deviceId, 'h2')
+  assert.equal(row.kind, 'expired', '组内没有 revokedAt 就只能是到期')
+  assert.equal(row.revokedAt, 0)
+  assert.equal(row.expiresAt, record.expiresAt)
+  assert.equal(credentials.listDevices(INSTANCE).length, 0, '过期的本来就不在活动清单里')
+})
+
+test('历史：同一台重配两次再解绑 → 一行、bindings 说清是两条', () => {
+  reset();
+  credentials.issue(INSTANCE, { deviceId: 'h3', name: '小明的 iPhone' }, '')
+  credentials.issue(INSTANCE, { deviceId: 'h3', name: '小明的 iPhone' }, '')
+  assert.equal(credentials.revokeDevice(INSTANCE, 'h3'), 2)
+  const rows = credentials.listHistory(INSTANCE)
+  assert.equal(rows.length, 1, '按 deviceId 聚成一行，不按记录条数')
+  assert.equal(rows[0].bindings, 2)
+  assert.equal(rows[0].kind, 'revoked')
+})
+
+test('历史：解绑后又重新配对的那台，不出现在「已解绑」里', () => {
+  reset();
+  credentials.issue(INSTANCE, { deviceId: 'h4', name: '手机' }, '')
+  credentials.revokeDevice(INSTANCE, 'h4')
+  assert.equal(credentials.listHistory(INSTANCE).length, 1, '刚解绑时确实在历史里')
+  const again = credentials.issue(INSTANCE, { deviceId: 'h4', name: '手机' }, '')
+  assert.ok(credentials.find(again.credential, INSTANCE), '重新配对是活的')
+  // 老那条仍是吊销状态、也仍留在库里；但同一台名下已经有活记录，历史里再说它「已解绑」
+  // 就是在骗人 —— 所以整组跳过。
+  assert.equal(credentials.listHistory(INSTANCE).length, 0)
+  assert.equal(credentials.listDevices(INSTANCE).length, 1, '活动清单里有它')
+})
+
+test('历史：超出保留窗口的不出现，窗口内的还在（与清理同一个数）', () => {
+  reset();
+  assert.equal(credentials.HISTORY_RETENTION_MS, 30 * 24 * 3600 * 1000, '面板说「只保留最近 N 天」，N 就是清理窗口')
+  credentials.issue(INSTANCE, { deviceId: 'h5' }, '')
+  const day = 24 * 3600 * 1000
+  // 直接改盘再重读：不走 prune，测的是查询自己的过滤 —— 两次清理之间库里本来就还可能留着边缘数据。
+  let records = raw()
+  records[0].revokedAt = Date.now() - 31 * day
+  fs.writeFileSync(FILE, JSON.stringify(records))
+  credentials.refresh()
+  assert.equal(credentials.listHistory(INSTANCE).length, 0, '超出窗口的边角数据不该被当成还能看的历史')
+
+  records = raw()
+  records[0].revokedAt = Date.now() - 29 * day
+  fs.writeFileSync(FILE, JSON.stringify(records))
+  credentials.refresh()
+  assert.equal(credentials.listHistory(INSTANCE).length, 1, '窗口内照常出')
+})
+
+test('历史：不带凭据材料，也不写盘', () => {
+  reset();
+  const issued = credentials.issue(INSTANCE, { deviceId: 'h6' }, '', undefined, { deviceKey: DEVICE_KEY, keyId: KEY_ID })
+  credentials.revokeDevice(INSTANCE, 'h6')
+  const before = JSON.stringify(raw())
+  const [row] = credentials.listHistory(INSTANCE)
+  assert.ok(!('hash' in row) && !('hostToken' in row) && !('deviceKey' in row) && !('keyId' in row), '面板拿不到凭据与密钥材料')
+  assert.ok(!JSON.stringify(row).includes(issued.credential), '原串更不能出现')
+  assert.equal(JSON.stringify(raw()), before, '纯读：不落盘')
+})

@@ -222,3 +222,71 @@ test('条数齐全时不塞命令原文兜底（桌面 counts 优先于 fallback
   assert.equal(rows[0].shadowedItemCount, 3);
   assert.equal(rows[0].compactionFallbackSummary, undefined);
 });
+
+/**
+ * 压缩折痕：被折叠的那一截落在哪几轮。
+ *
+ * `shadowedSeqs` 只有 seq，轮号要从事件上的 `data.turn` 查。窗口外的 seq 查不到轮号，
+ * 那种情况**整对字段都不下发** —— 显示端据此只写条数，绝不显示一个猜出来的区间。
+ */
+const turnEvent = (seq, turn) => ({ type: 'step/start', seq, time: seq, data: { turn, step: 1 } });
+const summaryWithSeqs = (id, seq, shadowedSeqs) => ({
+  type: 'compaction/summary',
+  seq,
+  time: seq,
+  data: { compactionId: id, summary: [{ type: 'text', text: '压缩摘要正文' }], shadowedSeqs, shadowedTokenCount: 1200 },
+});
+
+test('被折叠区间的轮次范围能算出来（首尾两端都取被折叠事件自己的轮号）', () => {
+  const rows = compactions(deriveMessages([
+    turnEvent(10, 12),
+    turnEvent(11, 12),
+    turnEvent(40, 40),
+    turnEvent(58, 58),
+    summaryWithSeqs('c1', 90, [40, 10, 58, 11]),
+  ]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].shadowedItemCount, 4);
+  assert.equal(rows[0].shadowedTurnFrom, 12);
+  assert.equal(rows[0].shadowedTurnTo, 58);
+});
+
+test('查不全轮号时不下发区间（只留条数，不猜）', () => {
+  const rows = compactions(deriveMessages([
+    turnEvent(10, 12),
+    // 11 与 999 不在这一页里：拿得到的那一半也不许拼成区间。
+    summaryWithSeqs('c2', 90, [10, 11, 999]),
+  ]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].shadowedItemCount, 3);
+  assert.equal(rows[0].shadowedTurnFrom, undefined);
+  assert.equal(rows[0].shadowedTurnTo, undefined);
+});
+
+test('同一轮里多次尝试折成的那一行也带正确区间', () => {
+  const rows = compactions(deriveMessages([
+    turnEvent(10, 12),
+    turnEvent(11, 30),
+    start('c1', 3, 100),
+    end('c1', 3, 101, REFUSED),
+    summaryWithSeqs('c1', 102, [10, 11]),
+    checkpoint('c1', 103),
+  ]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, 'c1');
+  assert.equal(rows[0].state, 'done');
+  assert.equal(rows[0].shadowedTurnFrom, 12);
+  assert.equal(rows[0].shadowedTurnTo, 30);
+});
+
+test('检查点先到、summary 在窗口里时，检查点那条也带区间', () => {
+  const rows = compactions(deriveMessages([
+    turnEvent(10, 12),
+    turnEvent(20, 58),
+    summaryWithSeqs('c3', 30, [10, 20]),
+    checkpoint('c3', 40),
+  ]));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].shadowedTurnFrom, 12);
+  assert.equal(rows[0].shadowedTurnTo, 58);
+});

@@ -312,3 +312,117 @@ test('过程清单帧：一步一条、开流不空发、摘要等参数齐了�
   assert.equal(steps.every((frame) => !('seq' in frame)), true, '清单帧不带 seq（不参与序门与水位）');
   assert.equal(JSON.stringify(steps).includes('argumentsDelta'), false, '参数原文不上线路');
 });
+
+// ── 交付声明那一帧的 size / mtime（presented-file-stats.js）────────────────
+//
+// 实时流里 `deliverables/presented` 是原样转发的一帧，而事件本身不带 size/mtime。补格在
+// 转发时做，但**这一帧的预算是 400ms 的小预算**：帧顺序比那两格字重要，超时就发未补的版本。
+
+const fsPromises = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const artifacts = require('../lib/mobile/session-artifacts.js');
+
+/** 一条交付声明帧（形状与宿主 dsh-tool-present 追的那条事件一致）。 */
+const presentedFrame = (files, callId = 'call-p1', seq = 20) => ({
+  payload: {
+    type: 'session/event',
+    sessionId,
+    event: { type: 'deliverables/presented', seq, time: 1, data: { turn: 1, callId, files } },
+  },
+});
+
+/** 带会话工作区的 ctx：交付声明的放行面要靠 `sessions.list` 拿 cwd。 */
+const ctxWithWorkspace = (mux, cwd) => ({
+  apiProxy: {
+    events: { mux },
+    sessions: {
+      history: async () => ({ result: { ok: true, value: { events: [] } } }),
+      list: async () => ({ result: { ok: true, value: { items: [{ sessionId, cwd }] } } }),
+    },
+  },
+});
+
+async function workspace(t) {
+  const dir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'dsh-stream-presented-'));
+  t.after(async () => { await fsPromises.rm(dir, { recursive: true, force: true }); });
+  return dir;
+}
+
+test('交付声明那一帧被补上 size / mtime，且排在草稿之后', async (t) => {
+  const dir = await workspace(t);
+  const body = '交付内容\n';
+  await fsPromises.writeFile(path.join(dir, 'a.md'), body, 'utf8');
+  const stat = await fsPromises.stat(path.join(dir, 'a.md'));
+
+  const res = response();
+  const framesIn = [
+    textDelta('写好了。'),
+    presentedFrame([{ path: 'a.md', description: '报告' }]),
+  ];
+  await handleStream(ctxWithWorkspace(muxOf(framesIn), dir), request(`/api/mobile/v1/session/stream?sessionId=${sessionId}`), res);
+  const delivered = contentFrames(res);
+
+  const presented = delivered.filter((frame) => frame.type === 'deliverables/presented');
+  assert.equal(presented.length, 1);
+  assert.deepEqual(presented[0].data.files, [{
+    path: 'a.md',
+    description: '报告',
+    size: Buffer.byteLength(body),
+    mtime: Math.round(stat.mtimeMs),
+  }]);
+  const types = delivered.map((frame) => frame.type);
+  assert.deepEqual(types, ['assistant/chunk', 'deliverables/presented'], `帧顺序错了：${types.join(',')}`);
+});
+
+test('stat 慢于小预算时发未补的版本，帧照常发出、草稿也不迟到', async (t) => {
+  const dir = await workspace(t);
+  await fsPromises.writeFile(path.join(dir, 'slow.md'), 'x', 'utf8');
+  // 永远不回来的 stat：磁盘忙 / 网络盘那种。这一帧绝不许等它。
+  artifacts.__setStatForTests(() => new Promise(() => {}));
+  let res;
+  try {
+    res = response();
+    const startedAt = Date.now();
+    await handleStream(
+      ctxWithWorkspace(muxOf([textDelta('写好了。'), presentedFrame([{ path: 'slow.md' }])]), dir),
+      request(`/api/mobile/v1/session/stream?sessionId=${sessionId}`),
+      res,
+    );
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed < 3000, `这一帧不该被 stat 拖住，实际 ${elapsed}ms`);
+  } finally {
+    artifacts.__setStatForTests(null);
+  }
+  const delivered = contentFrames(res);
+  const presented = delivered.filter((frame) => frame.type === 'deliverables/presented');
+  assert.equal(presented.length, 1, '超时也照常发这一帧');
+  assert.deepEqual(presented[0].data.files, [{ path: 'slow.md' }], '超时就发未补的版本');
+  assert.deepEqual(delivered.map((frame) => frame.type), ['assistant/chunk', 'deliverables/presented']);
+});
+
+test('同一 callId 的重复帧不重复 stat', async (t) => {
+  const dir = await workspace(t);
+  await fsPromises.writeFile(path.join(dir, 'a.md'), 'x', 'utf8');
+  const real = fsPromises.stat;
+  let statCalls = 0;
+  artifacts.__setStatForTests(async (target) => { statCalls += 1; return real(target); });
+  try {
+    const res = response();
+    await handleStream(
+      ctxWithWorkspace(muxOf([
+        // 宿主重发同一份声明时 seq 也抬了一格（同 seq 会被流的序门挡掉，走不到这里）。
+        presentedFrame([{ path: 'a.md' }], 'call-dup', 20),
+        presentedFrame([{ path: 'a.md' }], 'call-dup', 21),
+      ]), dir),
+      request(`/api/mobile/v1/session/stream?sessionId=${sessionId}`),
+      res,
+    );
+    assert.equal(statCalls, 1, `同一个 callId 只该量一次，实际 ${statCalls} 次`);
+    const presented = contentFrames(res).filter((frame) => frame.type === 'deliverables/presented');
+    assert.equal(presented.length, 2);
+    assert.equal(presented[1].data.files[0].size, 1, '重复帧照样带补齐后的值');
+  } finally {
+    artifacts.__setStatForTests(null);
+  }
+});

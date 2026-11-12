@@ -98,3 +98,59 @@ test('已经发出去的那次（retry-started）不会被步骤收口改写作�
   assert.equal(rows.length, 1);
   assert.equal(rows[0].status, 'started');
 });
+
+// ── 轮号随消息下发 ─────────────────────────────────────────────────────────
+// 每一轮的消息自己带 `data.turn` 的只有 assistant / step / tool 那几类；**`user/message`
+// 不带**（真实日志 1621 份里都是这样），而它正是开启这一轮的那一句。手机侧的轮次头条与
+// 整条会话轴都按消息上的 `turn` 切轮，历史消息一个轮号都不带的话，重新打开老会话时
+// 轴会是空的 —— 「整条会话」那一档等于不存在（只有刚跑过、靠实时帧拿轮号的会话有轴）。
+// 所以轮号按事件自带的优先、`turn/start` 边界兜底，逐条写到消息上。
+const start = (turn, seq) => ({ type: 'turn/start', seq, time: seq, data: { turn } });
+const userSays = (id, text, seq) => ({
+  type: 'user/message',
+  seq,
+  time: seq,
+  // 刻意不带 data.turn：与真实日志同形。
+  data: { id, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text }] },
+});
+const assistantSays = (turn, text, seq, step = 1) => ({
+  type: 'assistant/message',
+  seq,
+  time: seq,
+  data: { turn, step, message: { role: 'assistant', content: [{ type: 'text', text }] } },
+});
+
+test('两轮的历史消息每一条都带轮号（用户那一条靠 turn/start 边界兜）', () => {
+  const items = deriveMessages([
+    start(1, 1),
+    userSays('u1', '第一句', 2),
+    assistantSays(1, '答一', 3),
+    end(1, 4, { kind: 'completed' }),
+    start(2, 5),
+    userSays('u2', '第二句', 6),
+    assistantSays(2, '答二', 7),
+    end(2, 8, { kind: 'completed' }),
+  ]);
+  assert.deepEqual(items.map((item) => item.turn), [1, 1, 2, 2], '每一条消息都要带上自己那一轮的轮号');
+  assert.deepEqual(items.map((item) => item.role), ['user', 'assistant', 'user', 'assistant']);
+  // 用户那一条是唯一不带 data.turn 的事件，必须靠边界落到正确的轮次上。
+  assert.equal(items[0].turn, 1);
+  assert.equal(items[2].turn, 2);
+});
+
+test('消息自带 data.turn 时以它为准（跨轮对不上不搅在一起）', () => {
+  // turn/start 说这是第 9 轮，但这条 assistant 事件自称第 10 轮：真实日志里带 data.turn
+  // 的事件更权威，不能被边界覆盖成 9，两轮就此别并成一条。
+  const items = deriveMessages([
+    start(9, 1),
+    userSays('u1', '开场', 2),
+    assistantSays(10, '它说它属于第 10 轮', 3),
+  ]);
+  assert.deepEqual(items.map((item) => item.turn), [9, 10]);
+});
+
+test('早于第一条 turn/start 的旧消息不带轮号（判不出来就不猜）', () => {
+  const items = deriveMessages([userSays('u0', '窗口外的老消息', 1), start(3, 2), userSays('u3', '第三句', 3)]);
+  assert.equal(items[0].turn, undefined);
+  assert.equal(items[1].turn, 3);
+});

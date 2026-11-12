@@ -190,8 +190,10 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  * 依赖全给最小假体，真正会跑到的只有配置 / 地址库这两条；`settings.update` 是唯一的真值
  * 落点 —— 这样才谈得上「写进去能读回」，只对着源码正则断言字段名是钉不住的。
  */
-function controlRoutes({ state = {}, settingsCalls = [] } = {}) {
+function controlRoutes({ state = {}, settingsCalls = [], credentials: credentialStore } = {}) {
   const table = new Map();
+  // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
+  const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
   const settings = {
     async update(patch) {
       settingsCalls.push(patch);
@@ -207,6 +209,7 @@ function controlRoutes({ state = {}, settingsCalls = [] } = {}) {
     readJson: async (req) => req.body || {},
     settings,
     state,
+    credentials,
     status: () => ({}),
     syncSidecar: async () => {},
     lanPortInUse: () => 18787,
@@ -461,3 +464,49 @@ test('只有面板页放开「人点开的一页」，别的控制面路由不�
   // 放开别的就得先想清楚它是不是也能被别人的网页点开。
   assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/debug', '/api/relay/panel/settings', '/api/relay/panel/setup']);
 });
+
+test('行为：设备清单带「历史有几条」，同一个 handler 按 ?history=1 换成已解绑清单', async () => {
+  // 同一台手机可能同时在两张清单的口径里：活动那半只回活着的，已解绑那半整组跳过它。
+  // 两条都不是凭据材料，`revokedCount` 只用来决定面板摆不摆那张卡。
+  const calls = [];
+  const table = controlRoutes({
+    state: { instanceId: 'i1' },
+    credentials: {
+      listDevices: () => [{ deviceId: 'live-1', bindings: 1 }],
+      listHistory: () => { calls.push('history'); return [{ deviceId: 'old-1', kind: 'revoked', bindings: 1, name: '旧手机' }]; },
+      // 非历史分支走这一条：一份记录扫一次，两份结果一起拿。
+      listDevicesWithHistory: () => {
+        calls.push('both');
+        return {
+          devices: [{ deviceId: 'live-1', bindings: 1 }],
+          history: [{ deviceId: 'old-1', kind: 'revoked', bindings: 1, name: '旧手机' }],
+        };
+      },
+    },
+  });
+
+  const active = {};
+  await table.get('/api/relay/devices')({ method: 'GET', url: '/api/relay/devices' }, active);
+  assert.equal(active.status, 200);
+  assert.equal(active.body.ok, true);
+  assert.ok(active.body.serverNow > 0, '面板算「几分钟前」要的是同一台机器上的基准');
+  assert.deepEqual(active.body.devices.map((row) => row.deviceId), ['live-1'], '不带 query 还是活动清单');
+  assert.equal(active.body.revokedCount, 1, '历史有几行：面板据此决定摆不摆那张卡');
+  assert.deepEqual(calls, ['both'], '活清单那一发只好一次扫描：别再为条数另扫一遍');
+  calls.length = 0;
+
+  const history = {};
+  await table.get('/api/relay/devices')({ method: 'GET', url: '/api/relay/devices?history=1' }, history);
+  assert.equal(history.status, 200);
+  assert.equal(history.body.ok, true);
+  assert.ok(history.body.serverNow > 0);
+  assert.ok(Array.isArray(history.body.devices), 'history 分支同样回 devices 数组');
+  assert.deepEqual(history.body.devices.map((row) => row.deviceId), ['old-1']);
+  assert.equal(Object.prototype.hasOwnProperty.call(history.body, 'revokedCount'), false, '历史分支不必自己报数');
+  assert.deepEqual(calls, ['history'], '历史那一发不需要活动那张表，别为了对称白扫一遍');
+
+  // 别的 query 值不当成历史：只认 1，免得 `?history=false` 这种把活动清单换掉。
+  const other = {};
+  await table.get('/api/relay/devices')({ method: 'GET', url: '/api/relay/devices?history=0' }, other);
+  assert.deepEqual(other.body.devices.map((row) => row.deviceId), ['live-1']);
+})

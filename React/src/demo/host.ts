@@ -112,12 +112,16 @@ function lanUrls(): string[] {
  * 一台 `legacy` 为真的旧记录（名字为空 —— 界面该写「未知设备」，而且吊销文案该
  * 换成「旧的通行证仍可能在到期前可用」那一句）。`serverNow` 跟着 `DEMO_TIME` 走，
  * 相对时间才不会每次刷新都往前跳。
+ *
+ * `revokedCount` 要与 `deviceHistory()` 的行数一致：面板拿它决定折叠行说几台、
+ * 以及一台活设备都没有时这张卡还摆不摆。
  */
 function deviceList() {
   const now = DEMO_TIME.getTime()
   return {
     ok: true,
     serverNow: now,
+    revokedCount: deviceHistory().devices.length,
     devices: [
       {
         deviceId: 'demo-android-1',
@@ -158,6 +162,54 @@ function deviceList() {
         legacy: true,
         encrypted: false,
         expiresAt: 0,
+      },
+    ],
+  }
+}
+
+/**
+ * 演示用的「历史 · 已解绑」：两台，正好把两种结局各演一遍。
+ *
+ * 一台是三天前亲手解除绑定的（`kind: 'revoked'`，带着 `revokedAt`），一台是通行证自然到期
+ * （`kind: 'expired'`，`revokedAt` 为 0、结局时刻取 `expiresAt`）。名下的 `bindings` 故意给
+ * 一台 2 条：那条「另有 N 条」的徽标与活设备行是同一套口径。
+ */
+function deviceHistory() {
+  const now = DEMO_TIME.getTime()
+  return {
+    ok: true,
+    serverNow: now,
+    devices: [
+      {
+        deviceId: 'demo-revoked-4',
+        name: 'iPad Air',
+        model: 'iPad Air (M2)',
+        platform: 'ios',
+        osVersion: '18.4',
+        appVersion: DEMO_VERSION,
+        boundAt: now - 18 * 24 * 60 * 60 * 1000,
+        lastSeenAt: now - 5 * 24 * 60 * 60 * 1000,
+        lastChannel: 'relay',
+        revokedAt: now - 3 * 24 * 60 * 60 * 1000,
+        expiresAt: 0,
+        kind: 'revoked' as const,
+        bindings: 2,
+      },
+      {
+        // 自然到期：从没连过（`lastSeenAt: 0`），结局时刻看 `expiresAt`。
+        deviceId: 'demo-expired-5',
+        name: '',
+        model: 'Xiaomi 9',
+        platform: 'android',
+        osVersion: '11',
+        appVersion: '',
+        boundAt: now - 40 * 24 * 60 * 60 * 1000,
+        lastSeenAt: 0,
+        lastChannel: '',
+        revokedAt: 0,
+        expiresAt: now - 10 * 24 * 60 * 60 * 1000,
+        kind: 'expired' as const,
+        bindings: 1,
       },
     ],
   }
@@ -335,7 +387,7 @@ const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } })
 
 /** 一条路由：返回 Response，取不到就说明这张表漏了这一条。 */
-function route(pathname: string, init?: RequestInit): Response | null {
+function route(pathname: string, init?: RequestInit, search = new URLSearchParams()): Response | null {
   const method = String(init?.method ?? 'GET').toUpperCase()
   const patch = body(init) as ConfigPatch
 
@@ -344,7 +396,10 @@ function route(pathname: string, init?: RequestInit): Response | null {
   // 连接自检：页面只在开弹窗（或手机 30 分钟没来过）时打这一条，`?force=1` 也答同一份。
   if (pathname === '/api/relay/selfcheck' && method === 'GET') return json(selfCheck())
   // 设备清单与解除绑定：面板那张卡自己轮询这一条，演示里也得答，否则整卡不出现。
-  if (pathname === '/api/relay/devices' && method === 'GET') return json(deviceList())
+  // `?history=1` 是同一路径的另一个回答（已解绑的历史），与宿主同一个 query 口径。
+  if (pathname === '/api/relay/devices' && method === 'GET') {
+    return json(search.get('history') === '1' ? deviceHistory() : deviceList())
+  }
   if (pathname === '/api/relay/devices/revoke' && method === 'POST') {
     const target = String(body(init).deviceId || '')
     const revoked = target ? 1 : 0
@@ -429,9 +484,9 @@ function route(pathname: string, init?: RequestInit): Response | null {
 export function installDemoHost(): void {
   const handler = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    const pathname = raw.startsWith('http://') || raw.startsWith('https://') ? new URL(raw).pathname : new URL(raw, window.location.origin).pathname
-    const response = route(pathname, init)
-    if (!response) throw new TypeError(`演示模式没有这条接口（不会发送真实请求）：${pathname}`)
+    const url = new URL(raw, window.location.origin)
+    const response = route(url.pathname, init, url.searchParams)
+    if (!response) throw new TypeError(`演示模式没有这条接口（不会发送真实请求）：${url.pathname}`)
     return response
   }
   window.fetch = handler as typeof window.fetch

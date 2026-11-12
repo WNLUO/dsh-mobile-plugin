@@ -11,6 +11,8 @@
  * ## 为什么整卡会消失
  *
  * 一台设备都没有时不摆空卡：这张卡回答的是「有哪些设备」，空的时候它只占掉左栏一屏。
+ * 判据是**活设备与历史同时为空**（`devices.length === 0 && revokedCount === 0`）：踢掉最后
+ * 一台手机之后，那张卡还得在，否则「我上周从一台陌生设备上撤过权」这件事就永远看不见。
  * 老宿主没有这条路由（404）时同样不摆 —— 那时该说的是「更新插件」，但那句提示已经有
  * 更新卡在讲，再摆一张空卡只是重复。
  *
@@ -20,6 +22,15 @@
  * 只清掉本机这一份，**旧通行证在到期前仍然能用来连**。所以那一行的确认框不能说
  * 「立即失效」—— 说了就是骗人。要立即失效只有「吊销全部设备授权」（卡片标题行右侧那颗），
  * 它连中转侧一起清。这条文案是硬要求，别为了统一样式合并成一句。
+ *
+ * ## 历史为什么是折叠的、而且收起时不问宿主
+ *
+ * 「我上周是不是从一台陌生设备上撤过权」是偶发的一问，不是每秒都在变的活数据。所以它默认
+ * 收起，**展开那一下才打一发** `/api/relay/devices?history=1`，收起时一个请求都不发；也不
+ * 给它单开一个 interval —— 历史只在吊销的那一瞬间变，而那次吊销本来就会重拉设备清单、把
+ * 折叠行上的台数刷新掉。展开中的那份列表停在打开那一刻，用户收起再打开就自然更新。
+ *
+ * 整卡不消失的判据因此也跟着变了：踢掉最后一台手机之后，那条记录正是这一段要回答的事。
  */
 import {
   AlertDialog,
@@ -36,7 +47,7 @@ import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Radio } from '@appica/ui-react/radio'
 import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   apiGet,
@@ -44,9 +55,11 @@ import {
   errorText,
   tierOfPermissions,
   updateDevicePermission,
+  type DeviceHistoryList,
   type DeviceList,
   type DeviceRevokeResult,
   type RelayDevice,
+  type RelayHistoryDevice,
   type Tier,
   type TierView,
 } from '../lib/api.ts'
@@ -126,6 +139,40 @@ function channelText(channel: string): string {
   return t('panel.devices.channelUnknown')
 }
 
+/**
+ * 历史保留多久：与宿主 `HISTORY_RETENTION_MS`（凭据库的 30 天清理窗口）是同一个数。
+ *
+ * 这里写死的是**天数**而不是那串毫秒：这句话只是告诉人「翻不到更早的」，不该跟着宿主
+ * 的清理实现走。宿主那个窗口变了，这个数跟着改，别让它悄悄说成 29 或 31 天。
+ */
+export const HISTORY_RETENTION_DAYS = 30
+
+/** 一行设备的标题要用的那几格：活设备与历史行都有，别的字段不掺进来。 */
+type NameParts = {
+  model?: string
+  name?: string
+  suffix?: string
+}
+
+/**
+ * 一行设备的标题：机型 → 名字 → 「未知设备」。
+ *
+ * **机型排在前面**：它是手机自己报的，稳定且说得清是哪种机器；名字那一格的历史要乱得多
+ * ——它来自 App 里给**这台电脑**起的备注（`session.name`），被当成手机自己的名字写了进来，
+ * 于是书房那台 Mac 的面板上会出现一台叫「书房的 Mac」的手机。所以只在机型还空着时
+ * 才拿名字兜底（这一格出生之前配的老记录就是这种）。
+ *
+ * 撞名时宿主会配一个序号（`device.suffix`）——早绑的是 1 ——不再拿 `deviceId` 后几位当
+ * 尾巴：那串机器号人认不出来，也没法和手上的手机对上号。
+ *
+ * 只收 `model` / `name` / `suffix` 三格而不是整个设备：活设备与历史行都摆这一行标题，
+ * 判据只能有一份，两个类型各写一遍迟早会分叉。历史行没有序号（已解绑的那些不再互相撞名）。
+ */
+function nameOf(device: NameParts | null): string {
+  const title = device?.model || device?.name || t('panel.devices.unknown')
+  return device?.suffix ? `${title} · ${device.suffix}` : title
+}
+
 type Props = {
   /**
    * 「吊销全部设备授权」：连中转侧一起清，是 `legacy` 那些旧通行证唯一能立刻作废的入口。
@@ -149,14 +196,65 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
   const [permTier, setPermTier] = useState<Tier>('full')
   const [savingPerm, setSavingPerm] = useState(false)
 
+  /**
+   * 展开态与上一次看到的台数。
+   *
+   * 轮询那一发（`load`）的闭包读不到当下这两个值，而把 `historyOpen` 放进它的依赖数组就等于
+   * 每展开 / 收起一次都重建轮询、重起 interval。所以走 ref：它只回答「现在展开着吗、台数跟
+   * 上一发比变了没有」，不进任何依赖数组。`null` = 还没取到过，第一发只记基线不比对。
+   */
+  const historyOpenRef = useRef(false)
+  const revokedCountRef = useRef<number | null>(null)
+
+  /**
+   * 折叠着的「历史 · 已解绑」。
+   *
+   * `history === null` 且 `historyOpen` 为真 = 那一发还在路上；`historyError` 只让折叠行
+   * 下面多一句「读不到历史」，卡片其余部分照常。
+   */
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [history, setHistory] = useState<DeviceHistoryList | null>(null)
+  const [historyError, setHistoryError] = useState(false)
+
+  /** 最近一次历史请求的序号：晚到的旧回答不许盖掉新的那一份。 */
+  const historySeq = useRef(0)
+
+  /**
+   * 取一次历史。**三个调用点**：展开那一下、本卡片吊销成功之后、轮询发现台数变了的时候。
+   *
+   * 不挂 interval：历史只在台数变的那一瞬间变。台数有两条路会自己变 —— 本卡片里踢掉一台
+   * （`revoke` 当场补发，否则折叠行写着 1 台、下面却空着），和别处点的「吊销全部设备授权」
+   * （走 App，本卡片看不到那一下，只能在 `load` 里按台数变化发现）。
+   */
+  const loadHistory = useCallback(async () => {
+    const seq = ++historySeq.current
+    setHistoryError(false)
+    try {
+      const next = await apiGet<DeviceHistoryList>('/api/relay/devices?history=1')
+      if (seq === historySeq.current) setHistory(next)
+    } catch {
+      // 老宿主没有这个分支：说一句「读不到历史」就够了，别把整张卡变成错误态。
+      if (seq === historySeq.current) setHistoryError(true)
+    }
+  }, [])
+
   const load = useCallback(async () => {
     try {
-      setList(await apiGet<DeviceList>('/api/relay/devices'))
+      const next = await apiGet<DeviceList>('/api/relay/devices')
+      const nextCount = next.revokedCount ?? 0
+      const changed = revokedCountRef.current !== null && revokedCountRef.current !== nextCount
+      revokedCountRef.current = nextCount
+      setList(next)
+      // 台数变了、而这一块正展开着：折叠行说的是新台数，下面那份列表还停在打开那一刻，
+      // 两边会一直对不上（写着 6 台、摊开 3 行）。补一发把两边拉齐，别等用户收起再展开。
+      // 「吊销全部」走的是 App，本卡片看不到那一下，只能在这儿发现；自然到期与保留窗口
+      // 清理也顺带覆盖到。台数没变就不补 —— 否则每 3 秒白打一发。
+      if (changed && historyOpenRef.current) void loadHistory()
     } catch {
       // 老宿主没有这条路由，或者这一下打空了：留着上一次那份，别把行清空。
       // 从没取到过就一直是 null —— 整卡不摆。
     }
-  }, [])
+  }, [loadHistory])
 
   // 3 秒一轮，页面切到后台就停（与 App 里那份状态的节奏一致）。
   useEffect(() => {
@@ -175,21 +273,39 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
 
   const devices = list?.devices ?? []
   const now = list?.serverNow ?? 0
+  /** 历史里有几台；老宿主没有这一格。 */
+  const revokedCount = list?.revokedCount ?? 0
+
+  // 展开态给 ref 留一份：轮询那一发读它（见上面 `historyOpenRef` 的注释）。
+  useEffect(() => {
+    historyOpenRef.current = historyOpen
+  }, [historyOpen])
+
   /**
-   * 一行设备的标题：机型 → 名字 → 「未知设备」。
-   *
-   * **机型排在前面**：它是手机自己报的，稳定且说得清是哪种机器；名字那一格的历史要乱得多
-   * ——它来自 App 里给**这台电脑**起的备注（`session.name`），被当成手机自己的名字写了进来，
-   * 于是书房那台 Mac 的面板上会出现一台叫「书房的 Mac」的手机。所以只在机型还空着时
-   * 才拿名字兜底（这一格出生之前配的老记录就是这种）。
-   *
-   * 撞名时宿主会配一个序号（`device.suffix`）——早绑的是 1 ——不再拿 `deviceId` 后几位当
-   * 尾巴：那串机器号人认不出来，也没法和手上的手机对上号。
+   * 展开才取一次。收起时不发请求，也不清掉已经拿到的结果：再展开先看到上次那份，同时补一发新的。
    */
-  const nameOf = (device: RelayDevice | null) => {
-    const title = device?.model || device?.name || t('panel.devices.unknown')
-    return device?.suffix ? `${title} · ${device.suffix}` : title
+  useEffect(() => {
+    if (!historyOpen) return
+    void loadHistory()
+  }, [historyOpen, loadHistory])
+
+  /** 历史那一行的结局：吊销与自然过期是两件事，绝不合并成一句。 */
+  function endingText(device: RelayHistoryDevice): string {
+    const time = relativeText(device.revokedAt || device.expiresAt, now) || '—'
+    return t(device.kind === 'revoked' ? 'panel.devices.historyRevoked' : 'panel.devices.historyExpired', { time })
   }
+
+  /**
+   * 只认带结局的行。
+   *
+   * 老宿主没有 `?history=1` 这个分支：它会把这一发当普通设备清单答掉，回来的正是**活着的
+   * 手机**。那些行没有 `kind`，照渲染就会把正在连着的设备列进「已解绑」里 —— 比不显示更糟。
+   * 整份都对不上时按「读不到历史」处理，宁可说一句读不到，也不摆一份看着像历史的活设备清单。
+   */
+  const historyRows = (history?.devices ?? []).filter(
+    (device) => device.kind === 'revoked' || device.kind === 'expired',
+  )
+  const historyUnreadable = historyError || ((history?.devices.length ?? 0) > 0 && historyRows.length === 0)
 
   async function revoke(device: RelayDevice) {
     setRevoking(true)
@@ -198,6 +314,8 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
       setPending(null)
       // 吊销之后立刻重拉：等下一轮 3 秒会让「点了没反应」多停留一会儿。
       await load()
+      // 展开着就把历史也补上：否则台数变了、列表还停在打开那一刻那份（少一条，甚至空着）。
+      if (historyOpen) void loadHistory()
       notify(
         'soft',
         t(result.closed > 0 ? 'panel.devices.unbindDoneClosed' : 'panel.devices.unbindDone', {
@@ -228,8 +346,9 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
     }
   }
 
-  // 没有设备（或还没读到）：整卡不摆。见文件头「为什么整卡会消失」。
-  if (devices.length === 0) return null
+  // 一台活设备都没有、历史里也空着（或还没读到）：整卡不摆。见文件头「为什么整卡会消失」。
+  // 只要历史里有记录就得摆：踢掉最后一台手机之后，那条记录正是这一段要回答的事。
+  if (devices.length === 0 && revokedCount === 0) return null
 
   return (
     <Card frame="solid">
@@ -237,9 +356,14 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
         <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <span className="flex items-center gap-2">
             {t('panel.devices.title')}
-            <Badge variant="secondary" size="sm">
-              {devices.length}
-            </Badge>
+            {/* 台数只数活着的那些。一台都不剩时这一格不画：标题写着「已绑定的设备」、
+                旁边挂个 0，底下却还摆着一串已解绑的记录，那个组合自相矛盾。历史有几台
+                由下面的折叠行自己说。 */}
+            {devices.length > 0 ? (
+              <Badge variant="secondary" size="sm">
+                {devices.length}
+              </Badge>
+            ) : null}
           </span>
           <Button variant="outline" size="sm" disabled={busy !== ''} onClick={onRevokeAll}>
             {t('panel.pairing.revokeAll')}
@@ -313,6 +437,79 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
             </div>
           )
         })}
+      </div>
+
+      {/* 历史 · 已解绑：次要信息，摆在这张卡最下面、默认收起，字号与颜色跟主列表第二行同一档。
+          它是「谁连过、后来怎么没的」，不是当前设备，所以行上没有按钮。 */}
+      <div className="mt-1 border-t border-border-muted pt-2">
+        <button
+          type="button"
+          aria-expanded={historyOpen}
+          className="flex w-full cursor-pointer items-center justify-between gap-2 text-xs text-foreground-muted focus-visible:outline-none"
+          onClick={() => setHistoryOpen((open) => !open)}
+        >
+          <span className="flex items-center gap-2">
+            {t('panel.devices.historyTitle')}
+            <Badge variant="secondary" size="xs">
+              {t('panel.devices.historyCount', { count: revokedCount })}
+            </Badge>
+          </span>
+          {/* 箭头只表示「这边能点开」，跟着展开状态转 90 度。 */}
+          <svg
+            viewBox="0 0 12 12"
+            className={`size-3 shrink-0 transition-transform ${historyOpen ? 'rotate-90' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m4.5 2.5 3.5 3.5-3.5 3.5" />
+          </svg>
+        </button>
+
+        {historyOpen ? (
+          <div className="mt-2">
+            {historyRows.map((device) => (
+              <div key={device.deviceId} className="flex flex-col gap-1 py-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {/* 比上面那些活设备行低一档：这一段的标题是 text-xs + 常规前景色，
+                      不跟主列表抢注意力。 */}
+                  <span className="text-xs text-foreground">{nameOf(device)}</span>
+                  {device.bindings > 1 ? (
+                    <Badge variant="secondary" size="xs">
+                      {t('panel.devices.extraBindings', { count: device.bindings - 1 })}
+                    </Badge>
+                  ) : null}
+                  <span className="text-xs text-foreground-muted">
+                    {platformText(device.platform)}
+                    {device.osVersion ? ` ${device.osVersion}` : ''}
+                    {device.appVersion ? t('panel.devices.appVersion', { version: device.appVersion }) : ''}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground-muted">
+                  <span>{t('panel.devices.historyBoundAt', { time: relativeText(device.boundAt, now) || '—' })}</span>
+                  {/* 从没连过就如实说「无记录」，别拿绑定时刻顶上。 */}
+                  <span>
+                    {t('panel.devices.historyLastSeen', {
+                      time: device.lastSeenAt ? relativeText(device.lastSeenAt, now) : t('panel.devices.noRecord'),
+                    })}
+                  </span>
+                  {/* 结局按 kind 分叉：一种是你亲手踢的，一种是自然到期，两种绝不合并成一句。 */}
+                  <span>{endingText(device)}</span>
+                </div>
+              </div>
+            ))}
+            {/* 读不到（老宿主没有这个分支，或回来的不是历史）：一句安静的提示，卡片其余部分照常。 */}
+            {historyUnreadable ? (
+              <p className="py-2 text-xs text-foreground-muted">{t('panel.devices.historyFailed')}</p>
+            ) : null}
+            <p className="py-2 text-xs text-foreground-muted">
+              {t('panel.devices.historyRetention', { days: HISTORY_RETENTION_DAYS })}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <AlertDialog
