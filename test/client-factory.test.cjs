@@ -23,7 +23,6 @@ const SOURCE = fs.readFileSync(CLIENT, 'utf8');
 const NS = 'settings.mobileRelay';
 // 浏览器侧控制面地址一律是**文档相对**的（无前导斜杠）：DSH 给 index 注入
 // `<base href="./">`，页面挂在子路径下时只有相对地址才会跟着前缀走。
-const VIEW_ENDPOINT = 'api/relay/desktop-view';
 const READ_RECEIPT_ENDPOINT = 'api/relay/read-receipt';
 const DESKTOP_READ_ENDPOINT = 'api/relay/desktop-read';
 const CLIENT_HALF_ENDPOINT = 'api/relay/client-half';
@@ -608,87 +607,6 @@ test('样式只注入一次：同一页面里重复物化不会堆出第二份 <
   env.run();
   env.run();
   assert.equal(env.styles.length, 1, '重复物化必须复用同一份样式');
-});
-
-/* ── 2. 桌面展开态 → 宿主 ──────────────────────────────────────────────── */
-
-test('展开态同步：取版本最大的键并 POST 给宿主', async () => {
-  const env = materialize({
-    storage: createStorage({
-      'dsh.workspace.view.v5': JSON.stringify({ groupExpansion: { a: true, b: false } }),
-      'dsh.workspace.view.v9': JSON.stringify({ groupExpansion: { z: true } }),
-      'unrelated.key': '{}',
-    }),
-  });
-  await settle();
-
-  const push = syncCalls(env).find((c) => String(c.url).endsWith(VIEW_ENDPOINT));
-  assert.ok(push, '必须 POST 到 /api/relay/desktop-view');
-  assert.equal(push.init.method, 'POST');
-  assert.equal(push.init.credentials, 'same-origin');
-  assert.equal(push.init.headers['content-type'], 'application/json');
-  assert.deepEqual(JSON.parse(push.init.body), {
-    source: 'dsh.workspace.view.v9',
-    groupExpansion: { z: true },
-  });
-});
-
-test('展开态同步：只取布尔值，并容忍 {state} 包装', async () => {
-  const env = materialize({
-    storage: createStorage({
-      'dsh.workspace.view.v3': JSON.stringify({
-        state: { groupExpansion: { keep: true, drop: 'yes', also: false, n: 1 } },
-      }),
-    }),
-  });
-  await settle();
-  const push = syncCalls(env).find((c) => String(c.url).endsWith(VIEW_ENDPOINT));
-  assert.deepEqual(JSON.parse(push.init.body).groupExpansion, { keep: true, also: false });
-});
-
-test('展开态同步：没有可读的展开态时一个请求都不发', async () => {
-  const env = materialize({ storage: createStorage({ 'other.key': '{}' }) });
-  await settle();
-  assert.equal(syncCalls(env).length, 0);
-  await env.timers.tick(2000);
-  assert.equal(syncCalls(env).length, 0);
-});
-
-test('展开态同步：内容没变就不重复 POST（2s 轮询的成本压到最低）', async () => {
-  const env = materialize({
-    storage: createStorage({ 'dsh.workspace.view.v5': JSON.stringify({ groupExpansion: { a: true } }) }),
-  });
-  await settle();
-  await env.timers.tick(2000);
-  await env.timers.tick(2000);
-  assert.equal(syncCalls(env).length, 1);
-});
-
-test('展开态同步：宿主返回非 2xx 时不记住这次内容，下一轮重试', async () => {
-  const env = materialize({
-    storage: createStorage({ 'dsh.workspace.view.v5': JSON.stringify({ groupExpansion: { a: true } }) }),
-    fetch: async () => ({ ok: false, status: 503, json: async () => ({}) }),
-  });
-  await settle();
-  await env.timers.tick(2000);
-  assert.equal(syncCalls(env).length, 2);
-});
-
-test('展开态同步：effect 清理后定时器被收掉，不再发请求', async () => {
-  const env = materialize({
-    storage: createStorage({ 'dsh.workspace.view.v5': JSON.stringify({ groupExpansion: { a: true } }) }),
-  });
-  await settle();
-  assert.equal(syncCalls(env).length, 1);
-  const entry = env.effects.find((e) => !e.label);
-  assert.ok(entry, '桌面视图同步必须走 ctx.effect');
-  assert.equal(typeof entry.cleanup, 'function', 'effect 必须返回清理函数，否则卸载后还在轮询');
-  const before = env.timers.count;
-  entry.cleanup();
-  await env.timers.tick(2000);
-  assert.equal(syncCalls(env).length, 1, '卸载之后不能再发请求');
-  // 只剩客户端半边自检上报那一个定时器：它是独立 effect，不归展开态这条管。
-  assert.equal(env.timers.count, before - 1, '卸下展开态同步时它自己的定时器要收掉');
 });
 
 test('控制面地址不许把 /api/relay 拼两遍（真机故障：两条绿点通道自始至终打的是不存在的地址）', async () => {
@@ -1714,8 +1632,8 @@ test('绿点同步门禁在 ctx.inject 上：拿不到桌面服务时连 effect 
   await env.timers.tick(2000);
   assert.deepEqual(
     env.effects.map((e) => e.label),
-    ['mobile-plugin: settings dictionaries', undefined, 'mobile-plugin: 客户端半边自检上报'],
-    '没有桌面服务时只该有字典、展开态与自检上报三条 effect',
+    ['mobile-plugin: settings dictionaries', 'mobile-plugin: 客户端半边自检上报'],
+    '没有桌面服务时只该有字典与自检上报两条 effect',
   );
   assert.equal(syncCalls(env).length, 0);
   // 门禁必须写成「拿不到服务就整条不挂」（`ctx.inject` 的依赖永不满足 ⇒ 回调不跑），
@@ -1726,7 +1644,7 @@ test('绿点同步门禁在 ctx.inject 上：拿不到桌面服务时连 effect 
   assert.equal(
     (SOURCE.match(/withClientServices\(/g) || []).length,
     4,
-    '辅助函数一处定义 + 两条同步 + 抓会话清单服务各一处调用',
+    '辅助函数一处定义 + 两条绿点同步 + 抓会话清单服务各一处调用',
   );
   assert.equal(SOURCE.includes("ctx.get('sessions')"), false, '服务取用不许再走 ctx.get');
   assert.equal(SOURCE.includes("ctx.get('uiSession')"), false, '服务取用不许再走 ctx.get');
@@ -1741,7 +1659,6 @@ test('绿点同步：有桌面服务时两条 effect 都挂上，各带一个标
     env.effects.map((e) => e.label),
     [
       'mobile-plugin: settings dictionaries',
-      undefined,
       'mobile-plugin: 会话清单服务',
       'mobile-plugin: 桌面端已读上报',
       'mobile-plugin: 已读回执应用',

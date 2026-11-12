@@ -114,7 +114,7 @@ test('BASE / 已知 / 未分类的解析', () => {
   assert.equal(P.resolvePermission('/api/mobile/v1/status'), null, 'status 是保命 BASE');
   assert.equal(P.resolvePermission('/api/mobile/v1/device-credential/permissions'), null, '自助降档是 BASE');
   assert.equal(P.resolvePermission('/api/mobile/v1/file/create'), 'files.write');
-  assert.equal(P.resolvePermission('/api/mobile/v1/desktop-view'), 'view');
+  assert.equal(P.resolvePermission('/api/mobile/v1/monitor'), 'view');
   assert.equal(P.resolvePermission('/api/mobile/v1/not/in/table'), 'unknown', '未登记路由 fail-closed');
   // 同路径不同方法分读写
   assert.equal(P.resolvePermission('/api/mobile/v1/narration', 'GET'), 'view');
@@ -125,9 +125,9 @@ test('BASE / 已知 / 未分类的解析', () => {
 });
 
 test('带部署前缀的路径与签名口径一致（锚到 /api/mobile/v1/）', () => {
-  assert.equal(P.resolvePermission('/deploy/api/mobile/v1/desktop-view', 'GET'), 'view');
+  assert.equal(P.resolvePermission('/deploy/api/mobile/v1/session', 'GET'), 'view');
   assert.equal(P.resolvePermission('/deploy/api/mobile/v1/file/create', 'POST'), 'files.write');
-  assert.equal(P.isClassified('/deploy/api/mobile/v1/desktop-view'), true);
+  assert.equal(P.isClassified('/deploy/api/mobile/v1/session'), true);
 });
 
 // ── 3. guarded 真的按位拦截 ───────────────────────────────────────

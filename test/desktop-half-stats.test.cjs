@@ -29,17 +29,14 @@ test('计数只累加，快照是副本（调用方改不动内部状态）', ()
   STATS.noteReadReceiptGet();
   STATS.noteReadReceiptGet();
   STATS.noteDesktopRead({ ids: 3, cleared: 2 });
-  STATS.noteDesktopViewPost();
   const after = STATS.snapshot();
 
   assert.equal(after.readReceiptGets, before.readReceiptGets + 2);
   assert.equal(after.desktopReadPosts, before.desktopReadPosts + 1);
   assert.equal(after.desktopReadIds, before.desktopReadIds + 3);
   assert.equal(after.desktopReadCleared, before.desktopReadCleared + 2);
-  assert.equal(after.desktopViewPosts, before.desktopViewPosts + 1);
   assert.ok(after.readReceiptLastAt > 0, '最近时刻要记下来：只涨计数看不出「刚来过」还是「半小时前来过」');
   assert.ok(after.desktopReadLastAt > 0);
-  assert.ok(after.desktopViewLastAt > 0);
 
   // 副本：改它不影响下一次读取。
   after.readReceiptGets = -1;
@@ -85,11 +82,10 @@ function routeSegments(source) {
   }));
 }
 
-test('三条出入口都真的接了台账（加了模块没接线 = 台账永远全 0，比没有更误导）', () => {
+test('两条出入口都真的接了台账（加了模块没接线 = 台账永远全 0，比没有更误导）', () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
   const segments = new Map(routeSegments(source).map((r) => [r.path, r.handler]));
   const expected = [
-    ['/api/relay/desktop-view', 'desktopHalf.noteDesktopViewPost()'],
     ['/api/relay/read-receipt', 'desktopHalf.noteReadReceiptGet()'],
     ['/api/relay/desktop-read', 'desktopHalf.noteDesktopRead('],
   ];

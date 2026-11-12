@@ -363,7 +363,6 @@ hex 还是 base64），先修到全绿再联调。
 
 - `/api/mobile/v1/status` — 心跳与状态快照（中转地址、p2p 状态等）。
 - `/api/mobile/v1/connection-info` — 局域网 / IPv6 直连候选地址。
-- `/api/mobile/v1/desktop-view` — 桌面侧视图快照。
 - `/api/mobile/v1/tunnel` — 直连隧道地址申请。
 - `/api/mobile/v1/p2p/rendezvous` — 点对点隧道会合。
 

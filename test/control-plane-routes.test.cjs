@@ -40,7 +40,6 @@ const NO_WEB_ACCESS = new Map([
   ['/api/relay/internal/approval', '中转与 sidecar 的内部审批通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/internal/issue-credential', 'sidecar 签发凭据的内部通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/internal/rotate-pairing', 'sidecar 换码换票据的内部通道，依赖 sidecarToken，不由网页面板调用'],
-  ['/api/relay/desktop-view', '桌面客户端自身的工作区状态同步，不能随网页管理窗口停止'],
   ['/api/relay/read-receipt', '桌面端轮询上报回执以同步本地已读状态，属于客户端功能，不是网页管理面板。'],
   ['/api/relay/client-half', '桌面客户端每 10 秒上报存活与故障自检状态，不能随网页管理窗口停止。'],
   ['/api/relay/desktop-read', '桌面客户端轮询同步已读会话，属于手机与桌面协同通道，不是网页管理接口。'],
@@ -80,7 +79,6 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     // 调试页：桌面端那颗手机图标点开的就是它（同一份 HTML，分流在 React 侧）。
     '/api/relay/panel/debug',
     '/api/relay/onboarded',
-    '/api/relay/desktop-view',
     '/api/relay/read-receipt',
     '/api/relay/desktop-read',
     '/api/relay/faults',
