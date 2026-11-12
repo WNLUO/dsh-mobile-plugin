@@ -10,6 +10,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
 
 import { App } from './App.tsx'
+import { Console } from './Console.tsx'
 import { Debug } from './Debug.tsx'
 import { Onboarding } from './Onboarding.tsx'
 import { apiGet, type StatusView } from './lib/api.ts'
@@ -36,12 +37,14 @@ export function Root() {
   const forcedSettings = path.endsWith('/settings')
   /** `/api/relay/panel/debug`：调试页（桌面端点那颗手机图标弹的就是它）。 */
   const forcedDebug = path.endsWith('/debug')
+  /** `/api/relay/panel/console`：控制台那一窗（点手机图标进来的第一屏，见 `Console.tsx`）。 */
+  const forcedConsole = path.endsWith('/console')
   /** null = 还没问到宿主。读不到状态就当「配过了」，把错误交给主页去说，别卡在加载上。 */
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [entered, setEntered] = useState(false)
 
   useEffect(() => {
-    if (forcedSetup || forcedSettings || forcedDebug) return undefined
+    if (forcedSetup || forcedSettings || forcedDebug || forcedConsole) return undefined
     let alive = true
     void (async () => {
       try {
@@ -54,11 +57,13 @@ export function Root() {
     return () => {
       alive = false
     }
-  }, [forcedSetup, forcedSettings, forcedDebug])
+  }, [forcedSetup, forcedSettings, forcedDebug, forcedConsole])
 
   if (forcedSettings) return <App />
 
   if (forcedDebug) return <Debug />
+
+  if (forcedConsole) return <Console />
 
   if (forcedSetup) return entered ? <App /> : <Onboarding onDone={() => setEntered(true)} />
 

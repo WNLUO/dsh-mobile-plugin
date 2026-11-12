@@ -20,6 +20,7 @@ import { StarButton } from './components/StarButton.tsx'
 import { TopRightActions } from './components/TopRightActions.tsx'
 import { t } from './lib/i18n/index.ts'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
+import { watchShellTheme } from './lib/shell-theme.ts'
 import { Root } from './Root.tsx'
 
 export function Shell() {
@@ -36,22 +37,35 @@ export function Shell() {
   // 调试页是嵌在 DSH 那个弹窗里的一窗（宽约一千），右上角那组「日夜 / 语言」与右下角
   // 「加入交流群」都会压到读数或那排操作按钮上；它们是给「人从浏览器打开这一页」准备的，
   // 调试图不挂。主题跟随系统，够用。
-  const debugPage = window.location.pathname.replace(/\/+$/, '').endsWith('/debug')
+  //
+  // **控制台那一窗同样不挂**（2026-11-13）：它是点手机图标进来的日常那一屏，右下角那三颗
+  // 悬浮件会直接压在设备清单与底部出口上（窄窗里尤其明显）。右上角的语言与日夜留着 ——
+  // 这一窗是给人天天看的，不像调试图只用来读数字。
+  const bare = /\/debug$|\/console$/.test(window.location.pathname.replace(/\/+$/, ''))
+  const consolePage = /\/console$/.test(window.location.pathname.replace(/\/+$/, ''))
+
+  // 控制台那一窗的日夜**跟着 DSH 走**（同源父窗口的 `data-ds-dark-theme`），
+  // 单独在浏览器里打开就跟随系统。别的页不接：那几页有自己的日夜按钮，两套一起写
+  // `<html>` 上的 class 会互相打架。见 `lib/shell-theme.ts`。
+  useEffect(() => {
+    if (!consolePage) return undefined
+    return watchShellTheme()
+  }, [consolePage])
 
   return (
     <>
       <Root />
-      {debugPage ? null : <TopRightActions />}
+      {bare ? null : <TopRightActions />}
       {/* 右下角那颗「加入交流群」：与右上角那组同理，**不属于任何一屏** ——
           2026-10-26 用户要求引导页也放一颗，与其在两页各挂一次（各写一个坐标、
           迟早错开），不如跟着外壳渲染一次。 */}
-      {debugPage ? null : <JoinGroupButton />}
+      {bare ? null : <JoinGroupButton />}
       {/* 「赞助」排在群按钮上面一格：同属右下角那串悬浮件，调试图同样不挂。 */}
-      {debugPage ? null : <SponsorButton />}
+      {bare ? null : <SponsorButton />}
       {/* 「给个 Star」再上移一格（`bottom-[10.5rem]`）：三颗同一串，从下往上是交流群 /
           赞助 / 这颗。求 star 是这个仓库最实在的支持，但它排在人家已经愿意掏钱的那颗
           上面一格、最不打扰的位置——顺手才点，不点也不挡任何事。 */}
-      {debugPage ? null : <StarButton />}
+      {bare ? null : <StarButton />}
     </>
   )
 }
