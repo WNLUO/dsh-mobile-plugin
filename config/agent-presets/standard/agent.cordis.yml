@@ -18,6 +18,15 @@
     name: '@deepseek-ai/dsh-tool-jobs'
   - id: skill-filesystem
     name: '@deepseek-ai/dsh-skill-filesystem'
+    config:
+      # 随包发放的技能（`dsh-doc` 这些）默认不在扫描范围内，要靠这一条把它们的目录
+      # 登记进来；桌面 `standard` 预设从 0.2.2-rc.2 起带上它，手机这份此前漏了 ——
+      # 于是手机上「/」菜单里的技能少一截，模型也用不上这套说明。
+      #
+      # 路径必须相对 `baseUrl`（预设自己所在那一层）算，不能写死绝对路径：包在
+      # `pnpm` 的虚拟仓里时位置每台机器都不一样。
+      customSkillDirs:
+        - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')
   - id: tool-skill
     name: '@deepseek-ai/dsh-tool-skill'
   - id: command-goal
@@ -195,3 +204,8 @@
   # 「没有这个工具」。`name` 是占位，宿主启动时换成本次运行时的入口。
   - id: tool-present
     name: '@deepseek-ai/dsh-tool-present'
+
+# Office 三件（`office_render` / `office_convert` / `office_recalculate`）刻意不在这里：
+# Office 已经拆成独立的扩展插件（手机侧市场按需安装，见 A1-146），那块能力由扩展自己提供，
+# 本包不再挂官方工具行 —— 挂了等于同一件事两份实现，而且它的 peer 精确咬
+# `dsh-agent` / `dsh-office-kit`，抬代时还得跟着跑一轮。

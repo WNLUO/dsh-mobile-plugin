@@ -60,8 +60,8 @@ test('peerDependencies 里每个 @deepseek-ai/dsh-* 都覆盖当前这条预发�
   }
 });
 
-test('devDependencies 里那三个官方工具包同样覆盖当前这条预发布线', () => {
-  // 三个一起钉：它们互相精确咬版本，漏一个就等于那一行永远只认运行时那棵树。
+test('devDependencies 里那几个官方工具包同样覆盖当前这条预发布线', () => {
+  // 一起钉：它们互相精确咬版本，漏一个就等于那一行永远只认运行时那棵树。
   const tools = [
     '@deepseek-ai/dsh-host-directory-picker-browse',
     '@deepseek-ai/dsh-tool-ask-user',
@@ -73,6 +73,36 @@ test('devDependencies 里那三个官方工具包同样覆盖当前这条预发�
     assert.ok(range !== undefined, `${name} 不在 devDependencies 里`);
     assert.ok(covers(range), `${name} 的 dev 声明 ${range} 没覆盖 ${REQUIRED_TRACK}`);
   }
+});
+
+test('预设里那几行「版本由运行期决定」的官方工具都登进了 TOOL_ROWS', () => {
+  // 预设加了行却忘了登进 `TOOL_ROWS`，那一行就永远按裸名解析 —— 官方那份精确咬版本的
+  // 副本对不上就整行禁用，现象只是模型说「没有这个工具」。两边任何一边漏了这条就红。
+  //
+  // **Office 三件不在这个清单里**，也不是漏了：那块能力归独立的扩展插件（手机侧按需
+  // 安装，见 A1-146），本包刻意不挂官方工具行 —— 两边都挂就是同一件事两份实现。
+  const preset = fs.readFileSync(
+    path.join(__dirname, '..', 'config', 'agent-presets', 'standard', 'agent.cordis.yml'),
+    'utf8',
+  );
+  const { TOOL_ROWS } = require('../lib/host-compat.cjs');
+  for (const row of TOOL_ROWS) {
+    assert.ok(
+      new RegExp(`^\\s*-\\s+id:\\s*${row.id}\\s*$`, 'm').test(preset),
+      `TOOL_ROWS 里有 ${row.id}，但预设里没有这一行`,
+    );
+  }
+  // 反过来：预设立住的这两行必须都在 TOOL_ROWS 里，否则启动时不会换代。
+  for (const id of ['tool-ask-user', 'tool-present']) {
+    assert.ok(TOOL_ROWS.some((row) => row.id === id), `${id} 没登进 TOOL_ROWS，启动时不会换代`);
+  }
+  // Office 已归扩展插件，本包既不该挂那一行、也不该把它登进 TOOL_ROWS。
+  assert.equal(
+    /^\s*-\s+id:\s*tool-office\s*$/m.test(preset),
+    false,
+    '预设里又出现 tool-office 了：Office 归扩展插件，本包不挂这一行',
+  );
+  assert.equal(TOOL_ROWS.some((row) => row.id === 'tool-office'), false, 'tool-office 不该登进 TOOL_ROWS');
 });
 
 test('这批声明都是范围，不是精确版本', () => {
