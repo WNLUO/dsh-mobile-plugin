@@ -74,6 +74,9 @@ const GOLDEN = {
   'goals.resume': ['goals', 'resume', ['agentId', 'ref']],
   'goals.complete': ['goals', 'complete', ['agentId', 'ref']],
   'goals.clear': ['goals', 'clear', ['agentId', 'ref']],
+  // 会话级「启用智能体团队协作」：宿主 `agentTeams.setEnabled(agentId, enabled, signal)`，
+  // 只收根会话（子会话调它会回 TEAM_LEAD_REQUIRED）。两个参数名都按 descriptor 来。
+  'agentTeams.setEnabled': ['agentTeams', 'setEnabled', ['agentId', 'enabled']],
   'settings.describe': ['settings', 'describe', []],  // descriptor 不收参数
   'settings.mutate': ['settings', 'mutate', []],  // inv 的默认包装；pick 出 ns/ops/expectedRevision 后仍由 inv 包成 {}
   'llm.providers': ['llm', 'listProviders', []],  // 宿主方法是 listProviders，不是 providers
@@ -128,6 +131,7 @@ const PAYLOAD = {
   value: 'v',
   key: 'k',
   settings: { a: 1 },
+  enabled: true,
 };
 
 test('端点表里每一条要么落在金标准里，要么被显式标成合成/不支持', () => {
