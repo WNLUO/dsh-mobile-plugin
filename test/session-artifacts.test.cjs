@@ -174,6 +174,24 @@ async function leftoverTmpZips() {
   return names.filter((name) => name.startsWith(artifacts.ARCHIVE_TMP_PREFIX));
 }
 
+/**
+ * 等临时 zip 回到基线。
+ *
+ * 服务端是在把响应发完之后才删临时文件的（`finally` 里那一下），客户端拿到响应不代表那一下
+ * 已经跑完：Linux 的 runner 上这两件事挨得很近，读目录会读到刚建好还没删的那个。本地读得快
+ * 就永远撞不上，所以「删干净」这件事必须等，不能一拍定胜负。
+ */
+async function waitNoLeftoverTmpZips(baseline, turns = 200) {
+  const known = new Set(baseline);
+  const settled = (names) => names.every((name) => known.has(name));
+  let current = await leftoverTmpZips();
+  for (let index = 0; index < turns && !settled(current); index += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    current = await leftoverTmpZips();
+  }
+  return current;
+}
+
 test('工作区里的文件：ok，size 与 mtime 与盘上一致', async (t) => {
   const dir = await workspace(t);
   const content = '第一行\nhello\n';
@@ -370,7 +388,7 @@ test('一条可用文件都没有 → 404 empty-archive，且不留下临时 zip
     assert.equal(res.status, 404);
     assert.equal(res.body.error.code, 'empty-archive');
   });
-  assert.deepEqual(await leftoverTmpZips(), before, '空包那条路不该建临时文件，建了也不许留下');
+  assert.deepEqual(await waitNoLeftoverTmpZips(before), before, '空包那条路不该建临时文件，建了也不许留下');
 });
 
 test('paths 为空 / 类型不对 → 400 bad-request', async (t) => {
@@ -426,7 +444,7 @@ test('打包中途读不到文件：500 archive-failed，成功与失败两条�
   } finally {
     artifacts.__setStatForTests(null);
   }
-  assert.deepEqual(await leftoverTmpZips(), before, '打包失败那条路必须把临时 zip 删掉');
+  assert.deepEqual(await waitNoLeftoverTmpZips(before), before, '打包失败那条路必须把临时 zip 删掉');
 });
 
 test('成功那条路也不留临时 zip', async (t) => {
@@ -437,7 +455,7 @@ test('成功那条路也不留临时 zip', async (t) => {
     const res = await host.archive({ sessionId: 's1', paths: ['a.md'] });
     assert.equal(res.status, 200);
   });
-  assert.deepEqual(await leftoverTmpZips(), before, '成功那条路必须把临时 zip 删掉');
+  assert.deepEqual(await waitNoLeftoverTmpZips(before), before, '成功那条路必须把临时 zip 删掉');
 });
 
 test('协议 v2：分块信封的头带 zip 大小与加密后长度，解出来仍是那份 zip', async (t) => {
