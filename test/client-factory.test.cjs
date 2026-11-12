@@ -470,7 +470,14 @@ function createEnv(options = {}) {
         },
         bind(ns) {
           const dict = dictionaries.get(ns);
-          return (key) => dict.zh[key];
+          // 与真实现同形：带第二个参数时按 `{name}` 插值（`@deepseek-ai/dsh-client-locale`
+          // 的 `translate` 就是这么替换的）。少了这一步，标题里那句「{count} 台设备」
+          // 在测试里永远是原样的花括号，也就验不出拼出来到底成不成立。
+          return (key, params) => {
+            const template = dict.zh[key];
+            if (!params || typeof template !== 'string') return template;
+            return template.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
+          };
         },
       },
       slots: {
@@ -740,12 +747,14 @@ test('字典覆盖两张界面，中英一一对应', () => {
   const dict = env.dictionaries.get(NS);
   assert.ok(dict, `${NS} 字典必须注册`);
   assert.deepEqual(Object.keys(dict.zh).sort(), Object.keys(dict.en).sort());
-  // 键集逐个钉死：一张薄卡（配置页）+ 一颗图标 + 那张诊断窗，不长成第二个管理面板。
+  // 键集逐个钉死：一张薄卡（配置页）+ 一颗图标 + 那扇控制台窗。
+  // 2026-11-13 用户拍板把「进入控制台 / 报错调试」那层入口去掉（点图标直接就是控制台那一页），
+  // 所以 `consoleBack` 与 `consoleEntry*` 六条一并撤掉，换成一个 `consoleTroubleshoot`
+  // —— 调试页退到操作栏里那颗次要按钮。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
     'cardPanel',
-    'consoleBack', 'consoleEntryConsole', 'consoleEntryConsoleHint', 'consoleEntryDebug',
-    'consoleEntryDebugHint', 'consoleEntryLead', 'consoleEntryTitle',
-    'consoleFrameless', 'consoleLead', 'consoleOpenBrowser', 'consolePopupBlocked', 'consoleTitle',
+    'consoleFrameless', 'consoleOpenBrowser', 'consolePopupBlocked',
+    'consoleTitle', 'consoleTroubleshoot',
     'diagBusy', 'diagChecking', 'diagClose', 'diagCopied', 'diagCopy', 'diagCopyFailed',
     'diagFactActivated', 'diagFactOnDisk', 'diagFactPanelUrl', 'diagFactPlugin', 'diagFactReason',
     'diagFactRetry', 'diagFactReturned', 'diagFactScope', 'diagFactSelfcheck', 'diagFactShell',
@@ -755,7 +764,9 @@ test('字典覆盖两张界面，中英一一对应', () => {
     'diagStepReinstall', 'diagStepRestart', 'diagStepRetryOpen', 'diagStepRetrying',
     'diagSummaryLoadFailed', 'diagSummaryLoadMissing', 'diagSummaryNoError',
     'diagSummaryOpenFailed', 'diagSummaryRestored', 'diagSummaryUnreachable', 'diagTitleLoad',
-    'diagTitleOpen', 'footerLoadMissing', 'footerOpen', 'footerPending', 'footerPublicConfirm',
+    'diagTitleOpen', 'footerAgoDays', 'footerAgoHours', 'footerAgoMinutes', 'footerAgoNow',
+    'footerDeviceCount', 'footerDeviceSeen', 'footerLoadMissing', 'footerNoDevice', 'footerOpen',
+    'footerPending', 'footerPublicConfirm', 'footerSidecarBad', 'footerTunnelBad',
     'heading', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending'
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
@@ -1026,8 +1037,7 @@ test('宿主没给地址：不挂死链，但点它自己开窗取地址再嵌�
   await settle(12);
   assert.deepEqual(posts, [{ enabled: true }], '先开两小时窗口——这是远程用户唯一能走通的顺序');
   assert.equal(env.openedWindows.length, 0, '开完窗口是**弹这一窗**，不是再开一个浏览器窗口');
-  await openDebugLayer(env);
-  assert.equal(consoleFrame(env).attrs.src, debugPageOf(), '开完窗再读一次状态，地址就拿到了');
+  assert.equal(consoleFrame(env).attrs.src, consolePageOf(), '开完窗再读一次状态，地址就拿到了');
   // 一进来就嵌着控制台：这一下不是「诊断」，是那一屏本身。
   assert.notEqual(texts(diagnosisNode(env)).join(''), '', '控制台那一窗要有标题与说明');
 });
@@ -1106,7 +1116,7 @@ test('切语言之后标题跟着换（插进那一行的按钮不吃旧文案�
   await env.hooks.flush();
   assert.equal(node.attrs['aria-label'], '打开手机网页', '切语言后插进去的那颗要换标题');
   // 依赖数组里必须是**文案本身**：`t` 是 bind 出来的稳定函数，只依赖它 effect 不会重跑。
-  assert.match(SOURCE, /\}, \[wide, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess\]\);/);
+  assert.match(SOURCE, /\}, \[wide, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess, hint, fault\]\);/);
 });
 
 test('地址问不到时会自己再问，问到了就停（不再打宿主）', async () => {
@@ -1138,12 +1148,147 @@ test('地址问不到时会自己再问，问到了就停（不再打宿主）',
   assert.equal(statusCalls, after, '地址取到之后不该再轮询');
 });
 
-/* ── 5b. 点下去做什么：弹两层（2026-11-05 用户改的）─────────────────────
- * 第一层只有一个简单入口：左「进入控制台」（= 原来那个跳转）、右「报错调试」。
- * 第二层才是那一屏读数（网页版的 `/api/relay/panel/debug`，按同源地址嵌进 iframe）。
+/* ── 5a2. 那颗图标说得出「现在什么情况」─────────────────────────────────
+ * 原来它只有两档：好的（悬停一句固定文案）、坏的（宿主没装载，转红）。
+ * 中间那一大片状态一律看不见 —— 手机三天没连过、中转早断了，图标都跟没事一样。
  *
- * 为什么分两层：原来点图标一上来就是整屏读数，太重；绝大多数时候人只是想去配置页，
- * 或者去看手机为什么连不上。
+ * 现在：悬停标题由宿主那份读数拼出来（几台设备、多久没连过），链路明确报错时
+ * 转琥珀，只有「点了也没用」的 404 才转红。判据一律照抄状态接口，不另算一套。
+ */
+
+/** 一份带设备摘要的宿主状态。 */
+function statusWithDevices(overrides = {}) {
+  return readyStatus({ devices: { count: 2, lastSeenAt: Date.now() - 3 * 60 * 1000 }, ...overrides });
+}
+
+test('悬停标题说现场：几台设备、多久没连过', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status') ? statusWithDevices() : { ok: true }),
+    }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const node = footerDomNode(sidebar);
+  assert.equal(node.attrs.title, '2 台设备 · 3 分钟前连过 · 打开移动端插件配置网页');
+  // 正常态不许带告警记号：一格红了，人就会把每次连不上都当成插件坏了。
+  assert.equal(node.attrs[FOOTER_ALERT], undefined);
+  assert.equal(node.attrs['data-dshm-warn'], undefined);
+});
+
+test('一台都没配过：标题说「还没配对过手机」，不是故障', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status') ? readyStatus({ devices: { count: 0, lastSeenAt: 0 } }) : { ok: true }),
+    }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const node = footerDomNode(sidebar);
+  assert.match(node.attrs.title, /还没配对过手机/);
+  assert.equal(node.attrs[FOOTER_ALERT], undefined, '没配过不是故障，不该转红');
+  assert.equal(node.attrs['data-dshm-warn'], undefined, '它是一句提示，不是警告');
+});
+
+test('中转断了：图标转琥珀、标题点名原因，但不转红（面板还开得开）', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status')
+        ? statusWithDevices({ tunnel: { state: 'error', error: 'bad registration secret' } })
+        : { ok: true }),
+    }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const node = footerDomNode(sidebar);
+  assert.equal(node.attrs['data-dshm-warn'], '', '中间那一档：琥珀色，不是红');
+  assert.equal(node.attrs[FOOTER_ALERT], undefined, '它还没到「点了也没用」那一档');
+  assert.match(node.attrs.title, /中转没有连上/);
+});
+
+test('旁挂进程报错也走琥珀；starting / off 都不算错（别在启动时闪假警）', async () => {
+  const sidebar = fakeSidebarRow();
+  const bad = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status')
+        ? statusWithDevices({ sidecar: { state: 'error: boom', restarts: 0 } })
+        : { ok: true }),
+    }),
+  });
+  bad.renderFooter();
+  await bad.hooks.flush();
+  bad.renderFooter();
+  await bad.hooks.flush();
+  const node = footerDomNode(sidebar);
+  assert.equal(node.attrs['data-dshm-warn'], '');
+  assert.match(node.attrs.title, /旁挂进程报错/);
+
+  for (const state of ['starting', 'off']) {
+    const row = fakeSidebarRow();
+    const env = materialize({
+      sidebar: row,
+      fetch: async (url) => ({
+        ok: true,
+        status: 200,
+        json: async () => (String(url).endsWith('/status')
+          ? statusWithDevices({ sidecar: { state, restarts: 0 } })
+          : { ok: true }),
+      }),
+    });
+    env.renderFooter();
+    await env.hooks.flush();
+    env.renderFooter();
+    await env.hooks.flush();
+    assert.equal(footerDomNode(row).attrs['data-dshm-warn'], undefined, `${state} 不是错，别亮黄点`);
+  }
+});
+
+test('老宿主没带设备那一格：标题退回原来那句，不编一个「0 台设备」', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status') ? readyStatus() : { ok: true }),
+    }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  assert.equal(footerDomNode(sidebar).attrs.title, '打开移动端插件配置网页');
+});
+
+/* ── 5b. 点下去做什么：直接就是控制台那一屏（2026-11-13 用户改的）─────────
+ * 从「两层入口」改成「一层」：点图标就地嵌 `/api/relay/panel/console`，那一屏本身就是
+ * 扫码 + 连接状态 + 已绑定设备。调试页没删，退到操作栏里的「报错调试」一颗次要按钮。
+ *
+ * 改的理由有两条，都写进了 `lib/client.js` 那段注释：①那一层唯一的作用是让人多按一次；
+ * ②那颗「进入控制台」以前是跳浏览器、用的是宿主报的 `panelUrl`，云服务器上它常常是
+ * `127.0.0.1:端口`，用户从公网打开 DSH 时跳过去必然打不开。现在整页就地嵌、地址按
+ * `document.baseURI` 推，公网 / 域名 / 反代子路径三种都能对上。
  *
  * **控制面得先认这个浏览器**，否则嵌进来是一屏 423 —— 所以「从别的机器打开的页面」仍然
  * 先开那两小时窗口，只是不再导航任何地方。
@@ -1156,25 +1301,12 @@ function consoleFrame(env) {
   return elements(dialog).find((node) => node.tag === 'iframe');
 }
 
-/** 第一层那两块按钮里的一块（按文案找）。 */
-function choiceButton(env, label) {
-  const dialog = diagnosisNode(env);
-  if (!dialog) return undefined;
-  return elements(dialog).find(
-    (node) => node.tag === 'button' && String(node.className || '').split(/\s+/).includes('dshm_choice') && texts(node)[0] === label,
-  );
+/** 控制台那一页：按页面自身的同源地址推（`panelPageUrlOf('console')` 就是这么算的）。 */
+function consolePageOf() {
+  return 'http://127.0.0.1:56495/api/relay/panel/console';
 }
 
-/** 把弹窗点到第二层（那一屏调试页）。 */
-async function openDebugLayer(env) {
-  const debug = choiceButton(env, '报错调试');
-  assert.ok(debug, '第一层要有「报错调试」那一块');
-  if (typeof debug.onclick === 'function') await debug.onclick();
-  else await debug.props.onClick();
-  await settle();
-}
-
-/** 调试页地址：按页面自身的同源地址推（`consoleUrlOf` 就是这么算的）。 */
+/** 调试页地址（同源推，`panelPageUrlOf('debug')`）。 */
 function debugPageOf() {
   return 'http://127.0.0.1:56495/api/relay/panel/debug';
 }
@@ -1206,41 +1338,44 @@ async function railIcon(env) {
   return env.renderFooter({}, { wide: false });
 }
 
-test('本机回环：点下去先弹一个简单入口，左「进入控制台」右「报错调试」', async () => {
+test('本机回环：点下去直接嵌控制台那一屏，不再有中间那层', async () => {
   const { env, posts } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   let prevented = false;
   await icon.props.onClick({ preventDefault() { prevented = true; } });
   await settle();
   assert.equal(prevented, true, '点击一律先拦下来：这一下是弹窗，不是导航');
-  assert.equal(env.openedWindows.length, 0, '第一层不许跳走');
+  assert.equal(env.openedWindows.length, 0, '不许跳走');
   assert.deepEqual(posts, [], '本机浏览器控制面本来就认，不必开那两小时窗口');
-  // 第一层只有两块，**没有 iframe**：那一屏读数得再点一下才进来。
-  assert.equal(consoleFrame(env), undefined, '第一层不该直接摆整屏读数');
-  assert.ok(choiceButton(env, '进入控制台'), '左边那块是进控制台');
-  assert.ok(choiceButton(env, '报错调试'), '右边那块是报错调试');
-  const choices = elements(diagnosisNode(env)).filter((node) =>
-    String(node.className || '').split(/\s+/).includes('dshm_choice'),
+  const frame = consoleFrame(env);
+  assert.ok(frame, '点下去就地嵌那一页');
+  assert.equal(frame.attrs.src, consolePageOf(), '嵌的是同源的控制台页');
+  assert.equal(frame.attrs.title, '移动端插件控制台');
+  // 中间那两块大按钮撤了：第一层就是页面本身。
+  assert.equal(
+    elements(diagnosisNode(env)).filter((node) => String(node.className || '').includes('dshm_choice')).length,
+    0,
+    '「进入控制台 / 报错调试」那两块已经撤掉',
   );
-  assert.equal(choices.length, 2, '第一层就两块，不多不少');
 });
 
-test('入口右侧「报错调试」才进那一屏读数；「返回」回得来', async () => {
+test('「报错调试」在操作栏里，点了才开调试页（次要按钮，不是第一屏）', async () => {
   const { env } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  await openDebugLayer(env);
-  const frame = consoleFrame(env);
-  assert.ok(frame, '第二层才嵌那一整页');
-  assert.equal(frame.attrs.src, debugPageOf(), '嵌的是同源的调试页');
-  assert.equal(frame.attrs.title, '移动端插件控制台');
-  await clickDialogButton(env, '返回');
-  assert.equal(consoleFrame(env), undefined, '返回之后回到第一层，iframe 撤掉');
-  assert.ok(choiceButton(env, '报错调试'), '第一层那两块还在');
+  const button = dialogButton(env, '报错调试');
+  assert.ok(button, '操作栏里要有「报错调试」');
+  assert.equal(button.primary, undefined, '它是次要按钮，不跟「在浏览器里打开」抢主色');
+  if (typeof button.onclick === 'function') await button.onclick();
+  else await button.props.onClick();
+  await settle();
+  // 调试页是**开在新窗口里**的独立一页（不再是窗里第二层）：这一窗就地收掉。
+  assert.equal(env.openedWindows.length, 1, '按了才开浏览器窗口');
+  assert.equal(env.openedWindows[0].location.href, debugPageOf());
 });
 
-test('局域网地址：先把两小时窗口开了，再弹入口；进调试那层才有 iframe', async () => {
+test('局域网地址：先把两小时窗口开了，再嵌控制台', async () => {
   const { env, posts } = clickEnv({ panelScope: 'private' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
@@ -1248,9 +1383,7 @@ test('局域网地址：先把两小时窗口开了，再弹入口；进调试�
   assert.deepEqual(posts, [{ enabled: true }], '远程浏览器要先开窗口，否则嵌进来是一屏 423');
   assert.equal(env.confirms.length, 0, '局域网不再问第二遍');
   assert.equal(env.openedWindows.length, 0, '只弹窗，不导航');
-  assert.ok(choiceButton(env, '报错调试'), '先到入口那一层');
-  await openDebugLayer(env);
-  assert.equal(consoleFrame(env).attrs.src, debugPageOf());
+  assert.equal(consoleFrame(env).attrs.src, consolePageOf());
 });
 
 test('公网地址：先弹一句确认，取消就什么都不做', async () => {
@@ -1271,12 +1404,11 @@ test('公网地址：确认之后开窗口再嵌控制台', async () => {
   await settle();
   assert.equal(env.confirms.length, 1);
   assert.deepEqual(posts, [{ enabled: true }]);
-  await openDebugLayer(env);
-  assert.ok(consoleFrame(env));
+  assert.ok(consoleFrame(env), '确认之后就直接是那一屏');
   assert.equal(env.openedWindows.length, 0);
 });
 
-test('窗口已经开着：不再确认也不再重复开（不续期），照样弹控制台', async () => {
+test('窗口已经开着：不再确认也不再重复开（不续期），照样嵌控制台', async () => {
   const { env, posts } = clickEnv({
     panelScope: 'public',
     webAccess: { enabled: true, expiresAt: 7_000_000 },
@@ -1286,30 +1418,34 @@ test('窗口已经开着：不再确认也不再重复开（不续期），照�
   await settle();
   assert.equal(env.confirms.length, 0);
   assert.deepEqual(posts, [], '开着就直接用，别又续一次两小时');
-  await openDebugLayer(env);
   assert.ok(consoleFrame(env));
 });
 
-test('第二层那颗「在浏览器里打开」仍然能把配置页开出去', async () => {
+test('「在浏览器里打开」开的是**同源**地址，不是宿主报的那个 panelUrl', async () => {
+  // 2026-11-13 用户报的根因就在这一条：云服务器上 `panelUrl` 常是 `127.0.0.1:端口`，
+  // 从公网打开 DSH 的人点过去必然打不开。所以开窗一律用按 `baseURI` 推的同源地址。
   const { env } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  await openDebugLayer(env);
-  const button = dialogButton(env, '在浏览器里打开配置页面');
-  assert.ok(button, '跳转没被取消，只是挪进了这一屏');
+  const button = dialogButton(env, '在浏览器里打开');
+  assert.ok(button, '「在浏览器里打开」还在');
   if (typeof button.onclick === 'function') await button.onclick();
   else await button.props.onClick();
   await settle();
   assert.equal(env.openedWindows.length, 1, '按了才开浏览器窗口');
-  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl);
+  assert.equal(
+    env.openedWindows[0].location.href,
+    consolePageOf(),
+    '开的是同源推算出来的控制台地址，不是 panelUrl',
+  );
+  assert.notEqual(env.openedWindows[0].location.href, readyStatus().panelUrl);
   assert.equal(consoleFrame(env), undefined, '开出去就把这一窗收掉');
 });
 
 test('桌面壳里的页面（dsh-app:）：照样就地嵌，页面不被导航走', async () => {
   // 桌面版前端跑在 `dsh-app://app`（Electron 的安全协议）下，所以 iframe 的地址必须按页面
   // 自身的同源地址推，**不能**用宿主报的那个 http 绝对地址（那是跨协议、会被当混合内容挡掉）。
-  // 这一条钉的就是「地址来源是同源 baseURI，而不是 panelUrl」。
   const { env, posts } = clickEnv({ panelScope: 'private', pageProtocol: 'dsh-app:' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
@@ -1321,8 +1457,7 @@ test('桌面壳里的页面（dsh-app:）：照样就地嵌，页面不被导航
     'http://127.0.0.1:56495/',
     '整个页面不许被导航走：这一下是弹窗',
   );
-  await openDebugLayer(env);
-  assert.ok(consoleFrame(env), '壳里同样要能进那一屏调试页');
+  assert.ok(consoleFrame(env), '壳里同样要能嵌那一页');
 });
 
 test('插进那一行的那颗也走同一套点击逻辑', async () => {
@@ -1348,7 +1483,7 @@ test('插进那一行的那颗也走同一套点击逻辑', async () => {
   await node.onclick({ preventDefault() {} });
   await settle();
   assert.equal(env.confirms.length, 1);
-  assert.ok(choiceButton(env, '报错调试'), '插进那一行的那颗点下去也是同一个入口');
+  assert.ok(consoleFrame(env), '插进那一行的那颗点下去也是同一屏');
   assert.equal(env.openedWindows.length, 0);
 });
 
