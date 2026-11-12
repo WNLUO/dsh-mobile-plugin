@@ -211,6 +211,16 @@ test('心跳里必须带「这一代少了什么」那一格（否则容量退�
   assert.match(body, /readCapabilityReport\(\)/, '这一格要取那份活体台账，不要在路由里另算一套');
 });
 
+test('心跳里必须带「这台电脑装没装团队」那一格', () => {
+  // 新对话页还没有会话号，读不到 `/session/stats` 的 `agentTeam` 投影 —— 判断那一行画不画
+  // 只能问心跳。没有这一格，用户一点「新对话」那个开关就凭空消失、进了会话才冒出来。
+  const table = readRouteTable();
+  const statusBlock = table.slice(table.indexOf("path: '/api/mobile/v1/status'"));
+  const body = statusBlock.slice(0, statusBlock.indexOf('}) })'));
+  assert.match(body, /teamAvailable\s*:/, '/status 的回包里必须有 teamAvailable 这一格');
+  assert.match(body, /hasAgentTeams\(ctx\)/, '这一格要问宿主注册没注册 agentTeams，不要在路由里另猜');
+});
+
 test('公开路由清单本身没腐化', () => {
   const table = readRouteTable();
   for (const [sub, why] of PUBLIC_ROUTES) {
