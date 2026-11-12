@@ -42,12 +42,21 @@ const flush = async (turns = 20) => {
  * 同一个文件里前一个用例的收尾（unsubscribe、clearInterval、在飞推送）还在跑时，固定
  * 轮数的 setImmediate 会偶发不够 —— 于是守卫变成「偶尔红」的噪声，而不是契约。
  */
-const waitFor = async (predicate, turns = 300) => {
-  for (let i = 0; i < turns; i += 1) {
+/**
+ * 等到 predicate 成立，**按真实时间**给上限。
+ *
+ * 早先只数 setImmediate 轮数（300 轮），而推送链上有多层真实 await（清单 → 正文 → 统计 →
+ * 模型），一轮里可能压着好几种异步；慢 runner 上 300 轮不够用，于是这条守卫在 CI 上偶发
+ * 红、本机连跑十几遍全绿 —— 那不是契约被破坏，是等待窗口跟着「轮」而不是「时间」走。
+ * 现在给一个 5 秒的墙钟上限，正常几十毫秒就退出。
+ */
+const waitFor = async (predicate, timeoutMs = 5_000) => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
     if (predicate()) return true;
+    if (Date.now() >= deadline) return Boolean(predicate());
     await new Promise((resolve) => setImmediate(resolve));
   }
-  return Boolean(predicate());
 };
 
 /** 与宿主 sessions.list 同形的摘要：标题在 projections.values.title 里。 */
