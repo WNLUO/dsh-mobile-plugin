@@ -226,7 +226,10 @@ const cases = [
   ['Debug', h(Dbg.Debug, {}), '插件调试'],
   ['Debug（装载段在）', h(Dbg.Debug, {}), '盘上版本'],
   ['Debug（故障账本段在）', h(Dbg.Debug, {}), '故障账本'],
-  ['NoticeBoard', h(Notice.NoticeBoard, {}), '搭建自己的网络'],
+  // 公告板：2026-11-13 从常驻卡片改成「按钮 + 弹窗」，所以首屏只剩那颗按钮 ——
+  // 标题与「最低插件版本 ≥ x.y.z」都在它身上。正文（版本门槛那两句、以及「自己搭一台
+  // 中转」那一节）住在弹窗里，收起时不渲染，这一遍冒烟看不到，要看得点开（浏览器里看）。
+  ['NoticeBoard', h(Notice.NoticeBoard, {}), '公告'],
   ['NoticeBoard（版本门槛还在）', h(Notice.NoticeBoard, {}), '最低插件版本'],
 ]
 

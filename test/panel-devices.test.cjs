@@ -93,7 +93,14 @@ test('设备卡：行的字段与「相对时间」口径', () => {
   // 原来写两个字，摆在版本号旁边会被读成「已是最新」。
   assert.equal(zh('panel.devices.encrypted'), '链路已加密');
   assert.equal(zh('panel.devices.plain'), '链路未加密');
-  assert.match(devices, /panel\.devices\.boundAt/, '要显示绑定时间');
+  // 设备行改版（2026-11-13，用户嫌挤）：绑定时间从活设备那两行里撤掉，只在「历史」里留。
+  // 判据反过来钉：活设备行**不许**再有 `boundAt`，而历史那一段必须还有。
+  assert.equal(
+    devices.slice(0, devices.indexOf('historyTitle')).includes('panel.devices.boundAt'),
+    false,
+    '活设备行不再摆绑定时间（太挤）；历史里那份留着',
+  );
+  assert.match(devices, /panel\.devices\.historyBoundAt/, '历史那一段仍要写首次绑定时间');
   // 相对时间只有这四档，别退化成「0 秒前」这种读数。
   assert.equal(zh('panel.devices.justNow'), '刚刚', '一分钟以内写「刚刚」');
   assert.match(zh('panel.devices.minutesAgo'), /\{count\} 分钟前/, '分钟档');

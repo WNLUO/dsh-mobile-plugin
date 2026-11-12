@@ -54,6 +54,33 @@ function HeartIcon() {
   )
 }
 
+/**
+ * 页脚那一排里的「赞助」：与上面那颗同一个弹窗，只是触发件不再悬浮。
+ *
+ * 控制台那一窗把它摆进页脚一行文字链里（见 `ConsoleFooterLinks.tsx`）—— 三颗悬浮胶囊在
+ * 那个矮窗里会压在设备列表上。弹窗本体一个字没变，只是这个触发件换了外观。
+ */
+export function SponsorLink() {
+  const [open, setOpen] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
+
+  return (
+    <>
+      <button
+        type="button"
+        className="cursor-pointer underline underline-offset-2 hover:text-foreground-strong"
+        onClick={() => {
+          setCopyFailed(false)
+          setOpen(true)
+        }}
+      >
+        {t('panel.links.sponsor')}
+      </button>
+      <SponsorDialog open={open} onOpenChange={setOpen} copyFailed={copyFailed} setCopyFailed={setCopyFailed} />
+    </>
+  )
+}
+
 export function SponsorButton() {
   const [open, setOpen] = useState(false)
   // 复制失败是唯一要留下的话：成功由复制钮自己换成「已复制」，失败得说清为什么。
@@ -75,8 +102,25 @@ export function SponsorButton() {
           {t('panel.links.sponsor')}
         </Button>
       </div>
+      <SponsorDialog open={open} onOpenChange={setOpen} copyFailed={copyFailed} setCopyFailed={setCopyFailed} />
+    </>
+  )
+}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+/** 两种触发件共用的那一扇窗（内容一字不改，见文件头）。 */
+function SponsorDialog({
+  open,
+  onOpenChange,
+  copyFailed,
+  setCopyFailed,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  copyFailed: boolean
+  setCopyFailed: (value: boolean) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-sm">
           <DialogHeader className="gap-1.5">
             <DialogTitle className="text-xl">{t('panel.links.sponsorTitle')}</DialogTitle>
@@ -139,7 +183,6 @@ export function SponsorButton() {
             </p>
           </div>
         </DialogContent>
-      </Dialog>
-    </>
+    </Dialog>
   )
 }

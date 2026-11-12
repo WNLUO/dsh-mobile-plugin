@@ -10,6 +10,8 @@ import { ThemeProvider, getThemeScript } from '@appica/ui-react/providers/theme-
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../index.css'
+import { Console } from '../Console.tsx'
+import { Onboarding } from '../Onboarding.tsx'
 import { Shell } from '../Shell.tsx'
 import { installDemoHost } from './host.ts'
 import { StatusPreview } from './StatusPreview.tsx'
@@ -29,14 +31,26 @@ document.head.appendChild(bootTheme)
 /**
  * `?scene=status` 是「这块怎么留」的对照稿（见 `StatusPreview.tsx`）：它不画引导页，
  * 只把同一块内容的几种留法并排摆出来，数据也是本地写死的，所以跟 `Shell` 二选一。
+ *
+ * `?scene=console` / `?scene=onboarding` 是给控制台那一窗看的对照：两者都**绕开 `/console`
+ * 那条地址**（演示页的地址是 `/demo.html`，按后缀分不到控制台），直接把组件摆上来：
+ *   - `onboarding`：新用户第一次装的样子（假宿主初始状态就是「还没配过」）；
+ *   - `console`：配过之后点手机图标进来的样子，数据与真机同形（假宿主 `?scene=settings` 那份）。
  */
 const scene = new URLSearchParams(window.location.search).get('scene')
+
+function Scene() {
+  if (scene === 'status') return <StatusPreview />
+  if (scene === 'onboarding') return <Onboarding />
+  if (scene === 'console') return <Console />
+  return <Shell />
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ToastProvider>
       <ThemeProvider storageKey={THEME_KEY}>
-        {scene === 'status' ? <StatusPreview /> : <Shell />}
+        <Scene />
         <Toaster position="top-right" />
       </ThemeProvider>
     </ToastProvider>

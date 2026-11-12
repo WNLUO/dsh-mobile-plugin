@@ -71,7 +71,9 @@ type DemoState = {
  * 共享的 `Root.tsx` 一个字都不用改。
  */
 function initial(): DemoState {
-  const configured = new URLSearchParams(window.location.search).get('scene') === 'settings'
+  // `scene=console` 是「配过之后进控制台」那一幕：那种状态下宿主得说「配过了」，
+  // 否则控制台会因为它自己的分流把画面换成引导页。
+  const configured = ['settings', 'console'].includes(new URLSearchParams(window.location.search).get('scene') ?? '')
   return {
     // 从「还没配过」开始：这样打开就是引导页，配完才进主页（用户要的演示流程）。
     enabled: configured,

@@ -44,7 +44,7 @@ export function Root() {
   const [entered, setEntered] = useState(false)
 
   useEffect(() => {
-    if (forcedSetup || forcedSettings || forcedDebug || forcedConsole) return undefined
+    if (forcedSetup || forcedSettings || forcedDebug) return undefined
     let alive = true
     void (async () => {
       try {
@@ -57,13 +57,27 @@ export function Root() {
     return () => {
       alive = false
     }
-  }, [forcedSetup, forcedSettings, forcedDebug, forcedConsole])
+  }, [forcedSetup, forcedSettings, forcedDebug])
 
   if (forcedSettings) return <App />
 
   if (forcedDebug) return <Debug />
 
-  if (forcedConsole) return <Console />
+  // 控制台那一窗也要先问一句「这台机器配过没有」：第一次装的人点进来该先走引导
+  // （扫码 + 下载 App 那三步），配过的人直接进控制台。等状态回来之前先不画，
+  // 否则会先闪一下控制台再跳成引导。
+  if (forcedConsole) {
+    if (configured === null) {
+      return (
+        <main className="flex min-h-screen items-center justify-center gap-2 p-6 text-sm text-foreground-muted">
+          <Spinner />
+          {t('panel.shell.loading')}
+        </main>
+      )
+    }
+    if (!configured) return <Onboarding onDone={() => setConfigured(true)} />
+    return <Console />
+  }
 
   if (forcedSetup) return entered ? <App /> : <Onboarding onDone={() => setEntered(true)} />
 

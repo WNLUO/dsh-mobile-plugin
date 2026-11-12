@@ -16,6 +16,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
+import { ConsoleFooterLinks } from './components/ConsoleFooterLinks.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
@@ -53,11 +54,11 @@ import { mobileLooksIdle, useSelfCheck } from './lib/selfcheck.ts'
  * 一律**文档相对**（`new URL(..., document.baseURI)`）：这一页可能挂在反代给的子路径下，
  * 也可能被嵌在桌面壳的 `dsh-app://app/` 里，绝对地址在两种环境里只有一种能用。
  */
-function pageUrlOf(mode: 'panel' | 'debug'): string {
+function pageUrlOf(mode: 'panel' | 'debug' | 'setup'): string {
   try {
     const base = new URL(document.baseURI)
     const root = base.pathname.replace(/\/console\/?$/, '')
-    base.pathname = mode === 'debug' ? `${root}/debug` : root
+    base.pathname = mode === 'debug' ? `${root}/debug` : mode === 'setup' ? `${root}/setup` : root
     base.search = ''
     base.hash = ''
     return base.href
@@ -263,7 +264,7 @@ export function Console() {
       notify('soft', address ? t('panel.shell.preferredAddress', { address }) : t('panel.shell.preferredAuto'))
     })
 
-  const openPage = (mode: 'panel' | 'debug') => {
+  const openPage = (mode: 'panel' | 'debug' | 'setup') => {
     const url = pageUrlOf(mode)
     if (url) window.open(url, '_blank', 'noreferrer')
   }
@@ -407,6 +408,12 @@ export function Console() {
         busy={busy}
         onSave={(port) => void saveLanPort(port)}
       />
+
+      {/* 页脚那一排：交流群 / 赞助 / 给个 Star，外加「重看引导」（走 `/setup` 那条强制引导）。
+          它们原先在网页版是右下角的悬浮胶囊，这一窗里会压在设备列表上，所以换成一行文字链。 */}
+      <footer className="border-t border-border-muted pt-3">
+        <ConsoleFooterLinks onReplayGuide={() => openPage('setup')} />
+      </footer>
     </main>
   )
 }

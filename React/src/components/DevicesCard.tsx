@@ -377,11 +377,17 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
           return (
             <div
               key={device.deviceId}
-              className="flex items-start justify-between gap-3 border-b border-border-muted py-3 last:border-b-0"
+              className="flex flex-col gap-2 border-b border-border-muted py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
             >
+              {/*
+                两行就说完，不再堆四项：第一行是机型 + 档位 + 平台；第二行是「什么时候、走的哪条路」。
+                **绑定时间与加密状态不摆**（2026-11-13 用户嫌挤）：绑定时刻是这台设备的历史，
+                真要查在「历史」里；加密与否对「这台手机还能不能用」没有影响。它们仍在数据里，
+                只是不再占这一行 —— 别为了「信息齐全」把它们加回来。
+              */}
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-sm text-foreground-strong">{nameOf(device)}</span>
+                  <span className="truncate text-sm text-foreground-strong">{nameOf(device)}</span>
                   {/* 旧式：这台名下有不带设备密钥的记录，吊销文案与别的行不一样（见文件头）。 */}
                   {device.legacy ? (
                     <Badge variant="warning" size="xs">
@@ -400,26 +406,30 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
                   <Badge variant="secondary" size="xs">
                     {tierViewLabel(tierOfPermissions(device.permissions))}
                   </Badge>
-                  <span className="text-xs text-foreground-muted">
-                    {platformText(device.platform)}
-                    {device.osVersion ? ` ${device.osVersion}` : ''}
-                    {device.appVersion ? t('panel.devices.appVersion', { version: device.appVersion }) : ''}
-                  </span>
                 </div>
 
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground-muted">
-                  <span>{t('panel.devices.boundAt', { time: relativeText(device.boundAt, now) || '—' })}</span>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-foreground-muted">
+                  <span>
+                    {platformText(device.platform)}
+                    {device.osVersion ? ` ${device.osVersion}` : ''}
+                  </span>
                   {/* 在线才带绿点；不在线就只报相对时间，别让一枚灰点在那儿装作状态。 */}
                   <span className="inline-flex items-center gap-1">
+                    <span aria-hidden>·</span>
                     {online ? <Dot tone="ok" /> : null}
                     {seenText(device.lastSeenAt, now)}
                   </span>
-                  <span>{channelText(device.lastChannel)}</span>
-                  <span>{device.encrypted ? t('panel.devices.encrypted') : t('panel.devices.plain')}</span>
+                  <span>· {channelText(device.lastChannel)}</span>
+                  <span>· {device.encrypted ? t('panel.devices.encrypted') : t('panel.devices.plain')}</span>
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-2">
+              {/*
+                两颗按钮**另起一行靠右**，不跟设备名挤在同一行：窄窗里设备名一长，
+                原来那一排按钮会把名字压成省略号，而按钮本身也挤成一坨。
+                宽屏时它们仍然回到右侧同一行（`sm:` 起），窄屏在下面自成一行。
+              */}
+              <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
                 <Button
                   variant="outline"
                   size="sm"
