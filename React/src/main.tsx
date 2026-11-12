@@ -28,20 +28,49 @@ const THEME_KEY = 'dsh-mobile-panel-theme'
 // 是 StrictMode 把 effect 跑了两遍、第二轮顺手补上的假象。这里用库自己的生成器造一个
 // **真的会跑**的脚本（自己 createElement + 文本 + append），赶在 React 渲染之前挂上类；
 // 之后切换由 ThemeProvider 接管（它换类时会先清掉 light/dark，跟我们挂的不冲突）。
-const bootTheme = document.createElement('script')
-bootTheme.textContent = getThemeScript({ storageKey: THEME_KEY })
-document.head.appendChild(bootTheme)
+//
+// **控制台那一窗跳过这一段**：它的配色跟着 DSH 的同源父窗口走（见 `lib/shell-theme.ts`），
+// 与面板自己那个 `dsh-mobile-panel-theme` 键无关；预置上去只会在跟随生效前闪一下另一门配色。
+const consolePage = /\/console$/.test(window.location.pathname.replace(/\/+$/, ''))
 
-// 结果提示一律走右上角的胶囊（见 `lib/notify.ts`）。`Toaster` 挂在 ThemeProvider 里面，
-// 这样它拿得到主题 token；`ToastProvider` 要在最外层，页面里任何地方才 useToastManager 得到。
-// 页面本身（含右上角那组按钮）整个在 `Shell` 里：引导页与主页共用同一份外壳。
+if (!consolePage) {
+  const bootTheme = document.createElement('script')
+  bootTheme.textContent = getThemeScript({ storageKey: THEME_KEY })
+  document.head.appendChild(bootTheme)
+}
+
+/**
+ * 控制台那一窗的主题**不归 ThemeProvider 管**。
+ *
+ * 为什么不挂它：`ThemeProvider` 会自己往 `<html>` 上写 `light` / `dark`，而那是父级组件的
+ * effect，跑在跟随 effect 之后 —— 实测结果就是「父窗口明明是深色，嵌进来的这一页仍是浅色」，
+ * 跟随那套等于白写。颜色 token 全挂在 `<html>` 的类上，所以不挂 Provider 只影响「这一页
+ * 自己的日夜按钮」，而控制台那一窗本来就不摆那颗按钮。
+ */
+function Page() {
+  if (consolePage) {
+    return (
+      <>
+        <Shell />
+        <Toaster position="top-right" />
+      </>
+    )
+  }
+  return (
+    <ThemeProvider storageKey={THEME_KEY}>
+      <Shell />
+      <Toaster position="top-right" />
+    </ThemeProvider>
+  )
+}
+
+// 结果提示一律走右上角的胶囊（见 `lib/notify.ts`）。`Toaster` 与页面本身都挂在
+// `ToastProvider` 里面：`ToastProvider` 要在最外层，页面里任何地方才 useToastManager 得到。
+// 页面本体（含右上角那组按钮）整个在 `Shell` 里：引导页与主页共用同一份外壳。
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ToastProvider>
-      <ThemeProvider storageKey={THEME_KEY}>
-        <Shell />
-        <Toaster position="top-right" />
-      </ThemeProvider>
+      <Page />
     </ToastProvider>
   </StrictMode>,
 )
