@@ -16,7 +16,6 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
-import { ConsoleFooterLinks } from './components/ConsoleFooterLinks.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
@@ -321,6 +320,11 @@ export function Console() {
           <Button variant="ghost" size="sm" onClick={() => openPage('debug')}>
             {t('panel.console.troubleshoot')}
           </Button>
+          {/* 「重看引导」：走 `/setup` 那条强制引导。这一窗是日常入口，不常按，所以做成
+              同一组里的次要文字按钮，不占版面。 */}
+          <Button variant="ghost" size="sm" onClick={() => openPage('setup')}>
+            {t('panel.console.replayGuide')}
+          </Button>
         </div>
       </header>
 
@@ -408,12 +412,6 @@ export function Console() {
         busy={busy}
         onSave={(port) => void saveLanPort(port)}
       />
-
-      {/* 页脚那一排：交流群 / 赞助 / 给个 Star，外加「重看引导」（走 `/setup` 那条强制引导）。
-          它们原先在网页版是右下角的悬浮胶囊，这一窗里会压在设备列表上，所以换成一行文字链。 */}
-      <footer className="border-t border-border-muted pt-3">
-        <ConsoleFooterLinks onReplayGuide={() => openPage('setup')} />
-      </footer>
     </main>
   )
 }

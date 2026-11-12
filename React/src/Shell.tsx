@@ -14,9 +14,7 @@
  */
 import { useEffect } from 'react'
 
-import { JoinGroupButton } from './components/JoinGroupButton.tsx'
-import { SponsorButton } from './components/SponsorButton.tsx'
-import { StarButton } from './components/StarButton.tsx'
+import { FloatingActions } from './components/FloatingActions.tsx'
 import { TopRightActions } from './components/TopRightActions.tsx'
 import { t } from './lib/i18n/index.ts'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
@@ -38,10 +36,10 @@ export function Shell() {
   // 「加入交流群」都会压到读数或那排操作按钮上；它们是给「人从浏览器打开这一页」准备的，
   // 调试图不挂。主题跟随系统，够用。
   //
-  // **控制台那一窗同样不挂**（2026-11-13）：它是点手机图标进来的日常那一屏，右下角那三颗
-  // 悬浮件会直接压在设备清单与底部出口上（窄窗里尤其明显）。右上角的语言与日夜留着 ——
-  // 这一窗是给人天天看的，不像调试图只用来读数字。
-  const bare = /\/debug$|\/console$/.test(window.location.pathname.replace(/\/+$/, ''))
+  // **控制台那一窗也挂这三颗，但用小号**（2026-11-13 用户要求保留悬浮按钮：悬浮才看得清）。
+  // 那一窗比网页版矮，原尺寸会吃掉不小一块右下角、还压住设备列表最后几行，所以三颗统一
+  // 降一档（`compact`，见各组件里那段说明），位置仍是最右边那一列、从下往上排。
+  const bare = /\/debug$/.test(window.location.pathname.replace(/\/+$/, ''))
   const consolePage = /\/console$/.test(window.location.pathname.replace(/\/+$/, ''))
 
   // 控制台那一窗的日夜**跟着 DSH 走**（同源父窗口的 `data-ds-dark-theme`），
@@ -56,16 +54,10 @@ export function Shell() {
     <>
       <Root />
       {bare ? null : <TopRightActions />}
-      {/* 右下角那颗「加入交流群」：与右上角那组同理，**不属于任何一屏** ——
-          2026-10-26 用户要求引导页也放一颗，与其在两页各挂一次（各写一个坐标、
-          迟早错开），不如跟着外壳渲染一次。 */}
-      {bare ? null : <JoinGroupButton />}
-      {/* 「赞助」排在群按钮上面一格：同属右下角那串悬浮件，调试图同样不挂。 */}
-      {bare ? null : <SponsorButton />}
-      {/* 「给个 Star」再上移一格（`bottom-[10.5rem]`）：三颗同一串，从下往上是交流群 /
-          赞助 / 这颗。求 star 是这个仓库最实在的支持，但它排在人家已经愿意掏钱的那颗
-          上面一格、最不打扰的位置——顺手才点，不点也不挡任何事。 */}
-      {bare ? null : <StarButton />}
+      {/* 右下角那三颗（交流群 / 赞助 / Star）：与右上角那组同理，**不属于任何一屏** ——
+          2026-10-26 用户要求引导页也放一颗，与其在两页各挂一次，不如跟着外壳渲染一次。
+          调试图不挂（`hidden`）；控制台用 `compact`（小一号），见组件里那段说明。 */}
+      <FloatingActions compact={consolePage} hidden={bare} />
     </>
   )
 }

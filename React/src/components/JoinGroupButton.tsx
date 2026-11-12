@@ -45,15 +45,22 @@ function WechatIcon() {
   )
 }
 
-export function JoinGroupButton() {
+/**
+ * `compact`：小一号的悬浮胶囊（控制台那一窗用）。
+ *
+ * 那一窗是嵌在同源 iframe 里的、高度常常只有七八百，三颗 `size="lg"` 的胶囊会吃掉不小一块
+ * 右下角，还会压住设备列表最后几行。降成 `sm` + 收一句说明用的图标间距，位置仍是最下面
+ * （`bottom-4`）—— 与网页版那套**同一份组件、同一个弹窗**，只是尺寸不同。
+ */
+export function JoinGroupButton({ compact = false }: { compact?: boolean } = {}) {
   const [open, setOpen] = useState(false)
 
   return (
     <>
-      <div className="pointer-events-none fixed end-6 bottom-6 z-40">
+      <div className={`pointer-events-none fixed end-5 z-40 ${compact ? 'bottom-4' : 'bottom-6'}`}>
         <Button
           variant="primary"
-          size="lg"
+          size={compact ? 'sm' : 'lg'}
           className="pointer-events-auto rounded-full shadow-lg"
           onClick={() => setOpen(true)}
         >

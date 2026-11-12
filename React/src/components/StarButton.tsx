@@ -29,14 +29,15 @@ function GithubMark() {
   )
 }
 
-export function StarButton() {
+export function StarButton({ compact = false }: { compact?: boolean } = {}) {
   return (
-    <div className="pointer-events-none fixed end-6 bottom-[10.5rem] z-40">
+    // `compact` = 控制台那一窗用的小号（见 `JoinGroupButton` 里那段说明）。
+    <div className={`pointer-events-none fixed end-5 z-40 ${compact ? 'bottom-24' : 'bottom-[10.5rem]'}`}>
       <a
         href={PLUGIN_REPO_URL}
         target="_blank"
         rel="noreferrer noopener"
-        className={`${buttonVariants({ variant: 'secondary', size: 'lg' })} pointer-events-auto rounded-full shadow-lg`}
+        className={`${buttonVariants({ variant: 'secondary', size: compact ? 'sm' : 'lg' })} pointer-events-auto rounded-full shadow-lg`}
       >
         <GithubMark />
         {t('panel.links.star')}

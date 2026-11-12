@@ -26,7 +26,14 @@ test('引导页二维码放大并保留白色边框', () => {
 test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () => {
   const card = read('components/PairingCard.tsx');
   assert.match(card, /useState\(\{ qr: false, relay: false \}\)/);
-  assert.match(card, /!shown\.qr && pairing\?\.svg \? \([\s\S]*?size-\[360px\][\s\S]*?\) : \(<div className="[^"]*bg-white p-2"/);
+  // 2026-11-13：码还没取回来时**不许先画那块纯白**（用户报「点进去白一闪」）。三态按
+  // 「有没有码 → 揭没揭开 → 码」，所以第一判据必须是 `!pairing?.svg`，白底只在最后一支。
+  assert.match(card, /\{!pairing\?\.svg \? \([\s\S]*?\) : !shown\.qr \? \([\s\S]*?\) : \(<div className="[^"]*bg-white p-2"/);
+  assert.equal(
+    /!shown\.qr && pairing\?\.svg/.test(card),
+    false,
+    '旧判据会让「码还没到」落进白底那一支，正是闪白的来源',
+  );
   // 白底与占位是同一块 360 见方的格子，里面再撑满：遮着 / 揭开两种状态卡片高度必须一致。
   // 2026-11-09 从 280 放大到 360：码密到一百多个模块时，280 摆下来一个模块只剩两像素多。
   assert.match(card, /className="flex size-\[360px\] max-w-full items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2"/);

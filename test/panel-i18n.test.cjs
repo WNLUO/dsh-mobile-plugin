@@ -298,11 +298,13 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
   // 外壳：页面本体 + 那组按钮，并且**订阅了语言**（不订阅就换不动语言）。
   const shell = read('Shell.tsx');
   assert.match(shell, /<Root \/>/, '外壳里要渲染页面本体');
-  // 右下角那颗「加入交流群」也归外壳（2026-10-26 用户要求引导页也放一颗）：
+  // 右下角那串（交流群 / 赞助 / Star）也归外壳（2026-10-26 用户要求引导页也放一颗）：
   // 挂在外壳里渲染一次，引导页与主页都有，两处不会各写一个坐标。
-  assert.match(shell, /<JoinGroupButton \/>/, '外壳里要渲染「加入交流群」');
-  // 「给个 Star」也是右下角那串之一，同样挂在外壳里（2026-11-11 用户要求加在赞助上面一格）。
-  assert.match(shell, /<StarButton \/>/, '外壳里要渲染「给个 Star」');
+  // **2026-11-13 起它们收进一个组件**：控制台那一窗要用小一号、调试图要整组不挂，
+  // 三颗逐个写条件会让外壳长出一堆分支；坐标与顺序因此归 `FloatingActions` 管。
+  assert.match(shell, /<FloatingActions compact=\{consolePage\} hidden=\{bare\} \/>/, '外壳里要渲染右下角那串');
+  // 坐标只许住在 `FloatingActions` 里，外壳不再自己排位置。
+  assert.equal(/<JoinGroupButton|<SponsorButton|<StarButton/.test(shell), false, '三颗的坐标归 FloatingActions，别在外壳里再摆一遍');
   assert.match(shell, /<TopRightActions \/>/, '外壳里要渲染右上角那组按钮');
   assert.match(shell, /usePanelLanguage\(\)/, '外壳必须订阅语言状态，否则切语言整页不重绘');
 

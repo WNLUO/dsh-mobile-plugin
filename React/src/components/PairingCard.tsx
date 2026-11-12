@@ -147,32 +147,37 @@ export function PairingCard({
               遮上时**整块换成一个占位**，不是把里面的 SVG 用样式盖住：隐藏态的页面里
               根本不存在那张图，截屏工具、开发者工具、页面另存为都拿不到它。
             */}
-            {!shown.qr && pairing?.svg ? (
+            {/*
+              三态，**码还没取回来时不许先画那块白**（2026-11-13 用户报「点进去先白一闪」）：
+              旧写法把「揭开状态」和「有没有码」揉在一个条件里，于是 `pairing` 还没回来那几百
+              毫秒会落进白底那一支 —— 屏幕上先闪一块纯白，等码到了再变回浅灰占位。
+              现在先判「有没有码」：没有就一直是浅底，有码才谈揭开 / 遮上。
+            */}
+            {!pairing?.svg ? (
+              <div className="flex size-[360px] max-w-full flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
+                <Spinner />
+                <span className="text-xs">{t('panel.pairing.noQr')}</span>
+              </div>
+            ) : !shown.qr ? (
               <div className="flex size-[360px] max-w-full flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
                 <span className="text-xs">{t('panel.pairing.qrHidden')}</span>
                 <RevealButton what={t('panel.pairing.qr')} label={t('panel.common.show')} onClick={() => toggle('qr')} />
               </div>
             ) : (<div className="flex size-[360px] max-w-full items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2">
-                {pairing?.svg ? (
-                  // 点码本身就能放大：手指落在图上的人不会先去找一颗按钮。
-                  <button
-                    type="button"
-                    className="size-full cursor-zoom-in rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                    onClick={() => setQrZoom(true)}
-                    aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
-                  >
-                    {/* 宿主生成的 SVG（带 512px 固定宽高），内嵌后必须被这里压到方框大小；
-                        不是用户输入，没有注入面。 */}
-                    <div
-                      className="size-full [&_svg]:h-full [&_svg]:w-full"
-                      dangerouslySetInnerHTML={{ __html: pairing.svg }}
-                    />
-                  </button>
-                ) : (
-                  <div className="flex size-full items-center justify-center text-foreground-subtle">
-                    {busy === 'pairing' ? <Spinner /> : t('panel.pairing.noQr')}
-                  </div>
-                )}
+                {/* 点码本身就能放大：手指落在图上的人不会先去找一颗按钮。 */}
+                <button
+                  type="button"
+                  className="size-full cursor-zoom-in rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  onClick={() => setQrZoom(true)}
+                  aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
+                >
+                  {/* 宿主生成的 SVG（带 512px 固定宽高），内嵌后必须被这里压到方框大小；
+                      不是用户输入，没有注入面。 */}
+                  <div
+                    className="size-full [&_svg]:h-full [&_svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: pairing.svg }}
+                  />
+                </button>
               </div>
             )}
           </div>

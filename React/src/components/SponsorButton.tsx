@@ -81,17 +81,19 @@ export function SponsorLink() {
   )
 }
 
-export function SponsorButton() {
+export function SponsorButton({ compact = false }: { compact?: boolean } = {}) {
   const [open, setOpen] = useState(false)
   // 复制失败是唯一要留下的话：成功由复制钮自己换成「已复制」，失败得说清为什么。
   const [copyFailed, setCopyFailed] = useState(false)
 
   return (
     <>
-      <div className="pointer-events-none fixed end-6 bottom-24 z-40">
+      {/* `compact` = 控制台那一窗用的小号（见 `JoinGroupButton` 里那段说明）。位置按同一串
+          往上挪一格：交流群在 `bottom-4`、这颗在它上面、star 再上面。 */}
+      <div className={`pointer-events-none fixed end-5 z-40 ${compact ? 'bottom-14' : 'bottom-24'}`}>
         <Button
           variant="secondary"
-          size="lg"
+          size={compact ? 'sm' : 'lg'}
           className="pointer-events-auto rounded-full shadow-lg"
           onClick={() => {
             setCopyFailed(false)
