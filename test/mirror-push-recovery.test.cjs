@@ -85,7 +85,9 @@ function makeCtx(state) {
           },
         }),
       }),
-      events: { mux: async function* () { await new Promise(() => {}); } },
+      // 事件流可控：清单变没变由事件说了算（后台 tick 只在收到事件后才重扫目录），
+      // 测试要模拟「宿主那边变了」就得真的推一帧，与现实同形。
+      events: { mux: (payload, signal) => state.mux(payload, signal) },
     },
   };
 }
@@ -121,6 +123,23 @@ async function withPusher(state, run) {
   const sessionSignal = createSessionSignal();
   const pushed = [];
   const sidecar = { fail: false };
+  // 事件流：`state.emit()` 往里推一帧宿主事件。清单变没变由事件说了算（见 BG_LIST_REBUILD_FALLBACK_MS），
+  // 所以每个用例的 state 都得有这两样。
+  const consumers = new Set();
+  state.emit = (frame) => { for (const queue of consumers) queue.push(frame); };
+  state.mux = async function* (_payload, ac) {
+    const queue = [];
+    consumers.add(queue);
+    try {
+      for (;;) {
+        if (ac && ac.aborted) return;
+        if (queue.length) { yield queue.shift(); continue; }
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    } finally {
+      consumers.delete(queue);
+    }
+  };
   const ctx = makeCtx(state);
   const pusher = createMirrorPusher({
     ctx,
@@ -318,7 +337,9 @@ test('真被清空的清单也要推镜像（带 emptyConfirmed），不能只�
     await waitFor(() => pushed.length >= 1);
     const before = pushed.length;
 
-    state.items = []; // 用户把最后一个会话删/归档了
+    state.items = []; // 用户把最后一个会话删/归档了：宿主会发一帧会话事件说这件事
+    state.emit({ payload: { type: 'session/event', sessionId: SID, event: { type: 'session/disposed' } } });
+    await flush();
     h.tick(500);
     await waitFor(() => pushed.length > before);
     assert.ok(pushed.length > before, '空清单只广播不推送：手机重拉会命中中转那份旧的非空镜像');

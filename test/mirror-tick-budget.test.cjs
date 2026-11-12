@@ -105,8 +105,9 @@ function countingCtx(state, calls) {
           },
         }),
       }),
-      // 事件流一直挂着：本用例只驱动 500ms 的后台 tick。
-      events: { mux: async function* () { await new Promise(() => {}); } },
+      // 事件流由测试自己往里推帧（emit）：清单「变没变」现在由它说了算，
+      // 后台 tick 只在收到帧之后才重扫目录。
+      events: { mux: (payload, signal) => state.stream(payload, signal) },
     },
   };
 }
@@ -131,6 +132,16 @@ async function withPusher(run) {
       coldItem('session-cold-1', '冷会话一'),
       coldItem('session-cold-2', '冷会话二'),
     ],
+    // 事件流：测试用 emit() 往里推一帧宿主事件，模拟「清单可能变了」。
+    queue: [],
+    emit(frame) { state.queue.push(frame); },
+    async *stream(_payload, signal) {
+      for (;;) {
+        if (signal && signal.aborted) return;
+        if (state.queue.length) { yield state.queue.shift(); continue; }
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    },
   };
   const pusher = createMirrorPusher({
     ctx: countingCtx(state, calls),
@@ -181,14 +192,17 @@ test('清单与工作区都没变时，500ms tick 不再重建冷会话快照', 
   });
 });
 
-test('清单一变必须在下一轮（500ms 内）重建并重推：新鲜度契约不能被节流打破', async () => {
+test('宿主说变了（会话事件）就必须在下一轮（500ms 内）重建并重推：新鲜度契约不能被节流打破', async () => {
   await withPusher(async ({ h, calls, pushed, state }) => {
     h.tick();
     await flush();
     const before = { rebuilds: rebuilds(calls), pushes: pushed.length };
 
-    // 跑着的会话收到新消息（updatedAt 前移 → 清单 revision 变）：正文该更新了。
+    // 跑着的会话收到新消息：宿主会发一帧会话事件，清单与正文都该更新。
+    // 「变没变」现在由事件流说了算 —— 没有这一帧时 tick 不会再每轮盲目重扫目录。
     state.items[0] = mkItem({ sessionId: 'session-run', title: '跑着的会话', running: true, updatedAt: Date.now() + 1000 });
+    state.emit({ payload: { type: 'session/event', sessionId: 'session-run', event: { type: 'turn/start' } } });
+    await flush();
     h.tick();
     await flush();
 
@@ -197,6 +211,25 @@ test('清单一变必须在下一轮（500ms 内）重建并重推：新鲜度�
     const last = pushed[pushed.length - 1];
     assert.equal(last.kind, 'sync');
     assert.ok(last.sessions && typeof last.sessions.revision === 'string' && last.sessions.revision.length > 0, '推送体必须带清单 revision');
+  });
+});
+
+test('宿主什么都没说时，不许每 500ms 重扫一遍会话目录', async () => {
+  await withPusher(async ({ h, calls }) => {
+    h.tick();
+    await flush();
+    const baseline = { list: callsOf(calls, 'sessions.list'), ws: callsOf(calls, 'workspace.list') };
+    // 20 轮 = 10 秒，这段时间里一条宿主事件都没有：清单一次都不该重扫。
+    // 会话目录扫描是「列目录 + 每个会话开文件解压读头部」，1800 条的机器上一百多毫秒，
+    // 半秒一次就是不管有没有人变都在烧 CPU。兜底窗是 5s，所以 10 秒里允许最多一次。
+    for (let i = 0; i < 20; i += 1) {
+      h.tick();
+      await flush();
+    }
+    assert.ok(
+      callsOf(calls, 'sessions.list') - baseline.list <= 1,
+      `没有宿主事件却重扫了 ${callsOf(calls, 'sessions.list') - baseline.list} 次会话目录（兜底窗 5s 内最多一次）`,
+    );
   });
 });
 

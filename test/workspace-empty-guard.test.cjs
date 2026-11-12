@@ -183,13 +183,17 @@ test('守卫：非空清单重新出现会重置基准，恢复拦截能力', ()
 
 // ── 接线：三处推送路径都必须过守卫 ─────────────────────────────────────────────
 
-test('三条镜像推送路径都走 workspace-guard', () => {
+test('每条镜像推送路径都走 workspace-guard', () => {
   const src = readMirrorWiring();
   // 调度器搬到 lib/mirror/ 之后，相对路径从 './shared/...' 变成 '../shared/...'。
   assert.ok(src.includes("require('../shared/workspace-guard.js')"), '未接入 workspace-guard');
   assert.ok(/createWorkspaceGuard\(\s*\{/.test(src), '未创建守卫实例');
-  const calls = src.match(/guardWorkspaces\(workspacesBody\)/g) || [];
-  assert.equal(calls.length, 3, 'pushSessionNow / pushMirror / processBgQueue 三处都要过守卫');
+  // 判据是「每一次 pushMirrorPayload 之前都过了守卫」，而不是「守卫恰好被写了三遍」：
+  // 工作区体现在由 loadWorkspacesBody 统一加载复用，调用点会随重构增减，钉个数会误红。
+  const pushes = (src.match(/await pushMirrorPayload\(/g) || []).length;
+  const guards = (src.match(/guardWorkspaces\(workspacesBody\)/g) || []).length;
+  assert.ok(pushes >= 3, `镜像推送出口少于三条（实际 ${pushes}）`);
+  assert.equal(guards, pushes, `有 ${pushes} 处 pushMirrorPayload，却只有 ${guards} 处过守卫`);
   // 旧的宽松判定不能残留
   assert.ok(
     !/workspacesBody\?\.ok\s*\)?\s*(\{|;)/.test(src),

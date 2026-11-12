@@ -43,13 +43,52 @@ function mkItem({ sessionId, title, running, updatedAt }) {
   };
 }
 
-/** 可控的事件源：一直挂住，直到 release() —— 模拟「设备级流开着但宿主一帧都没有」。 */
+/**
+ * 可控的事件源：默认一直挂住（模拟「设备级流开着但宿主一帧都没有」），
+ * `emit()` 可以推一帧宿主事件 —— 清单变没变现在由事件说了算，测试也得照着说。
+ */
 function controllableMux() {
-  let release;
-  const gate = new Promise((resolve) => { release = resolve; });
-  return { release, mux: async function* () { await gate; } };
+  // 有两条订阅者（镜像推送调度器与设备级流各订阅一次 mux），事件是**广播**给所有订阅者，
+  // 不是谁先抢到算谁的 —— 与「各订阅者共有一条宿主事件流」是同一种语义。
+  /** 每一条订阅各有一只阻塞队列：没有事件时真的挂住，不空转（空转会把测试自己拖住）。 */
+  const makeQueue = () => {
+    const items = [];
+    let wake = null;
+    let closed = false;
+    return {
+      push(item) { items.push(item); if (wake) { const w = wake; wake = null; w(); } },
+      close() { closed = true; if (wake) { const w = wake; wake = null; w(); } },
+      async next() {
+        for (;;) {
+          if (items.length) return { value: items.shift() };
+          if (closed) return { done: true };
+          await new Promise((resolve) => { wake = resolve; });
+        }
+      },
+    };
+  };
+  const queues = new Set();
+  return {
+    emit(type, extra = {}) {
+      for (const queue of queues) queue.push({ payload: { type, ...extra } });
+    },
+    release() { for (const queue of queues) queue.close(); },
+    mux: async function* (_payload, ac) {
+      const queue = makeQueue();
+      queues.add(queue);
+      if (ac) ac.addEventListener('abort', () => queue.close(), { once: true });
+      try {
+        for (;;) {
+          const step = await queue.next();
+          if (step.done) return;
+          yield step.value;
+        }
+      } finally {
+        queues.delete(queue);
+      }
+    },
+  };
 }
-
 /**
  * 用 Proxy 补齐「本用例不关心」的宿主方法：镜像推送的旁路快照（warm messages / stats /
  * models）会去读别的 sessions.* 方法，缺一个就抛 TypeError 并在 stderr 留一条噪音。
@@ -189,8 +228,10 @@ test('会话清单变化经变更信号总线送到手机那条设备级 SSE 连
     const after = payloadsOf(res).filter((payload) => payload.type === 'device/list-changed').length;
     assert.equal(after, before, '清单内容没变却又广播了一次');
 
-    // 会话跑完（running → completed 的方向），指纹必须变、广播必须再来一次。
+    // 会话跑完（running → completed 的方向）：宿主会发一帧会话事件，指纹必须变、广播必须再来一次。
     state.items = [mkItem({ sessionId: 'session-1', title: '跑完的会话', running: false, updatedAt: Date.now() + 1000 })];
+    ctl.emit('session/event', { sessionId: 'session-1', event: { type: 'turn/end' } });
+    await flush();
     h.tick(500);
     await flush();
     const frames = payloadsOf(res).filter((payload) => payload.type === 'device/list-changed');

@@ -280,7 +280,10 @@ test('正文水位经镜像推送广播到设备级 SSE（先推镜像再广播�
     assert.equal(sharedSessionSignal.bump(SID, 9), false, '同一水位重复广播会变成刷新风暴');
 
     // 完整清单确认会话已归档/删除后，pusher 应从重连回放集合中移除该会话。
+    // 归档是宿主那边真实发生的事，会有一帧会话事件告诉插件；清单重建由它触发。
     state.items = [];
+    ctl.push({ type: 'session/event', sessionId: SID, payload: { sessionId: SID, event: { type: 'session/disposed' } } });
+    await flush();
     h.tick(500);
     await waitFor(() => sharedSessionSignal.peek(SID) === 0);
     assert.equal(sharedSessionSignal.peek(SID), 0, '归档会话的旧水位不应在重连时复活');
