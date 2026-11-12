@@ -17,7 +17,7 @@ const path = require('node:path');
 
 const ledger = require('../lib/mobile/stats-ledger.cjs');
 const { collectStats, diffUsage, hostUsageOf, foldSessionEvents } = require('../lib/mobile/stats-collect.cjs');
-const { handleStatsOverview, normalizeRange } = require('../lib/mobile/stats.js');
+const { handleStatsOverview, normalizeRange, settleWake } = require('../lib/mobile/stats.js');
 
 /**
  * 在临时 DSH_HOME 里跑一段：账本文件按调用时的 DSH_HOME 解析，测完还原。
@@ -676,6 +676,8 @@ test('路由：range 归一化，返回 { ok, overview }', async () => {
     assert.equal(res.body.overview.days.length, 30);
     assert.deepEqual(res.body.overview.sessions, []);
     assert.deepEqual(res.body.overview.models, [], '没有模型桶时也要给空数组（App 缺这个字段整块不画）');
+    // 回包之后那一发后台采集要等它落地再退出临时 DSH_HOME（见 settleWake）。
+    await settleWake();
   });
   assert.equal(normalizeRange('999d'), '7d', '认不出来的范围退回七天');
   assert.equal(normalizeRange(undefined), '7d');
@@ -708,6 +710,45 @@ test('路由：一发请求把六档全带回去（切标签不再发请求）',
     // 窗口确实不一样：今天一天，近 30 天是三十天。
     assert.equal(res.body.ranges.today.days.length, 1);
     assert.equal(res.body.ranges['30d'].days.length, 30);
+    await settleWake();
+  });
+});
+
+test('路由：回包不等采集（账本是多少就给多少，采集在后台跑）', async () => {
+  await withHome(async () => {
+    const now = Date.now();
+    // 宿主很慢：每条会话的投影要 200ms。要是还像以前那样先采一轮再回包，这一发必然拖到秒级。
+    const ctx = fakeCtx({
+      items: Array.from({ length: 6 }, (_, index) => ({
+        sessionId: `s${index}`,
+        title: `t${index}`,
+        updatedAt: now,
+      })),
+      projectionsById: Object.fromEntries(
+        Array.from({ length: 6 }, (_, index) => [`s${index}`, tokenProjection(10, 1)]),
+      ),
+    });
+    const slow = ctx.apiProxy.sessions.projections;
+    ctx.apiProxy.sessions.projections = async (request) => {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return slow(request);
+    };
+
+    const req = { url: '/api/mobile/v1/stats/overview?range=today' };
+    const res = { status: null, body: null, writeHead(status) { this.status = status; }, end(payload) { this.body = JSON.parse(payload); } };
+    const startedAt = Date.now();
+    await handleStatsOverview(ctx, req, res);
+    const elapsed = Date.now() - startedAt;
+
+    assert.equal(res.status, 200);
+    // 账本还是空的（没人采过），回包就该是空的 —— 不是「等采集采完再给」。
+    assert.equal(res.body.overview.kpi.uncachedInputTokens, 0, '回包里是账本现状');
+    assert.ok(elapsed < 150, `回包不许等采集（实际用了 ${elapsed}ms）`);
+
+    // 回包之后那一轮确实在跑，跑完账本就有数了：下一次打开就看得见。
+    await settleWake();
+    const book = ledger.readLedger();
+    assert.ok(Object.keys(book.sessions).length > 0, '后台那一轮把账本补上了');
   });
 });
 
@@ -722,6 +763,7 @@ test('采集失败不影响出数：账本还在就照常回', async () => {
     await handleStatsOverview(broken, req, res);
     assert.equal(res.status, 200);
     assert.equal(res.body.overview.kpi.uncachedInputTokens, 9, '采集挂了也要把账本里的数字给出去');
+    await settleWake();
   });
 });
 
