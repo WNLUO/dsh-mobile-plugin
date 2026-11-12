@@ -16,6 +16,7 @@
 import { Button } from '@appica/ui-react/button'
 import { t } from '../lib/i18n/index.ts'
 import { useTheme } from '@appica/ui-react/hooks/use-theme'
+import { setShellThemeOverride, useShellTheme } from '../lib/shell-theme.ts'
 
 function SunIcon() {
   return (
@@ -63,6 +64,35 @@ export function ThemeToggle() {
       aria-label={label}
       title={label}
       onClick={() => setTheme(dark ? 'light' : 'dark')}
+    >
+      {dark ? <SunIcon /> : <MoonIcon />}
+    </Button>
+  )
+}
+
+/**
+ * 控制台那一窗用的日夜按钮。
+ *
+ * 与上面那颗的区别只有一处**数据来源**：那一颗拧的是面板自己的主题键（`ThemeProvider`），
+ * 而控制台那一窗的主题跟着 DSH 走（见 `lib/shell-theme.ts`），所以它拧的是那份「手动优先」
+ * 的选择：按下之后这一窗不再跟随父窗口，直到重新选回跟随（清掉那个键）。
+ *
+ * 单独一颗而不是给上面那颗加开关：上面那颗在**每一条别的页**上都要有 `ThemeProvider` 才
+ * 拿得到 `setTheme`，而控制台那一页刻意没挂它（见 `main.tsx` 里那段说明）。
+ */
+export function ConsoleThemeToggle() {
+  const theme = useShellTheme()
+  const dark = theme === 'dark'
+  const label = dark ? t('panel.theme.toDay') : t('panel.theme.toNight')
+
+  return (
+    <Button
+      variant="soft"
+      size="icon-md"
+      className="pointer-events-auto rounded-full shadow-sm"
+      aria-label={label}
+      title={label}
+      onClick={() => setShellThemeOverride(dark ? 'light' : 'dark')}
     >
       {dark ? <SunIcon /> : <MoonIcon />}
     </Button>

@@ -30,18 +30,16 @@ function GithubMark() {
 }
 
 export function StarButton({ compact = false }: { compact?: boolean } = {}) {
+  // 坐标归 `FloatingActions`（三颗同一列、左对齐）；这里只管自己那颗按钮。
   return (
-    // `compact` = 控制台那一窗用的小号（见 `JoinGroupButton` 里那段说明）。
-    <div className={`pointer-events-none fixed end-5 z-40 ${compact ? 'bottom-24' : 'bottom-[10.5rem]'}`}>
-      <a
-        href={PLUGIN_REPO_URL}
-        target="_blank"
-        rel="noreferrer noopener"
-        className={`${buttonVariants({ variant: 'secondary', size: compact ? 'sm' : 'lg' })} pointer-events-auto rounded-full shadow-lg`}
-      >
-        <GithubMark />
-        {t('panel.links.star')}
-      </a>
-    </div>
+    <a
+      href={PLUGIN_REPO_URL}
+      target="_blank"
+      rel="noreferrer noopener"
+      className={`${buttonVariants({ variant: 'secondary', size: compact ? 'sm' : 'lg' })} pointer-events-auto rounded-full shadow-lg`}
+    >
+      <GithubMark />
+      {t('panel.links.star')}
+    </a>
   )
 }

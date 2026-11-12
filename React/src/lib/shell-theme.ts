@@ -17,6 +17,8 @@
  * 面板自己的颜色全在 token 上，所以换主题不需要重画任何组件。
  */
 
+import { useEffect, useState } from 'react'
+
 export type ShellTheme = 'light' | 'dark'
 
 const DARK_ATTR = 'data-ds-dark-theme'
@@ -56,8 +58,50 @@ function fromSystem(): ShellTheme {
   }
 }
 
-/** 当下该用哪一档。 */
+/**
+ * 手动选的那一门（`light` / `dark`），没选过是 `null`。
+ *
+ * 默认**跟着 DSH**（用户 2026-11-13 要求：DSH 里是夜间，这一窗也得是夜间）。但这一窗顶上
+ * 也有一颗日夜按钮，人按下去了就得听他的 —— 于是分两层：没手动选过时跟随父窗口，选过之后
+ * 手动那份优先。存盘失败（隐私模式）只影响「下次记不记得」，这一次照样当场生效。
+ */
+const OVERRIDE_KEY = 'dsh-mobile-console-theme'
+
+export function shellThemeOverride(): ShellTheme | null {
+  try {
+    const value = typeof localStorage === 'undefined' ? null : localStorage.getItem(OVERRIDE_KEY)
+    return value === 'dark' || value === 'light' ? value : null
+  } catch {
+    return null
+  }
+}
+
+/** 记下（或清掉）手动选择，并当场应用。`null` = 回到「跟随 DSH」。 */
+export function setShellThemeOverride(theme: ShellTheme | null): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      if (theme) localStorage.setItem(OVERRIDE_KEY, theme)
+      else localStorage.removeItem(OVERRIDE_KEY)
+    }
+  } catch {
+    /* 存不住不影响这一次。 */
+  }
+  applyShellTheme(resolveShellTheme())
+  for (const listener of listeners) listener()
+}
+
+/** 手动选择变了要重画的那些组件（那一颗日夜按钮）。 */
+const listeners = new Set<() => void>()
+
+export function subscribeShellTheme(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+/** 当下这一档：手动选过就听手动的，否则跟随父窗口 / 系统。 */
 export function resolveShellTheme(): ShellTheme {
+  const picked = shellThemeOverride()
+  if (picked) return picked
   const doc = parentDocument()
   if (doc) {
     const theme = fromParent(doc)
@@ -105,4 +149,16 @@ export function watchShellTheme(): () => void {
   return () => {
     for (const dispose of disposers) dispose()
   }
+}
+
+/**
+ * 订阅当前这一档（控制台顶上那颗日夜按钮用）。
+ *
+ * 三种来源任一变了都要重画：父窗口切主题、系统切主题、自己手动选了一门。
+ * 后两种在 `setShellThemeOverride` 里主动通知（见上面的 `listeners`）。
+ */
+export function useShellTheme(): ShellTheme {
+  const [theme, setTheme] = useState<ShellTheme>(() => resolveShellTheme())
+  useEffect(() => subscribeShellTheme(() => setTheme(resolveShellTheme())), [])
+  return theme
 }

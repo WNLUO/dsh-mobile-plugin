@@ -23,10 +23,16 @@ type Props = {
 export function FloatingActions({ compact = false, hidden = false }: Props) {
   if (hidden) return null
   return (
-    <>
-      <JoinGroupButton compact={compact} />
-      <SponsorButton compact={compact} />
+    /*
+      一个容器管三颗（2026-11-13）：坐标只写在这里一份，三颗各自不再自己钉 `fixed`。
+      竖排 + **左对齐**（`items-start`）：三颗宽度不一样（「加入交流群」「赞助」「给个 Star」），
+      右对齐时左边参差不齐、看着像没排过版 —— 左对齐之后左边一条线，读起来也齐。
+      容器本身贴右下角，`pointer-events-none` 只让按钮吃点击（整层吃点击会把底下的卡片点死）。
+    */
+    <div className={`pointer-events-none fixed end-5 z-40 flex flex-col items-start gap-2 ${compact ? 'bottom-4' : 'bottom-6'}`}>
       <StarButton compact={compact} />
-    </>
+      <SponsorButton compact={compact} />
+      <JoinGroupButton compact={compact} />
+    </div>
   )
 }

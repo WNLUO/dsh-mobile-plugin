@@ -57,17 +57,16 @@ export function JoinGroupButton({ compact = false }: { compact?: boolean } = {})
 
   return (
     <>
-      <div className={`pointer-events-none fixed end-5 z-40 ${compact ? 'bottom-4' : 'bottom-6'}`}>
-        <Button
-          variant="primary"
-          size={compact ? 'sm' : 'lg'}
-          className="pointer-events-auto rounded-full shadow-lg"
-          onClick={() => setOpen(true)}
-        >
-          <WechatIcon />
-          {t('panel.links.joinGroup')}
-        </Button>
-      </div>
+      {/* 坐标归 `FloatingActions`（三颗同一列、左对齐）；这里只管自己那颗按钮。 */}
+      <Button
+        variant="primary"
+        size={compact ? 'sm' : 'lg'}
+        className="pointer-events-auto rounded-full shadow-lg"
+        onClick={() => setOpen(true)}
+      >
+        <WechatIcon />
+        {t('panel.links.joinGroup')}
+      </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-sm">

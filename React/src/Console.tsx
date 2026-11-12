@@ -16,6 +16,8 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
+import { LanguageMenu } from './components/LanguageMenu.tsx'
+import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
@@ -314,6 +316,11 @@ export function Console() {
           </span>
         ) : null}
         <div className="flex items-center gap-2">
+          {/* 语言与日夜跟着窗口标题走（2026-11-13 用户要求放这里）：它们不属于任何一块卡片，
+              是「这一页自己怎么显示」，摆在标题那一行最右边最省地方。日夜那颗拧的是这一窗
+              的主题（默认跟随 DSH，按下之后改手动，见 `lib/shell-theme.ts`）。 */}
+          <LanguageMenu />
+          <ConsoleThemeToggle />
           <Button variant="ghost" size="sm" onClick={() => openPage('panel')}>
             {t('panel.console.openBrowser')}
           </Button>

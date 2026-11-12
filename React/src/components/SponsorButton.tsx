@@ -88,22 +88,19 @@ export function SponsorButton({ compact = false }: { compact?: boolean } = {}) {
 
   return (
     <>
-      {/* `compact` = 控制台那一窗用的小号（见 `JoinGroupButton` 里那段说明）。位置按同一串
-          往上挪一格：交流群在 `bottom-4`、这颗在它上面、star 再上面。 */}
-      <div className={`pointer-events-none fixed end-5 z-40 ${compact ? 'bottom-14' : 'bottom-24'}`}>
-        <Button
-          variant="secondary"
-          size={compact ? 'sm' : 'lg'}
-          className="pointer-events-auto rounded-full shadow-lg"
-          onClick={() => {
-            setCopyFailed(false)
-            setOpen(true)
-          }}
-        >
-          <HeartIcon />
-          {t('panel.links.sponsor')}
-        </Button>
-      </div>
+      {/* 坐标归 `FloatingActions`（三颗同一列、左对齐）；这里只管自己那颗按钮。 */}
+      <Button
+        variant="secondary"
+        size={compact ? 'sm' : 'lg'}
+        className="pointer-events-auto rounded-full shadow-lg"
+        onClick={() => {
+          setCopyFailed(false)
+          setOpen(true)
+        }}
+      >
+        <HeartIcon />
+        {t('panel.links.sponsor')}
+      </Button>
       <SponsorDialog open={open} onOpenChange={setOpen} copyFailed={copyFailed} setCopyFailed={setCopyFailed} />
     </>
   )
