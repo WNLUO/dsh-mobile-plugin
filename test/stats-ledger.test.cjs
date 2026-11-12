@@ -1409,3 +1409,44 @@ test('seenSeq 落盘并读回：老账本没有这一栏按 0 处理（升级后
   assert.equal(ledger.emptySession(Date.now()).seenSeq, 0, 'emptySession 带这一栏');
   assert.equal(day === '2026-11-10', true);
 });
+
+test('定期采集一轮只翻有限页，有人打开统计页那一轮才翻到底', async () => {
+  // 600 个 step × 4 条事件 = 2400 条，按 400 一页要翻 6 页才到底。首采（没有游标）才会往旧翻，
+  // 所以两条路各用一个干净的账本跑一遍。
+  const build = () => {
+    const log = eventLog(Date.now() - 60 * 60 * 1000);
+    for (let index = 0; index < 600; index += 1) log.turn().step({ input: 10, output: 1 });
+    const reads = [];
+    const ctx = fakeCtx({
+      items: [{ sessionId: 's1', title: '大会话', cwd: '/tmp/proj', updatedAt: Date.now() }],
+      projectionsById: { s1: projectionOf(log.events) },
+      historyById: {
+        s1: (request) => {
+          reads.push(request.payload.beforeSeq || 0);
+          return pagedHistory(log.events)(request);
+        },
+      },
+    });
+    // 往旧翻的次数 = 带 beforeSeq 的那些读（首窗那一发与「最后一句」预览都不带）。
+    return { ctx, paged: () => reads.filter((beforeSeq) => beforeSeq > 0).length };
+  };
+
+  await withHome(async () => {
+    const { ctx, paged } = build();
+    await collectStats(ctx, { periodic: true, budgetMs: 25_000 });
+    assert.equal(
+      paged(),
+      3,
+      `定期那一轮最多往旧翻 3 页，实际翻了 ${paged()} 页 —— 一次翻到底就是把宿主压住的那种写法`,
+    );
+  });
+
+  await withHome(async () => {
+    const { ctx, paged } = build();
+    await collectStats(ctx, { force: true });
+    assert.ok(
+      paged() > 3,
+      `有人正等着看数字（短预算轮）必须用完整的 20 页上限，实际只翻了 ${paged()} 页`,
+    );
+  });
+});

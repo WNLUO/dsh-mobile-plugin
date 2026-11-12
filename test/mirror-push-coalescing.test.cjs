@@ -122,3 +122,28 @@ test('喂一帧「只有 payload」的帧真的会推（行为级，不只是源
     else process.env.DSH_HOME = previousHome
   }
 })
+
+test('隧道抖动时全量补推必须合流：在途只置标记、窗口内不重来', () => {
+  // 现场（issue #12）：隧道每 1~5 秒断一次，每次「连上」边沿都会整批重建「正在跑 / 5 分钟内
+  // 动过」的会话（显式不复用缓存）。宿主越忙隧道越容易断，断了再连又是一轮 —— 那个正反馈
+  // 能把几核占满。这里钉住合流门本身，别让它退回「来一次边沿就跑一遍全量」。
+  const wrapper = SOURCE.indexOf('const pushMirror = (sessionIds) => {');
+  assert.notEqual(wrapper, -1, 'pushMirror 必须带合流门，不能是 async 直推');
+  const body = SOURCE.slice(wrapper, SOURCE.indexOf('\n  };', wrapper));
+  assert.ok(body.includes('fullPushInFlight'), '缺少全量补推的在途检查');
+  assert.ok(body.includes('fullPushQueued = true'), '在途期间未置待补标记');
+  assert.ok(body.includes('fullPushQueued = false'), '补推结束后未消费待补标记');
+  assert.ok(body.includes('MIRROR_FULL_PUSH_MIN_INTERVAL_MS'), '缺少最小间隔：抖动窗口内会反复整批重建');
+  // 带会话清单的调用是事件驱动的定点补推，必须原样直达，不能被全量那道门挡住。
+  assert.ok(body.includes('if (sessionIds) return runPushMirror(sessionIds);'), '定点补推被全量门误挡');
+  // 真正的推送体只能被这两处调用；多一处直调就绕开了合流。
+  assert.equal(countOf('runPushMirror('), 2, 'runPushMirror 存在绕过合流门的调用');
+});
+
+test('全量补推的最小间隔必须远大于 500ms 的 tick，又短于「人还能接受」的量级', () => {
+  const raw = (SOURCE.match(/const MIRROR_FULL_PUSH_MIN_INTERVAL_MS = ([\d_]+)/) || [])[1];
+  assert.ok(raw, '缺少 MIRROR_FULL_PUSH_MIN_INTERVAL_MS');
+  const ms = Number(String(raw).replace(/_/g, ''));
+  assert.ok(ms >= 10_000, `最小间隔 ${ms}ms 太短，隧道每几秒抖一次就等于没合流`);
+  assert.ok(ms <= 60_000, `最小间隔 ${ms}ms 太长：真断网重连之后手机要等太久才补齐`);
+});
