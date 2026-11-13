@@ -18,6 +18,7 @@ import { FloatingActions } from './components/FloatingActions.tsx'
 import { TopRightActions } from './components/TopRightActions.tsx'
 import { t } from './lib/i18n/index.ts'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
+import { watchEmbedVisibility } from './lib/embed-visibility.ts'
 import { watchShellTheme } from './lib/shell-theme.ts'
 import { Root } from './Root.tsx'
 
@@ -49,6 +50,10 @@ export function Shell() {
     if (!consolePage) return undefined
     return watchShellTheme()
   }, [consolePage])
+
+  // 被嵌在 DSH 那一窗里时，收起后父窗口会让这一页「停下来」（见 `lib/embed-visibility.ts`）：
+  // 那一窗收起不销毁，页内轮询得跟着停，用户才会感到「关掉就恢复」。
+  useEffect(() => watchEmbedVisibility(), [])
 
   return (
     <>

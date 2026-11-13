@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { InfoList, InfoRow, ToneValue } from './components/InfoRow.tsx'
 import { apiGet, apiPost, errorText, type AddressBook, type DeviceList, type SelfCheck, type StatusView } from './lib/api.ts'
 import { cn, lanText, lanTone, sidecarText, timeText, tunnelText, tunnelTone, type Tone } from './lib/format.ts'
+import { pageVisible } from './lib/embed-visibility.ts'
 import { t } from './lib/i18n/index.ts'
 import { verdictText, verdictTone } from './lib/selfcheck.ts'
 
@@ -233,7 +234,7 @@ export function Debug() {
     // 这一页开着的时候每 5 秒跟着刷新：用户多半正在「点一下、等一等、再看一眼」。
     // 切到后台就停，和主页那条轮询同一个口径。
     const tick = () => {
-      if (document.hidden) return
+      if (!pageVisible()) return
       void load()
     }
     const timer = window.setInterval(tick, 5000)

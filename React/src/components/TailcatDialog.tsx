@@ -23,6 +23,7 @@ import { Switch } from '@appica/ui-react/switch'
 import { useCallback, useEffect, useState } from 'react'
 
 import { apiGet, apiPost, errorText, type TailcatStatus, type TailcatView } from '../lib/api.ts'
+import { pageVisible } from '../lib/embed-visibility.ts'
 import { t } from '../lib/i18n/index.ts'
 import { useNotify } from '../lib/notify.ts'
 
@@ -65,7 +66,7 @@ export function TailcatDialog({ open, onOpenChange, onChanged }: Props) {
   useEffect(() => {
     if (!open) return undefined
     const tick = () => {
-      if (document.hidden) return
+      if (!pageVisible()) return
       void load()
     }
     tick()

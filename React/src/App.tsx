@@ -9,6 +9,7 @@
  * 也扫得动 —— 手机装完 App 回来扫的往往就是它。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
+import { pageVisible } from './lib/embed-visibility.ts'
 import { t } from './lib/i18n/index.ts'
 import { Badge } from '@appica/ui-react/badge'
 import { Spinner } from '@appica/ui-react/spinner'
@@ -119,7 +120,7 @@ export function App() {
   // 3 秒一轮，页面切到后台就停。
   useEffect(() => {
     const tick = () => {
-      if (document.hidden) return
+      if (!pageVisible()) return
       void loadStatus()
     }
     tick()

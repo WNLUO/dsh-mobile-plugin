@@ -8,6 +8,10 @@
  *
  * 与 `App.tsx` 的关系：数据与动作逐条对应（同一批 `/api/relay/*`、同一套 handler 语义），
  * 区别在版式与「什么东西值得占第一屏」。改动作逻辑时两边都要看；改版式只动这里。
+ *
+ * 这一页最常出现的地方是 DSH 里嵌的那一窗（`lib/client.js` 的 `openConsole`），而那一窗
+ * **收起时不销毁**、下次直接亮回来 —— 所以这一页的轮询由 `pageVisible()` 统一判「现在该不该
+ * 跑」（父窗口收起时会通知，见 `lib/embed-visibility.ts`），别写回裸的 `document.hidden`。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
@@ -45,6 +49,7 @@ import {
 } from './lib/api.ts'
 import { Dot } from './components/InfoRow.tsx'
 import { lanText, tunnelText, type Tone } from './lib/format.ts'
+import { pageVisible } from './lib/embed-visibility.ts'
 import { t } from './lib/i18n/index.ts'
 import { useNotify } from './lib/notify.ts'
 import { mobileLooksIdle, useSelfCheck } from './lib/selfcheck.ts'
@@ -67,6 +72,24 @@ function pageUrlOf(mode: 'panel' | 'debug' | 'setup'): string {
     return ''
   }
 }
+
+/**
+ * 这一页轮询的相位偏移。
+ *
+ * 设备卡（`DevicesCard`）自己有一条 3 秒轮询，两条都从挂载那一刻起算就会永远同拍：每 3 秒
+ * 两发请求一起到宿主、回来又一起触发重画，慢机器上就是隔一会儿顿一下。晚 1.5 秒起跑，
+ * 两条就落在彼此的间隙里。**不追求精确**，只要不重合。
+ */
+const STATUS_PHASE_OFFSET_MS = 1500;
+
+/**
+ * 首屏落地之后再补次要请求的等待。
+ *
+ * 这一窗打开那一刻，七条接口原先是一起发的；其中 `/api/relay/pairing` 要在宿主里现开一次
+ * 隧道配对窗口（实测 0.8～3 秒，偶尔更久），而它换来的二维码本来就遮在「显示」按钮后面。
+ * 让它排到首屏出来之后，打开那一下就不会被它拖住。
+ */
+const AFTER_FIRST_PAINT_MS = 600;
 
 export function Console() {
   const [status, setStatus] = useState<StatusView | null>(null)
@@ -115,25 +138,42 @@ export function Console() {
   }, [])
 
   // 3 秒一轮，页面切到后台就停。
+  //
+  // 首拍必须**当场**发（整页在拿到状态之前只有一圈转圈），但此后那一串要跟设备卡自己的
+  // 3 秒轮询**错开相位**（2026-11-13）：两条都从挂载那一刻起算，于是每 3 秒两发请求永远
+  // 同时到达，宿主一起排队、主线程一起重画。这里补一次 1.5 秒的起跑偏移，两条就落在彼此
+  // 的间隙里；差值不用精确，错开一拍就够。
   useEffect(() => {
     const tick = () => {
-      if (document.hidden) return
+      if (!pageVisible()) return
       void loadStatus()
     }
     tick()
-    const timer = window.setInterval(tick, 3000)
+    let timer = 0;
+    const offset = window.setTimeout(() => {
+      timer = window.setInterval(tick, 3000)
+    }, STATUS_PHASE_OFFSET_MS)
     document.addEventListener('visibilitychange', tick)
     return () => {
-      window.clearInterval(timer)
+      window.clearTimeout(offset)
+      if (timer) window.clearInterval(timer)
       document.removeEventListener('visibilitychange', tick)
     }
   }, [loadStatus])
 
-  // 二维码只在远程控制开着时才取（关着时宿主回 409）。
+  /**
+   * 打开这一窗时**先让首屏落地，再补次要的那几发**。
+   *
+   * 原先挂载那一刻七条接口是并发的（状态 / 配对 / 地址 / 更新 / 收件 …），其中
+   * `/api/relay/pairing` 要在宿主里现开一次隧道配对窗口，实测 0.8～3 秒、偶尔更久 ——
+   * 它跟首屏那一屏无关（二维码本来就在「显示」按钮后面），却和另外几发抢同一个线程与同一条
+   * 连接，用户看到的就是「点开先卡一两秒」。现在把它排到首屏出来之后单独跑。
+   */
   useEffect(() => {
-    if (!status?.enabled || pairing || pairingError) return
-    void loadPairing()
-  }, [status?.enabled, pairing, pairingError, loadPairing])
+    if (!status?.enabled) return undefined
+    const timer = window.setTimeout(() => void loadPairing(), AFTER_FIRST_PAINT_MS)
+    return () => window.clearTimeout(timer)
+  }, [status?.enabled, loadPairing])
 
   // 配对成功那一刻宿主换掉码：`pairingCode` 一变就重取。
   useEffect(() => {
@@ -161,8 +201,11 @@ export function Console() {
   }, [pairing, status?.enabled, renewPairing])
 
   useEffect(() => {
-    if (!status?.enabled) return
-    void loadAddresses()
+    if (!status?.enabled) return undefined
+    // 地址库只喂「本地识别地址」那个弹窗与网络配置，同样不必跟首屏抢。挂在 `pairing` 上是因为
+    // 换码 / 改端口之后候选地址可能跟着变（与主页那条同一个口径）。
+    const timer = window.setTimeout(() => void loadAddresses(), AFTER_FIRST_PAINT_MS)
+    return () => window.clearTimeout(timer)
   }, [status?.enabled, pairing, loadAddresses])
 
   useEffect(() => {

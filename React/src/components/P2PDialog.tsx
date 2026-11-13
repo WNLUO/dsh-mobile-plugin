@@ -25,6 +25,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useState } from 'react'
 
 import { apiGet, errorText, type P2PStatus } from '../lib/api.ts'
+import { pageVisible } from '../lib/embed-visibility.ts'
 import { t } from '../lib/i18n/index.ts'
 
 type Props = {
@@ -77,7 +78,7 @@ export function P2PDialog({ open, onOpenChange }: Props) {
   useEffect(() => {
     if (!open) return undefined
     const tick = () => {
-      if (document.hidden) return
+      if (!pageVisible()) return
       void load()
     }
     tick()

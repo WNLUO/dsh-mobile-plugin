@@ -63,6 +63,7 @@ import {
   type Tier,
   type TierView,
 } from '../lib/api.ts'
+import { pageVisible } from '../lib/embed-visibility.ts'
 import { t } from '../lib/i18n/index.ts'
 import { Dot } from './InfoRow.tsx'
 import { tierLabel, TIER_OPTIONS } from './PairingCard.tsx'
@@ -259,7 +260,7 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
   // 3 秒一轮，页面切到后台就停（与 App 里那份状态的节奏一致）。
   useEffect(() => {
     const tick = () => {
-      if (document.hidden) return
+      if (!pageVisible()) return
       void load()
     }
     tick()
