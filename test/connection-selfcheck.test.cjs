@@ -160,6 +160,52 @@ test('Windows：默认入站全拒，没规则就是被挡；显式 Block 优先
   assert.equal(blocked, false);
 });
 
+test('Windows：规则里的端口带回来，缺的按空串（当不限）', () => {
+  const report = parseWindowsReport(JSON.stringify({
+    profiles: [{ name: 'Public', enabled: true }],
+    apps: [{ program: 'C:\\node.exe', action: 'Allow', enabled: true, profile: 'Any', localPort: '18787' }],
+  }));
+  assert.equal(report.apps[0].localPort, '18787');
+  assert.equal(
+    parseWindowsReport(JSON.stringify({ profiles: [], apps: [{ program: 'C:\\node.exe' }] })).apps[0].localPort,
+    '',
+  );
+});
+
+test('Windows：规则只放行别的端口时，端口漂走后不算放行', () => {
+  const base = {
+    profiles: [{ name: 'Public', enabled: true }],
+    activeProfiles: ['Public'],
+    appPath: 'C:\\Program Files\\nodejs\\node.exe',
+  };
+  const allow = (localPort, action = 'Allow') => ({
+    ...base,
+    apps: [{ program: 'C:\\Program Files\\nodejs\\node.exe', action, enabled: true, profile: 'Any', localPort }],
+  });
+  // 老规则放行 18787、程序路径也对得上，但当前监听 1523 —— 不覆盖，实际被默认规则挡着。
+  assert.equal(decideWindowsAllows({ ...allow('18787'), port: 1523 }), false);
+  // 同一端口就放行。
+  assert.equal(decideWindowsAllows({ ...allow('18787'), port: 18787 }), true);
+  // 一条 Block 收窄到别的端口，不该误伤当前端口：当前有 Any 放行就该放行。
+  assert.equal(decideWindowsAllows({
+    ...base,
+    port: 1523,
+    apps: [
+      { program: 'C:\\Program Files\\nodejs\\node.exe', action: 'Block', enabled: true, profile: 'Any', localPort: '18787' },
+      { program: 'C:\\Program Files\\nodejs\\node.exe', action: 'Allow', enabled: true, profile: 'Any', localPort: 'Any' },
+    ],
+  }), true);
+  // Any / 空串当不限：换端口也放行。
+  assert.equal(decideWindowsAllows({ ...allow('Any'), port: 1523 }), true);
+  assert.equal(decideWindowsAllows({ ...allow(''), port: 1523 }), true);
+  // 端口范围与逗号串都认。
+  assert.equal(decideWindowsAllows({ ...allow('1500-1600'), port: 1523 }), true);
+  assert.equal(decideWindowsAllows({ ...allow('1500-1600'), port: 1623 }), false);
+  assert.equal(decideWindowsAllows({ ...allow('80,443,1523'), port: 1523 }), true);
+  // 当前端口不知道（0）时不按端口收窄，跟旧行为一致。
+  assert.equal(decideWindowsAllows({ ...allow('18787'), port: 0 }), true);
+});
+
 test('Windows：放行规则只覆盖「专用网络」时，接到公用网络上就不生效', () => {
   const report = (active, profile) => decideWindowsAllows({
     profiles: [{ name: 'Private', enabled: true }, { name: 'Public', enabled: true }],
@@ -219,6 +265,20 @@ test('Windows 探测：有 Allow 规则就放行（过滤器上 Name 为空也�
   assert.equal(result.allowsApp, true);
 });
 
+test('Windows 探测：当前监听端口带进判定，旧端口规则报挡住', async () => {
+  const payload = {
+    profiles: { name: 'Public', enabled: true },
+    apps: { program: 'C:\\Program Files\\nodejs\\node.exe', action: 'Allow', enabled: true, profile: 'Any', localPort: '18787' },
+    filters: 1,
+    rules: 1,
+    activeProfiles: 'Public',
+  };
+  const { exec } = fakeExec({ 'powershell.exe': JSON.stringify(payload) });
+  const result = await probeFirewall({ platform: 'win32', execPath: 'C:\\Program Files\\nodejs\\node.exe', port: 1523, exec });
+  assert.equal(result.supported, true);
+  assert.equal(result.allowsApp, false, '规则只放行 18787，当前 1523 → 实际被挡，不能报放行');
+});
+
 test('Windows 探测：过滤器在、规则一条没关联上，报查不到', async () => {
   const payload = {
     profiles: [{ name: 'Public', enabled: true }],
@@ -241,6 +301,9 @@ test('Windows：开关与规则都查生效策略，不查本地静态库', () =
   assert.match(WINDOWS_SCRIPT, /Get-NetFirewallProfile -PolicyStore ActiveStore/);
   assert.match(WINDOWS_SCRIPT, /Get-NetFirewallApplicationFilter -PolicyStore ActiveStore -Program \$path/);
   assert.match(WINDOWS_SCRIPT, /Get-NetFirewallRule -PolicyStore ActiveStore/);
+  // 规则若收窄了端口，要把端口带回来，否则端口漂走后旧规则仍被当成放行。
+  assert.match(WINDOWS_SCRIPT, /Get-NetFirewallPortFilter -PolicyStore ActiveStore/);
+  assert.match(WINDOWS_SCRIPT, /localPort = /);
 });
 
 test('Windows：规则要从应用过滤器反查，不能拿过滤器上的 Name 当规则名', () => {
