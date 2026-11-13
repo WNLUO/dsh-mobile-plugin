@@ -18,6 +18,15 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+// 判定流水落插件自己的账本（approval-memory）；测试指到临时文件，绝不碰真实的 ~/.dsh。
+const LEDGER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-auto-review-'));
+const LEDGER_FILE = path.join(LEDGER_DIR, 'approval-rules.json');
+process.env.DSH_MOBILE_APPROVAL_RULES = LEDGER_FILE;
+test.after(() => fs.rmSync(LEDGER_DIR, { recursive: true, force: true }));
 
 const autoReview = require('../lib/mobile/auto-review.js');
 const approvals = require('../lib/mobile/approvals.js');
@@ -192,13 +201,47 @@ test('开关打开时，没人看的界外动作走推卡而不是放行', async
   approvals.resetForTest();
 });
 
-test('record 把判定记进会话日志（旁路，坏了也不改结论）', () => {
+test('record 把判定记进插件账本，不写会话日志（旁路，坏了也不改结论）', () => {
+  fs.rmSync(LEDGER_FILE, { force: true });
   const session = sessionWithModel();
+  const before = session.events.length;
   autoReview.record(session, { action: 'reject', verdict: 'unsure', by: 'judge', targetMode: 'workspace-write' }, request('workspace-write'));
-  const event = session.events.find((item) => item.type === 'approval/auto-review');
-  assert.ok(event, '日志里要留一条可查的判定');
-  assert.equal(event.data.action, 'reject');
-  assert.equal(event.data.decidedBy, 'judge');
-  // 没有 append 的会话不该抛
+  const store = JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8'));
+  assert.equal(store.autoReview.length, 1, '账本里要留一条可查的判定');
+  const [entry] = store.autoReview;
+  assert.equal(entry.action, 'reject');
+  assert.equal(entry.verdict, 'unsure');
+  assert.equal(entry.decidedBy, 'judge');
+  assert.equal(entry.sessionId, 's-1');
+  assert.equal(entry.toolName, 'bash');
+  assert.equal(entry.callId, 'call-1');
+  // 关键回归：判定流水**一条都不许**写进会话日志 —— 宿主认不出的类型会让整份会话打不开。
+  assert.equal(session.events.length, before, '不许再往会话日志里写事件');
+  // 没有 append 的会话、没有 session 的调用都不该抛
   assert.doesNotThrow(() => autoReview.record({}, { action: 'reject' }, request('workspace-write')));
+  assert.doesNotThrow(() => autoReview.record(null, { action: 'reject' }, request('workspace-write')));
+  assert.doesNotThrow(() => autoReview.record(session, { action: 'reject' }));
+  // 没有结论的调用不记，也不该把账本写坏
+  const records = JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8')).autoReview.length;
+  autoReview.record(session, undefined, request('workspace-write'));
+  assert.equal(JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8')).autoReview.length, records, '没有结论就不记');
+});
+
+test('record 认 session.header.id：ACP 形状的会话也不能丢归属', () => {
+  fs.rmSync(LEDGER_FILE, { force: true });
+  const session = { header: { id: 's-acp-1' } };
+  autoReview.record(session, { action: 'allow', verdict: 'within', by: 'judge', targetMode: 'workspace-write' }, request('workspace-write'));
+  const [entry] = JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8')).autoReview;
+  assert.equal(entry.sessionId, 's-acp-1', '只有 header.id 的会话也要记下 id');
+  assert.equal(entry.action, 'allow');
+});
+
+test('sessionIdOf：id 与 header.id 都认，空值回 null（与审批桥同一判据）', () => {
+  const { sessionIdOf } = require('../lib/mobile/session-id.js');
+  assert.equal(sessionIdOf({ id: 'a' }), 'a');
+  assert.equal(sessionIdOf({ header: { id: 'b' } }), 'b');
+  assert.equal(sessionIdOf({ id: '', header: { id: 'c' } }), 'c');
+  assert.equal(sessionIdOf({ id: 'a', header: { id: 'b' } }), 'a', 'id 优先');
+  assert.equal(sessionIdOf({}), null);
+  assert.equal(sessionIdOf(null), null);
 });
