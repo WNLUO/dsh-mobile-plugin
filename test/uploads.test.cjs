@@ -10,13 +10,14 @@
  *     可能，直接 join 就是往收件目录外写。落盘后必须仍带日期子目录。
  *  2. chunk 只吃「下一片」：跳号必须 409（否则会拼出一个静默缺段的文件），重复送达
  *     同一片按重传处理（回当前 received、不重复追加）—— 客户端因此不必先问进度。
- *  3. finish 之后暂存文件必须消失（改名而非复制），abort 必须把暂存删掉，否则
+ *  3. finish 之后暂存文件必须消失（同卷改名，跨卷复制后删除），abort 必须把暂存删掉，否则
  *     `.staging` 会随每次失败上传一直涨。
  *  4. 认不出的 uploadId 一律 404，不能靠「新建一个空上传」蒙过去。
  *  5. 路由表必须真的挂上这四条，且 handler 模块被引入（接线漏了 App 必然 404）。
  *  6. 带 `destPath` 时落点跟着它走（右栏的「传到这里」）：越界 403 且不留暂存残片、不是
  *     目录 400、重名照样加后缀；不带时行为与从前逐字相同 —— 仍进收件箱。
  *  7. 内联图片不按体积拒：超过 10MB 的图也得换成 base64 交出去，单张上限归桌面端管。
+ *  8. 跨卷落盘仅在 EXDEV 时复制；暂停或慢落盘中的 finish 重试共用结果，不丢身份与暂存。
  *
  * 本测试驱动真实 handler（起真 http 服务、走真 req/res），只有收件根目录是临时目录。
  */
@@ -27,6 +28,11 @@ const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const fsp = require('node:fs/promises');
+const { createRequire } = require('node:module');
+const vm = require('node:vm');
+const queue = require('../lib/mobile/project-write-queue.js');
+const uploadHandlers = require('../lib/mobile/uploads.js');
 
 const {
   handleUploadBegin,
@@ -35,6 +41,7 @@ const {
   handleUploadAbort,
   sanitizeName,
   sweepExpiredUploads,
+  sweepStaging,
   STAGING_TTL_MS,
   inlineUploadedImageBlocks,
   CHUNK_BYTES,
@@ -74,15 +81,16 @@ async function serve(inbox, options = {}) {
   const server = http.createServer((req, res) => {
     const route = String(req.url || '').split('?')[0];
     const handler = {
-      '/upload/begin': handleUploadBegin,
-      '/upload/chunk': handleUploadChunk,
-      '/upload/finish': handleUploadFinish,
-      '/upload/abort': handleUploadAbort,
+      '/upload/begin': (options.handlers || uploadHandlers).handleUploadBegin,
+      '/upload/chunk': (options.handlers || uploadHandlers).handleUploadChunk,
+      '/upload/finish': (options.handlers || uploadHandlers).handleUploadFinish,
+      '/upload/abort': (options.handlers || uploadHandlers).handleUploadAbort,
     }[route];
     if (!handler) {
       res.writeHead(404).end('{}');
       return;
     }
+    if (options.onBody) req.on('end', () => { setImmediate(() => options.onBody(route)); });
     handler(ctx, req, res);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -495,6 +503,136 @@ test('不带 destPath：仍落进收件箱，begin 的回执形状一个字没�
     fs.rmSync(inbox, { recursive: true, force: true });
     delete process.env.DSH_MOBILE_INBOX;
   }
+});
+
+/** 与历史测试一样运行真实模块；只在内存里替换源码，用同一行为断言杀掉关键变异。 */
+function changedUploads(from, to) {
+  const filename = require.resolve('../lib/mobile/uploads.js');
+  const source = fs.readFileSync(filename, 'utf8');
+  const changed = source.replace(from, to);
+  assert.notEqual(changed, source, '变异必须真的替换到实现');
+  const module = { exports: {} };
+  vm.runInNewContext(changed, {
+    module, exports: module.exports, require: createRequire(filename), Buffer, process, setTimeout, clearTimeout,
+  }, { filename });
+  return module.exports;
+}
+
+async function crossVolumeScenario(t, handlers = uploadHandlers, code = 'EXDEV') {
+  const inbox = tempDir(t, 'dsh-upload-cross-inbox-');
+  const dest = tempDir(t, 'dsh-upload-cross-dest-');
+  fs.writeFileSync(path.join(dest, '跨卷.txt'), '原文件');
+  const rename = fsp.rename;
+  const copyFile = fsp.copyFile;
+  let copies = 0;
+  fsp.rename = async (source, target) => {
+    if (source.startsWith(inbox + path.sep) && target.startsWith(dest + path.sep)) {
+      throw Object.assign(new Error(code), { code });
+    }
+    return rename(source, target);
+  };
+  fsp.copyFile = async (...args) => { copies += 1; return copyFile(...args); };
+  const api = await serve(inbox, { workspaces: [dest], handlers });
+  try {
+    const { finish } = await uploadOnce(api, { name: '跨卷.txt', destPath: dest }, '新文件');
+    if (code !== 'EXDEV') {
+      assert.equal(finish.status, 500);
+      assert.equal(copies, 0, '其它落盘失败不能绕过原错误去复制');
+      assert.equal(fs.existsSync(path.join(dest, '跨卷-1.txt')), false);
+      return;
+    }
+    assert.equal(finish.status, 200, 'EXDEV 必须改用复制完成上传');
+    assert.equal(copies, 1);
+    assert.equal(finish.body.path, path.join(dest, '跨卷-1.txt'));
+    assert.equal(fs.readFileSync(path.join(dest, '跨卷.txt'), 'utf8'), '原文件');
+    assert.equal(fs.readFileSync(finish.body.path, 'utf8'), '新文件');
+    assert.deepEqual(fs.readdirSync(path.join(inbox, '.staging')), [], '复制成功后才清暂存');
+  } finally {
+    await api.close();
+    fsp.rename = rename;
+    fsp.copyFile = copyFile;
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+}
+
+test('destPath 跨卷：EXDEV 复制后清暂存，重名不覆盖；其它错误不复制', async (t) => {
+  await crossVolumeScenario(t);
+  await crossVolumeScenario(t, uploadHandlers, 'EACCES');
+});
+
+test('变异：移除 EXDEV 复制后，同一跨卷落盘断言必须失败', async (t) => {
+  const mutant = changedUploads("if (error.code !== 'EXDEV') throw error;", 'throw error;');
+  await assert.rejects(() => crossVolumeScenario(t, mutant), /EXDEV 必须改用复制/);
+});
+
+async function pausedFinishScenario(t, handlers = uploadHandlers) {
+  const inbox = tempDir(t, 'dsh-upload-paused-inbox-');
+  const dest = tempDir(t, 'dsh-upload-paused-dest-');
+  let finishCount = 0;
+  const arrivals = [];
+  const arrived = (count) => new Promise((resolve) => {
+    if (finishCount >= count) resolve();
+    else arrivals.push({ count, resolve });
+  });
+  const api = await serve(inbox, {
+    workspaces: [dest], handlers,
+    onBody: (route) => {
+      if (route !== '/upload/finish') return;
+      finishCount += 1;
+      for (const item of arrivals) if (finishCount >= item.count) item.resolve();
+    },
+  });
+  let first;
+  let second;
+  try {
+    const begin = await api.post('/upload/begin', { name: '暂停.txt', destPath: dest });
+    const uploadId = begin.body.uploadId;
+    await api.post('/upload/chunk', { uploadId, index: 0, data: Buffer.from('只落一份').toString('base64') });
+    const staging = path.join(inbox, '.staging', `${uploadId}.part`);
+    queue.pauseProjectWrites(dest);
+    const controller = new AbortController();
+    first = fetch(api.base + '/upload/finish', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ uploadId }), signal: controller.signal,
+    }).then(() => null, (error) => error.name);
+    await arrived(1);
+    controller.abort();
+    assert.equal(await first, 'AbortError', '首个超时连接退出，不能绑住后续回包');
+    second = api.post('/upload/finish', { uploadId });
+    await arrived(2);
+    // 排队期间两种过期清理都不能带走 finish 正在使用的片。
+    const old = new Date(Date.now() - STAGING_TTL_MS - 1000);
+    fs.utimesSync(staging, old, old);
+    await handlers.sweepExpiredUploads(Date.now() + STAGING_TTL_MS + 1000);
+    const swept = await handlers.sweepStaging(path.join(inbox, '.staging'));
+    assert.equal(swept.deleted, 0, '磁盘清扫不能删正在收口的片');
+    assert.equal(fs.existsSync(staging), true);
+    assert.equal((await api.post('/upload/abort', { uploadId })).status, 200);
+    assert.equal(fs.existsSync(staging), true, '收口已被接受，abort 不能与落盘争用暂存');
+    assert.equal((await api.post('/upload/chunk', { uploadId, index: 1, data: 'WA==' })).status, 404);
+    queue.resumeProjectWrites(dest);
+    const finish = await second;
+    assert.equal(finish.status, 200, '排队期间的 finish 重试必须共用完成结果');
+    const replay = await api.post('/upload/finish', { uploadId });
+    assert.equal(replay.body.path, finish.body.path);
+    assert.equal(fs.readFileSync(finish.body.path, 'utf8'), '只落一份');
+    assert.deepEqual(fs.readdirSync(dest), ['暂停.txt']);
+    assert.deepEqual(fs.readdirSync(path.join(inbox, '.staging')), []);
+  } finally {
+    queue.resumeProjectWrites(dest);
+    await Promise.allSettled([first, second].filter(Boolean));
+    await api.close();
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+}
+
+test('暂停 finish：首连接断开后重试共用落盘，abort 和过期清扫不抢暂存', async (t) => {
+  await pausedFinishScenario(t);
+});
+
+test('变异：finish 入队前摘掉上传身份，同一暂停重试断言必须失败', async (t) => {
+  const mutant = changedUploads('if (!job.finishPromise) {', 'if (!job.finishPromise) {\n    removeUpload(uploadId, job);');
+  await assert.rejects(() => pausedFinishScenario(t, mutant), /磁盘清扫不能删正在收口的片|排队期间的 finish 重试必须共用完成结果|ENOENT/);
 });
 
 test('路由接线：四条端点挂在移动端路由表上，且引入了 handler 模块', () => {

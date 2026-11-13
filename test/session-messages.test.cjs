@@ -1,6 +1,6 @@
 'use strict';
 
-/** Regression coverage for regular/subagent message history and HTTP error semantics. */
+/** Regression coverage for history boundaries, retained lookback, subagents and HTTP errors. */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -198,6 +198,70 @@ test('抛出的宿主调用失败作为 502，而非客户端 400', async () => 
   } finally {
     await host.close();
   }
+});
+
+test('历史上下文没交给客户端时仍有更早页，一直翻到真正的第一条', async () => {
+  const events = Array.from({ length: 170 }, (_, index) => ({
+    type: 'user/message', seq: index + 1, time: index + 1,
+    data: { id: `page-${index + 1}`, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: `消息 ${index + 1}` }] },
+  }));
+  const host = await serve({ sessionId: 'lookback-boundary', sessionsHistory: async ({ payload }) => {
+    const before = events.filter((entry) => entry.seq < payload.beforeSeq);
+    return okValue({ events: before.slice(-payload.maxMessages), hasMore: before.length > payload.maxMessages });
+  } });
+  try {
+    let cursor = 171;
+    const received = [];
+    const more = [];
+    do {
+      const response = await fetch(host.url(`?sessionId=lookback-boundary&beforeSeq=${cursor}&limit=50`));
+      const body = await response.json();
+      received.push(...body.items.map((item) => item.seq));
+      more.push(body.hasMore);
+      assert.ok(body.oldestSeq < cursor, '每页事件位置必须前进');
+      cursor = body.oldestSeq;
+      if (!body.hasMore) break;
+      assert.ok(more.length < 5, '四页应当到达第一条');
+    } while (true);
+    assert.deepEqual(more, [true, true, true, false]);
+    assert.equal(new Set(received).size, 170);
+    assert.equal(Math.min(...received), 1);
+  } finally { await host.close(); }
+});
+
+test('变异：只抄宿主终点会漏掉尚未交付的历史', async () => {
+  const { createRequire } = require('node:module');
+  const vm = require('node:vm');
+  const filename = require.resolve('../lib/mobile/session-snapshot.js');
+  const source = await fs.readFile(filename, 'utf8');
+  const changed = source.replace('|| !!(lookback && lookback.length)', '');
+  assert.notEqual(changed, source);
+  const module = { exports: {} };
+  vm.runInNewContext(changed, { module, exports: module.exports, require: createRequire(filename), URL });
+  const events = Array.from({ length: 170 }, (_, index) => ({
+    type: 'user/message', seq: index + 1, data: { id: `mutation-${index}`, role: 'user', content: [{ type: 'text', text: 'history' }] },
+  }));
+  const ctx = { apiProxy: { sessions: { history: async () => okValue({ events, hasMore: false }) } } };
+  let body;
+  await module.exports.handleMessages(ctx, { url: `${ROUTE}?sessionId=mutated-boundary&beforeSeq=171&limit=50` }, {
+    writeHead() {}, end(text) { body = JSON.parse(text); },
+  });
+  assert.throws(() => assert.equal(body.hasMore, true), '相同终点断言必须拒绝变异版本');
+  assert.equal(body.items.length, 50);
+});
+
+test('纯工具结果页仍回事件游标与更多标记', async () => {
+  const events = Array.from({ length: 170 }, (_, index) => ({
+    type: 'tool/result', seq: index + 1,
+    data: { message: { source: { callId: `page-tool-${index}` }, content: [{ type: 'text', text: 'done' }] } },
+  }));
+  const host = await serve({ sessionsHistory: async () => okValue({ events, hasMore: true }) });
+  try {
+    const body = await (await fetch(host.url('?sessionId=tool-only-page&beforeSeq=171&limit=50'))).json();
+    assert.deepEqual(body.items, []);
+    assert.equal(body.oldestSeq, 121);
+    assert.equal(body.hasMore, true);
+  } finally { await host.close(); }
 });
 
 // ── 入口那一发按「内容」取（?thin=1）──────────────────────────────────────

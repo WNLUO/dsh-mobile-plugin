@@ -197,6 +197,40 @@ test('实时端点从已有详情副本提取完整路径，清单摘要仍保�
   assert.equal(liveStepsOf(ctx, 'live')[0].step.summary, summary);
 });
 
+test('纯文字轮是确定的空来源，不存在的轮仍不可用', async () => {
+  const ctx = { apiProxy: { sessions: { history: async () => ({ result: { ok: true, value: {
+    events: [{ type: 'assistant/message', data: { turn: 2, message: { role: 'assistant', content: [{ type: 'text', text: '回答' }] } } }], hasMore: false,
+  } } }) } } };
+  const empty = await call(ctx, { sessionId: 'plain', turn: '2' });
+  assert.equal(empty.body.turn, 2);
+  assert.deepEqual(empty.body.sources, []);
+  const missing = await call(ctx, { sessionId: 'plain', turn: '1' });
+  assert.equal(missing.body.turn, null);
+});
+
+test('旧轮的失败/中断读取不算来源，与直播一致', async () => {
+  const events = [assistantCall('/failed.md'), { type: 'tool/result', data: { turn: 1, message: { source: { callId: 'c1' }, isError: true, content: [] }, error: { code: 'interrupted' } } }];
+  const ctx = { apiProxy: { sessions: { history: async () => ({ result: { ok: true, value: { events, hasMore: false } } }) } } };
+  const out = await call(ctx, { sessionId: 'failed-old', turn: '1' });
+  assert.equal(out.body.turn, 1);
+  assert.deepEqual(out.body.sources, []);
+});
+
+test('点名较早轮时按游标取回该轮，不把尾窗当全部历史', async () => {
+  const cursors = [];
+  const ctx = { apiProxy: { sessions: { history: async ({ payload }) => {
+    cursors.push(payload.beforeSeq);
+    const events = payload.beforeSeq === undefined
+      ? [{ type: 'turn/start', seq: 30, data: { turn: 3 } }, { ...assistantCall('/new.md'), seq: 31, data: { ...assistantCall('/new.md').data, turn: 3 } }]
+      : [{ type: 'turn/start', seq: 1, data: { turn: 1 } }, { ...assistantCall(longPath), seq: 2 }];
+    return { result: { ok: true, value: { events, hasMore: payload.beforeSeq === undefined } } };
+  } } } };
+  const out = await call(ctx, { sessionId: 'old', turn: '1' });
+  assert.equal(out.body.turn, 1);
+  assert.equal(out.body.sources[0].place, longPath);
+  assert.deepEqual(cursors, [undefined, 30]);
+});
+
 test('历史端点从原始工具参数提取完整路径', async () => {
   const ctx = {
     apiProxy: { sessions: { history: async () => ({
