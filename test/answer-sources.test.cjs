@@ -8,15 +8,24 @@
 //  ② **失败的那一次不算读过**：抓取报错、读文件被拒没留下材料；
 //  ③ **只给指针不带正文**：返回里没有一分正文，标题按类别取（网页给域名、文件给文件名）；
 //  ④ **读过的材料照单全出**：折叠成几条是手机侧的事，插件只在极端条数上兜底。
+//  ⑤ **来源指针完整保留**：长路径 / 网址不拿截短摘要代替，实时与历史两条端点都真跑。
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { answerSourcesOf, MAX_SOURCES } = require('../lib/mobile/answer-sources.js');
+const { answerSourcesOf, handleAnswerSources, MAX_SOURCES } = require('../lib/mobile/answer-sources.js');
+const { toolStepSummary } = require('../lib/mobile/step-index.js');
+const { noteLiveEvent, liveStepsOf } = require('../lib/mobile/live-steps.js');
 
-/** 造一步（与 `liveStepsOf` / `turnProcess.steps` 同一个形状）。 */
-function step(name, summary, extra) {
-  return { key: `tool:${name}-${summary}`, step: { kind: 'tool', name, summary, state: 'ok', ...(extra || {}) } };
+/** 造一步：原始参数只在宿主内供来源提取，过程摘要仍截到原来的上限。 */
+function step(name, place, extra) {
+  const key = name === 'web_fetch' ? 'url' : name === 'web_search' ? 'query' : 'file_path';
+  const argsRaw = JSON.stringify({ [key]: place });
+  return {
+    key: `tool:${name}-${place}`,
+    argsRaw,
+    step: { kind: 'tool', name, summary: toolStepSummary(name, argsRaw), state: 'ok', ...(extra || {}) },
+  };
 }
 const think = { key: 'think:0', step: { kind: 'think', summary: '先想想', state: 'ok' } };
 
@@ -113,10 +122,89 @@ test('返回的是指针形状：有 obsId / mediaIds，正文一个字都不带
   assert.equal(Object.values(hit).some((value) => typeof value === 'string' && value.length > 200), false);
 });
 
-test('没有步骤 / 形状不对 / 摘要为空时不出条目', () => {
+test('没有步骤 / 形状不对 / 指针为空时不出条目', () => {
   assert.deepEqual(answerSourcesOf([]), []);
   assert.deepEqual(answerSourcesOf(null), []);
   assert.deepEqual(answerSourcesOf([{ key: 'x' }, null, 3]), []);
   assert.deepEqual(answerSourcesOf([step('web_fetch', '')]), []);
   assert.deepEqual(answerSourcesOf([{ key: 'y', step: { kind: 'think', summary: '想想' } }]), []);
+});
+
+const longDirectory = `/Volumes/移动硬盘/code/项目/${'资料目录/'.repeat(12)}`;
+const longPath = `${longDirectory}方案说明.md`;
+const longUrl = `https://example.com/${'chapter/'.repeat(15)}reference?section=conclusion`;
+
+test('长路径保留完整文件名与地址，不拿 72 字摘要当来源', () => {
+  const entry = step('read', longPath);
+  assert.notEqual(entry.step.summary, longPath, '用例必须覆盖路径已被过程摘要截短的情况');
+  const [hit] = answerSourcesOf([entry]);
+  assert.equal(hit.title, '方案说明.md');
+  assert.equal(hit.place, longPath);
+  assert.equal(Object.hasOwn(hit, 'argsRaw'), false, '原始参数不下发');
+});
+
+test('同一长目录的两个文件各自保留，不会被相同的截短摘要合并', () => {
+  const first = step('read', longPath);
+  const second = step('read_image', `${longDirectory}参考截图.jpg`);
+  assert.equal(first.step.summary, second.step.summary);
+  const hits = answerSourcesOf([first, second]);
+  assert.deepEqual(hits.map((hit) => hit.title), ['方案说明.md', '参考截图.jpg']);
+});
+
+test('长网址与多个搜索词完整保留', () => {
+  const queries = ['长路径显示 '.repeat(15).trim(), '来源与输出的区别'];
+  const hits = answerSourcesOf([
+    step('web_fetch', longUrl),
+    { ...step('web_search', ''), argsRaw: { queries } },
+  ]);
+  assert.equal(hits[0].place, longUrl);
+  assert.equal(hits[0].title, 'example.com');
+  assert.deepEqual(hits.slice(1).map((hit) => hit.place), queries);
+});
+
+/** 端点用与一步详情相同的响应假体，直接核对真实返回。 */
+function call(ctx, query) {
+  return new Promise((resolve, reject) => {
+    const res = {
+      req: { headers: {} },
+      writeHead(status) { this.status = status; },
+      end(text) { resolve({ status: this.status, body: JSON.parse(text) }); },
+    };
+    handleAnswerSources(ctx, { url: `/api/mobile/v1/session/answer-sources?${new URLSearchParams(query)}` }, res).catch(reject);
+  });
+}
+
+function assistantCall(path) {
+  return {
+    type: 'assistant/message',
+    data: {
+      turn: 1,
+      message: { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read', arguments: JSON.stringify({ file_path: path }) }] },
+    },
+  };
+}
+
+test('实时端点从已有详情副本提取完整路径，清单摘要仍保持短文本', async () => {
+  const ctx = { apiProxy: { sessions: { history: async () => { throw new Error('不应回拉历史'); } } } };
+  noteLiveEvent(ctx, 'live', { type: 'turn/start', data: { turn: 1 } });
+  noteLiveEvent(ctx, 'live', assistantCall(longPath));
+  const summary = liveStepsOf(ctx, 'live')[0].step.summary;
+  assert.notEqual(summary, longPath);
+  const result = await call(ctx, { sessionId: 'live', turn: '1' });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.sources[0].title, '方案说明.md');
+  assert.equal(result.body.sources[0].place, longPath);
+  assert.equal(liveStepsOf(ctx, 'live')[0].step.summary, summary);
+});
+
+test('历史端点从原始工具参数提取完整路径', async () => {
+  const ctx = {
+    apiProxy: { sessions: { history: async () => ({
+      result: { ok: true, value: { events: [{ type: 'event', event: assistantCall(longPath) }], hasMore: false } },
+    }) } },
+  };
+  const result = await call(ctx, { sessionId: 'history', turn: '1' });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.sources[0].title, '方案说明.md');
+  assert.equal(result.body.sources[0].place, longPath);
 });
