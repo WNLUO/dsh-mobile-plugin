@@ -26,15 +26,22 @@ const HISTORY = path.join(MOB, 'history-derive.js');
 const ENVELOPE = path.join(MOB, 'envelope.js');
 
 const read = (file) => fs.readFileSync(file, 'utf8');
-const lineCount = (file) => read(file).split('\n').length;
+/**
+ * 代码行数：剥掉注释与空行。规模上限只数这个数 —— 注释与空行不该挤掉实现的空间，按纸面
+ * 行数算会逼着人删注释来腾地方（与 app 侧 `scripts/lib/source.js` 的 `codeLines` 同口径）。
+ */
+const codeLineCount = (text) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+    .split('\n').filter((line) => line.trim().length > 0).length;
+const lineCount = (file) => codeLineCount(read(file));
 
 test('sessions.js 从 1964 行降下来，且没有反弹回单体', () => {
   const lines = lineCount(SESSIONS);
   assert.ok(
-    lines < 1600,
-    `sessions.js 应保持在 1600 行以内，实际 ${lines} 行（拆分前是 1964）`,
+    lines < 400,
+    `sessions.js 应保持在 400 代码行以内，实际 ${lines} 行（拆分前是 1964 行）`,
   );
-  assert.ok(lines > 300, `sessions.js 只剩 ${lines} 行，疑似把路由层也搬空了`);
+  assert.ok(lines > 120, `sessions.js 只剩 ${lines} 代码行，疑似把路由层也搬空了`);
 });
 
 test('纯派生逻辑住在 history-derive.js，不在 sessions.js 里', () => {
@@ -282,7 +289,10 @@ test('按 ctx 隔离的可变状态只在 session-cache.js 与 rpc.js 里', () =
   // 2026-11-12：加进第十九张表 —— 交付声明补格的账（`presented-file-stats.js`）。它也是
   // 宿主进程状态（这一台电脑上量到过的 size/mtime），按 ctx 隔离；桶内按「`deriveMessages`
   // 交回来的数组」认，派生缓存对同一份输入交回同一个数组，同指纹的第二次调用就不再 stat。
-  assert.equal(owners.get('session-cache.js'), 19, '会话侧的十九张表（含已删除会话 ID、上一轮事实、代发轮次、直播过程副本、写入者与清单接收器、隔离树回收节流、交付声明补格）：状态均按 ctx 隔离');
+  // 2026-11-13：加进第二十张表 —— 直播中的工作流运行（`workflow-live.js`）。它与直播过程
+  // 副本同一类状态（这一轮跑到哪、哪几个成员在跑），按 ctx 隔离的理由一样：两台宿主同时
+  // 在跑时，串了就是「A 上的工作流卡长在 B 的对话里」。
+  assert.equal(owners.get('session-cache.js'), 20, '会话侧的二十张表（含已删除会话 ID、上一轮事实、代发轮次、直播过程副本、写入者与清单接收器、隔离树回收节流、交付声明补格、直播工作流）：状态均按 ctx 隔离');
   // session-cache.js 是叶子：它不许反过来依赖任何会话模块。
   assert.doesNotMatch(read(path.join(MOB, 'session-cache.js')), /require\(/);
   // 对外路径不变：这五个访问器仍从 sessions.js 转出。
@@ -362,7 +372,7 @@ test('网关直连只许出现在 host-bridge/transport.js', () => {
 test('sessions.js 只剩会话列表，每个子模块各守一个领域', () => {
   const sessions = read(SESSIONS);
   const lines = lineCount(SESSIONS);
-  assert.ok(lines < 500, `sessions.js 应保持在 500 行以内，实际 ${lines}（拆分前是 1964）`);
+  assert.ok(lines < 400, `sessions.js 应保持在 400 代码行以内，实际 ${lines}（拆分前是 1964 行）`);
 
   const HOME = {
     'attachments.js': ['resolveEventAttachments'],
@@ -379,19 +389,20 @@ test('sessions.js 只剩会话列表，每个子模块各守一个领域', () =>
     'session-goal.js': ['callGoals', 'handleGoalAction'],
     'session-presets.js': ['handleAgentPresets'],
   };
+  // 上限一律按**代码行**（剥掉注释与空行）给，比「今天的纸面行数」宽两成左右。
   const CEILING = {
-    'attachments.js': 160, 'completion.js': 150, 'session-last-turn.js': 130, 'session-models.js': 220,
-    'recent-failures.js': 90,
-    'session-search.js': 120, 'session-send.js': 330, 'session-snapshot.js': 200,
-    'session-head.js': 100,
-    'session-stats.js': 80,
-    'session-mirror.js': 200, 'session-goal.js': 90, 'session-presets.js': 100,
+    'attachments.js': 130, 'completion.js': 130, 'session-last-turn.js': 100, 'session-models.js': 220,
+    'recent-failures.js': 60,
+    'session-search.js': 70, 'session-send.js': 280, 'session-snapshot.js': 160,
+    'session-head.js': 70,
+    'session-stats.js': 60,
+    'session-mirror.js': 150, 'session-goal.js': 60, 'session-presets.js': 60,
   };
   for (const [file, names] of Object.entries(HOME)) {
     const text = read(path.join(MOB, file));
     assert.ok(
       lineCount(path.join(MOB, file)) <= CEILING[file],
-      `${file} 涨到 ${lineCount(path.join(MOB, file))} 行，超过 ${CEILING[file]} 的上限`,
+      `${file} 涨到 ${lineCount(path.join(MOB, file))} 代码行，超过 ${CEILING[file]} 的上限`,
     );
     for (const name of names) {
       assert.match(text, new RegExp(`^((async )?function ${name}\\(|  ${name},$)`, 'm'), `${name} 应该住在 ${file}`);

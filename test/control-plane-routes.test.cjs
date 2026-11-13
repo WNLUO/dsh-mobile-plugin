@@ -78,6 +78,8 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/panel/settings',
     // 调试页：桌面端那颗手机图标点开的就是它（同一份 HTML，分流在 React 侧）。
     '/api/relay/panel/debug',
+    // 控制台那一窗：同一份 HTML，点手机图标进来的第一屏。
+    '/api/relay/panel/console',
     '/api/relay/onboarded',
     '/api/relay/read-receipt',
     '/api/relay/desktop-read',
@@ -383,6 +385,38 @@ test('行为：/status 把面板地址的分类一起报出去（那颗图标据
   assert.equal(res.body.panelUrl, 'http://192.168.1.20:19387/api/relay/panel');
 });
 
+test('行为：/status 报「配了几台手机、最近一次连线」（图标标题要说这句）', async () => {
+  // 与 `/devices` 同一把键、同一份活记录：两边数出不一样的台数比不显示更糟。
+  const table = controlRoutes({
+    state: { instanceId: 'i1' },
+    credentials: {
+      listDevices: () => [],
+      listHistory: () => [],
+      listDevicesWithHistory: () => ({
+        devices: [
+          { deviceId: 'a', lastSeenAt: 1_700_000_000_000 },
+          { deviceId: 'b', lastSeenAt: 1_700_000_500_000 },
+          { deviceId: 'c', lastSeenAt: 0 }, // 绑了但从没连过，不参与「最近」但算台数
+        ],
+        history: [],
+      }),
+    },
+  });
+  const res = {};
+  await table.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.devices, { count: 3, lastSeenAt: 1_700_000_500_000 });
+});
+
+test('行为：/status 拿不到凭据库时报 null，不编一个 0 台', async () => {
+  // 「不知道」与「一台都没有」在界面上是两句不同的话，混成一个就会天天提示去配对。
+  const table = controlRoutes({ state: {}, credentials: { listDevices: () => [], listHistory: () => [] } });
+  const res = {};
+  await table.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.devices, null);
+});
+
 test('行为：那颗图标能从同源界面把两小时窗口打开 —— 不再要求请求来自本机回环', async () => {
   // 2026-11-02 用户拍板放宽：公网 / 局域网部署的人就是在自己的浏览器里点那颗图标，
   // 按老判据（trustedLocalUi）会 403，于是谁都开不了窗口、面板永远 423。
@@ -460,7 +494,7 @@ test('只有面板页放开「人点开的一页」，别的控制面路由不�
   // 社区桌面壳会把自己接住的链接原地打开，从自定义协议页跳到面板地址时必带
   // `sec-fetch-site: cross-site`。这一种形态只对「只读的一页」放开（面板页、桌面画布页）；
   // 放开别的就得先想清楚它是不是也能被别人的网页点开。
-  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/debug', '/api/relay/panel/settings', '/api/relay/panel/setup']);
+  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/console', '/api/relay/panel/debug', '/api/relay/panel/settings', '/api/relay/panel/setup']);
 });
 
 test('行为：设备清单带「历史有几条」，同一个 handler 按 ?history=1 换成已解绑清单', async () => {

@@ -22,7 +22,15 @@ const LIFECYCLE = path.join(LIB, 'sidecar-lifecycle.cjs');
 const PUSHER = path.join(LIB, 'mirror', 'pusher.cjs');
 
 const read = (file) => fs.readFileSync(file, 'utf8');
-const lineCount = (file) => read(file).split('\n').length;
+/**
+ * 代码行数：剥掉注释与空行。所有规模上限都只数这个数 —— 注释与空行不该挤掉实现的空间，
+ * 而按纸面行数算会逼着人删注释来腾地方（与 app 侧 `scripts/lib/source.js` 的 `codeLines`
+ * 同一个口径）。
+ */
+const codeLineCount = (text) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+    .split('\n').filter((line) => line.trim().length > 0).length;
+const lineCount = (file) => codeLineCount(read(file));
 
 /** 已经搬走的实现：名字 → 现在的住处（只用于报错信息说清该去哪）。 */
 const EXTRACTED = [
@@ -69,7 +77,7 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 2026-11-10 +9：推送出口接线（`createPushNotifier` 一 require 一实例化、晚绑定壳两行、
   // 传给镜像调度器一格、交给路由表一格、两个 `setPushNotifier` 各一行）；组帧、去重与
   // 投递都在 `mobile/push-notify.js`，装配层只是把它接上。
-  assert.ok(lines <= 610, `lib/impl.js 回到 ${lines} 行了；超过 610 说明实现又被搬回装配层`);
+  assert.ok(lines <= 480, `lib/impl.js 回到 ${lines} 代码行了；超过 480 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {
@@ -125,7 +133,7 @@ test('入口是稳定外壳：实现住在代里，换代不重启 DSH', () => {
   assert.match(shell, /export const inject/, '外壳必须声明 inject，否则拿不到 webServer');
   assert.match(shell, /export function apply/, '外壳必须导出 apply');
   assert.match(shell, /createRuntime\(/, '外壳必须用 shell/runtime.js 装载代');
-  assert.ok(shell.split('\n').length <= 200, `lib/index.js ${shell.split('\n').length} 行了：外壳只该有装载逻辑，业务代码住进代里`);
+  assert.ok(codeLineCount(shell) <= 200, `lib/index.js ${codeLineCount(shell)} 代码行了：外壳只该有装载逻辑，业务代码住进代里`);
   // 装载失败必须**还会再试**：一次失败等于整张控制面路由表都不在，而设置页照样画得出来，
   // 现场只剩一句「读取宿主状态失败: HTTP 404」。行为测试造不出「所有代都失败」——随包
   // 那一代永远装得起来——所以这里钉接线与「有限次重试」的形状。

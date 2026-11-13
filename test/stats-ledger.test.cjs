@@ -1410,6 +1410,70 @@ test('seenSeq 落盘并读回：老账本没有这一栏按 0 处理（升级后
   assert.equal(day === '2026-11-10', true);
 });
 
+test('跳过采集的判据必须看磁盘：摘要与游标都停在旧值、日志却一直在写时不许跳过', async () => {
+  // 2026-11-13：真账本上 1134 条活会话里 779 条的 `seenUpdatedAt` 停在最后提示那一刻，
+  // 其中 393 条日志在那之后仍在增长。摘要 `updatedAt` 不变、游标也追平，两个判据同时成立，
+  // 这条会话于是被永久跳过 —— 那一截用量永远记不上，页面上就是「统计不全」。
+  await withHome(async (home) => {
+    // 日志目录照宿主的布局摆：sessions/<cwd 目录>/<sessionId>/session.v4.jsonl.zstd。
+    const directory = path.join(home, 'sessions', '--tmp-proj--', 's1');
+    fs.mkdirSync(directory, { recursive: true });
+    const logFile = path.join(directory, 'session.v4.jsonl.zstd');
+    fs.writeFileSync(logFile, 'v1');
+
+    const start = Date.now() - 200_000;
+    const first = eventLog(start);
+    first.turn(1).step({ turn: 1, step: 1, input: 10, output: 1 });
+    const items = [{ sessionId: 's1', cwd: '/tmp/proj', updatedAt: start }];
+
+    // 宿主的 history：内容由闭包里的 `all` 决定，好让「日志后来又写了」表现为真实的事件增量。
+    let all = first.events;
+    let reads = 0;
+    const ctx = fakeCtx({ items, projectionsById: { s1: projectionOf(first.events) } });
+    ctx.apiProxy.sessions.history = () => {
+      reads += 1;
+      return { result: { ok: true, value: { events: all.map((event) => ({ event })) } } };
+    };
+
+    // 第一轮：真读一遍，把游标与日志指纹都建起来。
+    await collectStats(ctx, { force: true });
+    assert.ok(reads > 0, '第一轮读到它');
+    const book = ledger.readLedger();
+    assert.ok(book.sessions.s1.seenLogSize > 0, '日志指纹落盘');
+    assert.ok(book.sessions.s1.seenLogMtime > 0, '修改时刻也落盘');
+
+    // 两轮之间把 `collectedAt` 拨老：真实场景是「上一轮采集已经过去几分钟」，而 `force`
+    // 会跳过 60 秒最小间隔那条路 —— 这里要测的是**跳过判据**本身，不是那条节流。
+    const ageOut = () => {
+      const current = ledger.readLedger();
+      current.sessions.s1.collectedAt = Date.now() - 120_000;
+      ledger.saveLedger(current);
+    };
+
+    // 第二轮：日志一个字节都没变，摘要与游标也都停着 —— 这一轮可以跳过（空闲时不该反复解日志）。
+    const settled = reads;
+    ageOut();
+    await collectStats(ctx, {});
+    assert.equal(reads, settled, '日志没长过就不读事件');
+
+    // 第三轮：摘要 `updatedAt` 一点没变、游标也追平了上一轮，日志却继续写 —— 旧判据这时会
+    // 跳过；新判据必须发现磁盘变了，把新事件折进来。
+    // 第二段事件的 seq 必须接在第一段后面（同一个会话的日志是一条连续的序号流）。
+    const offset = first.events[first.events.length - 1].seq + 1;
+    const second = eventLog(start + 100_000);
+    second.turn(2).step({ turn: 2, step: 1, input: 777, output: 33 });
+    const tail = second.events.map((event) => ({ ...event, seq: event.seq + offset }));
+    all = first.events.concat(tail);
+    fs.writeFileSync(logFile, 'v2-much-longer');
+    ageOut();
+    await collectStats(ctx, {});
+    assert.ok(reads > settled, '日志长过就必须真读一遍');
+    const after = ledger.readLedger();
+    const expected = ledger.num(first.events[first.events.length - 1].seq);
+    assert.ok(after.sessions.s1.lastSeq > expected, '游标推进到新事件');
+  });
+});
+
 test('定期采集一轮只翻有限页，有人打开统计页那一轮才翻到底', async () => {
   // 600 个 step × 4 条事件 = 2400 条，按 400 一页要翻 6 页才到底。首采（没有游标）才会往旧翻，
   // 所以两条路各用一个干净的账本跑一遍。

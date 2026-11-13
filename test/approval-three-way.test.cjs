@@ -163,7 +163,28 @@ test('allowed-class：当前这条折成 allowed-once 交回宿主，并记住�
   assert.equal(res.status, 200);
   assert.equal(res.body.remembered, true);
   assert.equal(await held, 'allowed-once', '宿主只有 allowed-once 能放行');
-  assert.equal(approvalMemory.hasRule('bash:git:commit'), true, '动作类别应被记住');
+  // 记账键带档位尾巴：这条请求要的是升到完全访问（见 `approvalReq` 的 reason），所以记的是
+  // 「完全访问下这一类」，不是不限档位的通用规则。
+  assert.equal(approvalMemory.hasRule('bash:git:commit@danger-full-access'), true, '动作类别应被记住');
+  assert.equal(approvalMemory.hasRule('bash:git:commit'), false, '别写成不认档位的键');
+});
+
+/**
+ * 「以后都同意」按档位记账：在工作区档下同意的同类动作，换到完全访问档要重新问。
+ *
+ * 档位是这条请求要升到哪一档沙箱 —— 在`workspace-write`下点头，不等于愿意让它拿到完全访问。
+ */
+test('档位不同的同类请求不算「已经同意过」，照旧弹卡', async () => {
+  clearRules();
+  approvalMemory.addRule({ classKey: 'bash:git:commit@workspace-write', label: 'Bash · git commit' });
+  const { ctx, cards, watch } = setup();
+  const session = fakeSession('s-1', [toolCall('call-1', 'bash', { command: 'git commit -m "x"' })]);
+  watch('s-1');
+  fire(ctx, 'session/event', session, { type: 'approval/asked', data: { id: 'ap-1', toolName: 'bash', callId: 'call-1' } });
+  const held = runHook(ctx, approvalReq(session), HOLD); // approvalReq 的 reason 是 danger-full-access
+  await flush();
+  assert.ok(cards.some((frame) => frame.type === 'approval/requested'), '换了档位要重新出卡');
+  void held;
 });
 
 /**
@@ -231,7 +252,7 @@ test('历史记忆里存过 rm / push / 装包：加载时忽略，也不再生�
 
 test('记住之后同类请求不再弹卡，直接静默放行', async () => {
   clearRules();
-  approvalMemory.addRule({ classKey: 'bash:git:commit', label: 'Bash · git commit' });
+  approvalMemory.addRule({ classKey: 'bash:git:commit@danger-full-access', label: 'Bash · git commit' });
   const { ctx, cards } = setup();
   const session = fakeSession('s-1', [toolCall('call-1', 'bash', { command: 'git commit -m "x"' })]);
   const held = runHook(ctx, approvalReq(session), HOLD);
