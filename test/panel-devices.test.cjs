@@ -62,7 +62,11 @@ test('设备卡：没有设备时整卡消失，不是渲染成空列表', () =>
 
 test('设备卡：3 秒一轮，跟页面那份状态同一个节奏', () => {
   assert.match(devices, /window\.setInterval\(tick, 3000\)/, '设备清单要 3 秒轮询一次');
-  assert.match(devices, /document\.hidden/, '页面切到后台就别再问宿主');
+  // 2026-11-13 决策变了：面板被嵌在桌面那一窗里、收起时不销毁（见 React/src/lib/embed-visibility.ts），
+  // 「看不看得见」除了 document.hidden 还要看父窗口有没有收起来，所以页面里判可见性统一问 pageVisible()。
+  // 那条判据内部仍然看 document.hidden —— 切后台照样停轮询，只是入口收成一份。
+  assert.match(devices, /!pageVisible\(\)/, '页面切到后台 / 被父窗口收起时别再问宿主');
+  assert.match(devices, /from '\.\.\/lib\/embed-visibility(\.ts)?'/, '可见性判据只走 embed-visibility 那一份');
   assert.match(devices, /\/api\/relay\/devices'/, '设备清单只从这条路由读');
   // 吊销成功后必须立刻重拉，不能等下一轮 3 秒。
   const revoke = devices.slice(devices.indexOf('async function revoke'), devices.indexOf('if (devices.length === 0'));
