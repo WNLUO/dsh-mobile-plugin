@@ -146,5 +146,6 @@ test('写失败（工具报错）的文件不算这一轮产出', () => {
     answerEvent({ seq: 3, turn: 1, step: 2, text: '没写成。' }),
   ]);
 
-  assert.equal(assistants(items).at(-1).producedFiles, undefined, '失败的那次不该进清单');
+  // 新协议每轮下发完整快照：没有产出就是空数组，App 靠它清掉撤销过的产出，所以不再缺字段。
+  assert.deepEqual(assistants(items).at(-1).producedFiles, [], '失败的那次不该进清单');
 });
