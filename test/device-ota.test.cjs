@@ -5,6 +5,12 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const zlib = require('node:zlib')
+const crypto = require('node:crypto')
+
+/** 中转记录里的 sha256（`apply` 现在缺它即拒装）。 */
+function sha256(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex')
+}
 
 function tarEntry(name, content) {
   const data = Buffer.from(content)
@@ -121,7 +127,7 @@ test('device OTA extracts into its release directory and activates through runti
     platform: 'linux', channel: 'stable', installed: () => '1.2.0', runtime,
     fetchImpl: async url => {
       calls.push(url)
-      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: { version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl } }) }
+      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: { version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: sha256(archive('1.3.0')) } }) }
       return { ok: true, arrayBuffer: async () => archive('1.3.0') }
     },
   })
@@ -189,7 +195,7 @@ test('包不完整（清单里有、实际缺）：激活前失败并点名缺�
   const ota = createDeviceOta({
     platform: 'linux', channel: 'stable', installed: () => '1.2.0', runtime,
     fetchImpl: async url => {
-      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: { version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl } }) }
+      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: { version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: sha256(manifestArchive('1.3.0', { missing: ['lib/mobile/gone.js'] })) } }) }
       return { ok: true, arrayBuffer: async () => manifestArchive('1.3.0', { missing: ['lib/mobile/gone.js'] }) }
     },
   })

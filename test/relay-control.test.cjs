@@ -295,21 +295,24 @@ test('端口自检：自己的网页端口、自己正在监听的端口、被�
   assert.equal(bad.body.reason, 'out-of-range');
 });
 
-test('测速：只测 http(s)、最多 8 条，不把宿主当任意地址探测器', async () => {
+test('测速：只测配置里登记过的中转候选、最多 8 条，不把宿主当任意地址探测器', async () => {
   const seen = [];
   const { deps } = makeDeps({ deps: { probeUrls: async (urls) => { seen.push(...urls); return urls.map((url) => ({ url, ms: 5 })); } } });
   const handlers = createRelayControlHandlers(deps);
   const urls = [
-    'https://a.example.com',
-    'ftp://b.example.com',
-    'javascript:alert(1)',
-    'https://c.example.com/',
-    ...Array.from({ length: 10 }, (_, i) => `https://x${i}.example.com`),
+    'https://relay.example.com',           // 配置里那条 → 测
+    'https://relay.example.com/',          // 同 host 带斜杠 → 测
+    'ftp://relay.example.com',             // 非 http(s) → 丢
+    'http://192.168.1.5:8080',             // 私网地址不在配置里 → 丢（内网扫描）
+    'http://127.0.0.1:18787',              // 回环不在配置里 → 丢
+    'https://evil.example.com',            // 其它域名 → 丢
+    ...Array.from({ length: 10 }, (_, i) => `https://relay.example.com/${i}`), // 上限 8
   ];
   const res = fakeRes();
   await handlers.handleRelayProbe({}, reqWith({ urls }), res);
   assert.ok(seen.length <= 8, `最多测 8 条，实际 ${seen.length}`);
   assert.ok(seen.every((url) => /^https?:\/\//.test(url)), '只许 http(s)');
+  assert.ok(seen.every((url) => new URL(url).host === 'relay.example.com'), '只测配置里登记过的中转 host');
 });
 
 test('试连（stage:"prepare"）：一行都不落盘，临时实例 id 与正式 id 不同', async () => {

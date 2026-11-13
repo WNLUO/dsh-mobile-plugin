@@ -213,9 +213,9 @@ const isApiUnauthorized = (res) => {
     assert.equal(opened.ok, true)
     assert.equal(opened.proto, 2)
     assert.ok(opened.token && opened.cookie, '解开的回包里要有 token 与 cookie')
-    assert.ok(
-      String(sealedPair.headers['set-cookie'] && sealedPair.headers['set-cookie'][0] || '').startsWith('dsh_lan='),
-      'cookie 头照旧要下发',
+    assert.equal(
+      sealedPair.headers['set-cookie'], undefined,
+      '加密回包不该再下发明文 Set-Cookie：凭据已经在密文 body 里',
     )
 
     // 6. 授权通过 → 签发 token / cookie / 设备凭据，设备元数据完整送达宿主
@@ -233,6 +233,10 @@ const isApiUnauthorized = (res) => {
     // 服务端按整串哈希查库，不解析它。
     assert.equal(grant.token, grant.deviceCredential, 'token 与 deviceCredential 必须是同一枚')
     assert.equal(grant.cookie, `dsh_lan=${grant.deviceCredential}`, 'cookie 也是同一枚')
+    assert.ok(
+      String(paired.headers['set-cookie'] && paired.headers['set-cookie'][0] || '').startsWith('dsh_lan='),
+      '明文老路照旧用 Set-Cookie 下发',
+    )
     assert.equal(grant.token.split('.')[0], INSTANCE, '第一段是实例号（老 App 靠它补路由键）')
     assert.equal(grant.token.split('.').length, 3, '保留三段形状')
     assert.ok(grant.credentialExpiresAt > Date.now(), '到期时间来自记录')

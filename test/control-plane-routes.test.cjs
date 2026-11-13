@@ -417,10 +417,11 @@ test('行为：/status 拿不到凭据库时报 null，不编一个 0 台', asyn
   assert.equal(res.body.devices, null);
 });
 
-test('行为：那颗图标能从同源界面把两小时窗口打开 —— 不再要求请求来自本机回环', async () => {
-  // 2026-11-02 用户拍板放宽：公网 / 局域网部署的人就是在自己的浏览器里点那颗图标，
-  // 按老判据（trustedLocalUi）会 403，于是谁都开不了窗口、面板永远 423。
-  // 跨站与经代理转发的请求仍在 localOnly 那一层挡着，这里只钉 handler 不再要求回环。
+test('行为：那颗图标能从同源界面把两小时窗口打开 —— 本机地址直连即可，不要求回环', async () => {
+  // 2026-11-02 放宽：公网 / 局域网部署的人就是在自己的浏览器里点那颗图标，按老的
+  // trustedLocalUi（要求 socket 回环）会 403，于是谁都开不了窗口、面板永远 423。
+  // 现在的判据是 Host 必须是地址字面量（IP / localhost）：跨站与经代理转发的仍在 localOnly
+  // 挡着，DNS 重绑定页面带的是域名 Host，会被这一条挡掉（见下一条用例）。
   const table = controlRoutes({ state: {} });
   const opened = {};
   await table.get('/api/relay/web-access')(
@@ -431,12 +432,39 @@ test('行为：那颗图标能从同源界面把两小时窗口打开 —— 不
   assert.equal(opened.body.webAccess.enabled, true);
 
   const closed = {};
-  await table.get('/api/relay/web-access')({ method: 'POST', body: { enabled: false } }, closed);
+  await table.get('/api/relay/web-access')(
+    { method: 'POST', headers: { host: '203.0.113.9:19387' }, body: { enabled: false } },
+    closed,
+  );
   assert.equal(closed.body.webAccess.enabled, false, '关掉也要走同一条路');
 
   const bad = {};
-  await table.get('/api/relay/web-access')({ method: 'POST', body: { enabled: 'yes' } }, bad);
+  await table.get('/api/relay/web-access')(
+    { method: 'POST', headers: { host: '203.0.113.9:19387' }, body: { enabled: 'yes' } },
+    bad,
+  );
   assert.equal(bad.status, 400, 'enabled 必须是布尔值，别把字符串当开');
+});
+
+test('行为：DNS 重绑定页面（域名 Host）不能自己把管理窗口打开', async () => {
+  // 重绑定页面 origin 与 Host 都是攻击者的域名，localOnly 的同源判断认不出；挡它的判据是
+  // 「Host 必须是 IP 字面量 / localhost」，域名 Host 一律 403。
+  const table = controlRoutes({ state: {} });
+  for (const host of ['evil.example.com', 'rebind.test:19387']) {
+    const res = {};
+    await table.get('/api/relay/web-access')(
+      { method: 'POST', headers: { host }, body: { enabled: true } },
+      res,
+    );
+    assert.equal(res.status, 403, `域名 Host（${host}）不该能开窗口`);
+    assert.equal(res.body.error.code, 'local_only');
+  }
+  const loop = {};
+  await table.get('/api/relay/web-access')(
+    { method: 'POST', headers: { host: '127.0.0.1:19387' }, body: { enabled: true } },
+    loop,
+  );
+  assert.equal(loop.status, 200, '回环本机照旧能开');
 });
 
 test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；开窗后放行管理 API', async () => {
