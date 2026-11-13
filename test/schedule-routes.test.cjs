@@ -248,6 +248,43 @@ test('list：从目录里筛出该会话的全部任务（active + inactive 都�
   });
 });
 
+test('list?brief=1：只回条数与最近要跑的那条，筛选口径与整份清单一致', async () => {
+  const a = {
+    id: 'schedule-a', sessionId: 'session-b', status: 'active', kind: 'every',
+    title: '每小时', prompt: '看构建', scheduledAt: '2026-10-21T03:00:00.000Z', everySeconds: 3600,
+  };
+  const b = {
+    id: 'schedule-b', sessionId: 'session-b', status: 'active', kind: 'at',
+    title: '更早那条', prompt: '提醒', scheduledAt: '2026-10-20T01:00:00.000Z',
+  };
+  const done = { id: 'schedule-done', sessionId: 'session-b', status: 'inactive', kind: 'at', title: '已结束', prompt: 'x' };
+  const other = { id: 'schedule-other', sessionId: 'session-a', status: 'active', kind: 'every', title: '别的会话', prompt: 'x' };
+  await withHost({ catalog: () => [a, b, done, other] }, async (host) => {
+    const res = await host.get(`${BASE}/list`, '?sessionId=session-b&brief=1');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.brief, true);
+    assert.equal(res.body.count, 2, '只数 active；inactive 与别的会话都不算');
+    assert.equal(res.body.firstTaskId, 'schedule-b', '下次运行最近的那条（10-20 早于 10-21）');
+    assert.equal('records' in res.body, false, 'brief 档不搬每条任务的正文本与规则');
+    // 与整份清单同一套筛选：同一条会话、同一种 active 判据。
+    const full = await host.get(`${BASE}/list`, '?sessionId=session-b');
+    assert.deepEqual(
+      full.body.records.filter((r) => r.state === 'active').map((r) => r.id).sort(),
+      ['schedule-a', 'schedule-b'],
+    );
+  });
+});
+
+test('list?brief=1：一条活动任务都没有时回 count 0 且不带 firstTaskId', async () => {
+  const done = { id: 'schedule-done', sessionId: 'session-c', status: 'inactive', kind: 'at', title: '已结束', prompt: 'x' };
+  await withHost({ catalog: () => [done] }, async (host) => {
+    const res = await host.get(`${BASE}/list`, '?sessionId=session-c&brief=1');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.count, 0);
+    assert.equal('firstTaskId' in res.body, false);
+  });
+});
+
 test('history：默认 limit 20，游标 / 保留策略 / 两条标记原样回给手机', async () => {
   const hostResult = () => ({
     id: 'schedule-weekly',
