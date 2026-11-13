@@ -518,3 +518,27 @@ test('离线期间跑坏过的那几轮随 lastTurn 下发（先失败后成功�
   const after = await get(ctx, URL_);
   assert.equal(after.items[0].lastTurn.failedTurns, undefined, '读过的那几轮不该再补');
 });
+
+test('按会话收窄：只回那一条，台账照旧按整份清单推进', async () => {
+  // 对话页「这张卡还在不在」的对账只关心自己那一条（`?sessionId=`）：整台电脑的会话状态
+  // 为了一格卡搬一遍不划算。但**完成态台账不许被这次收窄影响** —— 收窄放在状态机之后。
+  const ctx = makeCtx([
+    session('scope-a', { running: true, updatedAt: 2_000 }),
+    session('other-b', { running: true, updatedAt: 2_100 }),
+  ]);
+  const full = await get(ctx, URL_);
+  assert.equal(full.items.length, 2);
+
+  const scoped = await get(ctx, `${URL_}?sessionId=scope-a`);
+  assert.deepEqual(scoped.items.map((item) => item.sessionId), ['scope-a']);
+  assert.notEqual(scoped.revision, full.revision, '收窄之后指纹只代表这一条');
+
+  // 另一条会话离开清单：整份视图照旧按它推进台账（不因为一次收窄的请求被清掉）。
+  ctx.state.items = [session('scope-a', { running: true, updatedAt: 2_000 })];
+  const after = await get(ctx, `${URL_}?sessionId=scope-a`);
+  assert.deepEqual(after.items.map((item) => item.sessionId), ['scope-a']);
+
+  // 收窄到一条不存在的会话：回空列表而不是 404（「这条不在了」由调用方按清单判）。
+  const gone = await get(ctx, `${URL_}?sessionId=not-there`);
+  assert.deepEqual(gone.items, []);
+});

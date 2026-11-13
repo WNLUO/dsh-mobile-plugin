@@ -150,3 +150,42 @@ test('raw: true 但请求没封包 → 400，不降级成明文', async () => {
   assert.equal(res.statusCode, 400);
   assert.equal(JSON.parse(res.body).error.code, 'e2ee-required');
 });
+
+// ── 批量那一档：一屏缺宽高的图一次问完（`attachmentIds`）─────────────────────
+//
+// 逐张各发一次、走中转时每发两秒起步；这一档**先读盘上那份对象文件的文件头**，
+// 多数图连宿主都不用问。量不出来的那几张不出现在结果里（App 按兜底盒画）。
+
+const store = require('../lib/mobile/attachment-store.js');
+
+test('批量：盘上量得出来的直接给，不问宿主', async () => {
+  store.reset();
+  let hostCalls = 0;
+  const rpcModule = require('../lib/mobile/rpc.js');
+  const original = rpcModule.callSessions;
+  rpcModule.callSessions = async () => { hostCalls += 1; return { result: { ok: true, value: payload } }; };
+  try {
+    const { status, body } = await call({ sessionId: 's1', attachmentIds: [ATTACHMENT_ID] });
+    assert.equal(status, 200);
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.dims[ATTACHMENT_ID], { width: 640, height: 480 });
+    assert.equal(hostCalls, 0, '盘上量得出来就不该去问宿主');
+  } finally {
+    rpcModule.callSessions = original;
+  }
+});
+
+test('批量：盘上没有的对象跳过，不毁整批', async () => {
+  store.reset();
+  const unknown = 'sha256:' + 'c'.repeat(64);
+  const { status, body } = await call({ sessionId: 's1', attachmentIds: [ATTACHMENT_ID, unknown] });
+  assert.equal(status, 200);
+  assert.deepEqual(Object.keys(body.dims), [ATTACHMENT_ID], '量不到的那张不出现在结果里');
+});
+
+test('批量：条数与空数组的形状', async () => {
+  const empty = await call({ sessionId: 's1', attachmentIds: [] });
+  assert.equal(empty.status, 400);
+  const missing = await call({ attachmentIds: [ATTACHMENT_ID] });
+  assert.equal(missing.status, 400);
+});
