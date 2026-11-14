@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.52",
+  "version": "0.5.53",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -74,11 +74,11 @@
     "ws": "8.18.0"
   },
   "optionalDependencies": {
-    "dsh-mobile-tailcat-darwin-arm64": "1.1.1",
-    "dsh-mobile-tailcat-darwin-x64": "1.1.1",
-    "dsh-mobile-tailcat-linux-arm64": "1.1.1",
-    "dsh-mobile-tailcat-linux-x64": "1.1.1",
-    "dsh-mobile-tailcat-win32-x64": "1.1.1"
+    "dsh-mobile-tailcat-darwin-arm64": "1.1.2",
+    "dsh-mobile-tailcat-darwin-x64": "1.1.2",
+    "dsh-mobile-tailcat-linux-arm64": "1.1.2",
+    "dsh-mobile-tailcat-linux-x64": "1.1.2",
+    "dsh-mobile-tailcat-win32-x64": "1.1.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.1",

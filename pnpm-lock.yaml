@@ -1,3 +1,4 @@
+# 隧道助手按平台固定版本，发布插件时与依赖声明同步。
 lockfileVersion: '9.0'
 
 settings:
@@ -47,20 +48,20 @@ importers:
         version: 2.9.1
     optionalDependencies:
       dsh-mobile-tailcat-darwin-arm64:
-        specifier: 1.1.1
-        version: 1.1.1
+        specifier: 1.1.2
+        version: 1.1.2
       dsh-mobile-tailcat-darwin-x64:
-        specifier: 1.1.1
-        version: 1.1.1
+        specifier: 1.1.2
+        version: 1.1.2
       dsh-mobile-tailcat-linux-arm64:
-        specifier: 1.1.1
-        version: 1.1.1
+        specifier: 1.1.2
+        version: 1.1.2
       dsh-mobile-tailcat-linux-x64:
-        specifier: 1.1.1
-        version: 1.1.1
+        specifier: 1.1.2
+        version: 1.1.2
       dsh-mobile-tailcat-win32-x64:
-        specifier: 1.1.1
-        version: 1.1.1
+        specifier: 1.1.2
+        version: 1.1.2
 
 packages:
 
@@ -764,28 +765,28 @@ packages:
   dijkstrajs@1.0.3:
     resolution: {integrity: sha512-qiSlmBq9+BCdCA/L46dw8Uy93mloxsPSbwnm5yrKn2vMPiy8KyAskTF6zuV/j5BMsmOGZDPs7KjU+mjb670kfA==}
 
-  dsh-mobile-tailcat-darwin-arm64@1.1.1:
-    resolution: {integrity: sha512-jOhruSRJcHk+aCvJLRaBu8rXVDBow2iXWJnH8QJhx1Pd7xNklhj7ir3GtH3+7rPphclfjOScEXH/kOJoqEVplg==}
+  dsh-mobile-tailcat-darwin-arm64@1.1.2:
+    resolution: {integrity: sha512-iYP3Flzjgk68W3Jybx+1SBw1bQTxVFK1LdjVr37ir6JZlrPkTPqtfcVXvWcneWktsdFDpRcQcSLZwBHyWt3Q/g==}
     cpu: [arm64]
     os: [darwin]
 
-  dsh-mobile-tailcat-darwin-x64@1.1.1:
-    resolution: {integrity: sha512-TUDVft9mAb4+KvfjeDM29Qmzci7jT7FIsljLh68ymhl4BkhcM4twpJhrgOk8fcE53FsV9JqXghN+lc26EVscdg==}
+  dsh-mobile-tailcat-darwin-x64@1.1.2:
+    resolution: {integrity: sha512-BCZPMwZfBL7X7vXCoDSDwOEKC6ALV909KgKcJ/9wQ9tyqbcpbPtHJEWDUjrSqEI1Nl03sFyamu6yKsvJlIbOjg==}
     cpu: [x64]
     os: [darwin]
 
-  dsh-mobile-tailcat-linux-arm64@1.1.1:
-    resolution: {integrity: sha512-h+OP4TDMjrGWa4iawd89Y9TWZhc7hu4LQuRLmXUXqTfqVnj0wcwIwrERWsglofRbNWNQXsPKiAnC4iAWRdF2Yg==}
+  dsh-mobile-tailcat-linux-arm64@1.1.2:
+    resolution: {integrity: sha512-kirbWjFL/480YIM4cAWTN9k/8AAKcv3//14lFOiK9t6FfzSeSyLhexRBn5X8l/nW4cejc7EJY8Ka6CHLdKVcog==}
     cpu: [arm64]
     os: [linux]
 
-  dsh-mobile-tailcat-linux-x64@1.1.1:
-    resolution: {integrity: sha512-TgsOZmQytEe6jskd2akBl0LgzB30YjjKgsWC3y1M064oGfYqUo0hcpQQGCbY5mLTL6Ikc0NKM2L/hNqdh3eLpA==}
+  dsh-mobile-tailcat-linux-x64@1.1.2:
+    resolution: {integrity: sha512-y5J0PPCCg+kryeBDd2bvVj+bW7qOsFH8fIOuzQWcdLtdJOGJuAWV8Ku/OSGiVipcjsyOAUNanodZz3j3IOhGOg==}
     cpu: [x64]
     os: [linux]
 
-  dsh-mobile-tailcat-win32-x64@1.1.1:
-    resolution: {integrity: sha512-fRB2Gw8X9Ye6TRWI9wRm3pMQghytNx0UouYkATb7flk/yNAl6BmiYH7vxuofNBnUXT89QE995+L1b4Ve7RHz/A==}
+  dsh-mobile-tailcat-win32-x64@1.1.2:
+    resolution: {integrity: sha512-lI4iFLa5oeDEbSqCUpE0SCxBQQfOPZM75fDKvpyzSHR1OVXoZ19M7tNxDU5tWI2JDAqKUKiJo5LOkrj53UEP4A==}
     cpu: [x64]
     os: [win32]
 
@@ -1745,19 +1746,19 @@ snapshots:
 
   dijkstrajs@1.0.3: {}
 
-  dsh-mobile-tailcat-darwin-arm64@1.1.1:
+  dsh-mobile-tailcat-darwin-arm64@1.1.2:
     optional: true
 
-  dsh-mobile-tailcat-darwin-x64@1.1.1:
+  dsh-mobile-tailcat-darwin-x64@1.1.2:
     optional: true
 
-  dsh-mobile-tailcat-linux-arm64@1.1.1:
+  dsh-mobile-tailcat-linux-arm64@1.1.2:
     optional: true
 
-  dsh-mobile-tailcat-linux-x64@1.1.1:
+  dsh-mobile-tailcat-linux-x64@1.1.2:
     optional: true
 
-  dsh-mobile-tailcat-win32-x64@1.1.1:
+  dsh-mobile-tailcat-win32-x64@1.1.2:
     optional: true
 
   emoji-regex@8.0.0: {}
