@@ -1,6 +1,6 @@
 'use strict';
 
-/** Regression coverage for history boundaries, retained lookback, subagents and HTTP errors. */
+/** 历史边界、轮次起止增量、保留回看窗口、子代理和 HTTP 错误的回归。 */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -53,6 +53,45 @@ async function serve({ sessionsHistory, subagentsHistory, cwd, sessionId = 'root
     close: () => new Promise((resolve) => server.close(resolve)),
   };
 }
+
+test('只有结束边界新增时，增量仍交回原消息上的收尾事实', async () => {
+  const events = [
+    { type: 'turn/start', seq: 1, time: 1000, data: { turn: 1 } },
+    { type: 'user/message', seq: 2, time: 1100, data: { id: 'lifecycle-user', role: 'user', content: [{ type: 'text', text: '你好' }] } },
+    { type: 'assistant/message', seq: 5, time: 4000, data: { turn: 1, step: 1, message: { id: 'lifecycle-answer', role: 'assistant', content: [{ type: 'text', text: '你好！' }] } } },
+    { type: 'turn/end', seq: 6, time: 5000, data: { turn: 1, reason: { kind: 'completed' } } },
+  ];
+  const host = await serve({ sessionId: 'lifecycle-incremental', sessionsHistory: async () => okValue({ events, hasMore: false }) });
+  try {
+    const response = await fetch(host.url('?sessionId=lifecycle-incremental&afterSeq=5'));
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.ok(body.items.length > 0, '结束本身不产消息，也不能返回空增量');
+    assert.equal(body.items[0].turnLifecycle.state, 'completed');
+    assert.equal(body.items[0].turnLifecycle.seq, 6);
+  } finally { await host.close(); }
+});
+
+test('变异：按消息水位过滤掉新结束依据会被空增量断言抓住', async () => {
+  const { createRequire } = require('node:module');
+  const vm = require('node:vm');
+  const filename = require.resolve('../lib/mobile/session-snapshot.js');
+  const source = await fs.readFile(filename, 'utf8');
+  const changed = source.replace('|| (item.turnLifecycle && item.turnLifecycle.seq > afterSeq)', '');
+  assert.notEqual(changed, source);
+  const compiled = { exports: {} };
+  vm.runInNewContext(changed, { module: compiled, exports: compiled.exports, require: createRequire(filename), URL });
+  const events = [
+    { type: 'turn/start', seq: 1, time: 1000, data: { turn: 1 } },
+    { type: 'user/message', seq: 2, time: 1100, data: { id: 'mutated-u', role: 'user', content: [{ type: 'text', text: 'hi' }] } },
+    { type: 'turn/end', seq: 6, time: 5000, data: { turn: 1, reason: { kind: 'completed' } } },
+  ];
+  let body;
+  await compiled.exports.handleMessages({ apiProxy: { sessions: { history: async () => okValue({ events, hasMore: false }) } } }, { url: `${ROUTE}?sessionId=mutated-lifecycle&afterSeq=5` }, {
+    writeHead() {}, end(text) { body = JSON.parse(text); },
+  });
+  assert.throws(() => assert.ok(body.items.length > 0));
+});
 
 test('普通会话继续走 sessions.history', async () => {
   const host = await serve();
@@ -554,7 +593,7 @@ test('stat 并发不超过 8', async (t) => {
     assert.ok(peak <= artifacts.ARTIFACT_STAT_CONCURRENCY, `并发峰值 ${peak} 超过了 ${artifacts.ARTIFACT_STAT_CONCURRENCY}`);
     // 判据是「确实并发了」而不是「每一拍都正好凑满 8」：同 session-artifacts 那条，负载高时
     // 各 worker 在 stat 前的作用域解析会错峰回来，同一瞬间可能只有 7 个在飞。放宽成 >1 仍能
-    // 抓「退化成串行」的回归（决策见 docs/decisions.md）。
+    // 抓「退化成串行」的回归（当初的理由写在提交信息里）。
     assert.ok(peak > 1, `该并发的地方没并发起来（峰值只有 ${peak}）`);
   } finally {
     artifacts.__setStatForTests(null);

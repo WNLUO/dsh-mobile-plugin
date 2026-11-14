@@ -1,4 +1,5 @@
 /**
+ * 演示宿主版本随插件包同步更新。
  * 演示用的假宿主：把这一页会打的那组 `/api/relay/*` 全部就地答掉，一个字节都不出浏览器。
  *
  * 这一页（引导页 + 主页）一进来就会真的写配置、开直连、换配对码 —— 拿它录屏等于拿正在用的
@@ -24,7 +25,7 @@ import qr2 from './qr-2.svg?raw'
 import qr3 from './qr-3.svg?raw'
 
 /** 画面上报的那个版本。必须跟插件包一致，否则演示里会出现一个不存在的版本号（守卫钉着）。 */
-export const DEMO_VERSION = '0.5.50'
+export const DEMO_VERSION = '0.5.51'
 
 /** 固定的演示身份。名字走真机也会有的那种，不写「演示」二字。 */
 const DEMO_NAME = 'Studio-Mac'

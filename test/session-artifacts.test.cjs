@@ -333,7 +333,7 @@ test('stat 并发上限是 8，且结果顺序与请求一致', async (t) => {
   }
   // 判据是「并发上限没被突破、且确实在并发」，不是「每一拍都正好凑满 8」：各 worker 在 stat
   // 之前先 await 作用域解析，机器负载高时解析错峰回来，同一瞬间可能只有 7 个在飞。放宽成区间
-  // 判据，仍能抓住「退化成串行 200 条」的回归（决策见 docs/decisions.md）。
+  // 判据，仍能抓住「退化成串行 200 条」的回归（当初的理由写在提交信息里）。
   assert.ok(peak <= artifacts.ARTIFACT_STAT_CONCURRENCY, `并发峰值 ${peak} 超过了上限 ${artifacts.ARTIFACT_STAT_CONCURRENCY}`);
   assert.ok(peak > 1, `该并发的地方没并发起来（峰值只有 ${peak}）`);
 });

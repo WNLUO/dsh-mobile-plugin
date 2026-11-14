@@ -95,7 +95,7 @@ test('状态与对外标记的判据本身也要对', () => {
 
 test('只读命令归「看到了什么」，写命令仍归「做了什么」', () => {
   const view = summarize([
-    ok('bash', 'grep -n "ota" docs/dev-map.md'),
+    ok('bash', 'grep -n "ota" docs/release-notes.md'),
     ok('bash', 'cat app/src/version.ts'),
     ok('bash', 'sed -n "1,120p" app/src/services/x.ts'),
     ok('bash', 'git log --oneline -S"APP_BUILD"'),
@@ -105,7 +105,7 @@ test('只读命令归「看到了什么」，写命令仍归「做了什么」',
     ok('edit', '/tmp/a.md'),
   ]);
   assert.deepEqual(view.saw, [
-    'grep -n "ota" docs/dev-map.md',
+    'grep -n "ota" docs/release-notes.md',
     'cat app/src/version.ts',
     'sed -n "1,120p" app/src/services/x.ts',
     'git log --oneline -S"APP_BUILD"',
