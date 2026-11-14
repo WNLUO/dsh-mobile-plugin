@@ -10,6 +10,9 @@
  * 唯一的例外是 `/api/relay/internal/approval`：它由中转与局域网代理代转，没有本机
  * socket 可言，身份靠中转与 worker 之间的 sidecarToken。任何新加的例外都必须在这里
  * 一条条写明原因，否则半年后没人分得清哪条是必要的。
+ *
+ * 在此之上，「会改本机状态或吐密钥」的危险动作（LOCAL_OPERATOR_ROUTES）还要求真正来自
+ * 本机（trustedLocalUi），两小时窗口只放行只读面板、不放行这些动作。
  */
 
 const test = require('node:test');
@@ -21,6 +24,7 @@ const CONTROL_PLANE = path.join(__dirname, '..', 'lib', 'routes', 'control-plane
 const { pairingPayload } = require(path.join(__dirname, '..', 'lib', 'relay', 'pairing-payload.cjs'));
 const {
   WEB_ACCESS_ROUTES,
+  LOCAL_OPERATOR_ROUTES,
   WEB_ACCESS_WINDOW_MS,
   panelScopeOf,
   createWebAccessWindow,
@@ -340,6 +344,15 @@ test('网页管理访问窗口只保护管理面板路由，例外路由逐条�
   }
 });
 
+test('危险动作清单没腐化：每条都还在，且都仍受窗口白名单覆盖', () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const routes = new Set(registrations(source).map((route) => route.path));
+  for (const route of LOCAL_OPERATOR_ROUTES) {
+    assert.ok(routes.has(route), `LOCAL_OPERATOR_ROUTES 里的 ${route} 已经不存在，请删掉`);
+    assert.ok(WEB_ACCESS_ROUTES.has(route), `${route} 收紧了只认本机，但仍应留在窗口白名单里保持语义统一`);
+  }
+});
+
 test('网页管理窗口默认关闭、固定两小时且访问不续期', () => {
   let wall = 1_000_000;
   let monotonic = 500;
@@ -467,7 +480,7 @@ test('行为：DNS 重绑定页面（域名 Host）不能自己把管理窗口�
   assert.equal(loop.status, 200, '回环本机照旧能开');
 });
 
-test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；开窗后放行管理 API', async () => {
+test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；开窗后放行只读管理 API', async () => {
   let monotonic = 0;
   const window = createWebAccessWindow({ now: () => 10_000, monotonicNow: () => monotonic });
   const sent = [];
@@ -479,13 +492,15 @@ test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；�
   });
   let reached = 0;
   const handler = guard('GET', async () => { reached += 1; });
-  const remote = { url: '/api/relay/config?from=web', trusted: false };
+  // 只读路由（status）用来验证窗口语义：窗口关时远程拿不到、开窗后放行。
+  // 「会改本机状态或吐密钥」的动作另有一条更严的规矩，见下面「危险动作只认本机」用例。
+  const remote = { url: '/api/relay/status?from=web', trusted: false };
   const denied = {};
   await handler(remote, denied);
   assert.equal(denied.status, 423);
   assert.equal(denied.body.error.code, 'web_access_closed');
   assert.equal(reached, 0);
-  await handler({ url: '/api/relay/config', trusted: true }, {});
+  await handler({ url: '/api/relay/status', trusted: true }, {});
   assert.equal(reached, 1, '本机仍可管理，不必先开公网窗口');
   window.enable();
   await handler(remote, {});
@@ -496,20 +511,51 @@ test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；�
   assert.deepEqual(sent, [423]);
 });
 
-test('二维码路由跟别的管理动作同一套规矩：窗口关着远程拿不到，开窗后能拿到', async () => {
+test('危险动作只认本机：窗口开着也不放行非本机来源', async () => {
+  // 2026-11-15 收严：配对码、改配置、吊销设备、装更新这些动作会改本机状态或吐密钥，
+  // 只认真实本机来源，两小时窗口只放行只读面板，不再为它们开门。桌面端从回环转发、
+  // 本机浏览器、SSH 隧道都算本机，用户无感；网络上别的机器一律拒。
+  const window = createWebAccessWindow({ now: () => 10_000, monotonicNow: () => 0 });
+  window.enable();
+  const sent = [];
+  const guard = createWebAccessLocalOnly({
+    localOnly: (_method, handler) => handler,
+    trustedLocalUi: (req) => req.trusted === true,
+    webAccessWindow: window,
+    sendJson: (res, status, body) => { res.status = status; res.body = body; sent.push(status); },
+  });
+  let reached = 0;
+  for (const route of LOCAL_OPERATOR_ROUTES) {
+    const handler = guard('POST', async () => { reached += 1; });
+    const res = {};
+    await handler({ url: route, trusted: false }, res);
+    assert.equal(res.status, 403, `${route} 开窗后也必须拒非本机来源`);
+    assert.equal(res.body.error.code, 'local_operator_only');
+    const okRes = {};
+    await handler({ url: route, trusted: true }, okRes);
+    assert.equal(okRes.status, undefined, `${route} 本机来源要放行`);
+  }
+  assert.equal(reached, LOCAL_OPERATOR_ROUTES.size, '每条危险动作恰好放行一次（本机那一次）');
+  // 只读路由即使不是本机、只要窗口开着就照旧放行，不能被这条收紧误伤。
+  const read = guard('GET', async () => {});
+  const readRes = {};
+  await read({ url: '/api/relay/status', trusted: false }, readRes);
+  assert.equal(readRes.status, undefined, '只读面板开窗后对远程放行');
+});
+
+test('二维码归入危险动作：只认真实本机，且不在路由里另造判据', async () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
   const at = source.indexOf("'/api/relay/pairing'");
   assert.notEqual(at, -1);
   const end = source.indexOf('registerRoute', at + 1);
   const route = source.slice(at, end < 0 ? at + 1200 : end);
-  // 2026-11-01 用户拍板：二维码不再自己造第二套判据，改由两小时窗口统一管。理由是
-  // **服务器部署没有「本机屏幕」**——那台机器只有 SSH，人永远够不到那个判据，配一次都
-  // 配不上；而窗口由本机设置页亲手开，开着的时候远程本来就能踢设备、改地址、重启 sidecar，
-  // 单独把码拦在外面既不自洽，也让那颗按钮名不副实。终端命令（lib/cli/pair.cjs）是另一条
-  // 「能登机器的人」的路，两条都不新开对外口子。
-  assert.ok(WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '二维码要随两小时窗口对网页开放');
-  assert.ok(!/trustedLocalUi\(req\)/.test(route), '别再在路由里自己造一套更严的判据');
-  assert.ok(!/pairing_local_only/.test(route), '那条 423 已经由窗口那层的 web_access_closed 取代');
+  // 2026-11-15 收严：二维码装在一次性票据里、能派生整条链路的密钥，所以它和改配置、踢设备
+  // 一样进了危险动作清单，只认真实本机来源（窗口不再放行它）。判据放在 localOnly 包装层
+  // （LOCAL_OPERATOR_ROUTES），路由 handler 自己**不**再造第二套——否则两处判据早晚各说各话。
+  assert.ok(LOCAL_OPERATOR_ROUTES.has('/api/relay/pairing'), '二维码必须进危险动作清单');
+  assert.ok(WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '仍留在窗口白名单里，让本机面板的窗口语义统一');
+  assert.ok(!/trustedLocalUi\(req\)/.test(route), '别在路由 handler 里另造一套更严的判据，判据统一在包装层');
+  assert.ok(!/pairing_local_only/.test(route), '路由里不自己造 423，统一由包装层的 local_operator_only 处理');
 });
 
 test('只有面板页放开「人点开的一页」，别的控制面路由不放开跨站', () => {
