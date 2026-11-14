@@ -1561,6 +1561,41 @@ test('「在浏览器里打开」开的是**同源**地址，不是宿主报的�
   assert.equal(consoleFrame(env), undefined, '开出去就把这一窗收掉');
 });
 
+test('桌面壳里「在浏览器里打开」交给页面导航去开系统浏览器，不再走被拒的 window.open', async () => {
+  // 壳里 `window.open` 一律被拒，点这里只会得到一句「浏览器拦掉了新窗口」；正路是把宿主
+  // 报的绝对 http(s) 地址交给页面导航，壳的 will-navigate 再转给系统浏览器。
+  const { env } = clickEnv({ panelScope: 'loopback', pageProtocol: 'dsh-app:' });
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const button = dialogButton(env, '在浏览器里打开');
+  assert.ok(button, '「在浏览器里打开」还在');
+  if (typeof button.onclick === 'function') await button.onclick();
+  else await button.props.onClick();
+  await settle();
+  assert.equal(env.openedWindows.length, 0, '壳里不许再走 window.open');
+  assert.equal(
+    env.sandbox.window.location.href,
+    readyStatus().panelUrl,
+    '把宿主报的绝对地址交给页面导航，由壳转给系统浏览器',
+  );
+  assert.equal(consoleFrame(env), undefined, '开出去就把这一窗收掉');
+});
+
+test('桌面壳里「报错调试」同样走页面导航，目标是 /debug', async () => {
+  const { env } = clickEnv({ panelScope: 'loopback', pageProtocol: 'dsh-app:' });
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const button = dialogButton(env, '报错调试');
+  assert.ok(button, '操作栏里要有「报错调试」');
+  if (typeof button.onclick === 'function') await button.onclick();
+  else await button.props.onClick();
+  await settle();
+  assert.equal(env.openedWindows.length, 0, '壳里不许再走 window.open');
+  assert.equal(env.sandbox.window.location.href, `${readyStatus().panelUrl}/debug`);
+});
+
 test('桌面壳里的页面（dsh-app:）：照样就地嵌，页面不被导航走', async () => {
   // 桌面版前端跑在 `dsh-app://app`（Electron 的安全协议）下，所以 iframe 的地址必须按页面
   // 自身的同源地址推，**不能**用宿主报的那个 http 绝对地址（那是跨协议、会被当混合内容挡掉）。

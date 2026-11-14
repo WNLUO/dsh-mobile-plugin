@@ -40,8 +40,13 @@ export function Shell() {
   // **控制台那一窗也挂这三颗，但用小号**（2026-11-13 用户要求保留悬浮按钮：悬浮才看得清）。
   // 那一窗比网页版矮，原尺寸会吃掉不小一块右下角、还压住设备列表最后几行，所以三颗统一
   // 降一档（`compact`，见各组件里那段说明），位置仍是最右边那一列、从下往上排。
-  const bare = /\/debug$/.test(window.location.pathname.replace(/\/+$/, ''))
-  const consolePage = /\/console$/.test(window.location.pathname.replace(/\/+$/, ''))
+  const path = window.location.pathname.replace(/\/+$/, '')
+  // 调试页单独一屏：不挂那几颗按钮，主题跟系统。
+  const bare = /\/debug$/.test(path)
+  // 除调试页与演示页外，面板的每一条地址都是控制台这一版（2026-11-15 收成一套）：
+  // 配色跟 DSH 走、用控制台顶栏自带的语言 / 日夜、悬浮按钮用小号。演示页（`/demo.html`）
+  // 不在这里面，它有自己的假宿主与录屏用法，保持原样。
+  const consolePage = !bare && !/\/demo(\.html)?$/.test(path)
 
   // 控制台那一窗的日夜**跟着 DSH 走**（同源父窗口的 `data-ds-dark-theme`），
   // 单独在浏览器里打开就跟随系统。别的页不接：那几页有自己的日夜按钮，两套一起写

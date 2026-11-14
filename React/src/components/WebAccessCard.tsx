@@ -29,8 +29,8 @@ export function WebAccessCard({ webAccess, busy, onToggle }: Props) {
 
   return (
     <Card frame="solid">
-      <CardHeader>
-        <CardTitle>{t('panel.webAccess.title')}</CardTitle>
+      <CardHeader className="px-4 py-3">
+        <CardTitle className="text-base lg:text-lg">{t('panel.webAccess.title')}</CardTitle>
       </CardHeader>
       <InfoList>
         <InfoRow label={t('panel.webAccess.state')} tone={enabled ? 'ok' : 'off'}>

@@ -1,13 +1,11 @@
 /**
- * 面板控制台（`/api/relay/panel/console`）：桌面端那颗手机图标点开的那一窗。
+ * 面板控制台（`/api/relay/panel/console`，也是面板主页）：桌面端那颗手机图标点开的那一窗。
  *
- * 定位：**将来要取代网页面板的那个面板**。所以它不另画一套控件，而是把网页版那些功能块
- * （配对二维码、连接状态、已绑定设备、插件更新、收件目录、公告、网页管理窗口）与它们
- * 全部弹窗都接进来，只把**页面编排**重做一遍：没有大标题、没有说明段，顶上一条紧凑的状态
- * 栏，下面内容按屏幕宽度自己铺开、整页可以滚动。重要的事（扫码、连没连上）排最前。
- *
- * 与 `App.tsx` 的关系：数据与动作逐条对应（同一批 `/api/relay/*`、同一套 handler 语义），
- * 区别在版式与「什么东西值得占第一屏」。改动作逻辑时两边都要看；改版式只动这里。
+ * 定位：**面板唯一的主页**（2026-11-15 起取代了原先的网页设置页，老版 `App.tsx` 已下线）。
+ * 它不另画一套控件，而是把那些功能块（配对二维码、连接状态、已绑定设备、插件更新、收件
+ * 目录、公告、网页管理窗口）与它们全部弹窗都接进来，只把**页面编排**重做一遍：没有大标题、
+ * 没有说明段，顶上一条紧凑的状态栏，下面内容按屏幕宽度自己铺开、整页可以滚动。重要的事
+ * （扫码、连没连上）排最前。
  *
  * 这一页最常出现的地方是 DSH 里嵌的那一窗（`lib/client.js` 的 `openConsole`），而那一窗
  * **收起时不销毁**、下次直接亮回来 —— 所以这一页的轮询由 `pageVisible()` 统一判「现在该不该
@@ -19,7 +17,8 @@ import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Spinner } from '@appica/ui-react/spinner'
-import { useCallback, useEffect, useState } from 'react'
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@appica/ui-react/dialog'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
@@ -95,6 +94,28 @@ const STATUS_PHASE_OFFSET_MS = 1500;
  */
 const AFTER_FIRST_PAINT_MS = 600;
 
+/** 收件文件入口的垃圾桶图标：带盖的中性描边图标，不摆成红色/删除动作那一类。 */
+function TrashIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 7h16" />
+      <path d="M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7" />
+      <path d="M6 7l1 12.5A2 2 0 0 0 9 21h6a2 2 0 0 0 2-1.5L18 7" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  )
+}
+
 export function Console() {
   const [status, setStatus] = useState<StatusView | null>(null)
   const [fatal, setFatal] = useState('')
@@ -107,12 +128,29 @@ export function Console() {
   const [selfCheckOpen, setSelfCheckOpen] = useState(false)
   const [tailcatOpen, setTailcatOpen] = useState(false)
   const [p2pOpen, setP2POpen] = useState(false)
+  const [inboxOpen, setInboxOpen] = useState(false)
   const notify = useNotify()
 
   useEffect(() => {
     if (status) reportPanelState('ready')
     else if (fatal) reportPanelState('error', fatal)
   }, [status, fatal])
+
+  /**
+   * 连接状态卡与「已绑定设备」并排：设备区高度跟左边连接卡一致，设备少时也撑着、不缩。
+   * 连接卡内容较稳，量它的实际高度套给设备卡；设备多了在卡内滚动，不再把整列撑长。
+   */
+  const connectionRef = useRef<HTMLDivElement | null>(null)
+  const [connectionHeight, setConnectionHeight] = useState(0)
+  useEffect(() => {
+    const el = connectionRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const measure = () => setConnectionHeight(el.getBoundingClientRect().height)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [status])
 
   const selfcheck = useSelfCheck(
     mobileLooksIdle(status?.lastMobileAt),
@@ -358,7 +396,7 @@ export function Console() {
           <Badge variant="soft" size="sm">
             {status.appVersion || t('panel.shell.unknownVersion')}
           </Badge>
-          <span className="hidden text-xs text-foreground-muted sm:inline">
+          <span className="hidden whitespace-nowrap text-xs text-foreground-muted lg:inline">
             {t('panel.connection.tunnel')} {tunnelText(status.tunnel.state)} · {t('panel.connection.lan')} {lanText(status.lan.state, status.lan.enabled)}
           </span>
         </div>
@@ -368,22 +406,30 @@ export function Console() {
             {t('panel.shell.busy')}
           </span>
         ) : null}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1">
           {/* 语言与日夜跟着窗口标题走（2026-11-13 用户要求放这里）：它们不属于任何一块卡片，
               是「这一页自己怎么显示」，摆在标题那一行最右边最省地方。日夜那颗拧的是这一窗
               的主题（默认跟随 DSH，按下之后改手动，见 `lib/shell-theme.ts`）。 */}
           <LanguageMenu />
           <ConsoleThemeToggle />
-          <Button variant="ghost" size="sm" onClick={() => openPage('panel')}>
-            {t('panel.console.openBrowser')}
+          {/* 收件文件从常驻卡片改成弹窗：入口是日夜右边这颗垃圾桶图标（中性色描边，不摆成删除
+              动作），点开才拉取与清理。 */}
+          <Button
+            variant="ghost"
+            size="icon-md"
+            aria-label={t('panel.inbox.title')}
+            title={t('panel.inbox.title')}
+            onClick={() => setInboxOpen(true)}
+          >
+            <TrashIcon />
           </Button>
+          {/* 公告：长期不变的低频信息，做成顶栏右端一颗小按钮，点开看。 */}
+          <NoticeBoard lanPort={status.lan.port} />
           <Button variant="ghost" size="sm" onClick={() => openPage('debug')}>
             {t('panel.console.troubleshoot')}
           </Button>
-          {/* 「重看引导」：走 `/setup` 那条强制引导。这一窗是日常入口，不常按，所以做成
-              同一组里的次要文字按钮，不占版面。 */}
-          <Button variant="ghost" size="sm" onClick={() => openPage('setup')}>
-            {t('panel.console.replayGuide')}
+          <Button variant="ghost" size="sm" disabled={busy !== ''} onClick={() => void reconnect()}>
+            {t('panel.pairing.reconnect')}
           </Button>
         </div>
       </header>
@@ -397,51 +443,59 @@ export function Console() {
       ) : null}
 
       {/*
-        内容区：二维码那张卡**横贯整行**（它天生就宽：左边 360 的码、右边一串信息行；
-        塞进三分之一宽的列里只会把标签挤成竖排），下面三列按宽度自己从 1 → 2 → 3 收放。
-        顺序就是「重要的先在上面」：扫码 → 连接 / 公告 → 设备 / 维护（更新 / 收件）。
+        内容区自上而下：
+        1. 顶部两栏——左边「配对与二维码」收成一张入口卡（点开才弹窗，二维码在里面放大好扫），
+           右边「远程电脑」。绑定完设备后基本不看配对，不再让它独占一整行。
+        2. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
+           设备再多也在卡内滚动。
+        3. 其余维护类卡片按瀑布式几列铺开。
         整页滚动，不做单栏 sticky、也不套内滚动条。
       */}
       <div className="grid grid-cols-1 gap-3">
-        <PairingCard
-          status={status}
-          pairing={pairing}
-          addressBook={addresses}
-          busy={busy}
-          error={pairingError}
-          restartError={status.sidecar.restartError}
-          onOpenConfig={() => setConfigOpen(true)}
-          onChangePolicy={(policy) => void savePolicy(policy)}
-          onChangeTier={(tier) => void savePairingTier(tier)}
-          onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
-          onOpenSelfCheck={() => setSelfCheckOpen(true)}
-          onReconnect={() => void reconnect()}
-          onRetryPairing={() => void loadPairing()}
-          onSavePreferred={(address) => void savePreferredLanAddress(address)}
-          onEditPort={() => setPortOpen(true)}
-        />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <PairingCard
+            status={status}
+            pairing={pairing}
+            addressBook={addresses}
+            busy={busy}
+            error={pairingError}
+            restartError={status.sidecar.restartError}
+            onOpenConfig={() => setConfigOpen(true)}
+            onChangePolicy={(policy) => void savePolicy(policy)}
+            onChangeTier={(tier) => void savePairingTier(tier)}
+            onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
+            onOpenSelfCheck={() => setSelfCheckOpen(true)}
+            onRetryPairing={() => void loadPairing()}
+            onSavePreferred={(address) => void savePreferredLanAddress(address)}
+            onEditPort={() => setPortOpen(true)}
+          />
+          <RemoteComputersCard />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div ref={connectionRef}>
+            <ConnectionCard
+              status={status}
+              busy={busy}
+              onToggle={toggle}
+              onManageTailcat={() => setTailcatOpen(true)}
+              onManageP2P={() => setP2POpen(true)}
+            />
+          </div>
+          <div className="min-h-0" style={connectionHeight > 0 ? { height: `${connectionHeight}px` } : undefined}>
+            <DevicesCard onRevokeAll={revokeAll} busy={busy} fill />
+          </div>
+        </div>
 
         {/*
-          下面的卡片用**瀑布式几列**（CSS `columns`）而不是网格：设备那张卡天生比别的长，
-          网格按行排会在一侧留下半屏空白。这一列排法让每张卡都往下接，窄屏自动收到一列。
+          其余卡片用**瀑布式几列**（CSS `columns`）：每张卡都往下接，窄屏自动收到一列。
           `break-inside-avoid` 保证一张卡不会被劈到两列里。
         */}
         <div className="columns-1 gap-3 md:columns-2 xl:columns-3 [&>*]:mb-3 [&>*]:break-inside-avoid">
-          <ConnectionCard
-            status={status}
-            busy={busy}
-            onToggle={toggle}
-            onManageTailcat={() => setTailcatOpen(true)}
-            onManageP2P={() => setP2POpen(true)}
-          />
-          <DevicesCard onRevokeAll={revokeAll} busy={busy} />
-          <RemoteComputersCard />
           {status.webAccess?.enabled && status.panelScope !== 'loopback' ? (
             <WebAccessCard webAccess={status.webAccess} busy={busy} onToggle={(on) => void toggleWebAccess(on)} />
           ) : null}
           <UpdateCard version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
-          <NoticeBoard lanPort={status.lan.port} />
-          <InboxCard />
         </div>
       </div>
 
@@ -474,6 +528,18 @@ export function Console() {
         busy={busy}
         onSave={(port) => void saveLanPort(port)}
       />
+
+      {/* 收件文件：原先常驻的那张卡，现在收进这扇弹窗，由顶栏那颗垃圾桶图标打开。 */}
+      <Dialog open={inboxOpen} onOpenChange={setInboxOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('panel.inbox.title')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <InboxCard framed={false} />
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }

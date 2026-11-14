@@ -29,8 +29,11 @@ import { DOWNLOAD_CHANNELS, type DownloadChannel } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 
 type Props = {
-  /** 对齐旁边那排按钮的尺寸；引导页底部那一排是默认的 md。 */
-  size?: 'md' | 'lg'
+  /** 对齐旁边那排按钮的尺寸；引导页底部那一排是默认的 md，标题栏里用 sm。 */
+  size?: 'sm' | 'md' | 'lg'
+  /** 标题栏里当文字按钮用（ghost），引导页仍用默认的 outline。 */
+  variant?: 'outline' | 'ghost'
+  className?: string
 }
 
 /** 图标按着渠道的 `name` 取：渠道表里只放链接与文案，图形留在这里。 */
@@ -91,14 +94,14 @@ export function DownloadChannelsGrid() {
   )
 }
 
-export function DownloadAppButton({ size = 'md' }: Props) {
+export function DownloadAppButton({ size = 'md', variant = 'outline', className }: Props) {
   const [open, setOpen] = useState(false)
   /** 落焦目标：弹窗容器自己，不是第一张渠道卡 —— 一打开就给第一张描上焦点环，像是已经选中了。 */
   const dialogRef = useRef<HTMLDivElement | null>(null)
 
   return (
     <>
-      <Button variant="outline" size={size} onClick={() => setOpen(true)}>
+      <Button variant={variant} size={size} className={className} onClick={() => setOpen(true)}>
         {t('panel.download.open')}
       </Button>
 

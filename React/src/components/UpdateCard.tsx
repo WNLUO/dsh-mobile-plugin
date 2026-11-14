@@ -328,8 +328,8 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
 
   return (
     <Card frame="solid">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+      <CardHeader className="px-4 py-3">
+        <CardTitle className="flex items-center gap-2 text-base lg:text-lg">
           <span>{t('panel.update.title')}</span>
           <Badge variant="soft" size="sm">{version || t('panel.update.unknownVersion')}</Badge>
         </CardTitle>

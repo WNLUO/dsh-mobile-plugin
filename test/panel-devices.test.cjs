@@ -33,7 +33,7 @@ const devices = read('components', 'DevicesCard.tsx');
 // 准入开关住在「配对与二维码」卡的「配对策略」那一行（2026-11-02 从「连接状态」与「网络配置」
 // 两处合并过来）—— 所以这条守卫读的是 PairingCard。
 const policy = read('components', 'PairingCard.tsx');
-const app = read('App.tsx');
+const app = read('Console.tsx');
 const api = read('lib', 'api.ts');
 const dict = read('lib', 'i18n', 'messages', 'devices.ts');
 
@@ -78,9 +78,7 @@ test('设备卡：行的字段与「相对时间」口径', () => {
   assert.match(devices, /serverNow/, '相对时间要拿宿主给的 serverNow 当基准，不能拿浏览器时钟');
   assert.match(devices, /panel\.devices\.unknown/, '名字为空要显示「未知设备」（走字典）');
   assert.equal(zh('panel.devices.unknown'), '未知设备', '字典里「未知设备」这句要还在');
-  // 标记是 JSX 文本（不带引号），所以查键 + 字典值。
-  assert.match(devices, /device\.legacy \?/, '「旧式」标记要按设备的 legacy 位出现');
-  assert.match(devices, /panel\.devices\.legacy/, '「旧式」那个标签要走字典');
+  // 2026-11-15：设备行精简，不再摆「旧式」标记（legacy 仍用于解除绑定那句确认文案，见下条）。
   assert.equal(zh('panel.devices.legacy'), '旧式', '字典里「旧式」这个词要还在');
   assert.match(devices, /panel\.devices\.noRecord/, 'lastSeenAt 为 0 要如实说「无记录」');
   assert.equal(zh('panel.devices.noRecord'), '无记录');
@@ -92,7 +90,8 @@ test('设备卡：行的字段与「相对时间」口径', () => {
   assert.match(devices, /channel === 'lan'\) return t\('panel\.devices\.channelLan'\)/, 'lan 要写「局域网」');
   assert.equal(zh('panel.devices.channelRelay'), '经中转');
   assert.equal(zh('panel.devices.channelLan'), '局域网');
-  assert.match(devices, /encrypted \? t\('panel\.devices\.encrypted'\) : t\('panel\.devices\.plain'\)/, '加密 / 明文按 encrypted 分叉');
+  // 2026-11-15：设备行精简，不再摆「链路已加密 / 未加密」（太挤）；字典值还在。
+  assert.ok(!/panel\.devices\.encrypted/.test(devices), '设备行不再显示加密状态');
   // 2026-10-26 改口：「加密」标的是**这条链路**有没有设备密钥，跟 App 新不新无关 ——
   // 原来写两个字，摆在版本号旁边会被读成「已是最新」。
   assert.equal(zh('panel.devices.encrypted'), '链路已加密');
@@ -152,21 +151,14 @@ test('「允许新设备绑定」开关：读 status.pairingPolicy，写 /api/re
 
 test('准入开关只留在配对卡的「配对策略」那行，一行标签 + 一颗开关', () => {
   // 原来它一屏有两颗（连接状态里一颗、网络配置弹窗里一颗），改哪颗才算得猜；现在只留一处。
-  const aside = app.slice(app.indexOf('<aside'), app.indexOf('</aside>'));
-  assert.ok(aside.includes('<ConnectionCard'), '连接状态卡必须在右栏里');
-  assert.ok(aside.includes('<InboxCard />'), '收件文件卡要挂在连接状态下面（同一栏）');
-  assert.ok(
-    aside.indexOf('<ConnectionCard') < aside.indexOf('<InboxCard />'),
-    '收件文件要排在连接状态下面',
-  );
-  // 右栏两块不跟随滚动（`lg:sticky` 会让翻页时它们一直钉在视口里）。
-  assert.ok(!/sticky/.test(aside), '右栏两块不跟随滚动：aside 上不许挂 sticky');
+  // 2026-11-15：面板收成控制台一版，老版那套两栏 `<aside>` 布局已下线，这里改钉控制台
+  // 自己的编排——二维码一张横贯整行，其余卡片接在下面，整页滚动不做单栏 sticky。
+  assert.ok(app.indexOf('<PairingCard') > 0, '配对卡要渲染');
+  assert.ok(app.indexOf('<PairingCard') < app.indexOf('<ConnectionCard'), '二维码排在连接状态前面（重要的事先出现）');
+  assert.ok(app.indexOf('<ConnectionCard') > 0, '连接状态卡要渲染');
+  assert.ok(app.indexOf('<InboxCard') > app.indexOf('<ConnectionCard'), '收件文件排在连接状态之后');
+  assert.ok(/columns-1[^"]*md:columns-2/.test(app), '卡片走瀑布式几列自己铺开，整页滚动');
   assert.ok(!/PairingPolicyCard/.test(app), '那张独立的准入卡已经删了，别再加回来');
-
-  // 左栏顺序：配对 → 插件更新 → 已绑定的设备。
-  const order = ['<PairingCard', '<UpdateCard', '<DevicesCard'].map((tag) => app.indexOf(tag));
-  assert.ok(order.every((at) => at > 0), '左栏三块都得渲染出来');
-  assert.deepEqual(order, [...order].sort((a, b) => a - b), '左栏顺序必须是 配对 → 更新 → 设备');
 
   // 连接状态卡里只剩「远程控制」一颗：准入开关别在两处各摆一份。
   const connection = read('components', 'ConnectionCard.tsx');
@@ -217,12 +209,9 @@ test('撞名靠序号，不靠机器号尾数；机型与旧绑定条数都要�
   assert.ok(!/slice\(-\d\)/.test(devices), '不许再把 deviceId 后几位拼进名字：那串机器号人认不出来，也没法和手上的手机对上');
   // 标题已经占了机型那一格，第二行只报平台 / 系统 / App 版本，不重复。
   assert.ok(!/device\.name && device\.model/.test(devices), '第二行不再重复标题那格');
-  // 同一台手机重配过几次 → 名下好几枚活凭据，要把多出来的条数说出来。
-  assert.match(devices, /device\.bindings > 1/, '多家绑定要按 bindings 判');
-  assert.match(devices, /panel\.devices\.extraBindings/, '旧绑定那条提示要走字典');
+  // 2026-11-15：设备行精简，不再摆「另有 N 条旧绑定」标签（旧版本数据，无关紧要）；字典值保留。
+  assert.ok(!/panel\.devices\.extraBindings/.test(devices), '设备行不再显示旧绑定条数');
   assert.equal(zh('panel.devices.extraBindings'), '另有 {count} 条旧绑定');
-  const rows = dict.split('panel.devices.extraBindings').length - 1;
-  assert.ok(rows >= 5, `旧绑定那句只在 ${rows} 门语言里出现，五门都得有`);
 });
 
 test('历史 · 已解绑：收起零请求，展开只打一次 ?history=1，不另挂 interval', () => {

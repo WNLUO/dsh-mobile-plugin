@@ -86,7 +86,7 @@ test('连接状态变了要重查自检：别让上一发的红字挂在没问�
   // 只有指纹真的变了才补发；首屏第一次拿到 status 只记基线（不多打一发 fork）。
   assert.match(selfcheck, /if \(!revision\) return/, 'status 还没到时不算变化');
   assert.match(selfcheck, /void run\(true\)/, '指纹变了要跳过宿主缓存重查一次');
-  for (const [name, file] of [['引导页', 'Onboarding.tsx'], ['主页', 'App.tsx']]) {
+  for (const [name, file] of [['引导页', 'Onboarding.tsx'], ['控制台主页', 'Console.tsx']]) {
     const src = read('src', file);
     assert.match(
       src,

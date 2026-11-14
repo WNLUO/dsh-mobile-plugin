@@ -1,4 +1,4 @@
-/** 远程电脑控制面契约、访问租期与本机浏览器打开方式。 */
+/** 远程电脑控制面契约、访问租期与打开方式。 */
 import { ApiError, apiGet, apiPost } from './api.ts'
 import { t } from './i18n/index.ts'
 
@@ -13,6 +13,8 @@ export type RemoteComputer = {
   latencyMs: number | null
   state: 'idle' | 'connecting' | 'connected' | 'offline' | 'expired' | 'revoked'
   expiresAt: number | null
+  /** 桌面窗口此刻是否还连着；关掉后回到未打开状态。 */
+  attached: boolean
   lastError?: string
   lastErrorCode?: string | null
   routes: RemoteComputerRoute[]
@@ -41,6 +43,7 @@ export function remoteErrorText(error: unknown): string {
     REMOTE_EXPIRED: 'errorExpired', REMOTE_TIMEOUT: 'errorTimeout', REMOTE_CONNECT: 'errorConnect',
     REMOTE_INVITATION: 'errorInvitation', REMOTE_OPEN_URL: 'invalidOpenUrl',
     REMOTE_POPUP: 'popupBlocked', REMOTE_EXTERNAL_OPEN: 'externalOpenFailed',
+    SHELL_UNAVAILABLE: 'shellUnavailable',
   }
   return t(keys[code] ? `panel.remote.${keys[code]}` : 'panel.remote.failed')
 }
@@ -53,11 +56,9 @@ export const remoteComputers = {
   invite: () => apiPost<RemoteComputerInvite>(`${BASE}/invite`, {}),
   add: (invite: string) => apiPost<{ ok: boolean; device: RemoteComputer }>(`${BASE}/add`, { invite }),
   open: (id: string) => apiPost<RemoteComputerOpen>(`${BASE}/open`, { id }),
-  renew: (id: string) => apiPost<{ ok: boolean; expiresAt: number }>(`${BASE}/renew`, { id }),
-  stop: (id: string) => apiPost<{ ok: boolean }>(`${BASE}/stop`, { id }),
+  openShell: (id: string) => apiPost<RemoteComputerOpen>(`${BASE}/open-shell`, { id }),
   remove: (id: string) => apiPost<{ ok: boolean }>(`${BASE}/remove`, { id }),
   mode: (id: string, mode: string) => apiPost<{ ok: boolean }>(`${BASE}/mode`, { id, mode }),
-  probe: (id: string) => apiPost<{ ok: boolean }>(`${BASE}/probe`, { id }),
   revoke: (deviceId: string) => apiPost<{ ok: boolean }>(`${BASE}/revoke`, { deviceId }),
 }
 
@@ -87,8 +88,28 @@ export function trustedRemoteUrl(text: string): string {
   return url.href
 }
 
-/** 普通网页预开窗口；桌面壳通过同源顶层导航交系统浏览器。 */
+/** 桌面端不可用只认「没装平台包」和「宿主还没有这条接口」，其余错误照旧抛。 */
+function shellUnavailable(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.code === 'SHELL_UNAVAILABLE' || error.status === 404 || error.status === 405 || error.status === 0
+  }
+  return error instanceof TypeError
+}
+
+/** 优先拉起随插件分发的桌面端窗口；没装桌面端时沿用默认打开方式。 */
 export async function openRemoteComputer(id: string): Promise<RemoteComputerOpen> {
+  try {
+    const result = await remoteComputers.openShell(id)
+    trustedRemoteUrl(result.url)
+    return result
+  } catch (error) {
+    if (!shellUnavailable(error)) throw error
+  }
+  return openInBrowser(id)
+}
+
+/** 普通网页预开窗口；桌面壳通过同源顶层导航交系统浏览器。 */
+async function openInBrowser(id: string): Promise<RemoteComputerOpen> {
   const browser = window.location.protocol === 'http:' || window.location.protocol === 'https:'
   const target = browser ? window.open('about:blank', '_blank') : null
   if (browser && !target) throw new ApiError(t('panel.remote.popupBlocked'), 'REMOTE_POPUP', 0)

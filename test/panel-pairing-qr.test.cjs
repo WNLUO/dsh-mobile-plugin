@@ -25,19 +25,13 @@ test('引导页二维码放大并保留白色边框', () => {
 
 test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () => {
   const card = read('components/PairingCard.tsx');
-  assert.match(card, /useState\(\{ qr: false, relay: false \}\)/);
-  // 2026-11-13：码还没取回来时**不许先画那块纯白**（用户报「点进去白一闪」）。三态按
-  // 「有没有码 → 揭没揭开 → 码」，所以第一判据必须是 `!pairing?.svg`，白底只在最后一支。
-  assert.match(card, /\{!pairing\?\.svg \? \([\s\S]*?\) : !shown\.qr \? \([\s\S]*?\) : \(<div className="[^"]*bg-white p-2"/);
-  assert.equal(
-    /!shown\.qr && pairing\?\.svg/.test(card),
-    false,
-    '旧判据会让「码还没到」落进白底那一支，正是闪白的来源',
-  );
-  // 白底与占位是同一块 360 见方的格子，里面再撑满：遮着 / 揭开两种状态卡片高度必须一致。
-  // 2026-11-09 从 280 放大到 360：码密到一百多个模块时，280 摆下来一个模块只剩两像素多。
-  assert.match(card, /className="flex size-\[360px\] max-w-full items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2"/);
-  assert.match(card, /className="size-full \[&_svg\]:h-full \[&_svg\]:w-full"/);
+  assert.match(card, /useState\(\{ relay: false \}\)/);
+  // 二维码整块是一个方形入口：点它直接开放大弹窗（「显示」与「放大」合并），
+  // 卡片本体不再内嵌码图（防窥屏，也省高度）。高度由右侧三行撑起来（self-stretch aspect-square）。
+  assert.match(card, /onClick=\{\(\) => setQrZoom\(true\)\}/);
+  assert.match(card, /aspect-square[\s\S]{0,160}lg:self-stretch/);
+  assert.match(card, /panel\.pairing\.qrHidden/);
+  assert.equal((card.match(/dangerouslySetInnerHTML/g) ?? []).length, 1, '二维码 SVG 只在放大弹窗里渲染');
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
 });
 
@@ -47,9 +41,10 @@ test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且
   // 主页：点码本身开弹窗（2026-11-02 起不再单独摆一颗「看大图」按钮），弹窗里按视口高度
   // 放大（600px 上限，2026-11-09 从 440 抬高），白底。
   assert.match(card, /const \[qrZoom, setQrZoom\] = React\.useState\(false\)/);
-  assert.match(card, /onClick=\{\(\) => setQrZoom\(true\)\}[\s\S]{0,400}dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
+  assert.match(card, /onClick=\{\(\) => setQrZoom\(true\)\}/);
+  assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
   assert.match(card, /<Dialog open=\{qrZoom\} onOpenChange=\{setQrZoom\}>/);
-  assert.match(card, /size-\[min\(72vh,600px\)\] \[&_svg\]:h-full \[&_svg\]:w-full/);
+  assert.match(card, /aspect-square h-\[min\(64vh,560px\)\][^\n]*\[&_svg\]:h-full/);
   // 那颗按钮撤了：码本身就够点，遮着的时候也不该有一处点了只看见空白的地方。
   // 现在 `panel.pairing.qrZoom` 只剩码自己那个 `aria-label` 一处。
   assert.equal(
@@ -66,9 +61,9 @@ test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且
 
 test('引导页与主页都在隧道段临期前续一次码，且排的是下一拍而不是轮询', () => {
   const page = read('Onboarding.tsx');
-  const app = read('App.tsx');
+  const app = read('Console.tsx');
   // 两处同一套写法：读这一版码的 `expiresAt`，排一个定时器，到点重取一次。
-  for (const [name, text] of [['Onboarding.tsx', page], ['App.tsx', app]]) {
+  for (const [name, text] of [['Onboarding.tsx', page], ['Console.tsx', app]]) {
     assert.match(text, /const wait = pairingRenewIn\(pairing\)/, `${name} 要按这一版码的隧道段排下一拍`);
     assert.match(
       text,

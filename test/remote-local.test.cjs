@@ -220,6 +220,36 @@ test('手动续期等待活跃流确认，不重开SSE；到期主动关闭且�
   await assert.rejects(() => g.local.renew(clock + LEASE_MS), { code: 'REMOTE_EXPIRED' });
 });
 
+test('临期且窗口还在用才自动续期，闲置时不延长', async (t) => {
+  const f = await fixture(t);
+  let clock = Date.now();
+  const g = await f.gateway({ expiresAt: clock + LEASE_MS, now: () => clock });
+  clock = g.local.expiresAt() - 60_000;
+  const before = g.local.expiresAt();
+  assert.equal(await g.local.autoRenew(clock), false);
+  assert.equal(g.local.expiresAt(), before);
+  const ws = new WebSocket(`${g.origin.replace('http:', 'ws:')}/socket`, { headers: headers(g) });
+  ws.on('error', () => {});
+  await once(ws, 'open');
+  assert.equal(await g.local.autoRenew(clock), true);
+  assert.ok(g.local.expiresAt() > before);
+  ws.terminate();
+});
+
+test('attached 反映桌面窗口是否连着：刚有请求算连着，断开超过宽限即置否', async (t) => {
+  const f = await fixture(t);
+  let clock = Date.now();
+  const g = await f.gateway({ now: () => clock });
+  assert.equal(g.local.attached(), true);
+  clock += 60_000;
+  assert.equal(g.local.attached(), false);
+  const ws = new WebSocket(`${g.origin.replace('http:', 'ws:')}/socket`, { headers: headers(g) });
+  ws.on('error', () => {});
+  await once(ws, 'open');
+  assert.equal(g.local.attached(), true);
+  ws.terminate();
+});
+
 test('网变只断已有流，保留入口会话和期限供新WS重连', async (t) => {
   const f = await fixture(t);
   const g = await f.gateway();

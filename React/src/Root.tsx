@@ -1,17 +1,19 @@
 /**
  * 面板这一页的**分流**：按地址后缀决定渲染哪一屏。
  *
- * 四条地址由宿主吐同一份 HTML（`lib/routes/control-plane.js` 那几条 `/api/relay/panel*`），
+ * 几条地址由宿主吐同一份 HTML（`lib/routes/control-plane.js` 那几条 `/api/relay/panel*`），
  * 差别全在这里：`/panel` 自己问宿主配过没有、`/panel/setup` 强制引导、`/panel/settings`
- * 强制主页、`/panel/debug` 强制调试页（桌面端那颗手机图标点开的就是它，见 `Debug.tsx`）。
- * 认后缀用 `endsWith`：这一页可能挂在反代给的子路径下，前缀变了不该把几条路弄丢。
+ * 强制主页、`/panel/debug` 强制调试页。
+ *
+ * **主页只有控制台这一版**（`Console.tsx`）：原先另有一版网页设置页（`App.tsx`），
+ * 2026-11-15 收成一套，根地址与各入口统一进控制台。认后缀用 `endsWith`：这一页可能挂在
+ * 反代给的子路径下，前缀变了不该把几条路弄丢。
  */
 // 首屏状态请求结束后才报告就绪；失败显示原因，并允许原地重新载入。
 import { Button } from '@appica/ui-react/button'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
 
-import { App } from './App.tsx'
 import { Console } from './Console.tsx'
 import { Debug } from './Debug.tsx'
 import { Onboarding } from './Onboarding.tsx'
@@ -20,40 +22,40 @@ import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
 
 /**
- * 分流：走引导还是进插件主页。
+ * 分流：走引导还是进控制台。
  *
- * 四条地址都由宿主同一份 HTML 承载，差别只在这里认的后缀：
- * - `.../api/relay/panel`           什么都不强制：问宿主，`status.onboarded` 或
- *   `status.enabled` 为真就进主页。宿主说了算（标志落在 relay.json 里），不用
- *   localStorage——换个浏览器、清一次缓存都不该让引导重来一遍。`enabled` 也算
- *   「配过了」：老机器升级上来时 relay.json 里没有那个键，它们本来就在正常用。
- * - `.../api/relay/panel/setup`     强制先走引导，走完才进主页（想再看一遍流程时用）。
- * - `.../api/relay/panel/settings`  强制进主页，跳过引导（演示 / 排查时用）。
+ * - `.../api/relay/panel`、`.../api/relay/panel/console`
+ *                                   问宿主，`status.onboarded` 或 `status.enabled` 为真就进控制台。
+ *   宿主说了算（标志落在 relay.json 里），不用 localStorage——换个浏览器、清一次缓存都不该
+ *   让引导重来一遍。`enabled` 也算「配过了」：老机器升级上来时 relay.json 里没有那个键，
+ *   它们本来就在正常用。
+ * - `.../api/relay/panel/setup`     强制先走引导，走完才进控制台（想再看一遍流程时用）。
+ * - `.../api/relay/panel/settings`  强制进控制台，跳过引导（演示 / 排查时用）。
  * - `.../api/relay/panel/debug`     强制进调试页，什么都不问（那块屏本来就是给排障看的，
  *   状态读不到时更得进得去）。
  *
- * 用 `endsWith` 而不是全等：这一页挂在中转/宿主给的某个前缀下面，前缀变了不该把几条路弄丢。
+ * 用 `endsWith` 而不是全等：这一页挂在某个前缀下面，前缀变了不该把几条路弄丢。
  */
 export function Root() {
   const path = window.location.pathname.replace(/\/+$/, '')
   const forcedSetup = path.endsWith('/setup')
   const forcedSettings = path.endsWith('/settings')
-  /** `/api/relay/panel/debug`：调试页（桌面端点那颗手机图标弹的就是它）。 */
+  /** `/api/relay/panel/debug`：调试页（桌面端那颗手机图标的次级入口）。 */
   const forcedDebug = path.endsWith('/debug')
-  /** `/api/relay/panel/console`：控制台那一窗（点手机图标进来的第一屏，见 `Console.tsx`）。 */
-  const forcedConsole = path.endsWith('/console')
-  /** null = 首屏状态尚未返回；请求失败时显示错误与重新载入入口。 */
-  const [configured, setConfigured] = useState<boolean | null>(null)
+  /** 除强制引导 / 强制主页 / 调试页之外（含根地址与 `/console`）都要先问宿主配过没有。 */
+  const needsStatus = !forcedSetup && !forcedSettings && !forcedDebug
+  /** null = 首屏状态尚未返回；请求失败时显示错误与重新载入入口。强制主页直接当作已配过。 */
+  const [configured, setConfigured] = useState<boolean | null>(forcedSettings ? true : null)
   const [startupError, setStartupError] = useState('')
   const [entered, setEntered] = useState(false)
 
   useEffect(() => {
     if (startupError) reportPanelState('error', startupError)
-    else if (forcedSetup || forcedSettings || forcedDebug || (configured !== null && !(forcedConsole && configured))) reportPanelState('ready')
-  }, [configured, startupError, forcedSetup, forcedSettings, forcedDebug, forcedConsole])
+    else if (!needsStatus || configured !== null) reportPanelState('ready')
+  }, [configured, startupError, needsStatus])
 
   useEffect(() => {
-    if (forcedSetup || forcedSettings || forcedDebug) return undefined
+    if (!needsStatus) return undefined
     let alive = true
     void (async () => {
       try {
@@ -66,7 +68,7 @@ export function Root() {
     return () => {
       alive = false
     }
-  }, [forcedSetup, forcedSettings, forcedDebug])
+  }, [needsStatus])
 
   if (startupError) {
     return (
@@ -79,27 +81,9 @@ export function Root() {
     )
   }
 
-  if (forcedSettings) return <App />
-
   if (forcedDebug) return <Debug />
 
-  // 控制台那一窗也要先问一句「这台机器配过没有」：第一次装的人点进来该先走引导
-  // （扫码 + 下载 App 那三步），配过的人直接进控制台。等状态回来之前先不画，
-  // 否则会先闪一下控制台再跳成引导。
-  if (forcedConsole) {
-    if (configured === null) {
-      return (
-        <main className="flex min-h-screen items-center justify-center gap-2 p-6 text-sm text-foreground-muted">
-          <Spinner />
-          {t('panel.shell.loading')}
-        </main>
-      )
-    }
-    if (!configured) return <Onboarding onDone={() => setConfigured(true)} />
-    return <Console />
-  }
-
-  if (forcedSetup) return entered ? <App /> : <Onboarding onDone={() => setEntered(true)} />
+  if (forcedSetup) return entered ? <Console /> : <Onboarding onDone={() => setEntered(true)} />
 
   if (configured === null) {
     return (
@@ -111,5 +95,5 @@ export function Root() {
   }
 
   if (!configured && !entered) return <Onboarding onDone={() => setEntered(true)} />
-  return <App />
+  return <Console />
 }

@@ -46,6 +46,17 @@ function json(value, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 }
 
+// 打开方式改为桌面端优先（已确认的需求变更）：下面的浏览器断言只在桌面端不可用时才成立，
+// 因此让 open-shell 统一回 SHELL_UNAVAILABLE，走得到原来的回退路径。
+function browserFallbackFetch(handler) {
+  return async (url, options) => {
+    if (String(url).endsWith('/open-shell')) {
+      return json({ ok: false, error: { code: 'SHELL_UNAVAILABLE' } }, 400);
+    }
+    return handler(url, options);
+  };
+}
+
 function helpersFrom(source) {
   const code = stripTypeScriptTypes(source, { mode: 'strip' })
     .replace(/^import .*$/gm, '')
@@ -54,14 +65,14 @@ function helpersFrom(source) {
   return vm.runInContext(`${code}\n({remoteLease, trustedRemoteUrl})`, context);
 }
 
-test('控制台和网页面板各接一份共用卡，不改入站手机设备卡', () => {
-  for (const page of ['App.tsx', 'Console.tsx']) {
+test('控制台接一份共用卡，不改入站手机设备卡', () => {
+  for (const page of ['Console.tsx']) {
     const text = fs.readFileSync(path.join(SRC, page), 'utf8');
     assert.match(text, /import \{ RemoteComputersCard \} from '\.\/components\/RemoteComputersCard\.tsx'/);
     assert.equal((text.match(/<RemoteComputersCard \/>/g) || []).length, 1);
-    assert.match(text, /<DevicesCard onRevokeAll=\{revokeAll\} busy=\{busy\} \/>/);
+    assert.match(text, /<DevicesCard onRevokeAll=\{revokeAll\} busy=\{busy\}(?: fill)? \/>/);
   }
-  assert.match(component, /<Card frame="solid">/);
+  assert.match(component, /<Card frame="solid"/);
   assert.doesNotMatch(component, /#[\da-fA-F]{3,8}|style=\{/);
   assert.doesNotMatch(component, /\/api\/relay\/devices/);
 });
@@ -78,41 +89,57 @@ test('每个 API 都使用既有客户端，路径、方法与参数对齐服务
   await remoteComputers.invite();
   await remoteComputers.add('dshcomputer://v1?data=invite');
   await remoteComputers.open('computer-a');
-  await remoteComputers.renew('computer-a');
-  await remoteComputers.stop('computer-a');
+  await remoteComputers.openShell('computer-a');
   await remoteComputers.remove('computer-a');
   await remoteComputers.mode('computer-a', 'relay');
-  await remoteComputers.probe('computer-a');
   await remoteComputers.revoke('visiting-b');
   const base = '/api/relay/remote-computers';
-  assert.deepEqual(calls.map(({ url }) => url), [base, ...['invite', 'add', 'open', 'renew', 'stop', 'remove', 'mode', 'probe', 'revoke'].map((action) => `${base}/${action}`)]);
+  assert.deepEqual(calls.map(({ url }) => url), [base, ...['invite', 'add', 'open', 'open-shell', 'remove', 'mode', 'revoke'].map((action) => `${base}/${action}`)]);
   assert.equal(calls[0].method, undefined);
   assert.ok(calls.slice(1).every((call) => call.method === 'POST' && call.headers['content-type'] === 'application/json'));
   assert.deepEqual(calls.slice(1).map(({ body }) => JSON.parse(body)), [
     {}, { invite: 'dshcomputer://v1?data=invite' }, { id: 'computer-a' }, { id: 'computer-a' },
-    { id: 'computer-a' }, { id: 'computer-a' }, { id: 'computer-a', mode: 'relay' },
-    { id: 'computer-a' }, { deviceId: 'visiting-b' },
+    { id: 'computer-a' }, { id: 'computer-a', mode: 'relay' }, { deviceId: 'visiting-b' },
   ]);
 });
 
 test('所有操作按钮实际接线；复制失败仍保留可手动复制的绑定信息', () => {
-  for (const action of ['invite', 'add', 'renew', 'stop', 'remove', 'mode', 'probe', 'revoke']) {
+  for (const action of ['invite', 'add', 'remove', 'mode', 'revoke']) {
     assert.match(component, new RegExp(`remoteComputers\\.${action}\\(`), `${action} 必须有真实调用`);
   }
-  assert.match(component, /openRemoteComputer\(device\.id\)/);
-  for (const action of ['open', 'renew', 'remove']) {
-    assert.match(component, new RegExp(`onClick=\\{\\(\\) => ${action}\\(device\\)\\}`));
+  // 续期已下沉到宿主后台自动完成；停止访问、检测线路不再有面板按钮（2026-11-15 需求变更）。
+  for (const gone of ['renew', 'stop', 'probe']) {
+    assert.doesNotMatch(component, new RegExp(`remoteComputers\\.${gone}\\(`), `${gone} 不应再有面板调用`);
   }
+  assert.match(component, /openRemoteComputer\(device\.id\)/);
+  assert.match(component, /onClick=\{\(\) => open\(device\)\}/);
+  assert.match(component, /onClick=\{\(\) => remove\(device\)\}/);
+  assert.match(component, /<DesktopIcon \/>/);
+  assert.match(component, /<TrashIcon \/>/);
   assert.match(component, /onClick=\{generateInvite\}/);
   assert.match(component, /navigator\.clipboard\.writeText\(invitation\.invite\)/);
   assert.match(component, /catch \{\s+setManualCopy\(true\)/);
   assert.match(component, /<Textarea[^>]*readOnly value=\{invitation\.invite\}/);
   assert.match(component, /event\.target\.select\(\)/);
   assert.match(component, /panel\.remote\.manualCopy/);
-  assert.match(component, /disabled=\{disabled \|\| !invitation \|\| inviteExpired\}/);
+  assert.match(component, /disabled=\{dialogBusy \|\| !invitation \|\| inviteExpired\}/);
 });
 
-test('一小时访问：临期五分钟提示，已到期与撤权状态不能续期', async () => {
+test('每设备一行：窗口连着才算打开，线路位与按钮按设备各管各', () => {
+  // 打开态以「桌面窗口还连着」为准：关掉后回到未打开（2026-11-15）。
+  assert.match(component, /const opened = device\.attached/);
+  assert.match(component, /\{opened \? \(/);
+  // busy 用数组按设备键区分：一台在忙不连累别的设备，也不再整张列表一起变灰（2026-11-15）。
+  assert.match(component, /const deviceBusy = \(id: string\) => busy\.some\(/);
+  assert.match(component, /endsWith\(`:\$\{id\}`\)/);
+  assert.match(component, /channelText\(device\.mode\)\} · \{channelText\(device\.channel\)\}/);
+  assert.match(component, /aria-label=\{t\('panel\.remote\.open'\)\}/);
+  assert.match(component, /aria-label=\{t\('panel\.remote\.remove'\)\}/);
+  assert.match(component, /disabled=\{rowBusy/);
+  assert.doesNotMatch(component, /disabled=\{disabled\}/);
+});
+
+test('租期判定：有效/到期/撤权，面板不再显示剩余时间与临期提示', async () => {
   const { remoteLease, REMOTE_LEASE_WARNING_MS } = await load();
   const now = 100_000;
   assert.equal(REMOTE_LEASE_WARNING_MS, 5 * 60_000);
@@ -124,10 +151,11 @@ test('一小时访问：临期五分钟提示，已到期与撤权状态不能�
   assert.equal(remoteLease({ state: 'revoked', expiresAt: now + 3600_000 }, now).active, false);
   assert.equal(remoteLease({ state: 'idle', expiresAt: 0 }, now).active, false);
   assert.deepEqual(remoteLease({ state: 'idle', expiresAt: null }, now), { active: false, remainingMs: 0, warning: false });
-  assert.match(component, /if \(!remoteLease\(device, Date\.now\(\) \+ clockOffset\.current\)\.active\) return/);
-  assert.match(component, /\{lease\.active \? \([\s\S]*?onClick=\{\(\) => renew\(device\)\}/);
-  assert.match(component, /lease\.warning \? <p role="status"/);
-  assert.match(component, /expired \? 'panel\.remote\.reopen' : 'panel\.remote\.open'/);
+  // 续期改由宿主后台按窗口在用自动完成：面板不再画剩余时间、临期提示与手动续期按钮（2026-11-15）。
+  assert.doesNotMatch(component, /panel\.remote\.remaining/);
+  assert.doesNotMatch(component, /panel\.remote\.expiring/);
+  assert.doesNotMatch(component, /lease\.warning/);
+  assert.match(component, /const opened = device\.attached/);
   assert.match(component, /next\.serverNow - Date\.now\(\)/);
 });
 
@@ -163,17 +191,36 @@ test('只接受带端口的 HTTP 127.0.0.1 入口，保留一次性凭据', asyn
   }
 });
 
+test('桌面端可用时只调 open-shell，不预开窗口也不导航', async (t) => {
+  const { openRemoteComputer } = await load();
+  const events = [];
+  const calls = [];
+  const view = browser(events);
+  install(t, 'window', view.window);
+  install(t, 'fetch', async (url) => {
+    calls.push(url);
+    return json({ ok: true, url: 'http://127.0.0.1:49152/#once', expiresAt: 3600_000 });
+  });
+  const result = await openRemoteComputer('computer-a');
+  assert.equal(result.url, 'http://127.0.0.1:49152/#once');
+  assert.equal(calls.length, 1);
+  assert.match(String(calls[0]), /\/open-shell$/);
+  assert.deepEqual(events, []);
+});
+
 test('浏览器点击同步预开，取得入口前不导航，切断 opener 后交给本机代理', async (t) => {
   const { openRemoteComputer } = await load();
   const events = [];
   const view = browser(events);
   let resolve;
   install(t, 'window', view.window);
-  install(t, 'fetch', async () => {
+  install(t, 'fetch', browserFallbackFetch(async () => {
     events.push(['request']);
     return new Promise((done) => { resolve = done; });
-  });
+  }));
   const pending = openRemoteComputer('computer-a');
+  // 桌面端优先多了一次 open-shell 请求，等它回完不可用再观察浏览器回退路径。
+  await new Promise((done) => setImmediate(done));
   assert.deepEqual(events, [['open', 'about:blank', '_blank'], ['request']]);
   assert.equal(view.target.opener, null);
   resolve(json({ ok: true, url: 'http://127.0.0.1:49152/#once', expiresAt: 3600_000 }));
@@ -187,11 +234,11 @@ test('打开失败或返回外部地址时关闭空白窗口；弹窗被拦不�
   let calls = 0;
   const view = browser(events);
   install(t, 'window', view.window);
-  install(t, 'fetch', async () => { calls++; return json({ ok: true, url: 'https://outside.example/', expiresAt: 3600_000 }); });
+  install(t, 'fetch', browserFallbackFetch(async () => { calls++; return json({ ok: true, url: 'https://outside.example/', expiresAt: 3600_000 }); }));
   await assert.rejects(openRemoteComputer('computer-a'));
   assert.deepEqual(events.at(-1), ['close']);
   assert.equal(events.some(([type]) => type === 'navigate'), false);
-  globalThis.fetch = async () => { calls++; return json({ error: 'Denied' }, 403); };
+  globalThis.fetch = browserFallbackFetch(async () => { calls++; return json({ error: 'Denied' }, 403); });
   await assert.rejects(openRemoteComputer('computer-a'));
   assert.equal(events.filter(([type]) => type === 'close').length, 2);
   globalThis.window = browser(events, { blocked: true }).window;
@@ -204,7 +251,7 @@ test('桌面壳沿用导航到系统浏览器的方式，无需 about:blank 窗�
   const events = [];
   const view = browser(events, { protocol: 'dsh-app:' });
   install(t, 'window', view.window);
-  install(t, 'fetch', async () => json({ ok: true, url: 'http://127.0.0.1:49152/#once', expiresAt: 3600_000 }));
+  install(t, 'fetch', browserFallbackFetch(async () => json({ ok: true, url: 'http://127.0.0.1:49152/#once', expiresAt: 3600_000 })));
   await openRemoteComputer('computer-a');
   assert.equal(view.window.location.href, 'http://127.0.0.1:49152/#once');
   assert.deepEqual(events, []);
@@ -217,7 +264,7 @@ test('桌面壳内嵌控制台只导航同源顶层，跨源或不可访问顶�
   const top = { location: { origin: 'dsh-app://app', href: 'dsh-app://app/' } };
   view.window.top = top;
   install(t, 'window', view.window);
-  install(t, 'fetch', async () => json({ ok: true, url: 'http://127.0.0.1:49152/#once', expiresAt: 3600_000 }));
+  install(t, 'fetch', browserFallbackFetch(async () => json({ ok: true, url: 'http://127.0.0.1:49152/#once', expiresAt: 3600_000 })));
   await openRemoteComputer('computer-a');
   assert.equal(top.location.href, 'http://127.0.0.1:49152/#once');
   assert.equal(view.window.location.href, 'http://127.0.0.1:8000/api/relay/panel');

@@ -35,9 +35,10 @@ const THEME_KEY = 'dsh-mobile-panel-theme'
 // **真的会跑**的脚本（自己 createElement + 文本 + append），赶在 React 渲染之前挂上类；
 // 之后切换由 ThemeProvider 接管（它换类时会先清掉 light/dark，跟我们挂的不冲突）。
 //
-// **控制台那一窗跳过这一段**：它的配色跟着 DSH 的同源父窗口走（见 `lib/shell-theme.ts`），
-// 与面板自己那个 `dsh-mobile-panel-theme` 键无关；预置上去只会在跟随生效前闪一下另一门配色。
-const consolePage = /\/console$/.test(window.location.pathname.replace(/\/+$/, ''))
+// **除调试页外，面板所有地址都是控制台这一版**（2026-11-15 收成一套）：配色跟着 DSH 的
+// 同源父窗口走（见 `lib/shell-theme.ts`），与面板自己那个 `dsh-mobile-panel-theme` 键无关；
+// 预置上去只会在跟随生效前闪一下另一门配色。调试页仍归面板自己的主题。
+const consolePage = !/\/debug$/.test(window.location.pathname.replace(/\/+$/, ''))
 
 if (!consolePage) {
   const bootTheme = document.createElement('script')

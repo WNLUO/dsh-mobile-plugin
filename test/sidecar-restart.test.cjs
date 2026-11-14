@@ -81,7 +81,7 @@ test('重启按钮在网页版设置页里，失败时在界面上显式标红',
   // 别把这条守卫删掉（它钉的是「界面上必须能触发重启，而且失败必须看得见」）。
   const routes = read(path.join(PKG_DIR, 'lib', 'routes', 'control-plane.js'))
   assert.match(routes, /'\/api\/relay\/restart-sidecar'/, '宿主仍要提供重启路由')
-  const app = read(path.join(PKG_DIR, 'React', 'src', 'App.tsx'))
+  const app = read(path.join(PKG_DIR, 'React', 'src', 'Console.tsx'))
   assert.match(app, /apiPost<\{ status: StatusView \}>\('\/api\/relay\/restart-sidecar'\)/, '网页版要能触发重启')
   assert.match(app, /<Alert variant="error">/, '重启失败要在界面上显式标红')
   // 2026-10-24 海外发布这轮把面板**整页**国际化了（正是 2026-10-11 说的「要国际化就整页

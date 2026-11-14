@@ -19,3 +19,54 @@
   border-color: var(--border-overlay, var(--border));
   isolation: isolate;
 }
+
+/*
+ * 窄栏里「一行显示」的横向滚动条：平时看不见，鼠标移上来才现出滑块。
+ * 用在设备列表、配对卡那三行地址这类内容放不下就左右滑的地方，避免折行把排版顶乱。
+ */
+.hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.hscroll:hover {
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+.hscroll::-webkit-scrollbar {
+  height: 6px;
+}
+.hscroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hscroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.hscroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* 同一条滚动区同时要横向 + 纵向：滚动条平时透明，鼠标移上来才现出（桌面端能拖）。 */
+.hvscroll {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.hvscroll:hover {
+  scrollbar-color: rgba(148, 163, 184, 0.5) transparent;
+}
+.hvscroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.hvscroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hvscroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.hvscroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.5);
+}

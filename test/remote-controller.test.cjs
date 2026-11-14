@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const net = require('node:net');
-const { once } = require('node:events');
+const { once, EventEmitter } = require('node:events');
 const { createRemoteController } = require('../lib/remote/controller.cjs');
 const { LEASE_MS } = require('../lib/remote/local.cjs');
 
@@ -79,6 +79,7 @@ test('安全列表只返回允许字段和无秘密线路，模式合并不覆�
   assert.equal(encoded.includes('concurrent-key'), false);
   assert.equal(list[0].expiresAt, null);
   assert.equal(list[0].state, 'idle');
+  assert.equal(list[0].attached, false);
 });
 
 test('到期不能renew，重新open得到新租期和可用浏览器并保留模式', { concurrency: false }, async (t) => {
@@ -116,6 +117,20 @@ test('续期只允许有效本地访问，停止后旧入口失效且长期绑�
   await assert.rejects(() => f.controller.renew('A'), { code: 'REMOTE_EXPIRED' });
   await f.controller.remove('A');
   assert.deepEqual(await f.controller.list(), []);
+});
+
+test('桌面进程退出即视为窗口关闭，列表回到未打开', async (t) => {
+  const f = await fixture(t);
+  await browser(f.controller);
+  const opened = (await f.controller.list())[0];
+  assert.equal(opened.attached, true);
+  const child = new EventEmitter();
+  child.exitCode = null;
+  f.controller.watchWindow('A', child);
+  child.emit('exit', 0, null);
+  const closed = (await f.controller.list())[0];
+  assert.equal(closed.attached, false);
+  assert.equal(closed.state, 'idle');
 });
 
 test('认证后的基础线路更新持久保存且不覆盖模式或隧道密钥', async (t) => {

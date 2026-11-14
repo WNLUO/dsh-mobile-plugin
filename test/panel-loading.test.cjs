@@ -95,7 +95,7 @@ test('二维码错误就地显示并可重取，两个入口共用同一卡片',
   const card = read('src/components/PairingCard.tsx');
   assert.match(card, /error \? \([\s\S]{0,400}onClick=\{onRetryPairing\}/);
   assert.match(card, /panel\.console\.retryPairing/);
-  for (const file of ['src/App.tsx', 'src/Console.tsx']) {
+  for (const file of ['src/Console.tsx']) {
     assert.match(read(file), /onRetryPairing=\{\(\) => void loadPairing\(\)\}/);
   }
   const onboarding = read('src/Onboarding.tsx');
@@ -126,7 +126,9 @@ test('启动状态同时写入文档标记并报告父窗口，独立打开不�
 
 test('页面接线：状态返回后才确认就绪，首屏与 React 异常均报告失败', () => {
   const source = read('src/Root.tsx');
-  assert.match(source, /configured !== null && !\(forcedConsole && configured\)/);
+  // 2026-11-15：面板收成一套（Root 统一分流到控制台），就绪判据随之改成「不需要问状态的页
+  // 直接就绪，否则等 configured 回来」，覆盖根地址与 /console 两条。
+  assert.match(source, /!needsStatus \|\| configured !== null/);
   assert.match(read('src/Console.tsx'), /if \(status\) reportPanelState\('ready'\)/);
   assert.match(read('src/Console.tsx'), /else if \(fatal\) reportPanelState\('error', fatal\)/);
   assert.match(source, /setStartupError\(errorText\(error\)\)/);

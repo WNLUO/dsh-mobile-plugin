@@ -48,7 +48,6 @@ type Props = {
   onChangeAutoReview: (enabled: boolean) => void
   /** 「检查网络」：开的是「连接自检」那个弹窗（与卡片里那行「自检」是同一件事）。 */
   onOpenSelfCheck: () => void
-  onReconnect: () => void
   onRetryPairing: () => void
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
@@ -70,6 +69,28 @@ type Props = {
  * 「重启 sidecar」在「插件更新」卡（它跟更新是同一件事），这里只留「上次重启失败」的红字。
  * 「刷新」不设：配对信息在进页面、改配置、换码（配对成功）时刷新。
  */
+/** 二维码入口上的小图标。 */
+function QrGlyph() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className="size-6"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <path d="M14 14h3v3M21 14v.01M14 21h.01M17 21h4v-4" />
+    </svg>
+  )
+}
+
 export function PairingCard({
   status,
   pairing,
@@ -82,7 +103,6 @@ export function PairingCard({
   onChangeTier,
   onChangeAutoReview,
   onOpenSelfCheck,
-  onReconnect,
   onRetryPairing,
   onSavePreferred,
   onEditPort,
@@ -100,30 +120,35 @@ export function PairingCard({
    * （设备名与内网网段都写在里面），比中转地址更值得别摆着。
    */
   const phoneAddress = phoneHintAddress(addressBook, pairing)
-  // 两个「明文摆着、可当场遮上」的值：二维码与中转地址。都只当页面里的一次开关，不落盘 ——
+  // 「中转地址」这一行明文摆着、可当场遮上：只当页面里的一次开关，不落盘 ——
   // 默认值才是那个谨慎的选项，记住了反而把「默认隐藏」抵消掉。
-  // 地址那一行不在这里：它点开的是弹窗（`addressOpen`），关掉弹窗就等于又遮上了。
-  const [shown, setShown] = React.useState({ qr: false, relay: false })
+  // 二维码不在这里：它整块就是个入口，点一下直接开放大弹窗（见下面的二维码格）。
+  const [shown, setShown] = React.useState({ relay: false })
   const [addressOpen, setAddressOpen] = React.useState(false)
   // 放大二维码：屏幕缩放、手机离得远时，卡片里那颗太小。它只是同一张码的另一个尺寸，
   // 揭开状态另算 —— 关掉弹窗回到卡片里的样子，不改变「默认遮着」那条。
   const [qrZoom, setQrZoom] = React.useState(false)
+  // 「其他」弹窗：配对策略、新设备档位、自动审阅与「检查网络」这些不常用项都收在里面。
+  const [moreOpen, setMoreOpen] = React.useState(false)
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   return (
     <Card frame="solid">
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+      <CardHeader className="flex-none px-4 py-3">
+        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-base lg:text-lg">
           <span>{t('panel.pairing.cardTitle')}</span>
-          {/* 连不上时先看自检结论：它就是「连接自检」那个弹窗（与「自检」是同一件事，
-              只是入口换了地方）。做成文字按钮，别再多一颗胶囊抢标题那一行。 */}
-          <button
-            type="button"
-            className="cursor-pointer text-sm text-foreground-intense underline underline-offset-2 hover:text-foreground-strong"
-            onClick={onOpenSelfCheck}
-          >
-            {t('panel.pairing.checkNetwork')}
-          </button>
+          {/* 维护动作都在标题右侧：网络配置 / 下载 APP；其余（配对策略、新设备档位、
+              自动审阅、检查网络）收进「其他」那颗。「重新连接」搬到了页面顶栏，紧挨「报错调试」。
+              宽度不够时整组按钮换到下一行，标题保持完整可读（不裁标题）。 */}
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Button variant="ghost" size="sm" className="px-2 xl:px-4 xl:before:border xl:before:border-border xl:before:bg-background" disabled={idle} onClick={onOpenConfig}>
+              {t('panel.pairing.openConfig')}
+            </Button>
+            <DownloadAppButton size="sm" variant="ghost" className="px-2 xl:px-4 xl:before:border xl:before:border-border xl:before:bg-background" />
+            <Button variant="ghost" size="sm" className="px-2" onClick={() => setMoreOpen(true)}>
+              {t('panel.common.more')}
+            </Button>
+          </span>
         </CardTitle>
       </CardHeader>
 
@@ -135,135 +160,44 @@ export function PairingCard({
         </Alert>
       ) : null}
 
-      <div className="mt-3 flex flex-col gap-4 sm:flex-row">
-        {/* 二维码这一格**尺寸固定**：遮着是同一尺寸的占位、揭开是同一块白底，两种状态上下都不动。
-            白底用 `size-full` + `p-2` 撑满这一格，里面再 `size-full` 缩放 —— 别给内层写死像素，
-            那样白底会比占位高出边框加内边距那一圈，整张卡跟着长两像素。
-            **360 而不是 280**（2026-11-09）：一台机器同时带中转、局域网、几条 IPv6 时码能密到
-            一百多个模块，280 摆下来一个模块只剩两像素多，手机一举就认不出来。尺寸与下面的
-            占位、放大弹窗同源，改一处改全部。 */}
-        <div className="flex shrink-0 flex-col items-center">
-          <div className="relative size-[360px] max-w-full">
-            {/*
-              白底是必须的：二维码是黑白的，暗色主题下要保证扫得出来。
-              遮上时**整块换成一个占位**，不是把里面的 SVG 用样式盖住：隐藏态的页面里
-              根本不存在那张图，截屏工具、开发者工具、页面另存为都拿不到它。
-            */}
-            {/*
-              三态，**码还没取回来时不许先画那块白**（2026-11-13 用户报「点进去先白一闪」）：
-              旧写法把「揭开状态」和「有没有码」揉在一个条件里，于是 `pairing` 还没回来那几百
-              毫秒会落进白底那一支 —— 屏幕上先闪一块纯白，等码到了再变回浅灰占位。
-              现在先判「有没有码」：没有就一直是浅底，有码才谈揭开 / 遮上。
-            */}
-            {!pairing?.svg ? (
-              <div className="flex size-[360px] max-w-full flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
-                {error ? (
-                  <>
-                    <span className="text-xs">{t('panel.pairing.qrFailed')}</span>
-                    <Button variant="ghost" size="sm" disabled={idle} onClick={onRetryPairing}>
-                      {t('panel.console.retryPairing')}
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Spinner />
-                    <span className="text-xs">{t('panel.pairing.noQr')}</span>
-                  </>
-                )}
-              </div>
-            ) : !shown.qr ? (
-              <div className="flex size-[360px] max-w-full flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
-                <span className="text-xs">{t('panel.pairing.qrHidden')}</span>
-                <RevealButton what={t('panel.pairing.qr')} label={t('panel.common.show')} onClick={() => toggle('qr')} />
-              </div>
-            ) : (<div className="flex size-[360px] max-w-full items-center justify-center overflow-hidden rounded-md border border-border-muted bg-white p-2">
-                {/* 点码本身就能放大：手指落在图上的人不会先去找一颗按钮。 */}
-                <button
-                  type="button"
-                  className="size-full cursor-zoom-in rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                  onClick={() => setQrZoom(true)}
-                  aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
-                >
-                  {/* 宿主生成的 SVG（带 512px 固定宽高），内嵌后必须被这里压到方框大小；
-                      不是用户输入，没有注入面。 */}
-                  <div
-                    className="size-full [&_svg]:h-full [&_svg]:w-full"
-                    dangerouslySetInnerHTML={{ __html: pairing.svg }}
-                  />
-                </button>
-              </div>
-            )}
-          </div>
+      <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-stretch">
+        {/* 二维码只用一块方形的入口：高度由右侧三行撑起来（`self-stretch aspect-square`），
+            点它直接开放大弹窗——「显示」与「放大」合成一下，卡片里不再摆真正的码图（也更好防窥屏）。 */}
+        <div className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:w-[150px] sm:max-w-none sm:self-start lg:w-auto lg:self-stretch">
+          {!pairing?.svg ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle">
+              {error ? (
+                <>
+                  <span className="text-xs">{t('panel.pairing.qrFailed')}</span>
+                  <Button variant="ghost" size="sm" disabled={idle} onClick={onRetryPairing}>
+                    {t('panel.console.retryPairing')}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Spinner />
+                  <span className="text-xs">{t('panel.pairing.noQr')}</span>
+                </>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="absolute inset-0 flex cursor-zoom-in flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setQrZoom(true)}
+              aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
+            >
+              <QrGlyph />
+              <span className="text-xs">{t('panel.pairing.qrHidden')}</span>
+              <span className="text-xs">{t('panel.common.show')}</span>
+            </button>
+          )}
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <InfoList>
-            {/*
-              配对策略就是一个开关：开 = 允许新设备凭配对码绑定，关 = 一律拒绝。
-              它以前在「连接状态」和「网络配置」里各有一颗，同一件事一屏两颗开关只会让人猜
-              「改哪颗才算」—— 现在只留这一处。
-            */}
-            <InfoRow label={t('panel.pairing.policy')}>
-              <Switch
-                size="md"
-                checked={pairingAllowed}
-                disabled={idle}
-                onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
-                aria-label={t('panel.devices.allowTitle')}
-              />
-            </InfoRow>
-            {/*
-              新配对设备的权限档位：默认全权。它只在电脑侧选，配对时写进凭据记录；
-              已绑定设备各自的档位在「已绑定的设备」卡里逐台改。
-              `itemToStringLabel` 是必须的：下拉框收起时显示的是「选中值」本身，
-              没有它就会把 `full` 这个内部字面量照抄出来（界面上突然变成英文）。
-            */}
-            <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
-              <Select
-                size="sm"
-                value={pairingTier}
-                disabled={idle}
-                itemToStringLabel={(next) => tierLabel(next as Tier)}
-                onValueChange={(next) => {
-                  if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
-                }}
-              >
-                {/*
-                  下拉框**不许**设最小宽度：这一行是「长标签 + 间距 + 控件」挤在卡片右半栏
-                  （1024 两栏时只有 210px），德法葡西俄那几门的标签本身就要 130~165px，
-                  再加一条 `min-w-32` 就顶出卡片、被 `overflow-hidden` 真裁掉 —— 现场是
-                  法语只显示成「Com」。让它跟着这一行分配到的宽度缩，控件里的字自己出省略号，
-                  版式不散。
-                */}
-                <SelectTrigger className="min-w-0 max-w-full" aria-label={t('panel.pairing.tier')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIER_OPTIONS.map((tier) => (
-                    <SelectItem key={tier} value={tier}>
-                      {tierLabel(tier)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </InfoRow>
-            {/*
-              审批「自动审阅档」，默认关。开着时：没人看着的会话里那一档「在工作区里改文件」
-              会经一次只读判定后直接放行，越界动作照旧推卡；判定拿不准一律拒绝。
-              与上面两行一样是**点了就存**（不等一颗保存按钮）。
-            */}
-            <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
-              <Switch
-                size="sm"
-                checked={autoReview}
-                disabled={idle}
-                aria-label={t('panel.pairing.autoReview')}
-                onCheckedChange={(next) => {
-                  if (next !== autoReview) onChangeAutoReview(next)
-                }}
-              />
-            </InfoRow>
-            <InfoRow label={t('panel.connection.relayUrl')}>
+          <div className="hscroll -mx-1 px-1">
+          <InfoList className="min-w-max">
+            <InfoRow label={t('panel.connection.relayUrl')} nowrap>
               <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 {shown.relay ? (
                   <span className="min-w-0 font-mono text-xs text-foreground-strong">{relayUrl}</span>
@@ -278,7 +212,7 @@ export function PairingCard({
                 />
               </span>
             </InfoRow>
-            <InfoRow label={t('panel.pairing.port')} mono>
+            <InfoRow label={t('panel.pairing.port')} mono nowrap>
               <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 <span>
                   {pairing?.lanPort ?? status.lan.port}
@@ -309,7 +243,7 @@ export function PairingCard({
               IPv6）会把整张卡拉高、把下面的卡顶下去，所以内容挪进弹窗，这一行永远只有一行高。
               **不给「隐藏」**：关掉弹窗就是遮上了；刷新页面也回到遮着。
             */}
-            <InfoRow label={t('panel.pairing.phoneAddress')}>
+            <InfoRow label={t('panel.pairing.phoneAddress')} nowrap>
               <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 {phoneAddress ? null : (
                   <span className="text-xs text-foreground-subtle">{t('panel.pairing.noAddress')}</span>
@@ -323,6 +257,7 @@ export function PairingCard({
               </span>
             </InfoRow>
           </InfoList>
+          </div>
 
         </div>
       </div>
@@ -335,36 +270,22 @@ export function PairingCard({
         </Alert>
       ) : null}
 
-      {/* 「下载 APP」跟维护那两颗一起靠右收齐：一排放三颗，都是「接下来要做的动作」。
-          「重启 sidecar」按用户要求搬到「插件更新」卡片里 —— 它和更新讲的是同一件事：
-          让磁盘上的新代码立刻生效（sidecar 层不用重启宿主，宿主层才需要）。 */}
-      {/* 这一排都是「接下来要做的动作」，网络配置也算一颗，跟它们排在一起更顺。 */}
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-        <Button variant="outline" size="md" disabled={idle} onClick={onOpenConfig}>
-          {t('panel.pairing.openConfig')}
-        </Button>
-        {/* 下载入口点开是渠道弹窗（安卓两条 / 苹果两条），尺寸走默认的 md，
-            与旁边两颗 h-10 对齐。 */}
-        <DownloadAppButton />
-        <Button variant="secondary" size="md" disabled={idle} onClick={onReconnect}>
-          {t('panel.pairing.reconnect')}
-        </Button>
-      </div>
+      {/* 「下载 APP」「网络配置」「重新连接」都搬到标题右侧了，这里不再摆一排动作。 */}
 
       {/*
         放大二维码：与卡片里那颗是同一份 SVG，只是给到能凑近扫的尺寸。
         屏幕缩放、显示器离得远、手机举着不方便时，这块比把卡片撑大管用。
       */}
       <Dialog open={qrZoom} onOpenChange={setQrZoom}>
-        <DialogContent className="w-[min(680px,94vw)] max-w-none" closeLabel={t('panel.common.close')}>
+        <DialogContent className="w-[min(680px,94vw)] max-h-[90vh] max-w-none" closeLabel={t('panel.common.close')}>
           <DialogHeader>
             <DialogTitle>{t('panel.pairing.qr')}</DialogTitle>
           </DialogHeader>
           <DialogBody>
-            <div className="flex items-center justify-center rounded-md bg-white p-4">
+            <div className="flex items-center justify-center overflow-auto rounded-md bg-white p-2 sm:p-4">
               {pairing?.svg ? (
                 <div
-                  className="size-[min(72vh,600px)] [&_svg]:h-full [&_svg]:w-full"
+                  className="aspect-square h-[min(64vh,560px)] w-auto max-w-full [&_svg]:h-full [&_svg]:w-full"
                   dangerouslySetInnerHTML={{ __html: pairing.svg }}
                 />
               ) : null}
@@ -398,6 +319,67 @@ export function PairingCard({
               {t('panel.common.close')}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 「其他」：不常用的设置——配对策略、新设备档位、自动审阅，以及「检查网络」——都收在这里，
+          标题那一行留给日常动作。 */}
+      <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
+        <DialogContent className="max-w-md" closeLabel={t('panel.common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('panel.common.more')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="flex flex-col gap-3">
+            <InfoList>
+              <InfoRow label={t('panel.pairing.policy')}>
+                <Switch
+                  size="md"
+                  checked={pairingAllowed}
+                  disabled={idle}
+                  onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
+                  aria-label={t('panel.devices.allowTitle')}
+                />
+              </InfoRow>
+              <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
+                <Select
+                  size="sm"
+                  value={pairingTier}
+                  disabled={idle}
+                  itemToStringLabel={(next) => tierLabel(next as Tier)}
+                  onValueChange={(next) => {
+                    if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
+                  }}
+                >
+                  <SelectTrigger className="min-w-0 max-w-full" aria-label={t('panel.pairing.tier')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIER_OPTIONS.map((tier) => (
+                      <SelectItem key={tier} value={tier}>
+                        {tierLabel(tier)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </InfoRow>
+              <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
+                <Switch
+                  size="sm"
+                  checked={autoReview}
+                  disabled={idle}
+                  aria-label={t('panel.pairing.autoReview')}
+                  onCheckedChange={(next) => {
+                    if (next !== autoReview) onChangeAutoReview(next)
+                  }}
+                />
+              </InfoRow>
+            </InfoList>
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={onOpenSelfCheck}>
+                {t('panel.pairing.checkNetwork')}
+              </Button>
+            </div>
+          </DialogBody>
         </DialogContent>
       </Dialog>
     </Card>

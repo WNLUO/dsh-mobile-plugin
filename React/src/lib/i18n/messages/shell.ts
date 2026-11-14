@@ -16,6 +16,7 @@ export type PanelMessages = Record<PanelLanguage, Table>
 export const COMMON: PanelMessages = {
   'zh-Hans': {
     'panel.common.show': '显示',
+    'panel.common.more': '其他',
     'panel.common.hide': '隐藏',
     'panel.common.close': '关闭',
     'panel.common.none': '暂无',
@@ -41,6 +42,7 @@ export const COMMON: PanelMessages = {
   },
   'zh-Hant': {
     'panel.common.show': '顯示',
+    'panel.common.more': '其他',
     'panel.common.hide': '隱藏',
     'panel.common.close': '關閉',
     'panel.common.none': '暫無',
@@ -66,6 +68,7 @@ export const COMMON: PanelMessages = {
   },
   en: {
     'panel.common.show': 'Show',
+    'panel.common.more': 'More',
     'panel.common.hide': 'Hide',
     'panel.common.close': 'Close',
     'panel.common.none': 'None',
@@ -91,6 +94,7 @@ export const COMMON: PanelMessages = {
   },
   ja: {
     'panel.common.show': '表示',
+    'panel.common.more': 'その他',
     'panel.common.hide': '隠す',
     'panel.common.close': '閉じる',
     'panel.common.none': 'なし',
@@ -116,6 +120,7 @@ export const COMMON: PanelMessages = {
   },
   ko: {
     'panel.common.show': '표시',
+    'panel.common.more': '기타',
     'panel.common.hide': '숨기기',
     'panel.common.close': '닫기',
     'panel.common.none': '없음',
@@ -141,6 +146,7 @@ export const COMMON: PanelMessages = {
   },
   de: {
     'panel.common.show': 'Anzeigen',
+    'panel.common.more': 'Mehr',
     'panel.common.hide': 'Ausblenden',
     'panel.common.close': 'Schließen',
     'panel.common.none': 'Keine',
@@ -166,6 +172,7 @@ export const COMMON: PanelMessages = {
   },
   es: {
     'panel.common.show': 'Mostrar',
+    'panel.common.more': 'Más',
     'panel.common.hide': 'Ocultar',
     'panel.common.close': 'Cerrar',
     'panel.common.none': 'Ninguno',
@@ -191,6 +198,7 @@ export const COMMON: PanelMessages = {
   },
   fr: {
     'panel.common.show': 'Afficher',
+    'panel.common.more': 'Plus',
     'panel.common.hide': 'Masquer',
     'panel.common.close': 'Fermer',
     'panel.common.none': 'Aucun',
@@ -216,6 +224,7 @@ export const COMMON: PanelMessages = {
   },
   pt: {
     'panel.common.show': 'Mostrar',
+    'panel.common.more': 'Mais',
     'panel.common.hide': 'Ocultar',
     'panel.common.close': 'Fechar',
     'panel.common.none': 'Nenhum',
@@ -241,6 +250,7 @@ export const COMMON: PanelMessages = {
   },
   ru: {
     'panel.common.show': 'Показать',
+    'panel.common.more': 'Ещё',
     'panel.common.hide': 'Скрыть',
     'panel.common.close': 'Закрыть',
     'panel.common.none': 'Нет',
@@ -470,7 +480,7 @@ export const STATUS: PanelMessages = {
   },
 }
 
-/** 外壳（App.tsx）里的动作回执与确认。 */
+/** 面板里的动作回执与确认（控制台这一版共用）。 */
 export const SHELL: PanelMessages = {
   'zh-Hans': {
     'panel.shell.remoteEnabled': '已启用远程控制。',

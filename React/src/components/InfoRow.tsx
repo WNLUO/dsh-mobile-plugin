@@ -22,6 +22,8 @@ type InfoRowProps = {
   /** 行首那枚点；不传就不画。 */
   tone?: Tone
   mono?: boolean
+  /** 一行不折：标签和值都不换行（放横向滚动的窄栏里用）。 */
+  nowrap?: boolean
   children: ReactNode
 }
 
@@ -36,10 +38,10 @@ type InfoRowProps = {
  * 卡片外面被裁掉 —— 1024 两栏时那一栏只有 210px，现场是法语「权限档位」只露出「Com」。
  * 现在标签按比例分宽度、放不下就折行，值那边仍是 `break-all` 兜底，两边都留在卡里。
  */
-export function InfoRow({ label, hint, tone, mono, children }: InfoRowProps) {
+export function InfoRow({ label, hint, tone, mono, nowrap, children }: InfoRowProps) {
   return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-border-muted py-2 last:border-b-0">
-      <dt className="min-w-0 flex-1 text-sm text-foreground-muted">
+    <div className={cn('flex justify-between gap-4 border-b border-border-muted py-2 last:border-b-0', nowrap ? 'items-center whitespace-nowrap' : 'items-baseline')}>
+      <dt className={nowrap ? 'shrink-0 text-xs text-foreground-muted' : 'min-w-0 flex-1 text-sm text-foreground-muted'}>
         {hint ? (
           <span className="inline-flex items-center gap-1">
             {label}
@@ -70,7 +72,8 @@ export function InfoRow({ label, hint, tone, mono, children }: InfoRowProps) {
       </dt>
       <dd
         className={cn(
-          'min-w-0 shrink-0 text-right text-sm break-all',
+          'shrink-0 text-right text-sm',
+          nowrap ? 'whitespace-nowrap text-xs' : 'min-w-0 break-all',
           mono ? 'font-mono text-xs text-foreground-strong' : 'text-foreground',
           tone && toneText[tone],
         )}
@@ -81,8 +84,8 @@ export function InfoRow({ label, hint, tone, mono, children }: InfoRowProps) {
   )
 }
 
-export function InfoList({ children }: { children: ReactNode }) {
-  return <dl className="mt-1">{children}</dl>
+export function InfoList({ children, className }: { children: ReactNode; className?: string }) {
+  return <dl className={cn('mt-1', className)}>{children}</dl>
 }
 
 /** 值 + 一枚状态点，用于「隧道 已连接」这类行。 */

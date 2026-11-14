@@ -57,13 +57,13 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Alert, Onb, Join, Spn, Star, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice, Dbg] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Con, Onb, Join, Spn, Star, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice, Dbg] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
   server.ssrLoadModule('/src/components/RelayConfigDialog.tsx'),
   server.ssrLoadModule('/src/components/PortDialog.tsx'),
-  server.ssrLoadModule('/src/App.tsx'),
+  server.ssrLoadModule('/src/Console.tsx'),
   server.ssrLoadModule('/src/Onboarding.tsx'),
   server.ssrLoadModule('/src/components/JoinGroupButton.tsx'),
   server.ssrLoadModule('/src/components/SponsorButton.tsx'),
@@ -176,7 +176,8 @@ const cases = [
   ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), 'aria-label="显示本地识别地址"'],
   // 准入开关只留在配对卡的「配对策略」那行（2026-11-02 从连接状态与网络配置两处合并过来）：
   // 这里钉住「它真的渲染出来了」，而且名字挂在开关自己身上。
-  ['PairingCard（配对策略是开关）', h(Pair.PairingCard, pairingProps), 'aria-label="允许新设备绑定"'],
+  ['PairingCard（维护按钮在标题栏）', h(Pair.PairingCard, pairingProps), '网络配置'],
+  ['PairingCard（其他入口在）', h(Pair.PairingCard, pairingProps), '其他'],
   // 更新卡片先问宿主那四条 `/api/relay/update/*`，拿不到才退化成市场老路。
   // SSR 里 effect 不跑，两条分支都不进：这一遍只冒烟「标题 + 正在读状态」那一屏。
   // 完整分支要用真浏览器看 —— 这里没有全局 fetch 打桩。
@@ -194,7 +195,7 @@ const cases = [
   ['AddressPicker（有私网 + 公网 + IPv6）', h(Picker.AddressPicker, { book: addressBook, port: 51864, value: '172.16.5.5', onChange: noop }), 'IPv6 直连'],
   ['AddressPicker（只有 IPv6）', h(Picker.AddressPicker, { book: ipv6OnlyBook, port: 18787, value: '', onChange: noop }), 'http://[240e:338:5213:6c11::998]:18787'],
   ['AddressPicker（老宿主没有 ipv6 字段）', h(Picker.AddressPicker, { book: serverBook, port: 18787, value: '', onChange: noop }), '公网地址'],
-  ['App（首屏）', h(Alert.App)],
+  ['Console（首屏）', h(Con.Console)],
   // 引导页只看得到第一页：后面几页靠页面内部状态推进，SSR 里 effect 不跑。
   // 四页的完整流程要用浏览器点（见 .../api/relay/panel/setup）。
   ['Onboarding（欢迎页）', h(Onb.Onboarding, {})],
@@ -330,7 +331,7 @@ const SAVE_FIELDS = [
   '{ preferredLanAddress: address }',
   '{ approvalAutoReview: enabled }',
 ]
-for (const [file, fields] of [['App.tsx', SAVE_FIELDS], ['Onboarding.tsx', ['patch']]]) {
+for (const [file, fields] of [['Console.tsx', SAVE_FIELDS], ['Onboarding.tsx', ['patch']]]) {
   const text = await readFile(new URL(`../src/${file}`, import.meta.url), 'utf8')
   const lost = fields.filter((field) => !text.includes(`apiPost<StatusView>('/api/relay/config', ${field})`))
   if (lost.length > 0) {

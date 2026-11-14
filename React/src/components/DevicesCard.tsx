@@ -183,9 +183,52 @@ type Props = {
   onRevokeAll: () => void
   /** 有动作在飞（与页面其他地方共用同一份 busy）。 */
   busy: string
+  /** 撑满父容器、列表在卡内滚动（与「连接状态」并排等高时用）。 */
+  fill?: boolean
 }
 
-export function DevicesCard({ onRevokeAll, busy }: Props) {
+/** 权限：盾牌图标（改的是这台设备的权限档位）。 */
+function ShieldIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  )
+}
+
+/** 解除绑定：断开链条的图标。 */
+function UnlinkIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 15l6-6" />
+      <path d="M7 17l-1 1a3 3 0 0 1-4-4l2-2a3 3 0 0 1 4 0" />
+      <path d="M17 7l1-1a3 3 0 0 1 4 4l-2 2a3 3 0 0 1-4 0" />
+    </svg>
+  )
+}
+
+export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
   const notify = useNotify()
   const [list, setList] = useState<DeviceList | null>(null)
   /** 正在等确认的那台设备：null = 确认框关着。 */
@@ -352,9 +395,9 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
   if (devices.length === 0 && revokedCount === 0) return null
 
   return (
-    <Card frame="solid">
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+    <Card frame="solid" className={fill ? 'flex h-full min-h-0 flex-col' : undefined}>
+      <CardHeader className={fill ? 'flex-none px-4 py-3' : 'px-4 py-3'}>
+        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-base lg:text-lg">
           <span className="flex items-center gap-2">
             {t('panel.devices.title')}
             {/* 台数只数活着的那些。一台都不剩时这一格不画：标题写着「已绑定的设备」、
@@ -366,83 +409,58 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
               </Badge>
             ) : null}
           </span>
-          <Button variant="outline" size="sm" disabled={busy !== ''} onClick={onRevokeAll}>
+          <Button variant="ghost" size="sm" className="shrink-0 px-2 xl:px-4 xl:before:border xl:before:border-border xl:before:bg-background" disabled={busy !== ''} onClick={onRevokeAll}>
             {t('panel.pairing.revokeAll')}
           </Button>
         </CardTitle>
       </CardHeader>
 
-      <div className="mt-1">
+      <div className={fill ? 'hvscroll mt-1 min-h-0 flex-1' : 'hscroll mt-1'}>
+        <div className="min-w-max">
         {devices.map((device) => {
           const online = isOnline(device.lastSeenAt, now)
           return (
             <div
               key={device.deviceId}
-              className="flex flex-col gap-2 border-b border-border-muted py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
+              className="flex items-center justify-between gap-2 border-b border-border-muted py-2 whitespace-nowrap last:border-b-0"
             >
-              {/*
-                两行就说完，不再堆四项：第一行是机型 + 档位 + 平台；第二行是「什么时候、走的哪条路」。
-                **绑定时间与加密状态不摆**（2026-11-13 用户嫌挤）：绑定时刻是这台设备的历史，
-                真要查在「历史」里；加密与否对「这台手机还能不能用」没有影响。它们仍在数据里，
-                只是不再占这一行 —— 别为了「信息齐全」把它们加回来。
-              */}
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="truncate text-sm text-foreground-strong">{nameOf(device)}</span>
-                  {/* 旧式：这台名下有不带设备密钥的记录，吊销文案与别的行不一样（见文件头）。 */}
-                  {device.legacy ? (
-                    <Badge variant="warning" size="xs">
-                      {t('panel.devices.legacy')}
-                    </Badge>
-                  ) : null}
-                  {/* 同一台手机重配过几次就会有好几条活凭据：不摆出来，人只在解除绑定那一下
-                      看到「2 条凭据」，之前一直以为只有一份。 */}
-                  {device.bindings > 1 ? (
-                    <Badge variant="secondary" size="xs">
-                      {t('panel.devices.extraBindings', { count: device.bindings - 1 })}
-                    </Badge>
-                  ) : null}
-                  {/* 这台设备当前的权限档位：由实际权限位反推，不是另存一份档位。
-                      老凭据（permissions 为 null）就是全权；显式空数组是「什么都不允许」。 */}
-                  <Badge variant="secondary" size="xs">
-                    {tierViewLabel(tierOfPermissions(device.permissions))}
-                  </Badge>
-                </div>
-
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-foreground-muted">
-                  <span>
-                    {platformText(device.platform)}
-                    {device.osVersion ? ` ${device.osVersion}` : ''}
-                  </span>
-                  {/* 在线才带绿点；不在线就只报相对时间，别让一枚灰点在那儿装作状态。 */}
-                  <span className="inline-flex items-center gap-1">
-                    <span aria-hidden>·</span>
-                    {online ? <Dot tone="ok" /> : null}
-                    {seenText(device.lastSeenAt, now)}
-                  </span>
-                  <span>· {channelText(device.lastChannel)}</span>
-                  <span>· {device.encrypted ? t('panel.devices.encrypted') : t('panel.devices.plain')}</span>
-                </div>
+              {/* 一行说完：名字 + 档位 + 平台 / 通道 / 最近连接；旧绑定、系统版本、加密这些不摆。 */}
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className="text-sm text-foreground-strong">{nameOf(device)}</span>
+                <Badge variant="secondary" size="xs">
+                  {tierViewLabel(tierOfPermissions(device.permissions))}
+                </Badge>
+                <span className="flex min-w-0 items-center gap-1 whitespace-nowrap text-xs text-foreground-muted">
+                  <span>{platformText(device.platform)}</span>
+                  <span aria-hidden>·</span>
+                  <span>{channelText(device.lastChannel)}</span>
+                  <span aria-hidden>·</span>
+                  {online ? <Dot tone="ok" /> : null}
+                  <span>{seenText(device.lastSeenAt, now)}</span>
+                </span>
               </div>
 
-              {/*
-                两颗按钮**另起一行靠右**，不跟设备名挤在同一行：窄窗里设备名一长，
-                原来那一排按钮会把名字压成省略号，而按钮本身也挤成一坨。
-                宽屏时它们仍然回到右侧同一行（`sm:` 起），窄屏在下面自成一行。
-              */}
-              <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+              <div className="flex shrink-0 items-center gap-0.5">
                 <Button
-                  variant="outline"
-                  size="sm"
+                  variant="ghost"
+                  size="icon-md"
+                  aria-label={t('panel.devices.permissions')}
+                  title={t('panel.devices.permissions')}
                   onClick={() => {
                     setPermTier(tierForDialog(tierOfPermissions(device.permissions)))
                     setPermPending(device)
                   }}
                 >
-                  {t('panel.devices.permissions')}
+                  <ShieldIcon />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setPending(device)}>
-                  {t('panel.devices.unbind')}
+                <Button
+                  variant="ghost"
+                  size="icon-md"
+                  aria-label={t('panel.devices.unbind')}
+                  title={t('panel.devices.unbind')}
+                  onClick={() => setPending(device)}
+                >
+                  <UnlinkIcon />
                 </Button>
               </div>
             </div>
@@ -488,11 +506,6 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
                   {/* 比上面那些活设备行低一档：这一段的标题是 text-xs + 常规前景色，
                       不跟主列表抢注意力。 */}
                   <span className="text-xs text-foreground">{nameOf(device)}</span>
-                  {device.bindings > 1 ? (
-                    <Badge variant="secondary" size="xs">
-                      {t('panel.devices.extraBindings', { count: device.bindings - 1 })}
-                    </Badge>
-                  ) : null}
                   <span className="text-xs text-foreground-muted">
                     {platformText(device.platform)}
                     {device.osVersion ? ` ${device.osVersion}` : ''}
@@ -521,6 +534,7 @@ export function DevicesCard({ onRevokeAll, busy }: Props) {
             </p>
           </div>
         ) : null}
+      </div>
       </div>
 
       <AlertDialog

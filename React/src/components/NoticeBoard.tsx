@@ -35,7 +35,7 @@ export function NoticeBoard({ lanPort }: { lanPort: number }) {
 
   return (
     <>
-      <Button variant="outline" size="sm" className="w-full justify-between" onClick={() => setOpen(true)}>
+      <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
         <span>{t('panel.notice.title')}</span>
         <span className="text-xs text-foreground-muted">{`${t('panel.notice.versionLabel')} ≥ ${MIN_PLUGIN_VERSION}`}</span>
       </Button>

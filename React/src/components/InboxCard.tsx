@@ -73,7 +73,7 @@ export function inboxAgeText(at: number | null, now = Date.now()): string {
   return t('panel.inbox.ageDays', { days: Math.floor(hours / 24) })
 }
 
-export function InboxCard() {
+export function InboxCard({ framed = true }: { framed?: boolean }) {
   const notify = useNotify()
   const [status, setStatus] = useState<InboxStatus | null>(null)
   const [settled, setSettled] = useState(false)
@@ -143,14 +143,8 @@ export function InboxCard() {
     }
   }
 
-  return (
-    <Card frame="solid">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <span>{t('panel.inbox.title')}</span>
-        </CardTitle>
-      </CardHeader>
-
+  const body = (
+    <>
       {!settled ? (
         <div className="flex items-center gap-2 py-2 text-sm text-foreground-muted">
           <Spinner />
@@ -224,6 +218,20 @@ export function InboxCard() {
           </div>
         </>
       ) : null}
+    </>
+  )
+
+  // 弹窗里用（`framed={false}`）时只出内容，不再套一层卡片；默认仍是一张卡。
+  if (!framed) return body
+
+  return (
+    <Card frame="solid">
+      <CardHeader className="px-4 py-3">
+        <CardTitle className="flex items-center gap-2">
+          <span>{t('panel.inbox.title')}</span>
+        </CardTitle>
+      </CardHeader>
+      {body}
     </Card>
   )
 }

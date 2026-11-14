@@ -94,8 +94,8 @@ export function ConnectionCard({ status, busy, onToggle, onManageTailcat, onMana
 
   return (
     <Card frame="solid">
-      <CardHeader>
-        <CardTitle>{t('panel.connection.state')}</CardTitle>
+      <CardHeader className="px-4 py-3">
+        <CardTitle className="text-base lg:text-lg">{t('panel.connection.state')}</CardTitle>
       </CardHeader>
 
       <label className="flex items-center justify-between gap-4 border-b border-border-muted py-3">

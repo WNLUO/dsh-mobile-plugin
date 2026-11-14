@@ -129,18 +129,42 @@ function installSpecVersion() {
 function prepareDevNative(root = PLUGIN_ROOT, dryRun = DRY_RUN, platform = `${process.platform}-${process.arch}`) {
   if (!['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'].includes(platform)) return null
   const workspace = path.dirname(root)
-  if (!fs.existsSync(path.join(workspace, 'tailcat-host', 'runtime-version.json'))) return null
-  const name = platform === 'win32-x64' ? 'dsh-tailcat-host.exe' : 'dsh-tailcat-host'
-  const source = path.join(workspace, 'build', 'tailcat-runtime', platform, name)
-  if (!fs.existsSync(source)) return null
-  const target = path.join(root, 'native', platform, name)
-  if (dryRun) say(`（演练）会把本机隧道助手纳入开发包：native/${platform}/${name}`)
-  else {
-    fs.mkdirSync(path.dirname(target), { recursive: true })
-    fs.copyFileSync(source, target)
-    fs.chmodSync(target, 0o755)
+  const written = []
+
+  // 本机隧道助手
+  if (fs.existsSync(path.join(workspace, 'tailcat-host', 'runtime-version.json'))) {
+    const name = platform === 'win32-x64' ? 'dsh-tailcat-host.exe' : 'dsh-tailcat-host'
+    const source = path.join(workspace, 'build', 'tailcat-runtime', platform, name)
+    if (fs.existsSync(source)) {
+      const target = path.join(root, 'native', platform, name)
+      if (dryRun) say(`（演练）会把本机隧道助手纳入开发包：native/${platform}/${name}`)
+      else {
+        fs.mkdirSync(path.dirname(target), { recursive: true })
+        fs.copyFileSync(source, target)
+        fs.chmodSync(target, 0o755)
+      }
+      written.push(target)
+    }
   }
-  return target
+
+  // 远程电脑桌面显示壳：整份按平台拷进 native/desktop-shell，宿主按同一份路径 spawn
+  const shellSource = path.join(workspace, 'build', 'desktop-shell', platform)
+  if (fs.existsSync(shellSource)) {
+    const shellRoot = path.join(root, 'native', 'desktop-shell', platform)
+    if (dryRun) say(`（演练）会把远程电脑桌面壳纳入开发包：native/desktop-shell/${platform}`)
+    else {
+      fs.rmSync(shellRoot, { recursive: true, force: true })
+      fs.cpSync(shellSource, shellRoot, { recursive: true })
+      const relative = platform.startsWith('darwin-')
+        ? path.join('dsh-mobile-shell.app', 'Contents', 'MacOS', 'dsh-mobile-shell')
+        : platform === 'win32-x64' ? 'dsh-mobile-shell.exe' : 'dsh-mobile-shell'
+      const shellBinary = path.join(shellRoot, relative)
+      if (fs.existsSync(shellBinary)) fs.chmodSync(shellBinary, 0o755)
+    }
+    written.push(shellRoot)
+  }
+
+  return written.length ? written : null
 }
 
 /**
