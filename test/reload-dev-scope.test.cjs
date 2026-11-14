@@ -68,10 +68,16 @@ test('开发包准备只复制本机现有助手，演练与缺失产物不写�
     fs.writeFileSync(nativeSource, 'compiled-helper');
     // 返回的是写入的产物路径数组，不是单个路径：开发包现在同时收隧道助手与远程电脑桌面壳，
     // 两类原生产物各自一条。这里只有本机助手，所以数组里就它一个。
-    assert.deepEqual(prepare(plugin, true, 'darwin-arm64'), [target]);
+    // 函数在 vm 沙箱里跑，返回的数组来自另一个 realm，deepStrictEqual 会因原型不同判不等，
+    // 因此按「长度 + 元素」比较。
+    const dryRunWritten = prepare(plugin, true, 'darwin-arm64');
+    assert.equal(dryRunWritten.length, 1, '只有本机助手时数组长度为 1');
+    assert.equal(dryRunWritten[0], target, '数组里是本机助手的路径');
     assert.equal(fs.existsSync(target), false, 'dry-run不得写native产物');
     assert.ok(messages.some(message => message.includes('演练')));
-    assert.deepEqual(prepare(plugin, false, 'darwin-arm64'), [target]);
+    const realWritten = prepare(plugin, false, 'darwin-arm64');
+    assert.equal(realWritten.length, 1, '只有本机助手时数组长度为 1');
+    assert.equal(realWritten[0], target, '数组里是本机助手的路径');
     assert.equal(fs.readFileSync(target, 'utf8'), 'compiled-helper');
     assert.equal(fs.statSync(target).mode & 0o111, 0o111);
     assert.match(source, /function packedFiles\(\)\s*\{\s*prepareDevNative\(\)/, '复制必须在npm清单计算之前');
