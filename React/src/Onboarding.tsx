@@ -15,6 +15,7 @@
  * 码里的隧道段只活两分钟（宿主每取一次码就换一张），所以这一页在它临期前会自己重取一次，
  * 人装完 App 回来扫时屏幕上那张仍带一条能用的隧道。
  */
+// 首次取码失败直接显示原因与重试；后台续码失败仍保留已有二维码。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
@@ -83,6 +84,7 @@ export function Onboarding({ onDone }: Props) {
   const [connectionAttemptSettled, setConnectionAttemptSettled] = useState(false)
   const [addresses, setAddresses] = useState<AddressBook | null>(null)
   const [pairing, setPairing] = useState<PairingInfo | null>(null)
+  const [pairingError, setPairingError] = useState('')
   /**
    * 二维码里把哪条局域网地址排在最前。空串 = 地址清单还没回来，或者这台机器一条都没有。
    * 它随 `/api/relay/config` 落成设置项，宿主拿它排候选（见 `lib/relay/lan-network.cjs`）。
@@ -172,10 +174,11 @@ export function Onboarding({ onDone }: Props) {
   }, [addresses, status])
 
   async function loadPairing() {
+    setPairingError('')
     try {
       setPairing(await apiGet<PairingInfo>('/api/relay/pairing'))
-    } catch {
-      /* 拿不到二维码不挡结论：二维码那块自己会说「没取到」。 */
+    } catch (error) {
+      setPairingError(errorText(error))
     }
   }
 
@@ -411,7 +414,14 @@ export function Onboarding({ onDone }: Props) {
             </button>
           ) : (
             <div className="flex size-[320px] max-w-full items-center justify-center rounded-lg border border-border-muted text-xs text-foreground-muted">
-              {busy ? <Spinner /> : t('panel.onboarding.noQr')}
+              {pairingError ? (
+                <div className="flex flex-col items-center gap-2 p-3 text-center">
+                  <span role="alert">{pairingError}</span>
+                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => void loadPairing()}>
+                    {t('panel.console.retryPairing')}
+                  </Button>
+                </div>
+              ) : busy ? <Spinner /> : t('panel.onboarding.noQr')}
             </div>
           )}
           {/* 一行固定高度的提示位：中转还没连上时在这一格说；空着也占位，左栏不会跟着抽动。 */}

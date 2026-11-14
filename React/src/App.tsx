@@ -8,6 +8,7 @@
  * 配对二维码在隧道段临期前会自己重取一次（见下面 `renewPairing` 那段），所以一直开着这一页
  * 也扫得动 —— 手机装完 App 回来扫的往往就是它。
  */
+// 二维码失败后单独重试取码，重新等待时清除上一发错误。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { pageVisible } from './lib/embed-visibility.ts'
 import { t } from './lib/i18n/index.ts'
@@ -99,6 +100,7 @@ export function App() {
   }, [])
 
   const loadPairing = useCallback(async () => {
+    setPairingError('')
     try {
       setPairing(await apiGet<PairingInfo>('/api/relay/pairing'))
       setPairingError('')
@@ -134,9 +136,9 @@ export function App() {
 
   // 二维码只在远程控制开着时才取：关着的时候宿主回 409，没必要一进页面就亮个警告。
   useEffect(() => {
-    if (!status?.enabled || pairing || pairingError) return
+    if (!status?.enabled) return
     void loadPairing()
-  }, [status?.enabled, pairing, pairingError, loadPairing])
+  }, [status?.enabled, loadPairing])
 
   /**
    * 配对成功那一刻宿主会把码与票据一起换掉（`rotatePairing`），状态里那个 `pairingCode`
@@ -384,6 +386,7 @@ export function App() {
             onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
             onOpenSelfCheck={() => setSelfCheckOpen(true)}
             onReconnect={() => void reconnect()}
+            onRetryPairing={() => void loadPairing()}
             onSavePreferred={(address) => void savePreferredLanAddress(address)}
             onEditPort={() => setPortOpen(true)}
           />

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * `lib/client.js` 的行为测试。
+ * 客户端行为测试覆盖控制台与电脑插件目录，两套界面的词条保持中英对应。
  *
  * 它是整个仓库唯一「拆不开」的源文件：注册进 `window.__ModuleLoader__`，工厂收到的
  * `require` 是 **DSH 的模块表 require**，不是 node 的。所以工厂内部只能 require `react`，
@@ -142,17 +142,29 @@ function createTimers() {
       pending.set(id, { fn, ms });
       return id;
     },
+    setTimeout(fn, ms) {
+      const id = nextId++;
+      pending.set(id, { fn, ms, once: true });
+      return id;
+    },
+    clearTimeout(id) {
+      pending.delete(id);
+    },
     clearInterval(id) {
       pending.delete(id);
     },
     get count() {
       return pending.size;
     },
+    get timeoutCount() {
+      return [...pending.values()].filter((entry) => entry.once).length;
+    },
     /** 触发一次定时器（默认只触发指定 ms 的那些）。 */
     async tick(ms) {
       const runs = [];
-      for (const entry of [...pending.values()]) {
+      for (const [id, entry] of [...pending]) {
         if (ms !== undefined && entry.ms !== ms) continue;
+        if (entry.once) pending.delete(id);
         runs.push(Promise.resolve().then(() => entry.fn()));
       }
       await Promise.all(runs);
@@ -417,6 +429,15 @@ function createEnv(options = {}) {
         return win;
       },
       MutationObserver: undefined,
+      listeners: {},
+      addEventListener(type, fn) {
+        (this.listeners[type] || (this.listeners[type] = [])).push(fn);
+      },
+      removeEventListener(type, fn) {
+        this.listeners[type] = (this.listeners[type] || []).filter((entry) => entry !== fn);
+      },
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
     },
     document,
     localStorage: storage,
@@ -444,7 +465,7 @@ function createEnv(options = {}) {
 
   function run() {
     loaded = null;
-    vm.runInContext(SOURCE, sandbox, { filename: 'client.js' });
+    vm.runInContext(options.source || SOURCE, sandbox, { filename: 'client.js' });
     assert.ok(loaded, '工厂必须注册进 window.__ModuleLoader__');
     assert.equal(loaded.id, 'dsh-mobile-plugin');
     required.length = 0;
@@ -753,7 +774,7 @@ test('字典覆盖两张界面，中英一一对应', () => {
   // —— 调试页退到操作栏里那颗次要按钮。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
     'cardPanel',
-    'consoleFrameless', 'consoleOpenBrowser', 'consolePopupBlocked',
+    'consoleFrameless', 'consoleLoading', 'consoleOpenBrowser', 'consolePopupBlocked', 'consoleReload',
     'consoleTitle', 'consoleTroubleshoot',
     'diagBusy', 'diagChecking', 'diagClose', 'diagCopied', 'diagCopy', 'diagCopyFailed',
     'diagFactActivated', 'diagFactOnDisk', 'diagFactPanelUrl', 'diagFactPlugin', 'diagFactReason',
@@ -767,7 +788,8 @@ test('字典覆盖两张界面，中英一一对应', () => {
     'diagTitleOpen', 'footerAgoDays', 'footerAgoHours', 'footerAgoMinutes', 'footerAgoNow',
     'footerDeviceCount', 'footerDeviceSeen', 'footerLoadMissing', 'footerNoDevice', 'footerOpen',
     'footerPending', 'footerPublicConfirm', 'footerSidecarBad', 'footerTunnelBad',
-    'heading', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending'
+    'heading', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
+    'pluginPageMissing', 'pluginPages', 'pluginPagesEmpty', 'pluginPagesHint'
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
 });
@@ -1312,11 +1334,12 @@ function debugPageOf() {
 }
 
 /** 只给一颗图标用的环境：`panelScope` 与窗口状态由调用方定。 */
-function clickEnv({ panelScope = 'loopback', webAccess = { enabled: false, expiresAt: 0 }, confirm = true, pageProtocol = 'http:' } = {}) {
+function clickEnv({ panelScope = 'loopback', webAccess = { enabled: false, expiresAt: 0 }, confirm = true, pageProtocol = 'http:', source } = {}) {
   const posts = [];
   const env = materialize({
     confirm,
     pageProtocol,
+    source,
     fetch: async (url, init = {}) => {
       if (String(url).endsWith('/status')) {
         return { ok: true, status: 200, json: async () => readyStatus({ panelScope, webAccess }) };
@@ -1357,6 +1380,101 @@ test('本机回环：点下去直接嵌控制台那一屏，不再有中间那�
     0,
     '「进入控制台 / 报错调试」那两块已经撤掉',
   );
+});
+
+/** 回执来自实际 iframe 窗口；别的窗口发同名消息不能解除加载态。 */
+function sendPanelState(env, frame, state, source = frame.contentWindow) {
+  for (const fn of env.sandbox.window.listeners.message || []) {
+    fn({ source, data: { type: 'dsh-mobile-plugin:panel-state', state } });
+  }
+}
+
+test('控制台：空白文档 load 不算就绪，超时给出重试提示', async () => {
+  const { env } = clickEnv();
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const frame = consoleFrame(env);
+  frame.contentWindow = { postMessage() {} };
+  frame.onload();
+  assert.equal(diagnosisNode(env).__dshmFrameState, 'loading');
+  assert.ok(elements(diagnosisNode(env)).some((node) => node.className === 'dshm_frameTip'));
+  sendPanelState(env, frame, 'ready', {});
+  assert.equal(diagnosisNode(env).__dshmFrameState, 'loading', '其他窗口不能冒认就绪');
+  await env.timers.tick(20000);
+  assert.equal(diagnosisNode(env).__dshmFrameState, 'error');
+  assert.match(texts(diagnosisNode(env)).join(' '), /未能完成加载/);
+  assert.ok(dialogButton(env, '重新载入'));
+});
+
+test('控制台：已就绪页面保活，失败或未就绪页面重新打开要换一页', async () => {
+  for (const state of ['ready', 'error', 'loading']) {
+    const { env } = clickEnv();
+    const icon = await railIcon(env);
+    await icon.props.onClick({ preventDefault() {} });
+    await settle();
+    const frame = consoleFrame(env);
+    frame.contentWindow = { postMessage() {} };
+    if (state !== 'loading') sendPanelState(env, frame, state);
+    await clickDialogButton(env, '关闭');
+    await icon.props.onClick({ preventDefault() {} });
+    await settle();
+    assert.equal(consoleFrame(env) === frame, state === 'ready', state);
+    assert.equal(env.sandbox.window.listeners.message.length, 1, '重开不累积监听');
+  }
+});
+
+test('控制台：文档就绪标记可补发回执，重载按钮丢弃旧页面', async () => {
+  const { env } = clickEnv();
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const frame = consoleFrame(env);
+  frame.contentDocument = { documentElement: { getAttribute: (name) => name === 'data-dshm-panel-state' ? 'ready' : null } };
+  frame.onload();
+  assert.equal(diagnosisNode(env).__dshmFrameState, 'ready');
+  assert.ok(!elements(diagnosisNode(env)).some((node) => node.className === 'dshm_frameTip'));
+  await clickDialogButton(env, '重新载入');
+  await settle();
+  assert.notEqual(consoleFrame(env), frame);
+  assert.equal(diagnosisNode(env).__dshmFrameState, 'loading');
+  assert.equal(env.sandbox.window.listeners.message.length, 1);
+  consoleFrame(env).onerror();
+  assert.equal(diagnosisNode(env).__dshmFrameState, 'error');
+});
+
+test('控制台：入口卸载时清掉保活页面、消息监听和加载定时器', async () => {
+  const { env } = clickEnv();
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const cleanups = env.hooks.effects.map(({ fn }) => fn()).filter((fn) => typeof fn === 'function');
+  await settle();
+  for (const cleanup of cleanups) cleanup();
+  assert.equal(diagnosisNode(env), undefined);
+  assert.equal(env.sandbox.window.listeners.message.length, 0);
+  assert.equal(env.timers.timeoutCount, 0);
+});
+
+test('变异：空白 load 直接就绪、失败页继续保活都会被回归断言拦住', async () => {
+  const loaded = async (source) => {
+    const { env } = clickEnv({ source });
+    const icon = await railIcon(env);
+    await icon.props.onClick({ preventDefault() {} });
+    await settle();
+    return { env, icon, frame: consoleFrame(env) };
+  };
+  const blank = await loaded(SOURCE.replace('frame.onload = () => {', "frame.onload = () => { update('ready');"));
+  blank.frame.onload();
+  assert.throws(() => assert.equal(diagnosisNode(blank.env).__dshmFrameState, 'loading'), assert.AssertionError);
+  const cached = await loaded(SOURCE
+    .replace("if (overlay && overlay.__dshmFrameState !== 'ready') overlay.__dshmKeep = false;", '')
+    .replace("&& overlay.__dshmFrameState === 'ready'", ''));
+  cached.frame.onerror();
+  await clickDialogButton(cached.env, '关闭');
+  await cached.icon.props.onClick({ preventDefault() {} });
+  await settle();
+  assert.throws(() => assert.notEqual(consoleFrame(cached.env), cached.frame), assert.AssertionError);
 });
 
 test('「报错调试」在操作栏里，点了才开调试页（次要按钮，不是第一屏）', async () => {

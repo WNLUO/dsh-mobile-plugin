@@ -1,6 +1,6 @@
 'use strict'
 
-// 直连隧道宿主侧的守卫：助手事件怎么落进配置、配对窗口怎么交还给路由、吊销怎么生效。
+// 直连隧道宿主侧守卫：配对等待逐次回收，重复取码仍能完成；身份落盘与吊销保持一致。
 //
 // 这些断言守的是三件「错了不会报错、只会悄悄不生效」的事：
 //   1. 助手的身份（私钥 / 预共享密钥 / 区域）必须真的写进 relay.json —— 不写，电脑一重启
@@ -86,6 +86,53 @@ test('窗口关掉之后再问，拿到的是 null（不能再拿一把能用的
   const pending = session.openPairingWindow(120)
   emit({ event: 'pairingClosed' })
   assert.equal(await pending, null)
+})
+
+test('短时间再次取码：上一发的超时不能吞掉新请求，新请求到期正常返回', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const { session, emit } = makeSession()
+  const first = session.openPairingWindow(120)
+  t.mock.timers.tick(1000)
+  emit({ event: 'pairing', address: 'first', key: 'key', proof: 'proof', expiresAt: 120 })
+  assert.equal((await first).address, 'first')
+  t.mock.timers.tick(1000)
+  let settled = false
+  const second = session.openPairingWindow(120).then((value) => { settled = true; return value })
+  t.mock.timers.tick(18000)
+  await Promise.resolve()
+  assert.equal(settled, false, '第二次请求不能提前超时')
+  t.mock.timers.tick(2000)
+  await Promise.resolve()
+  assert.equal(settled, true, '第二次请求必须在自己的超时点返回，不能一直显示没取到二维码')
+  assert.equal(await second, null)
+  await session.stop()
+})
+
+test('成功、失败、窗口关闭或停止之后，旧定时器不会影响下一次取码', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  for (const event of ['pairing', 'error', 'pairingClosed', 'paired', 'stop']) {
+    const { session, emit } = makeSession()
+    const first = session.openPairingWindow(120)
+    t.mock.timers.tick(1000)
+    if (event === 'stop') await session.stop()
+    else emit({ event, address: 'first', key: 'key', proof: 'proof', expiresAt: 120, client: 'nodekey:a' })
+    await first
+    const second = session.openPairingWindow(120)
+    assert.equal(session.openPairingWindow(120), second, '并发取码复用同一个等待')
+    t.mock.timers.tick(19500)
+    emit({ event: 'pairing', address: 'second', key: 'key', proof: 'proof', expiresAt: 120 })
+    assert.equal((await second).address, 'second', event)
+    await session.stop()
+  }
+})
+
+test('助手发送配对请求时抛错仍结束等待，下次取码可以重新开始', async () => {
+  const host = fakeHost()
+  host.pair = () => { throw new Error('helper stopped') }
+  const { session } = makeSession({ host })
+  assert.equal(await session.openPairingWindow(120), null)
+  assert.equal(await session.openPairingWindow(120), null)
+  await session.stop()
 })
 
 test('paired 事件把手机公钥记进白名单，不重复记', () => {

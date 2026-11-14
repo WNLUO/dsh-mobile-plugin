@@ -1,5 +1,5 @@
 /**
- * 「配对与二维码」卡片：宿主的二维码 SVG、准入开关，以及手机该拨的地址与端口。
+ * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
  *
  * 地址那串是宿主给的候选顺序（用户选过的排最前），手机也是按这个顺序挨个试的。
  *
@@ -49,6 +49,7 @@ type Props = {
   /** 「检查网络」：开的是「连接自检」那个弹窗（与卡片里那行「自检」是同一件事）。 */
   onOpenSelfCheck: () => void
   onReconnect: () => void
+  onRetryPairing: () => void
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
   onEditPort: () => void
@@ -82,6 +83,7 @@ export function PairingCard({
   onChangeAutoReview,
   onOpenSelfCheck,
   onReconnect,
+  onRetryPairing,
   onSavePreferred,
   onEditPort,
 }: Props) {
@@ -155,8 +157,19 @@ export function PairingCard({
             */}
             {!pairing?.svg ? (
               <div className="flex size-[360px] max-w-full flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">
-                <Spinner />
-                <span className="text-xs">{t('panel.pairing.noQr')}</span>
+                {error ? (
+                  <>
+                    <span className="text-xs">{t('panel.pairing.qrFailed')}</span>
+                    <Button variant="ghost" size="sm" disabled={idle} onClick={onRetryPairing}>
+                      {t('panel.console.retryPairing')}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Spinner />
+                    <span className="text-xs">{t('panel.pairing.noQr')}</span>
+                  </>
+                )}
               </div>
             ) : !shown.qr ? (
               <div className="flex size-[360px] max-w-full flex-col items-center justify-center gap-1 rounded-md border border-border-muted bg-background-muted text-foreground-subtle">

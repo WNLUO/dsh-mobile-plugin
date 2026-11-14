@@ -6,6 +6,8 @@
  * 强制主页、`/panel/debug` 强制调试页（桌面端那颗手机图标点开的就是它，见 `Debug.tsx`）。
  * 认后缀用 `endsWith`：这一页可能挂在反代给的子路径下，前缀变了不该把几条路弄丢。
  */
+// 首屏状态请求结束后才报告就绪；失败显示原因，并允许原地重新载入。
+import { Button } from '@appica/ui-react/button'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
 
@@ -13,7 +15,8 @@ import { App } from './App.tsx'
 import { Console } from './Console.tsx'
 import { Debug } from './Debug.tsx'
 import { Onboarding } from './Onboarding.tsx'
-import { apiGet, type StatusView } from './lib/api.ts'
+import { apiGet, errorText, type StatusView } from './lib/api.ts'
+import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
 
 /**
@@ -39,9 +42,15 @@ export function Root() {
   const forcedDebug = path.endsWith('/debug')
   /** `/api/relay/panel/console`：控制台那一窗（点手机图标进来的第一屏，见 `Console.tsx`）。 */
   const forcedConsole = path.endsWith('/console')
-  /** null = 还没问到宿主。读不到状态就当「配过了」，把错误交给主页去说，别卡在加载上。 */
+  /** null = 首屏状态尚未返回；请求失败时显示错误与重新载入入口。 */
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const [startupError, setStartupError] = useState('')
   const [entered, setEntered] = useState(false)
+
+  useEffect(() => {
+    if (startupError) reportPanelState('error', startupError)
+    else if (forcedSetup || forcedSettings || forcedDebug || (configured !== null && !(forcedConsole && configured))) reportPanelState('ready')
+  }, [configured, startupError, forcedSetup, forcedSettings, forcedDebug, forcedConsole])
 
   useEffect(() => {
     if (forcedSetup || forcedSettings || forcedDebug) return undefined
@@ -50,14 +59,25 @@ export function Root() {
       try {
         const current = await apiGet<StatusView>('/api/relay/status')
         if (alive) setConfigured(current.onboarded === true || current.enabled === true)
-      } catch {
-        if (alive) setConfigured(true)
+      } catch (error) {
+        if (alive) setStartupError(errorText(error))
       }
     })()
     return () => {
       alive = false
     }
   }, [forcedSetup, forcedSettings, forcedDebug])
+
+  if (startupError) {
+    return (
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-3 p-5">
+        <p className="text-sm text-error" role="alert">{startupError}</p>
+        <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
+          {t('panel.console.reload')}
+        </Button>
+      </main>
+    )
+  }
 
   if (forcedSettings) return <App />
 

@@ -13,6 +13,7 @@
  * **收起时不销毁**、下次直接亮回来 —— 所以这一页的轮询由 `pageVisible()` 统一判「现在该不该
  * 跑」（父窗口收起时会通知，见 `lib/embed-visibility.ts`），别写回裸的 `document.hidden`。
  */
+// 控制台按实际状态报告就绪，二维码失败可单独重试并清除旧错误。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -50,6 +51,7 @@ import {
 import { Dot } from './components/InfoRow.tsx'
 import { lanText, tunnelText, type Tone } from './lib/format.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
+import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
 import { useNotify } from './lib/notify.ts'
 import { mobileLooksIdle, useSelfCheck } from './lib/selfcheck.ts'
@@ -105,6 +107,11 @@ export function Console() {
   const [p2pOpen, setP2POpen] = useState(false)
   const notify = useNotify()
 
+  useEffect(() => {
+    if (status) reportPanelState('ready')
+    else if (fatal) reportPanelState('error', fatal)
+  }, [status, fatal])
+
   const selfcheck = useSelfCheck(
     mobileLooksIdle(status?.lastMobileAt),
     status ? `${status.enabled ? 1 : 0}|${status.lan.enabled ? 1 : 0}|${status.lan.state}|${status.tunnel.state}|${(status.lastMobileAt ?? 0) > 0 ? 1 : 0}` : '',
@@ -120,6 +127,7 @@ export function Console() {
   }, [])
 
   const loadPairing = useCallback(async () => {
+    setPairingError('')
     try {
       setPairing(await apiGet<PairingInfo>('/api/relay/pairing'))
       setPairingError('')
@@ -406,6 +414,7 @@ export function Console() {
           onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
           onOpenSelfCheck={() => setSelfCheckOpen(true)}
           onReconnect={() => void reconnect()}
+          onRetryPairing={() => void loadPairing()}
           onSavePreferred={(address) => void savePreferredLanAddress(address)}
           onEditPort={() => setPortOpen(true)}
         />

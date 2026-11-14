@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// 快照保留公开资料中的完整推理档位和明确的读图状态。
 /**
  * 重新生成 `lib/mobile/model-meta-table.cjs`（「模型能力配置」弹窗里的公开参数快照）。
  *
@@ -25,6 +26,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { levelsOf, wiresOf } from './model-meta-data.mjs';
 
 const SOURCES = {
   modelsDev: 'https://models.dev/api.json',
@@ -50,9 +52,6 @@ const FIRST_PARTY = [
   'meta', 'cohere', 'amazon-bedrock', 'microsoft',
 ];
 
-/** 上游档位 → 面板那四档；`none` / `off` 是「关掉」，不是档位，不进清单。 */
-const LEVEL_OF_WIRE = { minimal: 'low', low: 'low', medium: 'medium', high: 'high', xhigh: 'high', max: 'max' };
-const LEVELS = ['low', 'medium', 'high', 'max'];
 const CHAT_MODES = new Set(['chat', 'responses']);
 
 function positive(value) {
@@ -63,18 +62,6 @@ function positive(value) {
 function rankOf(provider) {
   const at = FIRST_PARTY.indexOf(provider);
   return at < 0 ? FIRST_PARTY.length : at;
-}
-
-function levelsOf(record) {
-  const options = Array.isArray(record && record.reasoning_options) ? record.reasoning_options : [];
-  const effort = options.find((option) => option && option.type === 'effort');
-  if (!effort || !Array.isArray(effort.values)) return undefined;
-  const picked = [];
-  for (const value of effort.values) {
-    const level = LEVEL_OF_WIRE[String(value)];
-    if (level !== undefined && !picked.includes(level)) picked.push(level);
-  }
-  return picked.sort((left, right) => LEVELS.indexOf(left) - LEVELS.indexOf(right));
 }
 
 async function fetchJson(url) {
@@ -122,15 +109,18 @@ for (const [key, list] of groups) {
   });
   const modalities = firstOf((row) => (Array.isArray(row.record.modalities && row.record.modalities.input)
     ? row.record.modalities.input : undefined));
-  const levels = firstOf((row) => levelsOf(row.record));
+  const reasoningRow = list.find((row) => levelsOf(row.record) !== undefined);
+  const levels = reasoningRow ? levelsOf(reasoningRow.record) : undefined;
+  const wires = reasoningRow ? wiresOf(reasoningRow.record) : undefined;
   const name = typeof first.record.name === 'string' && first.record.name.trim() ? first.record.name.trim() : undefined;
   const compact = {};
   if (name) compact.n = name;
   if (context !== undefined) compact.c = context;
   if (output !== undefined) compact.m = output;
-  if (Array.isArray(modalities) && modalities.includes('image')) compact.i = 1;
+  if (Array.isArray(modalities)) compact.i = modalities.includes('image') ? 1 : 0;
   if (levels !== undefined) compact.r = levels;
-  else if (list.some((row) => row.rank < firstPartyLimit && row.record.reasoning === false)) compact.r = [];
+  if (wires && Object.keys(wires).length > 0) compact.w = wires;
+  if (levels === undefined && list.some((row) => row.rank < firstPartyLimit && row.record.reasoning === false)) compact.r = [];
   if (Object.keys(compact).length === 0) continue;
   table[key] = compact;
 }
@@ -147,7 +137,7 @@ for (const [id, record] of Object.entries(litellm)) {
   if (name) compact.n = name;
   if (context !== undefined) compact.c = context;
   if (output !== undefined && (context === undefined || output < context)) compact.m = output;
-  if (record.supports_vision === true) compact.i = 1;
+  if (typeof record.supports_vision === 'boolean') compact.i = record.supports_vision ? 1 : 0;
   if (Object.keys(compact).length === 0) continue;
   table[key] = compact;
   fromLiteLLM += 1;
@@ -172,8 +162,9 @@ const header = `'use strict';
  *   - \`n\`：公开名字（弹窗列表上给人看的）；
  *   - \`c\`：上下文窗口；
  *   - \`m\`：单次输出上限（一定小于 \`c\`）；
- *   - \`i\`：能读图（1 = 能）；
- *   - \`r\`：推理档位（[\`low\`/\`medium\`/\`high\`/\`max\`]；空数组 = 明确不思考，没这个键 = 不知道）。
+ *   - \`i\`：读图能力（1 = 能，0 = 不能，缺省 = 未知）；
+ *   - \`r\`：推理档位（off / minimal / low / medium / high / xhigh / max；空数组 = 明确不思考，缺省 = 未知）；
+ *   - \`w\`：档位与协议参数不同名时的映射。
  *
  * \`REV\` 是内容哈希：App 按它判断缓存要不要重拉。
  */

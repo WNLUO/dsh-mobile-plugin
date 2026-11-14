@@ -1,6 +1,7 @@
 'use strict';
 
 /**
+ * 会话流声明心跳周期，首帧缺失可检测；所有退出路径结束响应。
  * 回归：实时 SSE 流「preamble 之后既不产出也不终止」。
  *
  * 现场（Defect D）：客户端只收到 `: connected`，之后连 15s 的 keepalive 都没有，
@@ -25,7 +26,7 @@ function response({ failAfter = Infinity } = {}) {
     chunks,
     ended: false,
     writes: 0,
-    writeHead() {},
+    writeHead(status, headers) { this.headers = headers; },
     write(chunk) {
       if (this.writes >= failAfter) throw new Error('socket closed');
       this.writes += 1;
@@ -104,6 +105,7 @@ test('keepalive tick writes a comment line while the stream is open', async () =
     await flush();
     assert.equal(h.intervals.length, 1, 'SSE 流必须装一个 15s keepalive 定时器');
     assert.equal(h.intervals[0].ms, 15_000);
+    assert.equal(res.headers['x-dsh-heartbeat-ms'], '15000', '响应头声明心跳，首帧未到也能检测静默');
     assert.equal(h.intervals[0].unreffed, true, 'keepalive 定时器必须 unref，否则关停要等下一次 tick');
     h.intervals[0].fn();
     assert.ok(res.chunks.some((c) => c.includes(': keepalive')), 'keepalive 必须真的写出去');

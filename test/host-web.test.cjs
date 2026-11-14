@@ -1,6 +1,6 @@
 'use strict'
 /**
- * 「手机打开电脑上的网页版」那条端点的契约：端口与一次性登录令牌各从哪来、缺一格时怎么回。
+ * 网页版入口同时声明电脑插件导航能力，端口和令牌缺失时仍如实回不可用。
  *
  * 这条端点的两个值都来自宿主里别的服务，形状不受插件控制：连接服务可能没装（无头部署）、
  * 可能在宿主升级后换了字段、`ctx.get` 本身也可能抛。所以这里全部按**取不到**的形状造一遍
@@ -42,7 +42,7 @@ test('端口与令牌都在时回可用，两个值原样给出', async () => {
     get: (name) => (name === 'connection' ? { browserAuth: { launchToken: 'launch-token-abc' } } : null),
   }))
   assert.equal(res.status, 200)
-  assert.deepEqual(res.body, { ok: true, available: true, port: 51291, token: 'launch-token-abc' })
+  assert.deepEqual(res.body, { ok: true, available: true, port: 51291, token: 'launch-token-abc', pluginPages: true })
 })
 
 test('拿不到端口时回 no-port', async () => {

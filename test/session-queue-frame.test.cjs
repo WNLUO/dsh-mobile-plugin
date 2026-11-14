@@ -1,6 +1,7 @@
 'use strict';
 
 /**
+ * 队列用例保持正文订阅到状态帧读完；正文退出后会话流按恢复契约收尾。
  * session/queue 帧形状守卫。
  *
  * 这条 bug 的杀伤力全在「不报错」上：宿主投影 `inbox` 是**按键分组的对象**
@@ -25,15 +26,21 @@ function inboxMessage(id, text) {
   return { id, source: { kind: 'user', rpcId: `rpc-${id}` }, content: [{ type: 'text', text }] };
 }
 
-/** 假网关：session/control 返回给定帧，其余流（job/list、session/follow）空跑。 */
+/** 假网关：状态帧读完才结束正文订阅，保持生产环境的会话生命周期。 */
 function makeCtx(controlFrames, seen = [], warns = []) {
+  let releaseFollow;
+  const controlDone = new Promise(resolve => { releaseFollow = resolve; });
   const gateway = {
     async invoke() {
       throw new Error('本测试不涉及 invoke');
     },
     async stream(request) {
       seen.push(`${request.namespace}/${request.method}`);
-      if (request.namespace === 'session' && request.method === 'control') return Readable.from(controlFrames);
+      if (request.namespace === 'session' && request.method === 'control') return (async function* () {
+        try { for (const frame of controlFrames) yield frame; }
+        finally { releaseFollow(); }
+      })();
+      if (request.namespace === 'session' && request.method === 'follow') return (async function* () { await controlDone; })();
       return Readable.from([]);
     },
   };

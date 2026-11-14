@@ -1,3 +1,4 @@
+// 覆盖完整档位、显式关闭与保留现有协议映射。
 'use strict';
 
 /**
@@ -168,10 +169,36 @@ test('数值必须是正整数，输出上限必须小于上下文', () => {
   assert.equal(normalizeApply({ provider: 'p', model: 'm', contextWindow: 100, maxTokens: 200 }).error.message, '输出上限必须小于上下文窗口');
 });
 
-test('推理档位只认四档，重复的收一次', () => {
-  assert.deepEqual(normalizeApply({ provider: 'p', model: 'm', reasoning: ['high', 'low', 'high'] }).patch.reasoning, ['low', 'high']);
-  assert.equal(normalizeApply({ provider: 'p', model: 'm', reasoning: ['xhigh'] }).error.code, 'bad-request');
+// 模型配置改为展示宿主支持的七档，minimal / xhigh 不再折叠成其他档位。
+test('推理档位保留完整七档、按顺序去重，不接受宿主不支持的值', () => {
+  const levels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+  assert.deepEqual(normalizeApply({ provider: 'p', model: 'm', reasoning: [...levels].reverse().concat('high') }).patch.reasoning, levels);
+  assert.equal(normalizeApply({ provider: 'p', model: 'm', reasoning: ['unknown'] }).error.code, 'bad-request');
   assert.deepEqual(normalizeApply({ provider: 'p', model: 'm', reasoning: [] }).patch.reasoning, []);
+  assert.deepEqual(normalizeApply({ provider: 'p', model: 'm', reasoning: ['off'] }).patch.reasoning, []);
+});
+
+test('现值投影保留明确不读图、关闭推理和 nullable off', () => {
+  assert.equal(capabilityOf({ input: ['text'] }).vision, false);
+  assert.deepEqual(capabilityOf({ reasoningEfforts: [] }).reasoning, []);
+  assert.deepEqual(capabilityOf({ reasoningEfforts: { off: null, minimal: 'tiny', xhigh: 'ultra' } }).reasoning, ['off', 'minimal', 'xhigh']);
+});
+
+test('修改能力时保留输入模态、自定义协议值和 nullable off', () => {
+  const model = { id: 'm', input: ['text', 'audio', 'image'], reasoningEfforts: { off: null, low: 'small', max: 'ultra' }, compat: { thinkingFormat: 'deepseek' } };
+  const merged = mergeModel(model, { vision: false, reasoning: ['off', 'low', 'xhigh', 'max'] });
+  assert.deepEqual(merged.input, ['text', 'audio']);
+  assert.deepEqual(merged.reasoningEfforts, { off: null, low: 'small', xhigh: 'xhigh', max: 'ultra' });
+  assert.deepEqual(merged.compat, model.compat);
+  assert.deepEqual(mergeModel(model, { maxTokens: 1000 }).reasoningEfforts, model.reasoningEfforts);
+  assert.deepEqual(model.input, ['text', 'audio', 'image']);
+});
+
+test('新启用公开档位时使用资料里的协议映射', () => {
+  const { items } = modelMeta.fullModelMeta();
+  const id = Object.keys(items).find((key) => items[key].w?.off === 'none');
+  assert.ok(id);
+  assert.deepEqual(mergeModel({ id }, { reasoning: ['off', 'high'] }).reasoningEfforts, { off: 'none', high: 'high' });
 });
 
 test('合并只动这一条模型的能力字段', () => {

@@ -7,6 +7,7 @@
  * 同源，路径一个字都不用改。
  */
 
+// 状态与二维码读取各有超时；取码校验 SVG，管理写操作保持原有等待语义。
 import { t } from './i18n/index.ts'
 
 export type PairingPolicy = 'code' | 'deny'
@@ -583,9 +584,31 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { accept: 'application/json' } })
-  if (!response.ok) throw await toApiError(response)
-  return (await response.json()) as T
+  const pairingRequest = path.split('?')[0] === '/api/relay/pairing'
+  // 配对助手自身最多等待 20 秒，再留出生成二维码与转发回程的时间。
+  const timeout = pairingRequest ? 30000 : path === '/api/relay/status' ? 12000 : 0
+  const controller = timeout ? new AbortController() : null
+  const timer = controller ? window.setTimeout(() => controller.abort(), timeout) : null
+  try {
+    const response = await fetch(path, {
+      headers: { accept: 'application/json' },
+      ...(controller ? { signal: controller.signal } : {}),
+    })
+    if (!response.ok) throw await toApiError(response)
+    const payload = await response.json()
+    if (pairingRequest && (payload?.ok !== true || typeof payload.svg !== 'string' || !payload.svg.includes('<svg'))) {
+      throw new ApiError(t('panel.pairing.qrFailed'), 'pairing_invalid', response.status)
+    }
+    return payload as T
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new ApiError(t(pairingRequest ? 'panel.console.pairingTimeout' : 'panel.console.statusTimeout'),
+        pairingRequest ? 'pairing_timeout' : 'status_timeout', 0)
+    }
+    throw error
+  } finally {
+    if (timer !== null) window.clearTimeout(timer)
+  }
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {

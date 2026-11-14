@@ -1,11 +1,4 @@
-/**
- * 面板控制台（`Console.tsx`）的文案：侧边栏那颗手机图标点开的那一窗。
- *
- * 与网页面板共用同一份字典与同一个 `t()` 出口，所以键名同样带 `panel.` 前缀、
- * 键集由 `test/panel-i18n.test.cjs` 逐门对齐。这里只放**这一窗独有的词**：
- * 页面里的卡片、开关、弹窗全部复用现有领域表（`panel.pairing.*` / `panel.devices.*` …），
- * 别在第二个领域文件里再抄一遍（同一个键落在两个文件里守卫当场红）。
- */
+/** 控制台入口、状态与二维码超时、取码重试的多语言文案。 */
 import type { PanelMessages } from './shell.ts'
 
 export const CONSOLE: PanelMessages = {
@@ -13,50 +6,90 @@ export const CONSOLE: PanelMessages = {
     'panel.console.troubleshoot': '报错调试',
     'panel.console.openBrowser': '在浏览器打开',
     'panel.console.replayGuide': '重看引导',
+    'panel.console.reload': '重新载入',
+    'panel.console.statusTimeout': '读取插件状态超时，请重新载入后重试。',
+    'panel.console.retryPairing': '重新获取二维码',
+    'panel.console.pairingTimeout': '获取二维码超时，请重试。',
   },
   'zh-Hant': {
     'panel.console.troubleshoot': '報錯除錯',
     'panel.console.openBrowser': '在瀏覽器開啟',
     'panel.console.replayGuide': '重看引導',
+    'panel.console.reload': '重新載入',
+    'panel.console.statusTimeout': '讀取外掛狀態逾時，請重新載入後再試。',
+    'panel.console.retryPairing': '重新取得 QR 碼',
+    'panel.console.pairingTimeout': '取得 QR 碼逾時，請再試一次。',
   },
   en: {
     'panel.console.troubleshoot': 'Troubleshoot',
     'panel.console.openBrowser': 'Open in browser',
     'panel.console.replayGuide': 'Replay setup',
+    'panel.console.reload': 'Reload',
+    'panel.console.statusTimeout': 'Reading plugin status timed out. Reload to try again.',
+    'panel.console.retryPairing': 'Get the QR code again',
+    'panel.console.pairingTimeout': 'Getting the QR code timed out. Please try again.',
   },
   ja: {
     'panel.console.troubleshoot': 'トラブルシュート',
     'panel.console.openBrowser': 'ブラウザーで開く',
     'panel.console.replayGuide': 'セットアップをやり直す',
+    'panel.console.reload': '再読み込み',
+    'panel.console.statusTimeout': 'プラグインの状態取得がタイムアウトしました。再読み込みしてお試しください。',
+    'panel.console.retryPairing': 'QR コードを再取得',
+    'panel.console.pairingTimeout': 'QR コードの取得がタイムアウトしました。もう一度お試しください。',
   },
   ko: {
     'panel.console.troubleshoot': '문제 진단',
     'panel.console.openBrowser': '브라우저에서 열기',
     'panel.console.replayGuide': '설정 안내 다시 보기',
+    'panel.console.reload': '다시 불러오기',
+    'panel.console.statusTimeout': '플러그인 상태 요청 시간이 초과되었습니다. 다시 불러와 주세요.',
+    'panel.console.retryPairing': 'QR 코드 다시 가져오기',
+    'panel.console.pairingTimeout': 'QR 코드 요청 시간이 초과되었습니다. 다시 시도해 주세요.',
   },
   de: {
     'panel.console.troubleshoot': 'Fehlersuche',
     'panel.console.openBrowser': 'Im Browser öffnen',
     'panel.console.replayGuide': 'Einrichtung erneut ansehen',
+    'panel.console.reload': 'Neu laden',
+    'panel.console.statusTimeout': 'Zeitüberschreitung beim Lesen des Plugin-Status. Bitte neu laden.',
+    'panel.console.retryPairing': 'QR-Code erneut abrufen',
+    'panel.console.pairingTimeout': 'Zeitüberschreitung beim Abrufen des QR-Codes. Bitte erneut versuchen.',
   },
   es: {
     'panel.console.troubleshoot': 'Diagnóstico',
     'panel.console.openBrowser': 'Abrir en el navegador',
     'panel.console.replayGuide': 'Ver la configuración otra vez',
+    'panel.console.reload': 'Volver a cargar',
+    'panel.console.statusTimeout': 'Se agotó el tiempo de lectura del estado. Vuelve a cargar para reintentar.',
+    'panel.console.retryPairing': 'Obtener el código QR de nuevo',
+    'panel.console.pairingTimeout': 'Se agotó el tiempo para obtener el código QR. Inténtalo de nuevo.',
   },
   fr: {
     'panel.console.troubleshoot': 'Diagnostic',
     'panel.console.openBrowser': 'Ouvrir dans le navigateur',
     'panel.console.replayGuide': 'Revoir la configuration',
+    'panel.console.reload': 'Recharger',
+    'panel.console.statusTimeout': 'Le délai de lecture de l’état du greffon a expiré. Rechargez pour réessayer.',
+    'panel.console.retryPairing': 'Obtenir à nouveau le code QR',
+    'panel.console.pairingTimeout': 'Le délai de récupération du code QR a expiré. Veuillez réessayer.',
   },
   pt: {
     'panel.console.troubleshoot': 'Diagnóstico',
     'panel.console.openBrowser': 'Abrir no navegador',
     'panel.console.replayGuide': 'Rever a configuração',
+    'panel.console.reload': 'Recarregar',
+    'panel.console.statusTimeout': 'A leitura do estado do plugin excedeu o tempo limite. Recarregue para tentar novamente.',
+    'panel.console.retryPairing': 'Obter o código QR novamente',
+    'panel.console.pairingTimeout': 'A obtenção do código QR excedeu o tempo limite. Tente novamente.',
   },
   ru: {
     'panel.console.troubleshoot': 'Диагностика',
     'panel.console.openBrowser': 'Открыть в браузере',
     'panel.console.replayGuide': 'Посмотреть настройку снова',
+    'panel.console.reload': 'Перезагрузить',
+    'panel.console.statusTimeout': 'Истекло время ожидания состояния плагина. Перезагрузите страницу.',
+    'panel.console.retryPairing': 'Получить QR-код ещё раз',
+    'panel.console.pairingTimeout': 'Истекло время получения QR-кода. Попробуйте снова.',
   },
 }

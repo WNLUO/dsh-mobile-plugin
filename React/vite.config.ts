@@ -1,3 +1,5 @@
+// 面板使用与移动 App 一致的低版本内核目标，现代样式在构建时转换。
+import cascadeLayers from '@csstools/postcss-cascade-layers'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
@@ -8,7 +10,10 @@ const DSH_WEB_URL = process.env.DSH_WEB_URL ?? 'http://127.0.0.1:19387'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  css: { postcss: { plugins: [cascadeLayers()] } },
   build: {
+    target: ['ios15.1', 'chrome99'],
+    cssTarget: ['ios15.1', 'chrome99'],
     // 产物直接落到插件目录里，宿主按一条 HTML 路由吐出去，不需要静态资源目录
     outDir: '../lib/panel',
     emptyOutDir: true,

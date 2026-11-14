@@ -4,12 +4,18 @@
  * 页面本体（引导页 / 主页二选一）与右上角那组按钮都在 `Shell` 里，所以这一屏与录屏用的
  * 那一份假宿主页面共用同一套外壳（见 A3-45）。
  */
+// Android 内嵌页先隔离绘制层；React 启动失败时回传可见错误。
 import { ToastProvider, Toaster } from '@appica/ui-react/toast'
 import { ThemeProvider, getThemeScript } from '@appica/ui-react/providers/theme-provider'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { Shell } from './Shell.tsx'
+import { errorText } from './lib/api.ts'
+import { reportPanelState } from './lib/panel-load.ts'
+import { prepareEmbeddedRendering } from './lib/embedded-rendering.ts'
+
+prepareEmbeddedRendering()
 
 /**
  * 面板的主题存在这个键里。
@@ -67,7 +73,9 @@ function Page() {
 // 结果提示一律走右上角的胶囊（见 `lib/notify.ts`）。`Toaster` 与页面本身都挂在
 // `ToastProvider` 里面：`ToastProvider` 要在最外层，页面里任何地方才 useToastManager 得到。
 // 页面本体（含右上角那组按钮）整个在 `Shell` 里：引导页与主页共用同一份外壳。
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById('root')!, {
+  onUncaughtError: (error) => reportPanelState('error', errorText(error)),
+}).render(
   <StrictMode>
     <ToastProvider>
       <Page />

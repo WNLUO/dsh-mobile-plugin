@@ -1,3 +1,4 @@
+// 新增模型自动识别公开能力，编辑已有模型保留用户能力与扩展字段。
 'use strict';
 
 /**
@@ -476,6 +477,35 @@ test('获取模型：宿主没有 llm 服务时回 503，不假装成功', async
   } finally {
     await server.close();
   }
+});
+
+test('新增模型自动匹配公开参数，已有模型连扩展字段一起保留', () => {
+  const channel = { id: 'x', name: 'X', protocol: 'openai-completions', baseUrl: 'https://a', models: [{ id: 'gpt-5', name: 'gpt-5' }, { id: 'gpt-4o', name: 'gpt-4o' }] };
+  const fresh = profileOf(channel);
+  assert.equal(fresh.models[0].contextWindow, 400000);
+  assert.equal(fresh.models[0].maxTokens, 128000);
+  assert.deepEqual(fresh.models[0].input, ['text', 'image']);
+  assert.deepEqual(Object.keys(fresh.models[0].reasoningEfforts), ['minimal', 'low', 'medium', 'high']);
+  assert.equal(fresh.models[1].reasoningEfforts, false);
+  const table = require('../lib/mobile/model-meta.js').fullModelMeta().items;
+  const offId = Object.keys(table).find((key) => table[key].w?.off === 'none');
+  const offProfile = profileOf({ ...channel, models: [{ id: offId, name: offId }] });
+  assert.equal(offProfile.models[0].reasoningEfforts.off, 'none');
+  const existing = { models: [{ id: 'gpt-5', contextWindow: 100000, maxTokens: 4000, input: ['text'], reasoningEfforts: { off: null, max: 'ultra' }, compat: { thinkingFormat: 'deepseek' } }] };
+  const edited = profileOf({ ...channel, models: [{ id: 'gpt-5', name: 'new name', contextWindow: 999999, maxTokens: 99999, vision: true }, channel.models[1]] }, existing);
+  assert.equal(edited.models[0].contextWindow, 100000);
+  assert.equal(edited.models[0].maxTokens, 4000);
+  assert.deepEqual(edited.models[0].input, ['text']);
+  assert.deepEqual(edited.models[0].reasoningEfforts, { off: null, max: 'ultra' });
+  assert.deepEqual(edited.models[0].compat, existing.models[0].compat);
+});
+
+test('公开资料没有输出上限的小窗口模型不会套用更大的通用输出上限', () => {
+  const table = require('../lib/mobile/model-meta.js').fullModelMeta().items;
+  const id = Object.keys(table).find((key) => table[key].c > 1 && table[key].c <= 32768 && table[key].m === undefined);
+  assert.ok(id);
+  const profile = profileOf({ id: 'x', name: 'X', protocol: 'openai-completions', baseUrl: 'https://a', models: [{ id, name: id }] });
+  assert.ok(profile.models[0].maxTokens < profile.models[0].contextWindow);
 });
 
 test('纯函数：id 生成 / 凭据引用 / 回退候选与桌面端同一口径', () => {
