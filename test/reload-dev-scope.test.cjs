@@ -66,10 +66,12 @@ test('开发包准备只复制本机现有助手，演练与缺失产物不写�
     assert.equal(prepare(plugin, false, 'darwin-arm64'), null, '缺少build时不阻塞其他线路');
     fs.mkdirSync(path.dirname(nativeSource), { recursive: true });
     fs.writeFileSync(nativeSource, 'compiled-helper');
-    assert.equal(prepare(plugin, true, 'darwin-arm64'), target);
+    // 返回的是写入的产物路径数组，不是单个路径：开发包现在同时收隧道助手与远程电脑桌面壳，
+    // 两类原生产物各自一条。这里只有本机助手，所以数组里就它一个。
+    assert.deepEqual(prepare(plugin, true, 'darwin-arm64'), [target]);
     assert.equal(fs.existsSync(target), false, 'dry-run不得写native产物');
     assert.ok(messages.some(message => message.includes('演练')));
-    assert.equal(prepare(plugin, false, 'darwin-arm64'), target);
+    assert.deepEqual(prepare(plugin, false, 'darwin-arm64'), [target]);
     assert.equal(fs.readFileSync(target, 'utf8'), 'compiled-helper');
     assert.equal(fs.statSync(target).mode & 0o111, 0o111);
     assert.match(source, /function packedFiles\(\)\s*\{\s*prepareDevNative\(\)/, '复制必须在npm清单计算之前');
