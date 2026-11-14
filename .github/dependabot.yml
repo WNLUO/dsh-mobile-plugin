@@ -1,0 +1,13 @@
+# 依赖与流水线动作的新版本由 Dependabot 每周开 PR；锁文件由 pnpm 管理。
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
