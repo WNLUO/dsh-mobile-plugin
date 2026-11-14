@@ -30,8 +30,8 @@ importers:
         specifier: 1.5.4
         version: 1.5.4
       ws:
-        specifier: 8.18.0
-        version: 8.18.0
+        specifier: 8.22.2
+        version: 8.22.2
     devDependencies:
       '@deepseek-ai/dsh-host-directory-picker-browse':
         specifier: ^0.2.1-rc.3 || ^0.2.2-rc.1
@@ -933,8 +933,8 @@ packages:
     resolution: {integrity: sha512-r6lPcBGxZXlIcymEu7InxDMhdW0KDxpLgoFLcguasxCaJ/SOIZwINatK9KY/tf+ZrlywOKU0UDj3ATXUBfxJXA==}
     engines: {node: '>=8'}
 
-  ws@8.18.0:
-    resolution: {integrity: sha512-8VbfWfHLbbwu3+N6OKsOMpBdT4kXPDDB9cJk2bJ6mh9ucxdlnNvH1e+roYkKmN9Nxw2yjz7VzeO9oOz2zJ04Pw==}
+  ws@8.22.2:
+    resolution: {integrity: sha512-/rEZ2ejown2N5gxVTHUu9bVVC7ttu0/Tgzf5hbTOixR3Fs7mbbXgn2DbdbcKgJOmpQMtrIUWivtYuVMnp/W/yA==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -1836,9 +1836,9 @@ snapshots:
       string-width: 4.2.0
       strip-ansi: 6.0.0
 
-  ws@8.18.0: {}
-
   ws@8.22.0: {}
+
+  ws@8.22.2: {}
 
   y18n@4.0.3: {}
 

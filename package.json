@@ -71,7 +71,7 @@
   },
   "dependencies": {
     "qrcode": "1.5.4",
-    "ws": "8.18.0"
+    "ws": "8.22.2"
   },
   "optionalDependencies": {
     "dsh-mobile-shell-darwin-arm64": "0.1.1",
