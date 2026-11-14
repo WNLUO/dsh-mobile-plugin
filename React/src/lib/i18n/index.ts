@@ -7,6 +7,7 @@
  * 非组件代码（`lib/format.ts`、`lib/links.ts` 的渠道表）也走这里 —— 那些是**渲染时才拼**
  * 的字符串，不是模块级常量，所以读到的永远是当下那门语言。
  */
+// 远程电脑的操作与租期提示纳入全部面板语言。
 import { mergeTables, resolvePanelLanguage, translate, type PanelLanguage } from './core.ts'
 import { COMMON, STATUS, SHELL } from './messages/shell.ts'
 import { ADDRESS, CHANNELS, CONNECTION, INBOX, PAIRING } from './messages/panel.ts'
@@ -19,9 +20,10 @@ import { NOTICE } from './messages/notice.ts'
 import { SELFCHECK } from './messages/selfcheck.ts'
 import { DEBUG } from './messages/debug.ts'
 import { CONSOLE } from './messages/console.ts'
+import { REMOTE_COMPUTERS } from './messages/remote-computers.ts'
 
 /** 全部领域表。守卫按它逐门检查键集对齐与占位符一致。 */
-export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, TAILCAT, P2P, ONBOARDING, UPDATE, DEVICES, NOTICE, SELFCHECK, DEBUG, CONSOLE]
+export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, TAILCAT, P2P, ONBOARDING, UPDATE, DEVICES, NOTICE, SELFCHECK, DEBUG, CONSOLE, REMOTE_COMPUTERS]
 
 /** 合并后的字典：语言 → 扁平表。 */
 export const MESSAGES: Record<PanelLanguage, Record<string, string>> = (() => {

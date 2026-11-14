@@ -1,4 +1,5 @@
 'use strict';
+// 电脑网页授权独立于手机权限；调整设备权限会同步收回该授权。
 
 /**
  * 每设备凭据库：签发、校验、吊销手机端的持久化凭据。
@@ -211,6 +212,7 @@ function issue(instanceId, device, hostToken, ttlMs = DEFAULT_TTL_MS, extra = {}
   // **只在真给了数组时才写这一格**：不写 = 全权，这是老记录与现网设备的兼容命门，
   // 绝不能在这里补一个默认数组把「没设置」变成「设置成某个子集」。
   if (Array.isArray(extra?.permissions)) record.permissions = extra.permissions.slice();
+  if (extra?.remoteWeb === true && deviceKey && keyId) { record.remoteWeb = true; record.kind = 'computer'; }
   prune(now);
   records.push(record);
   rebuildIndex();
@@ -248,6 +250,7 @@ function setDevicePermissions(instanceId, deviceId, permissions) {
   for (const record of records) {
     if (record.instanceId !== instanceId || record.deviceId !== deviceId || !isLive(record)) continue;
     record.permissions = wanted.slice();
+    if (record.remoteWeb === true) record.remoteWeb = false;
     count += 1;
   }
   if (count) save();
@@ -301,6 +304,17 @@ function findByKeyId(instanceId, keyId) {
     // 同一 keyId 只可能有一条（当场生成的随机），命中即终局：不 live 就按不认识处理，
     // 别继续往上翻旧记录 —— 那等于让吊销过的 keyId 靠更老的一条复活。
     return isLive(record, now) ? record : null;
+  }
+  return null;
+}
+
+/** 电脑通道只用它签署已吊销/到期的拒绝，不把失效记录恢复为授权。 */
+function lookupRemoteByKeyId(instanceId, keyId) {
+  refresh();
+  if (typeof keyId !== 'string' || !keyId) return null;
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const record = records[i];
+    if (record.instanceId === instanceId && record.keyId === keyId && record.deviceKey) return record;
   }
   return null;
 }
@@ -402,6 +416,22 @@ function revokeAllByInstance(instanceId) {
   return count;
 }
 
+/** 本实例仍有效的电脑网页授权，只返回管理清单需要的公开字段。 */
+function listRemoteComputers(instanceId) {
+  refresh();
+  const now = Date.now();
+  const devices = new Map();
+  for (const record of records) {
+    if (record.instanceId !== instanceId || record.remoteWeb !== true || !isLive(record, now)) continue;
+    const previous = devices.get(record.deviceId);
+    if (!previous || record.createdAt > previous.createdAt) devices.set(record.deviceId, {
+      deviceId: record.deviceId, name: record.name || '', platform: record.platform || '',
+      lastSeenAt: Number(record.lastSeenAt) || 0, createdAt: Number(record.createdAt) || 0,
+    });
+  }
+  return [...devices.values()];
+}
+
 function listActive() {
   load();
   const now = Date.now();
@@ -428,7 +458,7 @@ function scanDevices(instanceId, now = Date.now()) {
   /** 名下有过活记录的 deviceId：这种设备在活动清单里已经有一行，历史那半不能再出现它。 */
   const living = new Set();
   for (const record of records) {
-    if (record.instanceId !== instanceId) continue;
+    if (record.instanceId !== instanceId || record.kind === 'computer') continue;
     const key = String(record.deviceId || '');
     const createdAt = Number(record.createdAt) || 0;
     if (isLive(record, now)) {
@@ -644,7 +674,7 @@ function activeDigests(instanceId) {
   // 记录只在新签发时追加，倒着走就是 createdAt 倒序：超出上限时被截掉的是最老的。
   for (let i = records.length - 1; i >= 0 && live.length < MAX_ACTIVE_DIGESTS; i -= 1) {
     const record = records[i];
-    if (record.instanceId !== instanceId || !isLive(record, now)) continue;
+    if (record.instanceId !== instanceId || record.kind === 'computer' || !isLive(record, now)) continue;
     live.push({ hash: record.hash, ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}) });
   }
   return live;
@@ -671,12 +701,14 @@ module.exports = {
   lookup,
   isLive,
   findByKeyId,
+  lookupRemoteByKeyId,
   touch,
   renew,
   refresh,
   setReadOnly,
   isReadOnly,
   listActive,
+  listRemoteComputers,
   listDevices,
   listHistory,
   listDevicesWithHistory,

@@ -1,0 +1,54 @@
+'use strict';
+// 实际装配使用真实凭据库/Host/Controller，验证入口存在、生成邀请及卸载释放。
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { PassThrough } = require('node:stream');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-runtime-'));
+process.env.DEVICE_CREDENTIALS_FILE = path.join(dir, 'credentials.json');
+const credentials = require('../dsh-mobile-credentials/lib/credentials.js');
+const { mountRemoteComputers } = require('../lib/remote/runtime.cjs');
+const { createHostControl } = require('../lib/remote/host-control.cjs');
+
+test('运行期管理入口使用真实安全清单，邀请可复制且卸载完成', async () => {
+  const effects = [];
+  const routes = new Map();
+  const records = new Map();
+  const provider = {
+    readRecord: async key => records.get(key),
+    listRecords: async () => [...records.keys()].map(key => ({ key, kind: 'grant' })),
+    modifyRecord: async (key, fn) => records.set(key, await fn(records.get(key))),
+    deleteRecord: async key => records.delete(key),
+  };
+  const ctx = { webServer: { port: 34567 }, get(name) { return name === 'credentials' ? provider : { browserAuth: { launchToken: 'private' } }; },
+    effect(fn) { const dispose = fn(); effects.push(dispose); } };
+  const host = mountRemoteComputers({ ctx, state: { instanceId: 'runtimeA', name: 'A', enabled: true, relayUrl: 'https://relay.test', relayUrls: ['https://relay.test'], lanEnabled: false },
+    credentials, registerRoute: row => routes.set(row.path, row.handler), lanPortInUse: () => 0 });
+  const req = new PassThrough(); Object.assign(req, { method: 'POST', socket: { remoteAddress: '127.0.0.1' },
+    headers: { host: '127.0.0.1:34567', origin: 'http://127.0.0.1:34567', 'content-type': 'application/json' } });
+  const res = { setHeader() {}, writeHead(status) { this.status = status; }, end(raw) { this.body = JSON.parse(raw); } };
+  const running = routes.get('/api/relay/remote-computers/invite')(req, res);
+  req.end('{}'); await running;
+  assert.equal(res.status, 200); assert.match(res.body.invite, /^dshcomputer:/);
+  assert.ok(res.body.expiresAt > Date.now());
+  assert.equal(typeof host.handlePair, 'function'); assert.equal(typeof host.handleUpgrade, 'function');
+  for (const close of effects) await close();
+  await assert.rejects(host.mintInvite(), { code: 'REMOTE_CONNECT' });
+});
+test('隧道会合只映射对端公钥与候选，使用已有固定入口且并发合并', async () => {
+  const calls = [];
+  const p2p = { targetPort: () => 19999, constants: { P2P_PORT: 48950 },
+    async open(value) { calls.push(value); return { ok: true, publicKey: 'public-A', candidates: ['192.168.1.2:10'] }; } };
+  const control = createHostControl({ state: { enabled: true, relayUrl: 'https://relay.test', relayUrls: ['https://relay.test'] },
+    lanPortInUse: () => 0, p2p, tailcat: { enroll: async () => ({ address: 'tc-address', port: 48941 }) } });
+  const record = { remoteWeb: true, deviceId: 'B' };
+  const result = await control.onControl(record, { op: 'tunnels', tailcatPublicKey: 'nodekey:' + 'a'.repeat(64),
+    p2p: { publicKey: 'b'.repeat(43) + '=', candidates: ['203.0.113.1:4000'], localCandidates: [] } });
+  assert.equal(calls.length, 1); assert.equal(calls[0].phonePublicKey, 'b'.repeat(43) + '=');
+  assert.equal(calls[0].targetPort, 19999); assert.equal(result.p2p.port, 48950);
+  assert.equal(result.tailcat.address, 'tc-address');
+  await assert.rejects(control.onControl(record, { op: 'shell' }), /unsupported/);
+  await assert.rejects(control.onControl({ deviceId: 'phone' }, { op: 'tunnels' }), /denied/);
+});

@@ -9,6 +9,7 @@
  * 也扫得动 —— 手机装完 App 回来扫的往往就是它。
  */
 // 二维码失败后单独重试取码，重新等待时清除上一发错误。
+// 远程电脑管理与内嵌控制台复用同一张卡片。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { pageVisible } from './lib/embed-visibility.ts'
 import { t } from './lib/i18n/index.ts'
@@ -18,6 +19,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
+import { RemoteComputersCard } from './components/RemoteComputersCard.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PortDialog } from './components/PortDialog.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
@@ -401,6 +403,7 @@ export function App() {
           />
 
           <DevicesCard onRevokeAll={revokeAll} busy={busy} />
+          <RemoteComputersCard />
         </div>
 
         {/*

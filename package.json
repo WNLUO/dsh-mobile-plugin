@@ -48,6 +48,7 @@
     "lib/**/*.cjs",
     "lib/**/*.html",
     "lib/**/package.json",
+    "native/**",
     "dsh-mobile-credentials",
     "locale/*.json",
     "icon.png",

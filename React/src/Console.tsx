@@ -14,6 +14,7 @@
  * 跑」（父窗口收起时会通知，见 `lib/embed-visibility.ts`），别写回裸的 `document.hidden`。
  */
 // 控制台按实际状态报告就绪，二维码失败可单独重试并清除旧错误。
+// 远程电脑管理与网页版面板复用同一张卡片。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -24,6 +25,7 @@ import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
 import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
+import { RemoteComputersCard } from './components/RemoteComputersCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
@@ -433,6 +435,7 @@ export function Console() {
             onManageP2P={() => setP2POpen(true)}
           />
           <DevicesCard onRevokeAll={revokeAll} busy={busy} />
+          <RemoteComputersCard />
           {status.webAccess?.enabled && status.panelScope !== 'loopback' ? (
             <WebAccessCard webAccess={status.webAccess} busy={busy} onToggle={(on) => void toggleWebAccess(on)} />
           ) : null}

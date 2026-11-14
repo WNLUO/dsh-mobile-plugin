@@ -1,4 +1,5 @@
 'use strict';
+// 电脑专用加密协议不借手机权限表授予完整网页能力。
 
 /**
  * 按设备权限子集的边界守卫。
@@ -66,6 +67,8 @@ test('hasPermission：缺字段=全权，空数组=什么都不给，老记录/�
  * `test/mobile-routes.test.cjs` 的 PUBLIC_ROUTES 是同一份，两边改一处要一起改。
  */
 const PUBLIC_PATHS = new Set(['/api/mobile/v1/health', '/api/mobile/v1/pair']);
+// 电脑间协议以随机邀请/设备密钥独立认证，手机权限位不能授予此能力。
+const COMPUTER_PATHS = new Set(['/api/mobile/v1/remote-computers/pair', '/api/mobile/v1/remote-computers/tunnel']);
 
 /**
  * 从路由表里抽出**全部**注册过的移动端路径，两种写法都认：
@@ -85,12 +88,24 @@ function registeredPaths() {
 
 test('每一条走守卫的移动路由都被分类', () => {
   // 两条公开路由不鉴权、自然也不查权限位（见 PUBLIC_PATHS），它们不在这张表的对账范围里。
-  const paths = registeredPaths().filter((p) => !PUBLIC_PATHS.has(p));
+  const paths = registeredPaths().filter((p) => !PUBLIC_PATHS.has(p) && !COMPUTER_PATHS.has(p));
   assert.ok(paths.length > 150, `应解析到大量路由，实际 ${paths.length}`);
   const unclassified = paths.filter((p) => !P.isClassified(p));
   assert.deepEqual(unclassified, [], '这些路由没进权限分类表');
   const unknown = paths.filter((p) => P.resolvePermission(p) === 'unknown');
   assert.deepEqual(unknown, [], '这些路由解析成 unknown');
+});
+
+test('电脑协议入口独立认证，手机全权和空权限都不能获得网页授权', () => {
+  const paths = registeredPaths();
+  for (const route of COMPUTER_PATHS) {
+    assert.ok(paths.includes(route));
+    assert.equal(P.resolvePermission(route), 'unknown');
+    assert.equal(P.isClassified(route), false);
+  }
+  const host = fs.readFileSync(path.join(__dirname, '../lib/remote/host.cjs'), 'utf8');
+  assert.match(host, /record\.remoteWeb === true/);
+  assert.match(host, /tickets\.delete\(ticket\.ticketId\)/);
 });
 
 test('手工注册的路由也进对账（含两条 WebSocket 升级路由）', () => {

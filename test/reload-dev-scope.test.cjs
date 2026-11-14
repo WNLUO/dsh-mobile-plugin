@@ -1,3 +1,4 @@
+// 开发包范围与原生助手准备守卫，确认安装声明包含实际运行的完整产物。
 'use strict';
 
 /**
@@ -23,6 +24,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { execFileSync } = require('node:child_process');
 const os = require('node:os');
+const vm = require('node:vm');
 
 const PLUGIN_ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(PLUGIN_ROOT, 'scripts', 'reload-dev.mjs');
@@ -45,6 +47,45 @@ function packedFiles() {
 
 const FILES = packedFiles();
 const has = rel => FILES.includes(rel);
+
+test('开发包准备只复制本机现有助手，演练与缺失产物不写文件', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-dev-native-'));
+  const plugin = path.join(workspace, 'dsh-mobile-plugin');
+  const marker = path.join(workspace, 'tailcat-host', 'runtime-version.json');
+  const nativeSource = path.join(workspace, 'build', 'tailcat-runtime', 'darwin-arm64', 'dsh-tailcat-host');
+  const target = path.join(plugin, 'native', 'darwin-arm64', 'dsh-tailcat-host');
+  const messages = [];
+  const start = source.indexOf('function prepareDevNative(');
+  const end = source.indexOf('\n/**', start);
+  assert.ok(start > 0 && end > start, '开发包必须先准备本机助手');
+  const prepare = vm.runInNewContext(`(${source.slice(start, end)})`, { fs, path, say: message => messages.push(message) });
+  try {
+    fs.mkdirSync(plugin, { recursive: true });
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    fs.writeFileSync(marker, '{}');
+    assert.equal(prepare(plugin, false, 'darwin-arm64'), null, '缺少build时不阻塞其他线路');
+    fs.mkdirSync(path.dirname(nativeSource), { recursive: true });
+    fs.writeFileSync(nativeSource, 'compiled-helper');
+    assert.equal(prepare(plugin, true, 'darwin-arm64'), target);
+    assert.equal(fs.existsSync(target), false, 'dry-run不得写native产物');
+    assert.ok(messages.some(message => message.includes('演练')));
+    assert.equal(prepare(plugin, false, 'darwin-arm64'), target);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'compiled-helper');
+    assert.equal(fs.statSync(target).mode & 0o111, 0o111);
+    assert.match(source, /function packedFiles\(\)\s*\{\s*prepareDevNative\(\)/, '复制必须在npm清单计算之前');
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('本机已准备的隧道助手会纳入开发包', () => {
+  const platform = `${process.platform}-${process.arch}`;
+  const name = platform === 'win32-x64' ? 'dsh-tailcat-host.exe' : 'dsh-tailcat-host';
+  const rel = `native/${platform}/${name}`;
+  const manifest = JSON.parse(fs.readFileSync(path.join(PLUGIN_ROOT, 'package.json'), 'utf8'));
+  assert.ok(manifest.files.includes('native/**'), '主包白名单必须允许开发原生产物');
+  if (fs.existsSync(path.join(PLUGIN_ROOT, rel))) assert.ok(has(rel), '已准备的助手必须真实出现在npm打包清单');
+});
 
 test('包清单收住了实现、面板产物与子目录声明', () => {
   for (const rel of ['lib/impl.js', 'lib/panel/index.html', 'lib/routes/package.json']) {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// 开发安装包携带本机已编译的桌面隧道助手，重载与重启使用同一份产物。
 /**
  * 开发机：把仓库里的插件改动**装进 profile**，再让它**就地重新装载**（不重启 DSH）。
  *
@@ -124,6 +125,24 @@ function installSpecVersion() {
   return match ? match[1] : null
 }
 
+/** 把本机已编译助手放进正常开发包；没有原生产物时仍可安装其他线路。 */
+function prepareDevNative(root = PLUGIN_ROOT, dryRun = DRY_RUN, platform = `${process.platform}-${process.arch}`) {
+  if (!['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'].includes(platform)) return null
+  const workspace = path.dirname(root)
+  if (!fs.existsSync(path.join(workspace, 'tailcat-host', 'runtime-version.json'))) return null
+  const name = platform === 'win32-x64' ? 'dsh-tailcat-host.exe' : 'dsh-tailcat-host'
+  const source = path.join(workspace, 'build', 'tailcat-runtime', platform, name)
+  if (!fs.existsSync(source)) return null
+  const target = path.join(root, 'native', platform, name)
+  if (dryRun) say(`（演练）会把本机隧道助手纳入开发包：native/${platform}/${name}`)
+  else {
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.copyFileSync(source, target)
+    fs.chmodSync(target, 0o755)
+  }
+  return target
+}
+
 /**
  * 要进 profile 的那批文件（相对包根）。
  *
@@ -133,6 +152,7 @@ function installSpecVersion() {
  * `node_modules` 与 tgz 一个不能进。
  */
 function packedFiles() {
+  prepareDevNative()
   let raw
   try {
     raw = execFileSync('npm', ['pack', '--dry-run', '--json'], { cwd: PLUGIN_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })

@@ -1,4 +1,5 @@
 'use strict';
+// 电脑绑定是独立加密身份入口，移动路由表同步声明但不授予手机网页权限。
 
 /**
  * 插件的移动端路由表 ↔ App 侧的 apiPaths.ts，逐条对齐。
@@ -80,6 +81,7 @@ const PUBLIC_ROUTES = new Map([
   // 配对本身就在「还没有 token」的时刻发生，包 guarded 就是死循环。它的凭据是**配对码**
   // 而不是 token：码对得上才签发 token 与设备凭据，连错 5 次锁 60 秒（见 lib/mobile/pairing.js）。
   ['/pair', '配对：手机用配对码换 token 与设备凭据，此刻还没有 token 可验。凭据是配对码本身，附带失败限流；归宿主应答，中转只按实例标识转发'],
+  ['/remote-computers/pair', '电脑独立配对：仅接受本机显式签发、十分钟一次性随机邀请的加密证明，成功后发独立电脑网页授权，不能使用六位码或手机已有凭据冒领；由 remote-host.test.cjs 验证'],
 ]);
 
 /** 从 PATH 对象里抽出所有 `key: '/子路径'`。 */
@@ -227,7 +229,8 @@ test('公开路由清单本身没腐化', () => {
     assert.ok(table.includes(`'${API_BASE}${sub}'`), `PUBLIC_ROUTES 里的 ${API_BASE}${sub} 插件侧已经没注册了，请删掉这条豁免`);
     assert.ok(why.length > 40, `PUBLIC_ROUTES 里的 ${API_BASE}${sub} 得写清为什么可以公开`);
   }
-  assert.equal(PUBLIC_ROUTES.size, 2, '公开豁免要逐条写理由，不要胀成黑名单；确需新增请连同这份判定一起改');
+  // 新需求增加电脑的一次性加密配对；随机邀请本身是认证，不使用手机 token 守卫。
+  assert.equal(PUBLIC_ROUTES.size, 3, '独立电脑配对与手机配对、地址体检共三条入口，各自必须保留认证理由与行为测试');
 });
 /**
  * 报名那条路由必须从 `req.body` 取请求体。
