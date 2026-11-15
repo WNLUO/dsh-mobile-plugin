@@ -1,3 +1,4 @@
+// 本地入口恢复文案区分启用、已验证与端口保留策略。
 /**
  * 面板文案：连接卡 / 配对卡 / 地址选择 / 直连弹窗 / 中转配置弹窗 / 下载渠道 / 收件卡。
  *
@@ -14,6 +15,8 @@ import type { PanelMessages } from './shell.ts'
 /** 连接卡（插件版本、隧道、局域网、旁挂进程、镜像）。 */
 export const CONNECTION: PanelMessages = {
   'zh-Hans': {
+    'panel.connection.lanWaiting': '新入口已启用，等待手机验证连接',
+    'panel.connection.lanVerified': '手机已验证连接到新入口',
     'panel.connection.remoteControl': '远程控制',
     'panel.connection.deviceName': '设备名',
     'panel.connection.instanceId': '实例 ID',
@@ -38,6 +41,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': '中转开了实例白名单，而上面的实例 ID 不在名单里。把这个实例 ID 交给中转的部署者，让他加进 instances.json。',
   },
   'zh-Hant': {
+    'panel.connection.lanWaiting': '新入口已啟用，等待手機驗證連線',
+    'panel.connection.lanVerified': '手機已驗證連線到新入口',
     'panel.connection.remoteControl': '遠端控制',
     'panel.connection.deviceName': '裝置名稱',
     'panel.connection.instanceId': '實例 ID',
@@ -62,6 +67,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': '中轉開了執行個體白名單，而上面的執行個體 ID 不在名單裡。把這個執行個體 ID 交給中轉的部署者，請他加進 instances.json。',
   },
   en: {
+    'panel.connection.lanWaiting': 'New endpoint active; waiting for a phone to verify',
+    'panel.connection.lanVerified': 'A phone verified the new endpoint',
     'panel.connection.remoteControl': 'Remote control',
     'panel.connection.deviceName': 'Device name',
     'panel.connection.instanceId': 'Instance ID',
@@ -86,6 +93,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': 'The relay has an instance allowlist and the instance ID above is not on it. Hand that ID to whoever deployed the relay so they can add it to instances.json.',
   },
   ja: {
+    'panel.connection.lanWaiting': '新しい接続先が有効です。端末の接続確認を待機中',
+    'panel.connection.lanVerified': '端末が新しい接続先を確認しました',
     'panel.connection.remoteControl': 'リモート操作',
     'panel.connection.deviceName': 'デバイス名',
     'panel.connection.instanceId': 'インスタンス ID',
@@ -110,6 +119,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': 'リレーにはインスタンスの許可リストがあり、上のインスタンス ID はそこに入っていません。この ID をリレーの配備者に伝え、instances.json に追加してもらってください。',
   },
   ko: {
+    'panel.connection.lanWaiting': '새 연결 주소 활성화됨. 휴대폰 연결 확인 대기 중',
+    'panel.connection.lanVerified': '휴대폰에서 새 연결 주소를 확인했습니다',
     'panel.connection.remoteControl': '원격 제어',
     'panel.connection.deviceName': '기기 이름',
     'panel.connection.instanceId': '인스턴스 ID',
@@ -134,6 +145,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': '릴레이에 인스턴스 허용 목록이 있는데 위의 인스턴스 ID가 목록에 없습니다. 이 ID를 릴레이 배포자에게 전달해 instances.json에 추가하도록 하세요.',
   },
   de: {
+    'panel.connection.lanWaiting': 'Neuer Zugang aktiv; Bestätigung durch ein Telefon ausstehend',
+    'panel.connection.lanVerified': 'Ein Telefon hat den neuen Zugang bestätigt',
     'panel.connection.remoteControl': 'Fernsteuerung',
     'panel.connection.deviceName': 'Gerätename',
     'panel.connection.instanceId': 'Instanz-ID',
@@ -158,6 +171,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': 'Das Relay nutzt eine Instanz-Whitelist, und die Instanz-ID oben steht nicht darauf. Gib diese ID der Person, die das Relay betreibt, damit sie sie in instances.json einträgt.',
   },
   es: {
+    'panel.connection.lanWaiting': 'Nueva dirección activa; esperando verificación del teléfono',
+    'panel.connection.lanVerified': 'Un teléfono verificó la nueva dirección',
     'panel.connection.remoteControl': 'Control remoto',
     'panel.connection.deviceName': 'Nombre del dispositivo',
     'panel.connection.instanceId': 'ID de instancia',
@@ -182,6 +197,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': 'El retransmisor usa una lista de instancias permitidas y el ID de instancia de arriba no está en ella. Pasa ese ID a quien despliegue el retransmisor para que lo añada a instances.json.',
   },
   fr: {
+    'panel.connection.lanWaiting': 'Nouvelle adresse active ; vérification du téléphone en attente',
+    'panel.connection.lanVerified': 'Un téléphone a vérifié la nouvelle adresse',
     'panel.connection.remoteControl': 'Contrôle à distance',
     'panel.connection.deviceName': 'Nom de l\'appareil',
     'panel.connection.instanceId': 'ID d\'instance',
@@ -206,6 +223,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': 'Le relais applique une liste d\'instances autorisées et l\'ID d\'instance ci-dessus n\'y figure pas. Transmets cet ID à qui déploie le relais pour qu\'il l\'ajoute à instances.json.',
   },
   pt: {
+    'panel.connection.lanWaiting': 'Novo endereço ativo; aguardando verificação do telefone',
+    'panel.connection.lanVerified': 'Um telefone verificou o novo endereço',
     'panel.connection.remoteControl': 'Controle remoto',
     'panel.connection.deviceName': 'Nome do dispositivo',
     'panel.connection.instanceId': 'ID da instância',
@@ -230,6 +249,8 @@ export const CONNECTION: PanelMessages = {
     'panel.connection.relayRejectedBody': 'O relay usa uma lista de instâncias permitidas e o ID da instância acima não está nela. Passe esse ID a quem implantou o relay para adicioná-lo a instances.json.',
   },
   ru: {
+    'panel.connection.lanWaiting': 'Новый адрес активен; ожидается проверка телефоном',
+    'panel.connection.lanVerified': 'Телефон подтвердил новый адрес',
     'panel.connection.remoteControl': 'Удалённое управление',
     'panel.connection.deviceName': 'Имя устройства',
     'panel.connection.instanceId': 'ID экземпляра',
@@ -282,7 +303,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': '二维码已隐藏',
     'panel.pairing.portFallback': '（首选端口被占用，已自动改用）',
     'panel.pairing.portTitle': '修改局域网端口',
-    'panel.pairing.portHint': '1024–65535 之间的整数；首选端口被占用时，宿主会自动换一个。',
+    'panel.pairing.portHint': '1024–65535 之间的整数；默认保留端口。仅当所有已配对手机支持本地发现时，才允许因占用换号。',
     'panel.pairing.sidecarRestartFailed': '上次重启 sidecar 失败',
     'panel.onboarding.lanOff': '局域网直连已关闭',
     'panel.connection.lanPort': '局域网端口',
@@ -317,7 +338,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'QR 碼已隱藏',
     'panel.pairing.portFallback': '（首選連接埠被佔用，已自動改用）',
     'panel.pairing.portTitle': '修改區域網路連接埠',
-    'panel.pairing.portHint': '1024–65535 之間的整數；首選連接埠被佔用時，宿主會自動換一個。',
+    'panel.pairing.portHint': '1024–65535 之間的整數；預設保留連接埠。僅當所有已配對手機支援本機探索時，才允許因佔用換號。',
     'panel.pairing.sidecarRestartFailed': '上次重新啟動 sidecar 失敗',
     'panel.onboarding.lanOff': '區域網路直連已關閉',
     'panel.connection.lanPort': '區域網路連接埠',
@@ -352,7 +373,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'QR code hidden',
     'panel.pairing.portFallback': ' (preferred port was taken; switched automatically)',
     'panel.pairing.portTitle': 'Change the LAN port',
-    'panel.pairing.portHint': 'An integer from 1024 to 65535; if that port is taken, the host picks another one automatically.',
+    'panel.pairing.portHint': 'An integer from 1024 to 65535. Keep the port unless all paired phones support local discovery and it is occupied.',
     'panel.pairing.sidecarRestartFailed': 'Last sidecar restart failed',
     'panel.onboarding.lanOff': 'LAN direct is off',
     'panel.connection.lanPort': 'LAN port',
@@ -387,7 +408,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'QR コードは非表示です',
     'panel.pairing.portFallback': '（優先ポートが使用中のため自動で切り替え）',
     'panel.pairing.portTitle': 'LAN ポートを変更',
-    'panel.pairing.portHint': '1024〜65535 の整数。使用中なら宿主が自動で別のポートに切り替えます。',
+    'panel.pairing.portHint': '1024〜65535 の整数。通常は同じポートを使い、全ペアリング端末がローカル検出に対応する場合のみ競合時に変更します。',
     'panel.pairing.sidecarRestartFailed': '前回のサイドカー再起動に失敗しました',
     'panel.onboarding.lanOff': 'LAN 直結はオフです',
     'panel.connection.lanPort': 'LAN ポート',
@@ -422,7 +443,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'QR 코드 숨김',
     'panel.pairing.portFallback': ' (선호 포트가 사용 중이어서 자동 전환됨)',
     'panel.pairing.portTitle': 'LAN 포트 변경',
-    'panel.pairing.portHint': '1024~65535 사이의 정수. 사용 중이면 호스트가 자동으로 다른 포트를 씁니다.',
+    'panel.pairing.portHint': '1024~65535의 정수. 기본 포트를 유지하며 모든 페어링 기기가 로컬 검색을 지원할 때만 충돌 시 변경합니다.',
     'panel.pairing.sidecarRestartFailed': '지난 사이드카 재시작 실패',
     'panel.onboarding.lanOff': 'LAN 직접 연결이 꺼져 있습니다',
     'panel.connection.lanPort': 'LAN 포트',
@@ -457,7 +478,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'QR-Code ausgeblendet',
     'panel.pairing.portFallback': '(bevorzugter Port belegt, automatisch gewechselt)',
     'panel.pairing.portTitle': 'LAN-Port ändern',
-    'panel.pairing.portHint': 'Ganzzahl zwischen 1024 und 65535; ist der Port belegt, nimmt der Host automatisch einen anderen.',
+    'panel.pairing.portHint': 'Ganzzahl von 1024 bis 65535. Der Port bleibt gleich, außer er ist belegt und alle gekoppelten Telefone unterstützen lokale Erkennung.',
     'panel.pairing.sidecarRestartFailed': 'Letzter Sidecar-Neustart fehlgeschlagen',
     'panel.onboarding.lanOff': 'LAN-Direktverbindung aus',
     'panel.connection.lanPort': 'LAN-Port',
@@ -492,7 +513,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'Código QR oculto',
     'panel.pairing.portFallback': '(el puerto preferido está ocupado; se cambió solo)',
     'panel.pairing.portTitle': 'Cambiar el puerto de LAN',
-    'panel.pairing.portHint': 'Un entero entre 1024 y 65535; si está ocupado, el host elige otro automáticamente.',
+    'panel.pairing.portHint': 'Entero entre 1024 y 65535. El puerto solo cambia si está ocupado y todos los teléfonos vinculados admiten descubrimiento local.',
     'panel.pairing.sidecarRestartFailed': 'Falló el último reinicio del sidecar',
     'panel.onboarding.lanOff': 'Conexión directa LAN desactivada',
     'panel.connection.lanPort': 'Puerto LAN',
@@ -527,7 +548,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'Code QR masqué',
     'panel.pairing.portFallback': '(port préféré occupé, changement automatique)',
     'panel.pairing.portTitle': 'Modifier le port LAN',
-    'panel.pairing.portHint': 'Un entier entre 1024 et 65535 ; si le port est occupé, l’hôte en choisit un autre automatiquement.',
+    'panel.pairing.portHint': 'Entier de 1024 à 65535. Le port ne change que si occupé et si tous les téléphones associés prennent en charge la découverte locale.',
     'panel.pairing.sidecarRestartFailed': 'Le dernier redémarrage du sidecar a échoué',
     'panel.onboarding.lanOff': 'Connexion directe par réseau local désactivée',
     'panel.connection.lanPort': 'Port réseau local',
@@ -562,7 +583,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'Código QR oculto',
     'panel.pairing.portFallback': '(porta preferida ocupada; trocada automaticamente)',
     'panel.pairing.portTitle': 'Alterar a porta da LAN',
-    'panel.pairing.portHint': 'Um inteiro entre 1024 e 65535; se estiver ocupado, o host escolhe outro automaticamente.',
+    'panel.pairing.portHint': 'Inteiro de 1024 a 65535. A porta só muda se estiver ocupada e todos os telefones pareados aceitarem descoberta local.',
     'panel.pairing.sidecarRestartFailed': 'Falhou o último reinício do sidecar',
     'panel.onboarding.lanOff': 'Conexão direta LAN desativada',
     'panel.connection.lanPort': 'Porta da rede local',
@@ -597,7 +618,7 @@ export const PAIRING: PanelMessages = {
     'panel.pairing.qrHidden': 'QR-код скрыт',
     'panel.pairing.portFallback': '(основной порт занят, переключено автоматически)',
     'panel.pairing.portTitle': 'Изменить порт локальной сети',
-    'panel.pairing.portHint': 'Целое число от 1024 до 65535; если порт занят, хост сам выберет другой.',
+    'panel.pairing.portHint': 'Целое число от 1024 до 65535. Порт меняется только при занятости и поддержке локального обнаружения всеми сопряжёнными телефонами.',
     'panel.pairing.sidecarRestartFailed': 'Последний перезапуск sidecar не удался',
     'panel.onboarding.lanOff': 'Прямое подключение по локальной сети выключено',
     'panel.connection.lanPort': 'Порт локальной сети',

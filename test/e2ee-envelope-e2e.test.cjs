@@ -1,3 +1,4 @@
+// 入口恢复和能力更新必须在信封验签通过之后记账。
 'use strict';
 
 /**
@@ -338,4 +339,24 @@ test('重放表超过软上限也只淘汰过期项：窗口内最早的 nonce �
   evictExpiredNonces(mixed, ts);
   assert.equal(mixed.has('fresh'), true, '窗口内的不许删');
   assert.equal(mixed.has('stale'), false, '过期的必须删');
+});
+
+test('无效信封不记设备恢复，有效信封只记一次', async () => {
+  let noted = 0;
+  const guarded = routing.createGuarded({}, () => true, null, {
+    onAuthorized: () => { noted += 1; },
+    envelope: {
+      keyFor: keyId => keyId === KEY_ID ? { deviceKey: DEVICE_KEY.toString('base64url'), deviceId: 'dev-1' } : null,
+      readBody: req => Promise.resolve(req.raw),
+    },
+  });
+  const built = buildRequest({ plain: null, method: 'GET', nonce: Buffer.alloc(12, 0x71) });
+  const bad = fakeReq({ method: 'GET', headers: { ...built.headers, 'x-dsh-sig': 'invalid' } });
+  bad.raw = Buffer.alloc(0);
+  await guarded(async () => {})(bad, fakeRes());
+  assert.equal(noted, 0);
+  const good = fakeReq({ method: 'GET', headers: built.headers });
+  good.raw = Buffer.alloc(0);
+  await guarded(async (_ctx, _req, res) => routing.sendJson(res, 200, { ok: true }))(good, fakeRes());
+  assert.equal(noted, 1);
 });

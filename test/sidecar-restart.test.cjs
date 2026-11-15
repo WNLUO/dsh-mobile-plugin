@@ -1,3 +1,4 @@
+// 重启测试假体提供即时状态回写，覆盖重启后的 LAN 入口公布。
 'use strict'
 
 // 钉住 sidecar 自重启。
@@ -190,6 +191,7 @@ const buildRestartHarness = (deps) => {
     let sidecarSnapshot = { tunnel: { state: 'off', error: null }, lan: { state: 'off', error: null } }
     let sidecarRestarts = 0, sidecarRestartedAt = 0, sidecarRestartError = null, restartInFlight = null
     // 与 lib/sidecar-lifecycle.cjs 里那个同义：facade 交上来的 onDown 回调。
+    const applyTunnelState = (message) => { if (message.lan) sidecarSnapshot.lan = message.lan }
     const markSidecarDown = (error) => {
       const message = error instanceof Error ? error.message : String(error)
       sidecarState = 'error: ' + message

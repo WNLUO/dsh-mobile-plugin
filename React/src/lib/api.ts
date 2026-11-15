@@ -1,3 +1,4 @@
+// 入口启用与手机验证恢复是两个独立状态。
 /**
  * 控制面客户端：只碰 `/api/relay/*` 这一组本机接口。
  *
@@ -139,6 +140,8 @@ export type StatusView = {
     state: string
     error: string | null
     adjusted: boolean
+    discovery?: { state: string; error: string | null }
+    recovery?: { state: string; changedAt: number; recoveredAt: number }
   }
   sidecar: {
     state: string

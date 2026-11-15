@@ -1,4 +1,5 @@
 'use strict'
+// 监听关闭必须完成，端口冲突不在代理层自行迁移。
 
 /**
  * 直连监听的 IPv6 守卫：宿主过去只在 `0.0.0.0` 上听，手机不在同一个 Wi-Fi 里、只有 IPv6
@@ -172,41 +173,29 @@ test('双栈：同一个实例上 IPv4 与 IPv6 都通，且走到同一条 hand
   }
 })
 
-test('首选端口被占时，两条监听都落到实绑的那个端口上', async (t) => {
-  if (!(await hasIpv6Loopback())) {
-    t.skip('本机没有 IPv6 环回')
-    return
-  }
+// 需求已确认：代理不自行换端口，迁移由发现能力保护后的生命周期决定。
+test('指定端口被占时明确失败，释放旧监听后可以重试同一个端口', async () => {
   const held = await holdPort()
   const upstream = await startUpstream()
-  const logs = []
-  const proxy = createLanProxy({
-    lanPort: held.port,
-    pairingCode: CODE,
-    instanceId: INSTANCE,
-    lanSecret: SECRET,
-    upstreamPort: upstream.port,
-    onLog: (...args) => logs.push(args.join(' ')),
-  })
+  const options = { lanPort: held.port, instanceId: INSTANCE, lanSecret: SECRET, upstreamPort: upstream.port }
+  const first = createLanProxy(options)
   try {
-    await proxy.start()
-    const actual = proxy.port()
-    assert.notEqual(actual, held.port, '首选端口被占，该退到内核分配的空闲端口')
-
-    // IPv6 那条必须跟着**实绑**端口走，而不是还守着首选端口 —— 否则手机在 IPv6 上
-    // 拨的是一个没人监听的号，比没有这条监听更坏。
-    const health = await request(actual, { host: '::1', family: 6, path: '/healthz' })
-    assert.equal(health.status, 200, 'IPv6 侧应通')
-    assert.equal(health.body, 'ok')
-
-    // 日志按 `server.address()` 如实报**每一条**实际绑上的 host+端口。
-    const text = logs.join('\n')
-    assert.ok(text.includes(`listening on 0.0.0.0:${actual}`), `IPv4 那条该报实绑端口，实际：\n${text}`)
-    assert.ok(text.includes(`listening on [::]:${actual}`), `IPv6 那条该报实绑主机与端口，实际：\n${text}`)
+    await assert.rejects(first.start(), { code: 'EADDRINUSE' })
+    assert.equal(first.port(), 0, '监听失败不能报告一个活端口')
+    await first.stop()
+    await new Promise(resolve => held.holder.close(resolve))
+    const second = createLanProxy(options)
+    await second.start()
+    assert.equal(second.port(), held.port)
+    await second.stop()
+    const third = createLanProxy(options)
+    await third.start()
+    assert.equal(third.port(), held.port, '停止完成后同端口重启不能换号')
+    await third.stop()
   } finally {
-    proxy.stop()
-    await new Promise((resolve) => held.holder.close(resolve))
-    await new Promise((resolve) => upstream.server.close(resolve))
+    await first.stop()
+    if (held.holder.listening) await new Promise(resolve => held.holder.close(resolve))
+    await new Promise(resolve => upstream.server.close(resolve))
   }
 })
 

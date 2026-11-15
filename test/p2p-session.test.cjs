@@ -1,3 +1,4 @@
+// 需求已确认：P2P 入口始终独立于局域网监听。
 'use strict';
 
 // 点对点隧道（P2P）宿主会话的守卫：身份交换、拉起、状态、收尾。
@@ -618,7 +619,7 @@ test('会合：落点端口取门面给的，不是硬编码的局域网端口�
   assert.equal(opened[0].targetPort, 19485, '必须用门面给的落点端口，局域网关着时它才是 webServer.port');
 });
 
-test('挂载层：落点端口跟局域网开关走（局域网开着转局域端口，关着转落点代理）', async () => {
+test('挂载层：局域网开关不改变独立落点代理', async () => {
   // 样板是直连隧道的 `chooseTailcatTarget`，判据一模一样：两条隧道最终都转给
   // 「手机上那个 API」，只是局域网关着时中间要隔一层打标记的落点代理 —— 裸转 web 端口
   // 是纯 TCP 透传，控制面会把一台已配对的手机当成本机设置页（见 tunnel-forwarder.cjs）。
@@ -637,12 +638,15 @@ test('挂载层：落点端口跟局域网开关走（局域网开着转局域�
     // 同上：钉住「本机没装助手」，别真拉一个子进程起来。
     resolveBinary: () => null,
   });
-  assert.equal(door.targetPort(), 18787, '局域网开着：与一台 LAN 手机走同一条路');
+  await new Promise((done) => setTimeout(done, 50));
+  const before = door.targetPort();
+  assert.ok(before > 0);
+  assert.notEqual(before, 18787, '局域网开着也不能依赖 LAN 入口');
   // 落点代理的端口是 `listen(0)` 拿的，等一拍。
   await new Promise((done) => setTimeout(done, 50));
   lanOn = false;
   const fallback = door.targetPort();
-  assert.ok(fallback > 0, '局域网关着：必须有落点代理接手，否则隧道无路可走');
+  assert.equal(fallback, before, '局域网开关不应改变隧道落点');
   assert.notEqual(fallback, 19485, '绝不能裸转宿主 web 端口：那是一条不带转发标记的透传');
 });
 

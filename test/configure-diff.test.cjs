@@ -1,3 +1,4 @@
+// 配置不变时仅对失败的 LAN 监听重试，正常服务保持不动。
 'use strict'
 // 「配置下发只重建真正变了的那一半」。
 //
@@ -55,17 +56,20 @@ function bootWorker(options = {}) {
     const { status, stopLan, startLan, stopTunnel, startTunnel, stopNetworkMonitor, startNetworkMonitor, lanUrls, lanUrlPort, core, publishState, switchRelay, openTunnel, reconnect } = deps;
     let config = deps.initialConfig;
     let tunnel = deps.tunnel;
+    let lanState = 'listening';
+    let lanBoundPort = 18787;
     ${SIGNATURES_BODY}
     ${CONFIGURE_BODY}
     return {
       configure,
       currentConfig: () => config,
       setTunnel: (next) => { tunnel = next },
+      setLanState: (next) => { lanState = next },
     };
   `)({
     status: () => ({ ok: true }),
     stopLan: () => { calls.stopLan += 1 },
-    startLan: () => { calls.startLan += 1 },
+    startLan: () => { calls.stopLan += 1; calls.startLan += 1 },
     stopTunnel: () => { calls.stopTunnel += 1 },
     startTunnel: () => { calls.startTunnel += 1 },
     stopNetworkMonitor: () => { calls.stopMonitor += 1 },
@@ -250,4 +254,16 @@ test('契约面：buildConfig 必须带上 worker 认识的每一个字段', () 
     const present = new RegExp(`(^|[\\s,{])${field}\\s*[:,]`).test(body)
     assert.ok(present, `buildConfig 漏了 ${field}：worker 认得它，宿主却不发`)
   }
+})
+
+// 同配置重连也能恢复失败监听，但不能拖累已连接的隧道。
+test('配置不变但 LAN 失败：重试原端口，隧道不动', async () => {
+  const w = bootWorker()
+  await w.configure(baseConfig())
+  const before = { ...w.calls }
+  w.setLanState('error')
+  await w.configure(baseConfig())
+  assert.equal(w.calls.startLan, before.startLan + 1)
+  assert.equal(w.calls.stopTunnel, before.stopTunnel)
+  assert.equal(w.currentConfig().lanPort, 18787)
 })

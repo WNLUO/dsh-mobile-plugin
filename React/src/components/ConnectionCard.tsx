@@ -1,3 +1,4 @@
+// 复用现有状态行和提示框展示本地入口故障与恢复事实。
 /**
  * 主页右栏「连接状态」卡：远程控制一颗开关 + 只读事实。
  *
@@ -172,6 +173,18 @@ export function ConnectionCard({ status, busy, onToggle, onManageTailcat, onMana
         </InfoRow>
       </InfoList>
 
+      {status.lan.recovery?.state === 'awaiting-device' ? (
+        <InfoList><InfoRow label={t('panel.connection.lan')}><ToneValue tone="warn" text={t('panel.connection.lanWaiting')} /></InfoRow></InfoList>
+      ) : status.lan.recovery?.state === 'verified' ? (
+        <InfoList><InfoRow label={t('panel.connection.lan')}><ToneValue tone="ok" text={t('panel.connection.lanVerified')} /></InfoRow></InfoList>
+      ) : null}
+      {status.lan.enabled && (status.lan.error || status.lan.discovery?.error) ? (
+        <Alert variant="warning" className="mt-3">
+          <AlertIcon />
+          <AlertTitle>{t('panel.connection.lan')}</AlertTitle>
+          <AlertDescription>{status.lan.error || status.lan.discovery?.error}</AlertDescription>
+        </Alert>
+      ) : null}
       <AdmissionNotice status={status} />
     </Card>
   )

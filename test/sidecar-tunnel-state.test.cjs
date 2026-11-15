@@ -1,4 +1,5 @@
 'use strict'
+// 需求已确认：只公布已经监听成功的入口。
 
 /**
  * 钉住「隧道状态跳变必须**立刻**回写宿主快照」这条链：
@@ -94,7 +95,7 @@ test('对外报的局域网端口以 worker 实绑端口为准（不是宿主解
   const { lc, state } = boot()
   // boot() 注入的宿主侧取值器是 18787；这一行就是「手机该拨哪个端口」的唯一正确答案。
   assert.equal(lc.getSnapshot().lan.port, undefined, '还没上报时快照里没有端口')
-  assert.equal(lc.getAdvertisedLanPort(), 18787, 'worker 还没报端口时回落到宿主解析值')
+  assert.equal(lc.getAdvertisedLanPort(), 0, '未监听时不公布配置端口')
   state.options.onState({
     type: 'state',
     tunnel: { state: 'connected', error: null },

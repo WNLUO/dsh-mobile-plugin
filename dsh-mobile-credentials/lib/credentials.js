@@ -1,4 +1,5 @@
 'use strict';
+// 有效设备记录保留本地重新发现能力，未知设备禁止自动换入口。
 // 电脑网页授权独立于手机权限；调整设备权限会同步收回该授权。
 
 /**
@@ -150,6 +151,7 @@ function deviceMeta(device) {
   if (osVersion) meta.osVersion = osVersion;
   const appVersion = truncate(device?.appVersion, FIELD_MAX);
   if (appVersion) meta.appVersion = appVersion;
+  if (device?.lanDiscovery === 1 || device?.lanDiscovery === 0) meta.lanDiscovery = device.lanDiscovery;
   return meta;
 }
 
@@ -437,7 +439,7 @@ function listActive() {
   const now = Date.now();
   return records
     .filter((record) => isLive(record, now))
-    .map(({ instanceId, deviceId, createdAt, expiresAt }) => ({ instanceId, deviceId, createdAt, ...(expiresAt ? { expiresAt } : {}) }));
+    .map(({ instanceId, deviceId, createdAt, expiresAt, lanDiscovery, kind }) => ({ instanceId, deviceId, createdAt, ...(expiresAt ? { expiresAt } : {}), ...(lanDiscovery !== undefined ? { lanDiscovery } : {}), ...(kind ? { kind } : {}) }));
 }
 
 /**

@@ -1,147 +1,126 @@
 'use strict';
-
-/**
- * 局域网端口自愈（resolvePort）。
- *
- * 为什么值得单独钉：这个模块 0.2.0 迁移时是全新加的，当过时的只有「首选端口被占」
- * 这一个场景，而它一旦失效的表现是**手机配不上对**——`/api/relay/status` 只会说
- * lan.state='error'，和真正的原因（端口被占）隔了十万八千里。修过一次真实的
- * EADDRINUSE 之后，零测试的这段代码就成了下一个同类事故的候选。
- *
- * 注意这里测的是「内核当时的状态」，存在天然的探测—使用间隙（TOCTOU）：真绑定
- * 发生在 lan-proxy 里，它另有 EADDRINUSE 兜底。所以断言只到「给出的端口当下可绑」
- * 为止，不去假装能断言「一定绑得上」。
- */
-
+// 需求已确认：原端口优先，已监听且完成发现发布后才能保存新入口。
 const { test } = require('node:test');
-const assert = require('node:assert');
+const assert = require('node:assert/strict');
 const net = require('node:net');
+const { canListen, freePort } = require('../lib/relay/port-allocator.cjs');
+const { canChangeLanPort, createLanPortPolicy } = require('../lib/relay/lan-port-policy.cjs');
+const { bindLanEndpoint } = require('../lib/relay/lan-discovery.cjs');
 
-const { canListen, freePort, resolvePort } = require('../lib/relay/port-allocator.cjs');
+const store = rows => ({ listActive: () => rows });
+const compatible = store([{ instanceId: 'i', lanDiscovery: 1 }]);
+const busy = () => Object.assign(new Error('occupied'), { code: 'EADDRINUSE' });
+function fixture(error = busy(), ready = true, credentials = compatible) {
+  const attempts = []; const stopped = []; const published = [];
+  return { attempts, stopped, published, args: {
+    requestedPort: 18787, instanceId: 'i', store: credentials,
+    discovery: { publish: async port => { published.push(port); return ready; }, stop: () => {} },
+    createProxy(port) { attempts.push(port); return {
+      start: async () => { if (port === 18787) throw error; },
+      stop: async () => { stopped.push(port); }, port: () => port || 23456,
+    }; },
+  } };
+}
 
-const HOST = '127.0.0.1';
-
-const listen = (port) => new Promise((resolve, reject) => {
-  const server = net.createServer();
-  server.once('error', reject);
-  server.listen(port, HOST, () => resolve(server));
+test('自检仍区分空闲和占用，探测不改配置', async () => {
+  const port = await freePort('127.0.0.1');
+  assert.ok(await canListen(port, '127.0.0.1'));
+  const held = net.createServer();
+  await new Promise(resolve => held.listen(port, '127.0.0.1', resolve));
+  try { assert.equal(await canListen(port, '127.0.0.1'), false); }
+  finally { await new Promise(resolve => held.close(resolve)); }
 });
 
-const waitFor = async (fn, what) => {
-  for (let i = 0; i < 60; i += 1) {
-    const v = await fn();
-    if (v) return v;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  throw new Error(`超时：${what}`);
-};
+test('没有设备、旧设备、能力未知都不自动换端口；其他实例和电脑凭据不挡', () => {
+  for (const rows of [[], [{ instanceId: 'i' }], [{ instanceId: 'i', lanDiscovery: 0 }],
+    [{ instanceId: 'i', lanDiscovery: 1 }, { instanceId: 'i' }]]) assert.equal(canChangeLanPort(store(rows), 'i'), false);
+  assert.equal(canChangeLanPort(store([{ instanceId: 'i', lanDiscovery: 1 }, { instanceId: 'x' },
+    { instanceId: 'i', kind: 'computer' }]), 'i'), true);
+});
 
-test('canListen：空端口为真，已被占用的端口为假', async () => {
-  const free = await freePort(HOST);
-  assert.ok(free > 0, 'freePort 应当给出一个端口');
-  assert.equal(await canListen(free, HOST), true, `端口 ${free} 此刻应当可绑`);
+test('原端口可用时只监听原端口；发现失效也保留现有入口', async () => {
+  const f = fixture();
+  f.args.createProxy = port => ({ start: async () => { f.attempts.push(port); }, stop: async () => {}, port: () => port });
+  f.args.discovery.publish = async () => false;
+  assert.equal((await bindLanEndpoint(f.args)).port, 18787);
+  assert.deepEqual(f.attempts, [18787]);
+});
 
-  const server = await listen(0);
-  const busy = server.address().port;
+test('只有真实占用且全部支持发现时才绑定新入口，再发布实绑端口', async () => {
+  const f = fixture();
+  assert.equal((await bindLanEndpoint(f.args)).port, 23456);
+  assert.deepEqual(f.attempts, [18787, 0]);
+  assert.deepEqual(f.published, [23456]);
+});
+
+test('旧手机占用时不换号，权限错误不换号，新入口发布失败就关闭', async () => {
+  const old = fixture(busy(), true, store([{ instanceId: 'i' }]));
+  await assert.rejects(bindLanEndpoint(old.args), /未自动换端口/);
+  assert.deepEqual(old.attempts, [18787]);
+  const permission = fixture(Object.assign(new Error('denied'), { code: 'EACCES' }));
+  await assert.rejects(bindLanEndpoint(permission.args), /denied/);
+  assert.deepEqual(permission.attempts, [18787]);
+  const noDiscovery = fixture(busy(), false);
+  await assert.rejects(bindLanEndpoint(noDiscovery.args), /保留原端口/);
+  assert.deepEqual(noDiscovery.stopped, [18787, 0]);
+});
+
+test('有效凭据的发现能力可落盘、刷新和撤销，电脑凭据不阻止手机入口恢复', () => {
+  const fs = require('node:fs'); const path = require('node:path'); const os = require('node:os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lan-cap-test-'));
+  const before = process.env.DEVICE_CREDENTIALS_FILE;
+  process.env.DEVICE_CREDENTIALS_FILE = path.join(dir, 'credentials.json');
+  const credentials = require('../dsh-mobile-credentials/lib/credentials.js');
   try {
-    assert.equal(await canListen(busy, HOST), false, `端口 ${busy} 正被本进程占着，应当判为不可用`);
+    const issued = credentials.issue('i', { deviceId: 'phone' });
+    assert.equal(canChangeLanPort(credentials, 'i'), false);
+    const record = credentials.lookup(issued.credential, 'i');
+    credentials.touch(record, { meta: { lanDiscovery: 1 } });
+    assert.equal(canChangeLanPort(credentials, 'i'), true);
+    assert.equal(JSON.parse(fs.readFileSync(process.env.DEVICE_CREDENTIALS_FILE, 'utf8'))[0].lanDiscovery, 1);
+    credentials.touch(record, { meta: { lanDiscovery: 0 } });
+    assert.equal(canChangeLanPort(credentials, 'i'), false);
+    credentials.revoke(issued.credential, 'i');
+    assert.equal(canChangeLanPort(credentials, 'i'), false);
   } finally {
-    await new Promise((resolve) => server.close(resolve));
+    credentials.resetForTest();
+    if (before === undefined) delete process.env.DEVICE_CREDENTIALS_FILE; else process.env.DEVICE_CREDENTIALS_FILE = before;
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('resolvePort：首选端口空闲时就用它，并如实说没调整过', async () => {
-  const free = await freePort(HOST);
-  const r = await resolvePort(free, HOST);
-  assert.deepEqual(r, { port: free, adjusted: false, requested: free });
+test('变异：删除旧手机保护时，同一条占用断言必须失败', async () => {
+  const fs = require('node:fs'); const path = require('node:path'); const Module = require('node:module');
+  const file = path.join(__dirname, '../lib/relay/lan-discovery.cjs');
+  const source = fs.readFileSync(file, 'utf8').replace('if (!canChangeLanPort(store, instanceId))', 'if (false && !canChangeLanPort(store, instanceId))');
+  const mutated = { exports: {} };
+  new Function('require', 'module', 'exports', source)(Module.createRequire(file), mutated, mutated.exports);
+  const f = fixture(busy(), true, store([{ instanceId: 'i' }]));
+  const protectsOldPhone = bind => assert.rejects(bind(f.args), /未自动换端口/);
+  await protectsOldPhone(bindLanEndpoint);
+  await assert.rejects(protectsOldPhone(mutated.exports.bindLanEndpoint), { code: 'ERR_ASSERTION' });
 });
 
-test('resolvePort：首选端口被占时换一个，并如实说调整过', async () => {
-  const server = await listen(0);
-  const busy = server.address().port;
-  try {
-    const r = await resolvePort(busy, HOST);
-    assert.equal(r.requested, busy, 'requested 必须保留原始请求值，配对二维码与状态里都要靠它对账');
-    assert.equal(r.adjusted, true, '换了端口就必须说调整过——这个标记会透到 /api/relay/status');
-    assert.notEqual(r.port, busy, '不应当返回那个正被占用的端口');
-    assert.ok(r.port > 1024 && r.port <= 65535);
-    assert.equal(await canListen(r.port, HOST), true, '换出来的端口应当确实可绑');
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+test('失效配置不能留下监听或新地址', async () => {
+  const f = fixture();
+  f.args.isCurrent = () => false;
+  await assert.rejects(bindLanEndpoint(f.args), /配置已更新/);
+  assert.deepEqual(f.attempts, [18787]);
 });
 
-test('resolvePort：非法请求值一律回落到默认端口 18787', async () => {
-  for (const bad of [0, -1, 80, 1023, 65536, 99999, NaN, '53520', null, undefined, 1.5]) {
-    const r = await resolvePort(bad, HOST);
-    assert.equal(r.requested, 18787, `${JSON.stringify(bad)} 应当回落到 18787，实际 requested=${r.requested}`);
-  }
-});
-
-test('resolvePort：合法边界值照单全收，不被默认值吞掉', async () => {
-  for (const edge of [1024, 65535]) {
-    const server = await listen(edge);
-    try {
-      const r = await resolvePort(edge, HOST);
-      assert.equal(r.requested, edge, `${edge} 是合法端口，不该被换成默认值`);
-    } finally {
-      await new Promise((resolve) => server.close(resolve));
-    }
-  }
-});
-
-test('freePort 给出的端口在被拿到之前一直是可用的', async () => {
-  // 连续取几次，模拟调用方拿着端口去真绑定的那一下。
-  for (let i = 0; i < 3; i += 1) {
-    const port = await freePort(HOST);
-    assert.ok(port > 0, '应当拿到有效端口');
-    const server = await listen(port);
-    await new Promise((resolve) => server.close(resolve));
-  }
-});
-
-test('真实场景：18787 被占时 resolvePort 不该把服务拖死', async () => {
-  const server = await listen(18787).catch(() => null);
-  // 18787 常常被别的服务占着（这台开发机就被 billion-context 占过），所以这里只断言
-  // 「无论它是否已被占用，resolvePort 都必须给出一个当下可绑的端口」——这正是 lan-proxy
-  // 拿不到就回退 bind(0) 的那套逻辑所依赖的保证。
-  const r = await resolvePort(18787, HOST);
-  assert.equal(r.requested, 18787);
-  assert.ok(r.port > 0, '无论如何都要给出一个端口');
-  await waitFor(async () => r.adjusted || (await canListen(r.port, HOST)), '给出的端口应当可绑');
-  if (server) await new Promise((resolve) => server.close(resolve));
-});
-
-test('resolvePort：自己正绑着的端口不算「被占」——原样保留，连试绑都不做', async () => {
-  // 这条钉的是 2026-10-11 的真机故障。局域网代理绑上首选端口之后，任何一次重新解析都会
-  // 把这个**自己占着**的端口判成「被占」，换一个内核随手给的空闲端口回传；调用方再把它
-  // 写回 relay.json——监听没动、落盘端口却一路漂（现场：18787→22779→33091→17079），
-  // 平时看不出来，下次重启按漂过的值绑，手机里存的地址就废了。触发点还不止同步：
-  // 面板上「看一眼二维码」那条只读路由也会解析一次端口。
-  const server = await listen(0);
-  const ours = server.address().port;
-  try {
-    const r = await resolvePort(ours, HOST, { ours });
-    assert.deepEqual(
-      r,
-      { port: ours, adjusted: false, requested: ours, ours: true },
-      '这个号是我们自己占着的，应当原样保留并如实说「是我的」，而不是换号',
-    );
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
-});
-
-test('resolvePort：ours 只对号入座，对不上就照旧探测', async () => {
-  const server = await listen(0);
-  const busy = server.address().port;
-  try {
-    for (const ours of [0, undefined, busy + 1]) {
-      const r = await resolvePort(busy, HOST, { ours });
-      assert.equal(r.adjusted, true, `ours=${ours} 不应当把被占的 ${busy} 认成自己的`);
-      assert.notEqual(r.port, busy);
-    }
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
+test('端口只在监听成功后落盘，重启继续用它，只有 LAN 鉴权才算恢复', () => {
+  const state = { lanPort: 18787 }; let saves = 0;
+  const policy = createLanPortPolicy({ state, saveState: () => { saves += 1; } });
+  for (const mode of ['off', 'connecting', 'error']) policy.apply({ state: mode, port: 23456, requestedPort: 18787 });
+  assert.equal(state.lanPort, 18787);
+  policy.apply({ state: 'listening', port: 23456, requestedPort: 18787 });
+  assert.equal(state.lanPort, 23456); assert.equal(saves, 1);
+  policy.apply({ state: 'listening', port: 34567, requestedPort: 18787 });
+  assert.equal(state.lanPort, 23456);
+  assert.equal(policy.recovery().state, 'awaiting-device');
+  policy.noteAuthorized({ headers: { host: '192.168.1.2:23456' } }, 'relay');
+  assert.equal(policy.recovery().state, 'awaiting-device');
+  policy.noteAuthorized({ headers: { host: '192.168.1.2:23456' } }, 'lan');
+  assert.equal(policy.recovery().state, 'verified');
+  assert.equal(createLanPortPolicy({ state, saveState: () => {} }).port(), 23456);
 });
