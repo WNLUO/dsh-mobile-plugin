@@ -1,10 +1,10 @@
-/** 网页租期提示只读、按真实期限显示，并保持 HTML 分块字节与流式输出。 */
+/** 网页租期提示只读、按真实期限显示，并保持 HTML 分块字节与流式输出；壳会话另测平台排版。 */
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const { once } = require('node:events');
-const { noticeScript, createNoticeTransform } = require('../lib/remote/browser-notice.cjs');
+const { noticeScript, shellScript, createNoticeTransform } = require('../lib/remote/browser-notice.cjs');
 
 function page({ left = 3600_000, language = 'en', failed = false, embedded = false } = {}) {
   const children = [];
@@ -117,4 +117,109 @@ test('找到 head 后立即流出；无 head、长前缀和空文档原样透传
   for (const original of ['', '<html>no head 中文</html>', 'x'.repeat(5000)]) {
     assert.equal((await inject([Buffer.from(original)])).toString(), original);
   }
+});
+
+/** 桌面壳脚本只碰得到这几个 DOM 方法，假体按真实节点关系搭一棵小树。 */
+function node(tag, attributes = {}, children = []) {
+  const attrs = new Map(Object.entries(attributes));
+  return {
+    tag, attributes: attrs, children, parent: null, dataset: {},
+    hasAttribute: name => attrs.has(name),
+    getAttribute: name => (attrs.has(name) ? attrs.get(name) : null),
+    setAttribute: (name, value) => attrs.set(name, value),
+  };
+}
+
+function descendants(element) {
+  const out = [];
+  for (const child of element.children) { out.push(child); out.push(...descendants(child)); }
+  return out;
+}
+
+function shellPage() {
+  const observers = [];
+  const styles = [];
+  const root = { dataset: {} };
+  const label = node('span');
+  const action = node('button', {}, [node('b')]);
+  const blocked = node('div', { 'data-window-drag-recall': '' });
+  const row = node('div', { 'data-window-drag': '' }, [label, action, blocked]);
+  const body = node('body', {}, [row]);
+  row.parent = body;
+  const document = {
+    documentElement: root, body,
+    head: { appendChild: element => styles.push(element) },
+    createElement(tag) { return { tag, textContent: '' }; },
+    querySelectorAll(selector) {
+      const all = descendants(body);
+      if (selector === '[data-window-drag]') return all.filter(element => element.hasAttribute('data-window-drag'));
+      if (selector === '[data-window-drag-exclude],[data-window-drag-recall]') {
+        return all.filter(element => element.hasAttribute('data-window-drag-recall') || element.hasAttribute('data-window-drag-exclude'));
+      }
+      return [];
+    },
+  };
+  const context = vm.createContext({
+    window: { requestAnimationFrame(fn) { fn(); return 1; } },
+    document,
+    MutationObserver: class {
+      constructor(callback) { this.callback = callback; observers.push(this); }
+      observe() { this.watching = true; }
+      disconnect() { this.watching = false; }
+    },
+  });
+  vm.runInContext(shellScript('darwin'), context);
+  return {
+    root, row, label, action, blocked, body, observers, styles,
+    trigger() { for (const observer of observers) observer.callback([]); },
+    rerun() { vm.runInContext(shellScript('darwin'), context); },
+  };
+}
+
+test('只有 Mac 壳会话带平台排版脚本，普通网页与其他系统都不改版式', () => {
+  assert.equal(shellScript('win32'), '');
+  assert.doesNotMatch(noticeScript(), /data-tauri-drag-region|dataset\.platform|data-dshm-shell/);
+  assert.doesNotMatch(noticeScript({ shell: true, platform: 'win32' }), /data-tauri-drag-region|dataset\.platform|data-dshm-shell/);
+  const script = noticeScript({ shell: true, platform: 'darwin' });
+  assert.match(script, /body\.dataset\.platform = 'darwin'/);
+  assert.match(script, /data-dshm-shell/);
+  assert.match(script, /data-tauri-drag-region/);
+  assert.match(script, /--dsh-frame-top-clearance: 48px/);
+  assert.match(script, /--dsw-specific-sidebar-tint/);
+  assert.match(script, /data-window-drag\]:has\(\[data-sidebar-toggle\]\)/);
+  assert.doesNotMatch(script, /innerHTML|location\.(?:href|replace)|\bcredential\b/);
+});
+
+test('壳记号只落在页面主体，根元素保持网页版，桌面键盘桥不会被叫醒', () => {
+  const p = shellPage();
+  assert.equal(p.root.dataset.platform, undefined);
+  assert.equal(p.root.dataset.dshmShell, '1');
+  assert.equal(p.body.dataset.platform, 'darwin');
+  assert.doesNotMatch(shellScript('darwin'), /documentElement\.dataset\.platform\s*=|root\.dataset\.platform\s*=/);
+  assert.equal(p.styles.length, 1);
+  assert.equal(p.styles[0].tag, 'style');
+  assert.match(p.styles[0].textContent, /html\[data-dshm-shell\] \{/);
+  assert.match(p.styles[0].textContent, /body\[data-platform='darwin'\]/);
+  assert.match(p.styles[0].textContent, /html\[data-dshm-shell\]\[data-fullscreen\]/);
+  p.rerun();
+  assert.equal(p.styles.length, 1);
+});
+
+test('一整块可拖区域用 deep，官方排除的那一支用 false', () => {
+  const p = shellPage();
+  assert.equal(p.row.getAttribute('data-tauri-drag-region'), 'deep');
+  assert.equal(p.label.getAttribute('data-tauri-drag-region'), null);
+  assert.equal(p.action.getAttribute('data-tauri-drag-region'), null);
+  assert.equal(p.blocked.getAttribute('data-tauri-drag-region'), 'false');
+});
+
+test('页面切换后新出现的可拖区域与排除区块都会跟上', () => {
+  const p = shellPage();
+  const fresh = node('header', { 'data-window-drag': '' }, [node('span'), node('a')]);
+  const excluded = node('div', { 'data-window-drag-exclude': '' });
+  p.body.children.push(fresh, excluded);
+  p.trigger();
+  assert.equal(fresh.getAttribute('data-tauri-drag-region'), 'deep');
+  assert.equal(fresh.children[0].getAttribute('data-tauri-drag-region'), null);
+  assert.equal(excluded.getAttribute('data-tauri-drag-region'), 'false');
 });

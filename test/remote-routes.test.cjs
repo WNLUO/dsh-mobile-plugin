@@ -1,5 +1,6 @@
 'use strict';
 // 管理动作只接受精确同源的本机请求，来访电脑清单与撤销响应不得包含密钥。
+// 桌面壳入口带专属标记，普通浏览器入口保持原样。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
@@ -22,12 +23,14 @@ async function invoke(routes, suffix, patch = {}) {
 }
 function setup() {
   const calls = [];
+  const launches = [];
   const records = [{ deviceId: 'B', name: '出门电脑', createdAt: 1, remoteWeb: true, hash: 'hidden', deviceKey: 'private' },
     { deviceId: 'phone', name: '手机', createdAt: 1 }];
-  const controller = { list: async () => [], open: async id => { calls.push(id); return { url: 'http://127.0.0.1:4321/', expiresAt: 5000 }; } };
+  const controller = { list: async () => [], open: async id => { calls.push(id); return { url: 'http://127.0.0.1:4321/', expiresAt: 5000 }; },
+    watchWindow: () => {} };
   const host = { mintInvite: async () => ({ invite: 'invite', expiresAt: 1000 }), revoke: id => calls.push('closed:' + id) };
   const credentials = { listRemoteComputers: () => records.filter(row => row.remoteWeb).map(row => ({ deviceId: row.deviceId, name: row.name, platform: '', lastSeenAt: 0, createdAt: row.createdAt })), revokeDevice: (instance, id) => { calls.push(instance + ':' + id); return 1; } };
-  return { routes: createRemoteRoutes({ controller, host, credentials, instanceId: 'A', now: () => 100 }), calls };
+  return { routes: createRemoteRoutes({ controller, host, credentials, instanceId: 'A', now: () => 100, launch: args => launches.push(args) }), calls, launches };
 }
 test('同源本机可查看来访电脑，结果不包含手机或凭据，能按设备撤销', async () => {
   const { routes, calls } = setup();
@@ -48,6 +51,21 @@ test('其他localhost端口的远端页面、域名重绑定、转发标记和�
   ]) assert.equal((await invoke(routes, '/open', { ...patch, body: { id: 'A' } })).status, 403);
   assert.deepEqual(calls, []);
 });
+test('桌面壳入口带专属标记，普通浏览器入口不变，回包仍是不带标记的原地址', async () => {
+  const { routes, launches } = setup();
+  const shell = await invoke(routes, '/open-shell', { body: { id: 'A' } });
+  assert.equal(shell.status, 200);
+  assert.equal(shell.body.url, 'http://127.0.0.1:4321/');
+  assert.equal(launches.length, 1);
+  const opened = new URL(launches[0].url);
+  assert.equal(opened.origin, 'http://127.0.0.1:4321');
+  assert.equal(opened.searchParams.get('shell'), '1');
+  const browser = await invoke(routes, '/open', { body: { id: 'A' } });
+  assert.equal(browser.status, 200);
+  assert.equal(browser.body.url, 'http://127.0.0.1:4321/');
+  assert.equal(launches.length, 1);
+});
+
 test('GET不能触发续期，表单不能触发打开，错误不反射凭据', async () => {
   const { routes } = setup();
   assert.equal((await invoke(routes, '/renew', { method: 'GET' })).status, 405);

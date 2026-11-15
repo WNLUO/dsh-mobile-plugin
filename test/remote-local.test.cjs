@@ -1,4 +1,5 @@
 // 本地远程网页网关的真实 HTTP、流式上传、SSE 与 WebSocket 边界。
+// 壳会话的专属标记只留在本机，页面脚本按会话分发，不进转发请求。
 'use strict';
 
 const test = require('node:test');
@@ -294,4 +295,41 @@ test('打开凭据一分钟失效', async (t) => {
   clock += OPEN_MS;
   assert.equal((await request(opened.url)).status, 403);
   assert.equal(f.state.dials, 0);
+});
+
+test('只有桌面壳会话拿到 Mac 排版脚本，壳标记与本机凭据都不外送', async (t) => {
+  const f = await fixture(t);
+  const g = await f.gateway({ platform: 'darwin' });
+  const plain = await request(`${g.origin}/__dsh_remote_notice.js`, { headers: headers(g) });
+  assert.equal(plain.status, 200);
+  assert.match(plain.body, /__dsh_remote_status/);
+  assert.doesNotMatch(plain.body, /data-tauri-drag-region|data-dshm-shell|dataset\.platform/);
+
+  const link = g.local.openLink();
+  const shellUrl = new URL(link.url);
+  shellUrl.searchParams.set('shell', '1');
+  const boot = await request(shellUrl.href, { headers: {
+    'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document',
+  } });
+  assert.equal(boot.status, 303);
+  const cookies = boot.headers['set-cookie'];
+  assert.equal(cookies.length, 2);
+  const sessionCookie = cookies[0].split(';')[0];
+  const shellCookie = cookies[1].split(';')[0];
+  assert.equal(sessionCookie, g.cookie);
+
+  const script = await request(`${g.origin}/__dsh_remote_notice.js`, {
+    headers: headers(g, { cookie: `${sessionCookie}; ${shellCookie}` }),
+  });
+  assert.match(script.body, /data-tauri-drag-region/);
+  assert.match(script.body, /body\.dataset\.platform = 'darwin'/);
+  assert.match(script.body, /data-dshm-shell/);
+  assert.doesNotMatch(script.body, /documentElement\.dataset\.platform\s*=|root\.dataset\.platform\s*=/);
+  assert.equal(script.body.includes(f.token), false);
+
+  const page = await request(`${g.origin}/`, {
+    headers: headers(g, { cookie: `${sessionCookie}; ${shellCookie}` }),
+  });
+  assert.equal(page.status, 200);
+  assert.equal(f.state.requests.findLast((entry) => entry.url === '/').headers.cookie, f.cookie);
 });
