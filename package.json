@@ -74,11 +74,11 @@
     "ws": "8.22.2"
   },
   "optionalDependencies": {
-    "dsh-mobile-shell-darwin-arm64": "0.1.1",
-    "dsh-mobile-shell-darwin-x64": "0.1.1",
-    "dsh-mobile-shell-linux-arm64": "0.1.1",
-    "dsh-mobile-shell-linux-x64": "0.1.1",
-    "dsh-mobile-shell-win32-x64": "0.1.1",
+    "dsh-mobile-shell-darwin-arm64": "0.1.2",
+    "dsh-mobile-shell-darwin-x64": "0.1.2",
+    "dsh-mobile-shell-linux-arm64": "0.1.2",
+    "dsh-mobile-shell-linux-x64": "0.1.2",
+    "dsh-mobile-shell-win32-x64": "0.1.2",
     "dsh-mobile-tailcat-darwin-arm64": "1.1.2",
     "dsh-mobile-tailcat-darwin-x64": "1.1.2",
     "dsh-mobile-tailcat-linux-arm64": "1.1.2",

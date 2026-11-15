@@ -47,20 +47,20 @@ importers:
         version: 2.9.1
     optionalDependencies:
       dsh-mobile-shell-darwin-arm64:
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       dsh-mobile-shell-darwin-x64:
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       dsh-mobile-shell-linux-arm64:
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       dsh-mobile-shell-linux-x64:
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       dsh-mobile-shell-win32-x64:
-        specifier: 0.1.1
-        version: 0.1.1
+        specifier: 0.1.2
+        version: 0.1.2
       dsh-mobile-tailcat-darwin-arm64:
         specifier: 1.1.2
         version: 1.1.2
@@ -775,28 +775,28 @@ packages:
   dijkstrajs@1.0.3:
     resolution: {integrity: sha512-qiSlmBq9+BCdCA/L46dw8Uy93mloxsPSbwnm5yrKn2vMPiy8KyAskTF6zuV/j5BMsmOGZDPs7KjU+mjb670kfA==}
 
-  dsh-mobile-shell-darwin-arm64@0.1.1:
-    resolution: {integrity: sha512-xjH2KjRToVxuA2f50AKwZYbPbVUWkjCK5oVHo5ALACq3YRQUF3tlvFCIgtSwKG6w5k8vltmWN4QcX4VVRMEEyw==}
+  dsh-mobile-shell-darwin-arm64@0.1.2:
+    resolution: {integrity: sha512-CgwBmIMHzNPwQbhg8MQeDlQlQYZK0i0B3W3a4U1MDmbxEm3yIEnCf5zJPngvfGlPCMEnNzQwaLT755oWp8yMqw==}
     cpu: [arm64]
     os: [darwin]
 
-  dsh-mobile-shell-darwin-x64@0.1.1:
-    resolution: {integrity: sha512-DiWeFgoqQTYOeqqViOnVcDRSgfqAvvlz3/9LhBmVOXnrMBdek9X8TdEez3MUEi33tj8bScy//gJ0rOZrRdLf/A==}
+  dsh-mobile-shell-darwin-x64@0.1.2:
+    resolution: {integrity: sha512-+WlcAr41A79ZT7utq0BZdDGpysY9ytkFpr7izRzkRc09LdLeCu65kyLJ5Kno8x6dqZ4GIM7U1ZbOzMmQx0SCoA==}
     cpu: [x64]
     os: [darwin]
 
-  dsh-mobile-shell-linux-arm64@0.1.1:
-    resolution: {integrity: sha512-v/yQPVMH7zBXCYbwcevQbPBaYPCVkPDavwGUZEDJy4BSEtP5/z5bPZmox0ysDkzTaFpdZBZhkGCdADpcWj0jyQ==}
+  dsh-mobile-shell-linux-arm64@0.1.2:
+    resolution: {integrity: sha512-1rtrdVnnH2z3ssi4XuSTnbs2tkZyjDTNmk0jWInSiU00WVTHDze5Qz5hfVv4D+P0yFMIbWnTaKqp7/qG6FyYXQ==}
     cpu: [arm64]
     os: [linux]
 
-  dsh-mobile-shell-linux-x64@0.1.1:
-    resolution: {integrity: sha512-KAXTdxdcyDBC1XgstJykjRnVljIBJ9ymk4FviXw5y0R4Fmk4Nv5qm581cedxmXJNP/mSUkIGpOewCDKm3C/XnA==}
+  dsh-mobile-shell-linux-x64@0.1.2:
+    resolution: {integrity: sha512-xoqHHf0ucpit9XD7bzU2p7zDcN0Iexql0/JqiXJHNbO8JAN+dviRsyCuw9lHDu/1Sg0+PKHvmfZ0JDRihxwwsw==}
     cpu: [x64]
     os: [linux]
 
-  dsh-mobile-shell-win32-x64@0.1.1:
-    resolution: {integrity: sha512-zAWuhqnGWlT5MJk90W/zeRBWk6WFR2rn18x873cChDV9OdFgmeLLUvZyQPQ3iz672ex0ejpYiiLKyLXrWmTGNA==}
+  dsh-mobile-shell-win32-x64@0.1.2:
+    resolution: {integrity: sha512-G2zCoc3yzxr6Z5PNzzrXKtYrFuVIbsrt2fShquHj56FVoZTzPwYzyUSNwV3JstMG7fSObdtbpvEggDgrM/tdsA==}
     cpu: [x64]
     os: [win32]
 
@@ -935,18 +935,6 @@ packages:
 
   ws@8.22.2:
     resolution: {integrity: sha512-/rEZ2ejown2N5gxVTHUu9bVVC7ttu0/Tgzf5hbTOixR3Fs7mbbXgn2DbdbcKgJOmpQMtrIUWivtYuVMnp/W/yA==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
-  ws@8.22.0:
-    resolution: {integrity: sha512-Ydggc987+RO0AnWtZ/7Wq9FtNvcrL1b/RO0ud9mWjUPgDrsAAwQSF51sm2hm1XofbU/4jkpGEsLFsZZxU+1DOg==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -1118,7 +1106,7 @@ snapshots:
       '@deepseek-ai/dsh-session': 0.1.1-rc.2(4d918a6910e7651ad06b22d415937121)
       '@deepseek-ai/dsh-tools': 0.2.1-rc.2(95d779f5c1a26fba154a039e302f8c35)
       '@deepseek-ai/schemastery': 3.18.5
-      ws: 8.22.0
+      ws: 8.22.2
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -1707,19 +1695,19 @@ snapshots:
 
   dijkstrajs@1.0.3: {}
 
-  dsh-mobile-shell-darwin-arm64@0.1.1:
+  dsh-mobile-shell-darwin-arm64@0.1.2:
     optional: true
 
-  dsh-mobile-shell-darwin-x64@0.1.1:
+  dsh-mobile-shell-darwin-x64@0.1.2:
     optional: true
 
-  dsh-mobile-shell-linux-arm64@0.1.1:
+  dsh-mobile-shell-linux-arm64@0.1.2:
     optional: true
 
-  dsh-mobile-shell-linux-x64@0.1.1:
+  dsh-mobile-shell-linux-x64@0.1.2:
     optional: true
 
-  dsh-mobile-shell-win32-x64@0.1.1:
+  dsh-mobile-shell-win32-x64@0.1.2:
     optional: true
 
   dsh-mobile-tailcat-darwin-arm64@1.1.2:
@@ -1835,8 +1823,6 @@ snapshots:
       ansi-styles: 4.0.0
       string-width: 4.2.0
       strip-ansi: 6.0.0
-
-  ws@8.22.0: {}
 
   ws@8.22.2: {}
 
