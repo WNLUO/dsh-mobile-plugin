@@ -3,22 +3,24 @@
 /**
  * 控制面路由（`/api/relay/*`）的守卫约定。
  *
- * 与移动端那套刻意不同：控制面**只认本机来源**（localOnly），移动端**只认 token**
- * （guarded）。这条不对称是安全的底线，不是风格问题——控制面能改配置、吊销全部授权、
- * 读带堆栈的进程级故障账本；把它暴露给中转等于把桌面端后门开到公网。
+ * 控制面校验浏览器来源与网络范围，移动端校验 token；
+ * 中转及移动端代理不能调用控制面。
  *
  * 唯一的例外是 `/api/relay/internal/approval`：它由中转与局域网代理代转，没有本机
  * socket 可言，身份靠中转与 worker 之间的 sidecarToken。任何新加的例外都必须在这里
  * 一条条写明原因，否则半年后没人分得清哪条是必要的。
  *
- * 在此之上，「会改本机状态或吐密钥」的危险动作（LOCAL_OPERATOR_ROUTES）还要求真正来自
- * 本机（trustedLocalUi），两小时窗口只放行只读面板、不放行这些动作。
+ * 配对与管理操作允许本机及标准局域网直连；公网窗口只放行只读面板。
+ * 局域网部署由另一台电脑操作是受支持场景，不要求先开启两小时窗口。
  */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
+const { createRequire } = require('node:module');
+const routing = require('../lib/http/routing.js');
 
 const CONTROL_PLANE = path.join(__dirname, '..', 'lib', 'routes', 'control-plane.js');
 const { pairingPayload } = require(path.join(__dirname, '..', 'lib', 'relay', 'pairing-payload.cjs'));
@@ -194,7 +196,8 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  * 依赖全给最小假体，真正会跑到的只有配置 / 地址库这两条；`settings.update` 是唯一的真值
  * 落点 —— 这样才谈得上「写进去能读回」，只对着源码正则断言字段名是钉不住的。
  */
-function controlRoutes({ state = {}, settingsCalls = [], credentials: credentialStore } = {}) {
+function controlRoutes({ state = {}, settingsCalls = [], credentials: credentialStore,
+  localOnly = (_method, handler) => handler, trustedLocalUi = () => true } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
   const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
@@ -207,8 +210,8 @@ function controlRoutes({ state = {}, settingsCalls = [], credentials: credential
   };
   registerControlPlaneRoutes({
     registerRoute: (route) => table.set(route.path, route.handler),
-    localOnly: (_method, handler) => handler,
-    trustedLocalUi: () => true,
+    localOnly,
+    trustedLocalUi,
     sendJson: (res, status, payload) => { res.status = status; res.body = payload; },
     readJson: async (req) => req.body || {},
     settings,
@@ -303,6 +306,78 @@ test('行为：二维码按 ?relayUrl= 预览出码，且不把预览地址写�
   assert.equal(blocked.status, 409, '没启用远程控制时不出码，说清该先做什么');
 });
 
+/** 使用真实来源守卫，验证局域网网页访问而不是绕过校验的路由假体。 */
+function networkRequest(url, remoteAddress, host, { method = 'GET', headers = {}, body } = {}) {
+  return { url, method, socket: { remoteAddress }, body,
+    headers: { host, origin: `http://${host}`, 'sec-fetch-site': 'same-origin', ...headers } };
+}
+function networkResponse() {
+  return { status: 0, body: null,
+    writeHead(status) { this.status = status; },
+    end(raw) { this.body = JSON.parse(String(raw)); } };
+}
+
+test('局域网部署：窗口关闭也能读取二维码和保存配置，公网及转发限制保留', async () => {
+  // 同一局域网的另一台电脑是受支持的管理入口，不能要求宿主先在本机开窗口。
+  const state = { enabled: true, instanceId: 'i1', pairingCode: '123456', pairingTicket: 't'.repeat(43),
+    relayUrl: 'https://relay.example.com', name: 'host', lanEnabled: false, lanPort: 18787 };
+  const table = controlRoutes({ state, localOnly: routing.localOnly, trustedLocalUi: routing.trustedLocalUi });
+  for (const [peer, host] of [
+    ['127.0.0.1', '127.0.0.1:19387'], ['192.168.1.2', '192.168.1.20:19387'],
+    ['::ffff:10.0.0.2', '10.0.0.20:19387'], ['172.31.0.2', '172.31.0.20:19387'],
+    ['fd00::2', '[fd00::20]:19387'],
+  ]) {
+    const status = networkResponse();
+    await table.get('/api/relay/status')(networkRequest('/api/relay/status', peer, host), status);
+    assert.equal(status.status, 200, `${host} 无需开窗口即可读取状态`);
+    const qr = networkResponse();
+    await table.get('/api/relay/pairing')(networkRequest('/api/relay/pairing', peer, host), qr);
+    assert.equal(qr.status, 200, JSON.stringify(qr.body));
+    assert.match(qr.body.svg, /<svg/, `${host} 必须真正生成二维码`);
+    const saved = networkResponse();
+    await table.get('/api/relay/config')(networkRequest('/api/relay/config', peer, host,
+      { method: 'POST', body: { name: 'LAN host' } }), saved);
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(state.name, 'LAN host');
+  }
+  for (const [peer, host, headers, code] of [
+    ['203.0.113.2', '203.0.113.20:19387', {}, 'local_operator_only'],
+    ['203.0.113.2', '192.168.1.20:19387', {}, 'local_operator_only'],
+    ['192.168.1.2', '203.0.113.20:19387', {}, 'local_operator_only'],
+    ['192.168.1.2', 'dsh.example.com:19387', {}, 'local_operator_only'],
+    ['192.168.1.2', '192.168.1.20:19387', { 'x-forwarded-for': '192.168.1.3' }, 'local_operator_only'],
+    ['192.168.1.2', '192.168.1.20:19387', { 'sec-fetch-site': 'cross-site' }, 'cross_site'],
+    ...['lan', 'relay', 'tunnel'].map(via => ['127.0.0.1', '127.0.0.1:19387', { 'x-dsh-via': via }, 'local_only']),
+  ]) {
+    const qr = networkResponse();
+    await table.get('/api/relay/pairing')(networkRequest('/api/relay/pairing', peer, host, { headers }), qr);
+    assert.equal(qr.status, 403, JSON.stringify(qr.body));
+    assert.equal(qr.body.error.code, code);
+  }
+  const publicStatus = networkResponse();
+  await table.get('/api/relay/status')(networkRequest('/api/relay/status', '203.0.113.2', '203.0.113.20:19387'), publicStatus);
+  assert.equal(publicStatus.status, 423, '公网读接口仍要求两小时窗口');
+});
+
+test('变异：退回仅信任回环来源，会被同一个局域网配对断言拒绝', async () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const changed = source.replace('trustedLocalUi(req) || trustedLocalNetworkUi(req)', 'trustedLocalUi(req)');
+  assert.notEqual(changed, source, '变异必须命中实际来源判断');
+  const mod = { exports: {} };
+  vm.runInNewContext(changed, { module: mod, exports: mod.exports, require: createRequire(CONTROL_PLANE),
+    __dirname: path.dirname(CONTROL_PLANE) });
+  const assertLanPairing = async (factory) => {
+    const guard = factory({ localOnly: routing.localOnly, trustedLocalUi: routing.trustedLocalUi,
+      webAccessWindow: { isOpen: () => false }, sendJson: routing.sendJson });
+    let reached = false;
+    await guard('GET', async () => { reached = true; })(
+      networkRequest('/api/relay/pairing', '192.168.1.2', '192.168.1.20:19387'), networkResponse());
+    assert.equal(reached, true, '局域网必须能进入配对处理');
+  };
+  await assertLanPairing(createWebAccessLocalOnly);
+  await assert.rejects(() => assertLanPairing(mod.exports.createWebAccessLocalOnly), assert.AssertionError);
+});
+
 test('行为：地址库回显手填的 IPv6，并把它缀进 ipv6 候选最后', async () => {
   const table = controlRoutes({
     state: { preferredLanAddress: '', manualLanUrl: '', manualIpv6Url: 'http://[2001:4860:4860::8888]:18787' },
@@ -376,10 +451,14 @@ test('面板地址分三类：本机回环 / 局域网 / 公网（域名一律�
   assert.equal(scope('127.0.0.1:19387'), 'loopback');
   assert.equal(scope('localhost:19387'), 'loopback');
   assert.equal(scope('[::1]:19387'), 'loopback');
+  assert.equal(scope('127.24.8.9:19387'), 'loopback');
   assert.equal(scope('192.168.1.20:19387'), 'private');
   assert.equal(scope('10.0.0.5'), 'private');
   assert.equal(scope('172.16.4.4:19387'), 'private');
+  assert.equal(scope('172.31.4.4:19387'), 'private');
   assert.equal(scope('[fd00::1]:19387'), 'private');
+  assert.equal(scope('[fe80::1]:19387'), 'private');
+  assert.equal(scope('198.18.0.1:19387'), 'public');
   assert.equal(scope('203.0.113.9:19387'), 'public');
   assert.equal(scope('[240e::1]:19387'), 'public');
   // 域名分不出内网穿透还是公网：一律按公网走（多弹一次确认，比悄悄开放安全）。
@@ -511,10 +590,8 @@ test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；�
   assert.deepEqual(sent, [423]);
 });
 
-test('危险动作只认本机：窗口开着也不放行非本机来源', async () => {
-  // 2026-11-15 收严：配对码、改配置、吊销设备、装更新这些动作会改本机状态或吐密钥，
-  // 只认真实本机来源，两小时窗口只放行只读面板，不再为它们开门。桌面端从回环转发、
-  // 本机浏览器、SSH 隧道都算本机，用户无感；网络上别的机器一律拒。
+test('管理操作允许本机和局域网直连，公网开窗后仍然拒绝', async () => {
+  // 局域网部署支持同网段管理；公网窗口不放行配对票据与配置写入。
   const window = createWebAccessWindow({ now: () => 10_000, monotonicNow: () => 0 });
   window.enable();
   const sent = [];
@@ -529,13 +606,16 @@ test('危险动作只认本机：窗口开着也不放行非本机来源', async
     const handler = guard('POST', async () => { reached += 1; });
     const res = {};
     await handler({ url: route, trusted: false }, res);
-    assert.equal(res.status, 403, `${route} 开窗后也必须拒非本机来源`);
+    assert.equal(res.status, 403, `${route} 开窗后也必须拒绝公网来源`);
     assert.equal(res.body.error.code, 'local_operator_only');
     const okRes = {};
     await handler({ url: route, trusted: true }, okRes);
     assert.equal(okRes.status, undefined, `${route} 本机来源要放行`);
+    const lanRes = {};
+    await handler(networkRequest(route, '192.168.1.2', '192.168.1.20:19387', { method: 'POST' }), lanRes);
+    assert.equal(lanRes.status, undefined, `${route} 局域网直连要放行`);
   }
-  assert.equal(reached, LOCAL_OPERATOR_ROUTES.size, '每条危险动作恰好放行一次（本机那一次）');
+  assert.equal(reached, LOCAL_OPERATOR_ROUTES.size * 2, '每条管理操作都放行本机与局域网两种来源');
   // 只读路由即使不是本机、只要窗口开着就照旧放行，不能被这条收紧误伤。
   const read = guard('GET', async () => {});
   const readRes = {};
@@ -543,15 +623,14 @@ test('危险动作只认本机：窗口开着也不放行非本机来源', async
   assert.equal(readRes.status, undefined, '只读面板开窗后对远程放行');
 });
 
-test('二维码归入危险动作：只认真实本机，且不在路由里另造判据', async () => {
+test('二维码与管理操作共用本机及局域网来源判断，不在路由内另造判据', async () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
   const at = source.indexOf("'/api/relay/pairing'");
   assert.notEqual(at, -1);
   const end = source.indexOf('registerRoute', at + 1);
   const route = source.slice(at, end < 0 ? at + 1200 : end);
-  // 2026-11-15 收严：二维码装在一次性票据里、能派生整条链路的密钥，所以它和改配置、踢设备
-  // 一样进了危险动作清单，只认真实本机来源（窗口不再放行它）。判据放在 localOnly 包装层
-  // （LOCAL_OPERATOR_ROUTES），路由 handler 自己**不**再造第二套——否则两处判据早晚各说各话。
+  // 二维码携带一次性票据，与配置等操作共用包装层的本机及局域网来源判断；
+  // handler 不另造第二套规则。
   assert.ok(LOCAL_OPERATOR_ROUTES.has('/api/relay/pairing'), '二维码必须进危险动作清单');
   assert.ok(WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '仍留在窗口白名单里，让本机面板的窗口语义统一');
   assert.ok(!/trustedLocalUi\(req\)/.test(route), '别在路由 handler 里另造一套更严的判据，判据统一在包装层');

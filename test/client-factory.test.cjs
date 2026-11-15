@@ -2,6 +2,7 @@
 
 /**
  * 客户端行为测试覆盖控制台与电脑插件目录，两套界面的词条保持中英对应。
+ * 本机与局域网直接进入管理页，只有公网入口开启两小时窗口。
  *
  * 它是整个仓库唯一「拆不开」的源文件：注册进 `window.__ModuleLoader__`，工厂收到的
  * `require` 是 **DSH 的模块表 require**，不是 node 的。所以工厂内部只能 require `react`，
@@ -712,7 +713,7 @@ test('两小时窗口开不出来时：不嵌那半张窗，把宿主的原话�
     const env = materialize({
       fetch: async (url) => {
         if (String(url).endsWith('/status')) {
-          return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
+          return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) };
         }
         if (String(url).endsWith('/host-half')) {
           return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: '0.6.0', source: 'npm' } }) };
@@ -827,7 +828,7 @@ test('设置项：读状态被窗口门挡住（423）时，点它先开窗再�
       const path = String(url);
       if (path.endsWith('/status')) {
         if (!accessOpen) return { ok: false, status: 423, json: async () => ({ ok: false, error: { code: 'web_access_closed', message: '暂未开放' } }) };
-        return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
+        return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) };
       }
       if (path.endsWith('/web-access')) {
         posts.push(JSON.parse(init.body));
@@ -861,7 +862,7 @@ test('设置项：读到地址后按钮指向配置页，本机点击不拦也�
   assert.equal(env.openedWindows.length, 0);
 });
 
-test('设置项：从别的机器打开的浏览器也先把两小时窗口开出来再跳', async () => {
+test('设置项：另一台局域网电脑直接打开，不开启两小时窗口', async () => {
   const posts = [];
   const env = materialize({
     fetch: async (url, init = {}) => {
@@ -881,9 +882,10 @@ test('设置项：从别的机器打开的浏览器也先把两小时窗口开�
   let prevented = false;
   await button.props.onClick({ preventDefault() { prevented = true; } });
   await settle();
-  assert.equal(prevented, true, '要先把默认跳转拦下来，等窗口开好再导航');
-  assert.deepEqual(posts, [{ enabled: true }]);
-  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl);
+  assert.equal(prevented, false, '局域网直接走普通链接');
+  assert.deepEqual(posts, [], '不为局域网开启公网管理窗口');
+  assert.equal(button.props.href, readyStatus().panelUrl);
+  assert.equal(env.openedWindows.length, 0);
 });
 
 /* ── 5. 侧边栏底部那颗手机图标（唯一的入口）─────────────────────────────
@@ -893,7 +895,7 @@ test('设置项：从别的机器打开的浏览器也先把两小时窗口开�
  * 自己那一行，入口不能消失。
  *
  * 点下去做什么，取决于宿主在 `/status` 上报的 `panelScope`（面板地址落在哪类网络上）：
- * 本机回环直接跳转；局域网静默把那两小时窗口打开；公网先弹一句确认。
+ * 本机回环与局域网直接进入；公网先弹一句确认再开启两小时窗口。
  */
 
 const FOOTER_MARK = 'data-dshm-mobile-web';
@@ -1493,15 +1495,32 @@ test('「报错调试」在操作栏里，点了才开调试页（次要按钮�
   assert.equal(env.openedWindows[0].location.href, debugPageOf());
 });
 
-test('局域网地址：先把两小时窗口开了，再嵌控制台', async () => {
+test('局域网地址：直接嵌控制台，不开启两小时窗口', async () => {
+  // 局域网部署支持另一台电脑管理，入口不能再额外开启公网管理窗口。
   const { env, posts } = clickEnv({ panelScope: 'private' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  assert.deepEqual(posts, [{ enabled: true }], '远程浏览器要先开窗口，否则嵌进来是一屏 423');
+  assert.deepEqual(posts, [], '局域网直连不需要两小时窗口');
   assert.equal(env.confirms.length, 0, '局域网不再问第二遍');
   assert.equal(env.openedWindows.length, 0, '只弹窗，不导航');
   assert.equal(consoleFrame(env).attrs.src, consolePageOf());
+});
+
+test('变异：局域网入口恢复强制开窗会被同一断言识别', async () => {
+  const marker = "state.panelScope !== 'loopback' && state.panelScope !== 'private'";
+  const changed = SOURCE.replace(marker, "state.panelScope !== 'loopback'");
+  assert.notEqual(changed, SOURCE, '变异必须命中实际入口');
+  const assertNoWindow = async (source) => {
+    const { env, posts } = clickEnv({ panelScope: 'private', source });
+    const icon = await railIcon(env);
+    await icon.props.onClick({ preventDefault() {} });
+    await settle();
+    assert.deepEqual(posts, [], '局域网入口不能强制开窗');
+    assert.ok(consoleFrame(env));
+  };
+  await assertNoWindow(SOURCE);
+  await assert.rejects(() => assertNoWindow(changed), assert.AssertionError);
 });
 
 test('公网地址：先弹一句确认，取消就什么都不做', async () => {
@@ -1603,7 +1622,7 @@ test('桌面壳里的页面（dsh-app:）：照样就地嵌，页面不被导航
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  assert.deepEqual(posts, [{ enabled: true }], '两小时窗口照开：从别的机器打开这一页要用它');
+  assert.deepEqual(posts, [], '局域网地址直接访问，不开启公网管理窗口');
   assert.equal(env.openedWindows.length, 0, '壳里 `window.open` 一定被拒，先开一个空窗口只会盖一屏黑的出来');
   assert.equal(
     env.sandbox.window.location.href,

@@ -1,6 +1,6 @@
 'use strict';
 
-/** HTTP 路由守卫约定：localOnly 与可信本机设置入口的边界测试。 */
+/** HTTP 路由守卫约定：本机与局域网直连分开识别，转发与跨站仍受限。 */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -42,6 +42,39 @@ test('网页管理开关只认 loopback 直连与本机 Host，并拒绝代理�
   assert.equal(routing.trustedLocalUi(local({}, '203.0.113.10')), false);
   assert.equal(routing.trustedLocalUi(local({ 'x-forwarded-for': '203.0.113.10' })), false);
   assert.equal(routing.trustedLocalUi({ headers: { host: 'localhost:19387' } }), false);
+});
+
+test('局域网界面：回环、标准私网和 IPv6 本地地址可直连，严格本机判据不扩大', () => {
+  for (const address of [
+    '127.0.0.1', '127.24.8.9', '::1', '0:0:0:0:0:0:0:1',
+    '192.168.1.2', '10.0.0.2', '172.16.0.2', '172.17.0.2', '172.31.255.254',
+    '::ffff:192.168.1.2', 'fd00::2', 'fc00::2', 'fe80::2',
+  ]) assert.equal(routing.isLocalNetworkAddress(address), true, address);
+  for (const address of ['203.0.113.2', '172.15.0.2', '172.32.0.2', '192.169.0.2',
+    '198.18.0.2', '198.51.100.2', '100.64.0.2', '240e::2', 'example.com', '192.168.1.999', '']) {
+    assert.equal(routing.isLocalNetworkAddress(address), false, address);
+  }
+  const request = (remoteAddress, host, headers = {}) => ({
+    socket: { remoteAddress }, headers: { host, ...headers },
+  });
+  for (const [peer, host] of [
+    ['192.168.1.2', '192.168.1.20:19387'], ['::ffff:10.0.0.2', '10.0.0.20:19387'],
+    ['172.31.1.2', '172.31.1.20:19387'], ['fd00::2', '[fd00::20]:19387'],
+    ['fe80::2', '[fe80::20]:19387'], ['127.0.0.1', '192.168.1.20:19387'],
+  ]) {
+    assert.equal(routing.trustedLocalNetworkUi(request(peer, host)), true, host);
+    assert.equal(routing.trustedLocalUi(request(peer, host)), false, '严格本机限制仍然保持');
+  }
+  for (const req of [
+    request('203.0.113.2', '192.168.1.20:19387'),
+    request('192.168.1.2', '203.0.113.20:19387'),
+    request('192.168.1.2', 'dsh.example.com:19387'),
+    request('127.0.0.1', '127.0.0.1:19387', { 'x-dsh-via': 'relay' }),
+    request('127.0.0.1', '127.0.0.1:19387', { 'x-dsh-via': 'lan' }),
+    request('192.168.1.2', '192.168.1.20:19387', { 'x-forwarded-for': '192.168.1.3' }),
+    request('192.168.1.2', '192.168.1.20:19387', { forwarded: 'for=192.168.1.3' }),
+    { headers: { host: '192.168.1.20:19387' } },
+  ]) assert.equal(routing.trustedLocalNetworkUi(req), false, JSON.stringify(req));
 });
 
 test('控制面：本机裸请求能过', async () => {
