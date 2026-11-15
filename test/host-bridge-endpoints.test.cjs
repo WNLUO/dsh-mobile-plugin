@@ -1,3 +1,4 @@
+// 手机模型选择改走会话能力，与桌面默认保存解耦。
 'use strict';
 
 /**
@@ -38,7 +39,8 @@ const GOLDEN = {
   'sessions.rename': ['session', 'rename', ['request']],
   'sessions.create': ['session', 'create', ['request']],
   'sessions.search': ['session', 'search', ['request']],
-  'sessions.selectModel': ['session', 'selectModel', ['request']],
+  // 2026-11-15 用户要求手机默认独立：只经公开 Agent.model 改会话，不调用会保存默认的桌面接口。
+  'sessions.selectModel': null,
   'sessions.attachment': ['session', 'attachment', ['request']],
   'sessions.updateQueue': ['session', 'updateQueue', ['request']],
   'sessions.fork': ['session', 'fork', ['request']],
@@ -214,7 +216,7 @@ test('标成 null 的端点确实没有直接打网关（要么要开流合成�
   for (const key of COMPOSED) {
     const src = String(ENDPOINTS[key]);
     assert.ok(
-      /historyViaPage|modelCatalog|workspaceListViaFollow|subagentCatalog|unsupported\(/.test(src),
+      /historyViaPage|modelCatalog|selectSessionModel|workspaceListViaFollow|subagentCatalog|unsupported\(/.test(src),
       `${key} 应该是合成端点或如实报不支持，现在像是直接打了网关`,
     );
     assert.ok(!/\binvoke\s*\(/.test(src), `${key} 不该自己直接调 invoke`);

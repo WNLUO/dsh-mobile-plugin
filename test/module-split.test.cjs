@@ -1,3 +1,4 @@
+// 会话模型选择独立于目录与桌面默认保存，依赖仍单向。
 'use strict';
 
 /**
@@ -312,18 +313,19 @@ test('host-bridge 的四层依赖方向是单向的，装配留在最外层', ()
   const files = fs.readdirSync(DIR);
   assert.deepEqual(
     files.filter((f) => f.endsWith('.js')).sort(),
-    ['endpoints.js', 'event-synthesis.js', 'shims.js', 'transport.js'],
+    ['endpoints.js', 'event-synthesis.js', 'session-model.js', 'shims.js', 'transport.js'],
     'host-bridge 目录下的文件构成变了，请同步这份守卫与 endpoints.js 的依赖声明',
   );
 
   const requires = (file) => [...read(path.join(DIR, file)).matchAll(/require\('\.\/([\w.-]+)'\)/g)].map((m) => m[1]);
   assert.deepEqual(requires('transport.js'), [], 'transport.js 必须是叶子：它不该依赖同目录任何文件');
   assert.deepEqual(requires('shims.js').sort(), ['transport.js'], 'shims.js 只许依赖 transport.js');
+  assert.deepEqual(requires('session-model.js').sort(), ['transport.js'], 'session-model.js 只依赖信封工具，不调用会保存默认的桌面接口');
   assert.deepEqual(requires('event-synthesis.js').sort(), ['transport.js'], 'event-synthesis.js 只许依赖 transport.js');
   assert.deepEqual(
     requires('endpoints.js').sort(),
-    ['shims.js', 'transport.js'],
-    'endpoints.js 只许依赖 transport.js 与 shims.js（不许反过来让 shims 依赖它，会成环）',
+    ['session-model.js', 'shims.js', 'transport.js'],
+    'endpoints.js 只装配下层模块，下层不得反向依赖端点表',
   );
 
   // 装配层：host-bridge.js 本身只负责把端点表铺成 apiProxy.<ns>.<method>。
