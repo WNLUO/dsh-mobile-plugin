@@ -273,13 +273,12 @@ export function RemoteComputersCard() {
                 <div key={computer.deviceId} className="flex items-center justify-between gap-2 border-b border-border-muted py-3 last:border-b-0">
                   <div className="min-w-0">
                     <p className="truncate text-sm text-foreground-strong">{computer.name || t('panel.remote.unknownComputer')}</p>
-                    {computer.platform ? <p className="mt-1 text-xs text-foreground-muted">{computer.platform}</p> : null}
                   </div>
-                  <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm xl:before:border xl:before:border-border xl:before:bg-background" disabled={isBusy(`revoke:${computer.deviceId}`)} onClick={() => {
+                  <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.revoke')} disabled={isBusy(`revoke:${computer.deviceId}`)} onClick={() => {
                     if (window.confirm(t('panel.remote.revokeConfirm', { name: computer.name || t('panel.remote.unknownComputer') }))) {
                       void act(`revoke:${computer.deviceId}`, () => remoteComputers.revoke(computer.deviceId), 'panel.remote.revoked')
                     }
-                  }}>{t('panel.remote.revoke')}</Button>
+                  }}><TrashIcon /></Button>
                 </div>
               ))}
             </div>
