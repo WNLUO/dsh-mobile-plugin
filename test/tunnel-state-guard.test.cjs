@@ -23,9 +23,12 @@ const worker = readFileSync(join(__dirname, '..', 'lib', 'sidecar-facade-worker.
 // 切片从 `openTunnel(` 开始到 `startLan()` 之前：择路那三个函数（relayRoutePlan /
 // adoptRoute / raceTunnels）与 `startTunnel` 是同一条路，必须一起 eval —— 只抠
 // openTunnel 会让它依赖的 `raceTunnels` 在闭包里不存在。
+// 终点按行首切，不能直接用 `indexOf('function startLan(')`：它落在 `async ` 之后，
+// 会把 `async` 这个关键字单独剩在切片末尾，拼进 new Function 就成了「async 未定义」。
+// 从 `function startLan(` 往前退到行首，等于连 `async` 一起切掉。
 const START_TUNNEL_BODY = worker.slice(
   worker.indexOf('function openTunnel('),
-  worker.indexOf('function startLan() {'),
+  worker.lastIndexOf('\n', worker.indexOf('function startLan(')),
 )
 assert.ok(START_TUNNEL_BODY.length > 0, '应能在 worker 源码里定位 openTunnel() / startTunnel()')
 
