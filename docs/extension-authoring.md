@@ -477,6 +477,12 @@ await window.__dshHostFetch('dsh-email', '/api/dsh-email/state', { method: 'GET'
 - **没有流式**：SSE / WebSocket 走不了这条通道。要实时刷新就自己轮询。
 - **请求体上限 2 MiB**（与宿主那一侧同一个数）。超了整条会被丢掉，页面拿到一份失败响应、
   正文里是 `message-too-large`（见第 5 节）。
+- **显式入口的第二个参数是「服务前缀 + 真实路径」**：`__dshHostFetch('dsh-email', '/api/dsh-email/state')`。
+  用 `fetch('/api/…')` 时 App 会按下发的前缀替你改写，走显式入口没人替你改 —— 少了前缀就会被按
+  `path-not-allowed` 挡回来。
+- **正文可能是失败信封**。取回来的不一定是你以为的那份东西：失败时正文是一段 `{"code":…}`
+  （HTTP 状态可能仍是 200）。**先判形状再用** —— 以 `{` 开头、带 `code`，就按失败处理、给一句
+  人话；直接渲染下去，用户屏幕上就会出现一段原始 JSON。
 
 ## 5.6 挑文件、存文件、自己联网
 
@@ -570,6 +576,83 @@ await st.clear();                // 清空这个扩展的全部数据
   当场就能看出来。
 - **写是连体的**：先写临时文件再改名，所以断电最多是「这个键读不出来」，不会变成半截内容。
 - **数据跟着扩展走**：更新一版、回退一版都不动它；卸载才清。扩展自己那份 `clear()` 也在。
+
+## 5.8 扩展里还有别的页面（子页）
+
+有些扩展不止一页：入口页之外还要进第二页（详情、面板、编辑页）。这一页有两种来路，选错就会在
+手机上打不开。
+
+**页面就在你包里**（多一个 `detail.html` 与它自己的资源）：**用相对路径**。整包原样落盘，
+`detail.html` 与入口页同目录，`location.href = 'detail.html'`、或者帧的 `src="detail.html"` 都能
+开。**别写 `/detail.html` 这种站点绝对路径** —— 扩展页是不透明源，那会变成「本地没有这个文件」，
+浏览器只会甩一张 `ERR_FILE_NOT_FOUND`。
+
+**页面是插件在电脑上现场生成的**（跟着你的后台走、内容会变）：它没落在手机上，而扩展页是从
+本地文件打开的，**帧加载不了跨源地址**。做法是：走 `host.data` 把那一页取回来，在页面里把它
+引用的 js / css / 图片替进去（脚本与样式换成正文、图片走 `data:`），再把这份**自包含的 HTML**
+塞进帧的 `srcdoc`。于是它在扩展自己里面画出来 —— 不经过 App、不需要令牌、也不开内置浏览器。
+
+做第二种时，四处会让人白跑一趟（都是真机上撞过的）：
+
+1. **取数的路径要带上服务前缀**（`服务名 + allow 里那条前缀 + 真实路径`，见 5.5）。给裸页面路径
+   会被宿主按「这个服务不开放该路径」挡回来，失败回执里的 `code` 是 `path-not-allowed`。
+2. **你自己插件那侧也要放行那棵子树**。宿主那一关过了，请求落到你的路由上；只代理 `/api/…`
+   的话，页面那棵树照样 403。两关都要开。
+3. **正文可能是失败信封**（第 5.5 节那一条）。别把正文直接塞进帧：先看它是不是 `{"code":…}`，
+   是就按失败处理，否则用户屏幕上会出现一段原始 JSON。
+4. **相对引用按那一页自己的目录解析**，不是相对扩展包。`src="assets/x.js"` 是相对**那一页**的，
+   解析错了就是「页面出来了，样式和脚本都没生效」。
+
+换引用的那一步别用正则硬拼整页：用 `DOMParser` 把它解析成文档，按标签换，再序列化回来 ——
+正则改 HTML 会在注释、属性里的同名字符串上误伤（真机上就有一份页面把脚本地址写在注释里）。
+
+骨架就这么长（前缀取你 `hostData.match` 里那一条）：
+
+```js
+const PREFIX = '/api/dsh-email'                      // 服务前缀，与 5.5 的声明一致
+const frame = document.getElementById('detail')
+
+async function openDetail(path) {                     // path 是那一页在后台上的路径
+  const res = await window.__dshHostFetch('dsh-email', PREFIX + path)
+  const raw = await res.text()
+  frame.srcdoc = raw.trimStart().startsWith('{')       // 失败信封不是网页，别塞进帧
+    ? '<p style="padding:2em;font:14px/1.6 sans-serif;color:#888">这一页暂时打不开</p>'
+    : await inline(raw, path)
+}
+
+async function inline(raw, fromPath) {
+  const doc = new DOMParser().parseFromString(raw, 'text/html')
+  const dir = fromPath.slice(0, fromPath.lastIndexOf('/') + 1)
+  const pathOf = (ref) => (ref.startsWith('/') ? ref : new URL(ref, 'http://x' + dir).pathname)
+
+  for (const el of doc.querySelectorAll('script[src]')) {
+    const r = await window.__dshHostFetch('dsh-email', PREFIX + pathOf(el.getAttribute('src')))
+    if (!r.ok) continue                                      // 取不到就跳过，别让整页失败
+    const fresh = doc.createElement('script')
+    fresh.textContent = await r.text()
+    el.replaceWith(fresh)
+  }
+  for (const el of doc.querySelectorAll('link[rel="stylesheet"][href]')) {
+    const r = await window.__dshHostFetch('dsh-email', PREFIX + pathOf(el.getAttribute('href')))
+    if (!r.ok) continue
+    const fresh = doc.createElement('style')
+    fresh.textContent = await r.text()
+    el.replaceWith(fresh)
+  }
+  return '<!doctype html>' + doc.documentElement.outerHTML
+}
+```
+
+图片同理（换成 `data:`）。帧要带 `sandbox="allow-scripts"` —— 不然后台那页的脚本不跑，界面是死的。
+
+**把一份现成网页前端搬进来**是最常见的一类，另外两处也要提前想清楚：
+
+- **站点绝对路径要全部改成相对**（`/icons/…`、`/assets/…` 这类）。它们在站点根上是对的，落到
+  扩展里就是「本地没有这个文件」。`/api/…` 那类是例外 —— 那条由 App 按你声明的前缀接管。
+- **它启动时要的那份配置得自己给一份**。很多前端在绘制前先问一句「语言、主题、版本、功能开关」，
+  平时由它自己的服务器现生成。扩展里没有那个服务器，你就得在包里放一份等价的；而且**上游加一格
+  你就要跟一格** —— 少一格页面读它就是当场抛错，症状是「页面能显示、某块数据全空」，从界面上
+  根本看不出是配置缺了一项。
 
 ## 6. 页面自己的约定（外壳契约）
 
