@@ -2137,7 +2137,16 @@ test('方向二：拿不到 sessions 服务时一条台账请求都不发', asyn
  * 只开一次、回报的 kind 与 located 与 App 那份守卫对得上。
  */
 
-/** 一份可发布变更的会话清单，带订阅者计数。 */
+/**
+ * 定位打开之后还要盯住的窗口（见 lib/client.js 的 `CHAT_EMBED_HOLD_*`）。
+ * 这里的假定时器按拍触发、不推进时钟，所以照同一节拍逐拍走完，多走一拍当余量。
+ */
+const EMBED_HOLD_STEP_MS = 150;
+async function embedHoldTicks(env, ticks = 12) {
+  for (let i = 0; i < ticks; i += 1) await env.timers.tick(EMBED_HOLD_STEP_MS);
+}
+
+/** 一份可发布变更的会话清单，带订阅者计数；两个主视图方法照网页端的 retain / release 写。 */
 function targetSessions(byId = {}) {
   let snapshot = { byId };
   let listeners = [];
@@ -2154,6 +2163,16 @@ function targetSessions(byId = {}) {
       },
       get listenerCount() { return listeners.length; },
     },
+    /** 打开一条会话：它成为主视图 —— 网页端 retain 之后那一格就是这么记的。 */
+    markMain(id) {
+      const entry = snapshot.byId[id];
+      if (entry) entry.retainedBy = { ...entry.retainedBy, mainView: (entry.retainedBy?.mainView ?? 0) + 1 };
+    },
+    /** 网页端启动时那次「恢复上次会话」：把主视图从这一条上摘掉。 */
+    dropMain(id) {
+      const entry = snapshot.byId[id];
+      if (entry && entry.retainedBy) entry.retainedBy.mainView = 0;
+    },
   };
 }
 
@@ -2168,10 +2187,10 @@ function embedEnv({ sessions, uiWorkspace, target, hiddenGet }) {
   return { env, reports };
 }
 
-test('聊天嵌入页：清单服务靠 inject 等到，不靠 apply 时还看不见的 ctx.get', () => {
+test('聊天嵌入页：清单服务靠 inject 等到，不靠 apply 时还看不见的 ctx.get', async () => {
   const sessions = targetSessions({ 'target-3': { id: 'target-3' } });
   const opened = [];
-  const uiWorkspace = { openSession: (id) => { opened.push(id); } };
+  const uiWorkspace = { openSession: (id) => { opened.push(id); sessions.markMain(id); } };
   const { env, reports } = embedEnv({
     sessions,
     uiWorkspace,
@@ -2180,43 +2199,123 @@ test('聊天嵌入页：清单服务靠 inject 等到，不靠 apply 时还看�
   });
   env.run();
   assert.deepEqual(opened, ['target-3'], 'ctx.get 看不见服务时仍要靠 inject 拿到子 ctx 打开会话');
+  assert.deepEqual(reports, [], '盯住窗口走完之前不回报');
+  await embedHoldTicks(env);
   assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-3', located: true }]);
 });
 
-test('聊天嵌入页：清单出现目标后退订再打开一次，并按原 kind 回报成功', () => {
+test('聊天嵌入页：清单出现目标后退订再打开一次，并按原 kind 回报成功', async () => {
   const sessions = targetSessions();
   const opened = [];
   const { env, reports } = embedEnv({
     sessions,
-    uiWorkspace: { openSession: (id) => { opened.push(id); } },
+    uiWorkspace: { openSession: (id) => { opened.push(id); sessions.markMain(id); } },
     target: { sessionId: 'target-1' },
   });
   env.run();
   assert.equal(sessions.list.listenerCount, 1, '目标还没进清单就先订阅');
   assert.deepEqual(reports, [], '没定位到之前不许回报，免得 App 当成失败盖住整页');
 
-  sessions.list.publish({ 'target-1': { id: 'target-1' } });
+  const row = { id: 'target-1' };
+  sessions.list.publish({ 'target-1': row });
   assert.deepEqual(opened, ['target-1']);
   assert.equal(sessions.list.listenerCount, 0, '打开之前必须先退订，否则会被再次通知顶回自己');
-  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-1', located: true }]);
 
-  sessions.list.publish({ 'target-1': { id: 'target-1' } });
+  sessions.list.publish({ 'target-1': row });
   assert.deepEqual(opened, ['target-1'], '退订之后再来通知也不许开第二次');
-  assert.equal(reports.length, 1);
+
+  await embedHoldTicks(env);
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-1', located: true }]);
 });
 
-test('聊天嵌入页：清单里已经有目标时立刻打开，不等下一次通知', () => {
+test('聊天嵌入页：清单里已经有目标时立刻打开，不等下一次通知', async () => {
   const sessions = targetSessions({ 'target-2': { id: 'target-2' } });
   const opened = [];
   const { env, reports } = embedEnv({
     sessions,
-    uiWorkspace: { openSession: (id) => { opened.push(id); } },
+    uiWorkspace: { openSession: (id) => { opened.push(id); sessions.markMain(id); } },
     target: { sessionId: 'target-2' },
   });
   env.run();
   assert.deepEqual(opened, ['target-2']);
   assert.equal(sessions.list.listenerCount, 0);
+  await embedHoldTicks(env);
   assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-2', located: true }]);
+});
+
+test('聊天嵌入页：网页端启动恢复把主视图抢回旧会话时，下一拍再指一次', async () => {
+  const sessions = targetSessions({ 'target-9': { id: 'target-9' } });
+  const opened = [];
+  const { env, reports } = embedEnv({
+    sessions,
+    uiWorkspace: { openSession: (id) => { opened.push(id); sessions.markMain(id); } },
+    target: { sessionId: 'target-9' },
+  });
+  env.run();
+  assert.deepEqual(opened, ['target-9']);
+
+  // 网页端这一趟「恢复上次会话」把主视图挪回别的条目 —— 打开不等于停在那儿。
+  sessions.dropMain('target-9');
+  await env.timers.tick(150);
+  assert.deepEqual(opened, ['target-9', 'target-9'], '被抢回去之后下一拍要再指一次');
+
+  await embedHoldTicks(env);
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-9', located: true }]);
+});
+
+test('聊天嵌入页：宿主没有主视图那一格时按「不在」处理，重复指过去而不是报失败', async () => {
+  const sessions = targetSessions({ 'target-4': { id: 'target-4' } });
+  const opened = [];
+  const { env, reports } = embedEnv({
+    // 这一版宿主不往清单条目上记 retainedBy：复核读不到，于是每一拍都补指一次。
+    sessions,
+    uiWorkspace: { openSession: (id) => { opened.push(id); } },
+    target: { sessionId: 'target-4' },
+  });
+  env.run();
+  await embedHoldTicks(env);
+  assert.ok(opened.length > 1, '读不到主视图那一格就每一拍补指一次');
+  assert.ok(opened.every((id) => id === 'target-4'), '指的始终是目标那一条');
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-4', located: true }],
+    '重复打开同一条会话是幂等的，不能收成一次定位失败');
+});
+
+test('聊天嵌入页：页面里那个入口换目标，换掉的那趟不再回报', async () => {
+  const sessions = targetSessions({ a: { id: 'a' }, b: { id: 'b' } });
+  const opened = [];
+  const { env, reports } = embedEnv({
+    sessions,
+    uiWorkspace: { openSession: (id) => { opened.push(id); sessions.markMain(id); } },
+    target: { sessionId: 'a' },
+  });
+  env.run();
+  assert.deepEqual(opened, ['a']);
+
+  // App 切会话：在页面里调入口把新目标送进来 —— 不重新加载页面，所以先记下目标的那一趟作废。
+  env.sandbox.window.__DSH_CHAT_EMBED_OPEN__('b');
+  assert.deepEqual(opened, ['a', 'b']);
+  await embedHoldTicks(env);
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'b', located: true }],
+    '只看最后那一趟：被换掉的定位不该再往 App 报一次');
+});
+
+test('聊天嵌入页：装载时没有目标也挂上入口，稍后补目标照样切过去', async () => {
+  const sessions = targetSessions({ later: { id: 'later' } });
+  const opened = [];
+  const { env, reports } = embedEnv({
+    sessions,
+    uiWorkspace: { openSession: (id) => { opened.push(id); sessions.markMain(id); } },
+    target: undefined,
+  });
+  env.run();
+  assert.deepEqual(opened, [], '没有目标就不该乱开一条会话');
+  assert.equal(typeof env.sandbox.window.__DSH_CHAT_EMBED_OPEN__, 'function');
+
+  // 会话还没建出来的新会话页切到网页模式：页面先起来，App 建好会话再把目标送进来。
+  env.sandbox.window.__DSH_CHAT_EMBED_OPEN__('later');
+  assert.deepEqual(opened, ['later']);
+  await embedHoldTicks(env);
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'later', located: true }]);
 });
 
 test('聊天嵌入页：等不到目标就回报定位失败，让 App 露出重试而不是停在欢迎页', async () => {
