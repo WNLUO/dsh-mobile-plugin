@@ -4,6 +4,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
 const { PLATFORM_IDS, SHELL_UNAVAILABLE, platformId, binaryPath, resolveShell, buildArgs, launchShell } = require('../lib/remote/shell.cjs');
@@ -51,6 +52,19 @@ test('插件自带的 native/desktop-shell 能找到可执行文件', (t) => {
   const binary = path.join(root, 'darwin-arm64', relative);
   fs.mkdirSync(path.dirname(binary), { recursive: true });
   fs.writeFileSync(binary, 'stub');
+  // 这条测的是「平台包不可用时退回本机原生产物」。本机把对应平台包装进了 node_modules
+  // 时，resolveShell 会先命中它、轮不到 nativeRoot，所以先把平台包的模块解析挡住，让这条
+  // 分支确实被测到（只在本次调用期间挡、结束即还原）。
+  const originalResolve = Module._resolveFilename;
+  Module._resolveFilename = function (request, ...rest) {
+    if (typeof request === 'string' && request.startsWith('dsh-mobile-shell-')) {
+      const error = new Error(`Cannot find module '${request}'`);
+      error.code = 'MODULE_NOT_FOUND';
+      throw error;
+    }
+    return originalResolve.call(this, request, ...rest);
+  };
+  t.after(() => { Module._resolveFilename = originalResolve; });
   assert.equal(resolveShell({ platform: 'darwin', arch: 'arm64', env: {}, nativeRoot: root }), binary);
 });
 
