@@ -758,12 +758,16 @@ body {
 内容，手机自己在几秒内跟上。那一屏只是**状态表**（哪些包装上了、哪一版、正在装哪一份），
 没有「导入」这类按钮可点，也不需要点。开开关这一下是这条路上唯一一次动手。
 
-- 电脑上的目录是 `~/.dsh/extension-dev/<标识>/`：**一个子目录就是一个包，目录名直接就是它的
-  slug**。注意这一档与第 8 节那条不是一回事 —— 这里没有「插件名.」那个前缀，因为这条路根本
-  不经过任何插件：`~/.dsh/extension-dev/example/` 装到手机上就叫 `example`。目录名只认字母、
-  数字、点、下划线、横线，最长 64。里面照第 2 节的结构放 `manifest.json` 与 `index.html`
-  那一套，别的文件想带就带；**以 `.` 开头的文件与子目录一律不看**（`.git`、`.DS_Store`、
-  编辑器的临时文件都属于你的现场，不是包内容）。
+- 电脑上的目录是 `~/.dsh/extension-dev/<slug>/`：**一个子目录就是一个包，目录名直接就是它的
+  slug**。目录名只认字母、数字、点、下划线、横线，最长 64。里面照第 2 节的结构放
+  `manifest.json` 与 `index.html` 那一套，别的文件想带就带；**以 `.` 开头的文件与子目录一律
+  不看**（`.git`、`.DS_Store`、编辑器的临时文件都属于你的现场，不是包内容）。
+- **要接管你已经随插件发布的那一份，目录名就写成第 8 节那个完整 slug**（`插件名.目录名`，
+  比如 `dsh-email-plugin.email`）。**同一个 slug 才算同一个扩展**：手机上只留一份、右栏只有
+  一个入口，点开就是你本地这份；开着开发者模式时「已安装」「可安装」两段都不再列它，只在
+  本地开发这一段出现。名字对不上（比如只写 `email`）就是两份互不相干的包 —— 手机上会多出
+  一份、右栏多一个入口，而且本地那份永远顶不掉已装的正式版。
+- 只想单独试一个还没发布的包时，随便起个名字就行：这条路不经过任何插件，所以不必带前缀。
 - **改名字、改版本、加删文件都照常自动跟过来** —— 判据是内容（哈希），不是修改时间，所以不
   需要抬版本号触发什么。
 - 这条链路照样逐文件校验：传一半、被改过一字节，整包都不会落盘（不会留下半个能打开的包）。
@@ -792,7 +796,7 @@ node scripts/dev-watch.mjs        # 盯着改，边改边构建 + 同步；Ctrl-
 node scripts/dev-watch.mjs --once # 只跑一次（等同于手动同步一次）
 ```
 
-它做三件事：构建 → 把产物合成单文件 → 拷进 `~/.dsh/extension-dev/<包名>/`。整个过程两三秒。
+它做三件事：构建 → 把产物合成单文件 → 拷进 `~/.dsh/extension-dev/<slug>/`。整个过程两三秒。
 **构建失败它不会退出**，只打一行错、等你下一次保存 —— 改到一半的文件是常态。
 
 三个前提与边界：
@@ -814,7 +818,7 @@ node scripts/dev-watch.mjs --once # 只跑一次（等同于手动同步一次�
 "devServer": "http://192.168.1.5:3000"
 ```
 
-（写进 `~/.dsh/extension-dev/<包名>/manifest.json`，不是仓库里发给别人的那份。）
+（写进 `~/.dsh/extension-dev/<slug>/manifest.json`，不是仓库里发给别人的那份。）
 
 - **只认私网与回环地址 + http**：`192.168.*` / `10.*` / `172.16–31.*` / `127.0.0.1` /
   `localhost` / `*.local`。写公网地址、https、带路径或查询串，一律当没写。手机与电脑各收窄
@@ -941,7 +945,30 @@ export function apply(ctx) {
 - 要注册自己的 HTTP 路由给扩展页取数（`host.data`）时，别在 `apply` 里直接
   `ctx.get('webServer')`：插件常常比 `webServer` 先加载，那一刻拿到的还是 `undefined`，
   路由就永远挂不上。导出 `inject = ['webServer']`，在 `ctx.inject(['webServer'], (scoped) => {
-  ... })` 里挂，服务发布后它会跑、服务被替换时会重跑。
+  ... })` 里挂，服务发布后它会跑、服务被替换时会重跑：
+
+  ```js
+  export const inject = ['webServer']
+
+  export function apply(ctx) {
+    ctx.inject(['webServer'], (scoped) => {
+      scoped.effect(() => scoped.webServer.register({
+        kind: 'prefix',                 // 'prefix' 认一段前缀，'exact' 只认整条路径
+        path: '/api/dsh-email',
+        handler: (req, res) => {         // ← **两个参数**：request 与 response
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end('{"ok":true}');
+        },
+      }), 'dsh-email: api routes')
+    })
+  }
+  ```
+
+  **`handler` 只收 `(req, res)` 两个参数。** 别照别处见过的 `(ctx, req, res)` 写三个 ——
+  多写一个不报错：宿主把 `res` 塞在第二位，你的 `res` 就成了 `undefined`，每个请求都在
+  `res.writeHead` 上抛，宿主回一个**空正文的 400**，日志里一点线索都没有。2026-11-17 真机
+  上就是这么栽的：手机上每一条取数都是 400，而宿主侧测试全绿（测试里的假宿主照我们的签名
+  调，自然看不出）。
 - **`apply` 里抛异常会拖垮整个 DSH 启动**。装载失败只记日志、别往外抛 —— 少一个插件不该让
   宿主起不来。
 
