@@ -167,6 +167,8 @@ npm test
 
 改过 `React/` 面板源码，先在该目录跑 `pnpm run build`，并把生成的 `lib/panel/index.html` 和源码一起提交。
 
+网页插件需要在手机聊天页保留网页顶部栏时，见[聊天嵌入页顶部栏接入](docs/chat-embed.md)，包含可直接使用的 Client 示例、运行时设置与卸载清理。
+
 ## License
 
 MIT，见 [LICENSE](LICENSE)。

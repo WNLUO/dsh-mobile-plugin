@@ -55,6 +55,7 @@
     "skills/**",
     "extensions/**",
     "docs/extension-authoring.md",
+    "docs/chat-embed.md",
     "docs/extension-sample/**",
     "README.md"
   ],

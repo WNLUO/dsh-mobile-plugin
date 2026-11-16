@@ -173,3 +173,79 @@ test('source contract: errorDetails guards the spread', () => {
   assert.ok(source.includes('proto !== Object.prototype && proto !== null'), 'prototype guard');
   assert.ok(source.includes('...(details ? { details } : {})'), 'details spread');
 });
+
+// ── 发送携带模型（选模型只写本地，随发送一起带）──────────────────────────
+// App 侧选模型不再单独发 /session/select-model，而是把这一发要用的模型塞进 send 的
+// `modelSelection`；插件必须在提交 prompt 之前把它应用到会话上，且模型不可用时明确回 400。
+
+function ctxWithModel(promptStub, { unavailable = false, resolveError, invalidConfig = false } = {}) {
+  const events = [];
+  const agent = { model: { select: (selection) => events.push(['selected', selection]) } };
+  const services = {
+    sessionController: { resolveAgent: async (id) => { events.push(['resolve', id]); return resolveError ? { error: resolveError } : { agent }; } },
+    llm: { listProviders: () => [{ id: 'p' }], listModels: async () => (unavailable ? [] : [{ id: 'B' }]),
+      resolveCallConfig: async (selection) => { events.push(['validated', selection]); if (invalidConfig) throw Error('invalid effort'); } },
+  };
+  const prompt = async (value) => { events.push(['prompt']); return promptStub(value); };
+  return { ctx: { get: (key) => services[key], apiProxy: { sessions: { prompt } } }, events };
+}
+
+test('发送带 modelSelection 时先把它应用到会话，再提交 prompt', async () => {
+  const { ctx, events } = ctxWithModel(async () => ({ result: { ok: true, value: { accepted: true } } }));
+  const res = response();
+  await handleSend(ctx, request({
+    sessionId: 's-1', clientMessageId: 'cm-model',
+    content: [{ type: 'text', text: 'hi' }],
+    modelSelection: { provider: 'p', model: 'B', reasoningEffort: 'high' },
+  }), res);
+  assert.equal(res.status, 200);
+  // 先 validate/select，最后才 prompt —— 模型必须在 prompt 之前落到会话上。
+  assert.deepEqual(events.map(([type]) => type), ['resolve', 'validated', 'selected', 'prompt']);
+  assert.deepEqual(events.at(-2)[1], { provider: 'p', model: 'B', reasoningEffort: 'high' });
+});
+
+test('不带 modelSelection 时不应用模型（老 App 行为不变）', async () => {
+  const { ctx, events } = ctxWithModel(async () => ({ result: { ok: true, value: { accepted: true } } }));
+  const res = response();
+  await handleSend(ctx, request({ sessionId: 's-1', clientMessageId: 'cm-no-model', content: [{ type: 'text', text: 'hi' }] }), res);
+  assert.equal(res.status, 200);
+  assert.deepEqual(events.map(([type]) => type), ['prompt']);
+});
+
+test('所选模型不可用时明确回 400，且不提交 prompt（不静默沿用旧模型）', async () => {
+  const { ctx, events } = ctxWithModel(async () => ({ result: { ok: true, value: { accepted: true } } }), { unavailable: true });
+  const res = response();
+  await handleSend(ctx, request({
+    sessionId: 's-1', clientMessageId: 'cm-bad',
+    content: [{ type: 'text', text: 'hi' }],
+    modelSelection: { provider: 'p', model: 'B' },
+  }), res);
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, 'session/model-unavailable');
+  assert.ok(!events.some(([type]) => type === 'prompt'), '模型不可用时不能把消息发出去');
+  assert.ok(!events.some(([type]) => type === 'selected'));
+});
+
+test('模型配置无效（如档位不认）时回 400，且不提交 prompt', async () => {
+  const { ctx, events } = ctxWithModel(async () => ({ result: { ok: true, value: { accepted: true } } }), { invalidConfig: true });
+  const res = response();
+  await handleSend(ctx, request({
+    sessionId: 's-1', clientMessageId: 'cm-bad-effort',
+    content: [{ type: 'text', text: 'hi' }],
+    modelSelection: { provider: 'p', model: 'B', reasoningEffort: 'nope' },
+  }), res);
+  assert.equal(res.status, 400);
+  assert.ok(!events.some(([type]) => type === 'prompt'));
+});
+
+test('modelSelection 形状不认识时按“没带”处理，不报错', async () => {
+  const { ctx, events } = ctxWithModel(async () => ({ result: { ok: true, value: { accepted: true } } }));
+  const res = response();
+  await handleSend(ctx, request({
+    sessionId: 's-1', clientMessageId: 'cm-shape',
+    content: [{ type: 'text', text: 'hi' }],
+    modelSelection: { provider: '', model: '' },
+  }), res);
+  assert.equal(res.status, 200);
+  assert.deepEqual(events.map(([type]) => type), ['prompt']);
+});

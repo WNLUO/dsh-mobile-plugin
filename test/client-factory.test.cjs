@@ -1,3 +1,4 @@
+/** 客户端服务、界面与嵌入声明的生命周期行为测试。 */
 'use strict';
 
 /**
@@ -346,8 +347,7 @@ function fakeSidebarRow() {
  * 「样式只注入一次」这类跨次行为。
  *
  * `options.services` 是**可选**的桌面端服务表，对应运行时的 `ctx.get(name)`。
- * 不给就没有 `ctx.get`：两条绿点同步会整条不启动（它们依赖桌面端的 uiSession /
- * sessions 服务，拿不到就是空转），于是所有既有断言维持原样。
+ * 未提供的服务不会触发注入；`provide` 能唤醒等待的消费方，撤回时清理其子作用域。
  * `options.sidebar` 给一份 `fakeSidebarRow()` 就能验「插进设置那一行」这件事；
  * 不给就是「认不出那一行」，走退回自己一行的分支。
  */
@@ -361,7 +361,8 @@ function createEnv(options = {}) {
   const allCalls = [];
   const clipboardWrites = [];
   const fetchImpl = options.fetch || routedFetch().impl;
-  const services = options.services || null;
+  const services = { ...(options.services || {}) };
+  const injections = new Set();
   const sidebar = options.sidebar || null;
   const created = [];
   const confirms = [];
@@ -370,7 +371,7 @@ function createEnv(options = {}) {
   let loaded = null;
 
   const document = {
-    head: { appendChild: (node) => styles.push(node) },
+    head: { appendChild(node) { styles.push(node); node.parentNode = this; } },
     hidden: false,
     body: fakeElement('body'),
     // 真浏览器里一定有 `baseURI`（宿主注入 `<base href="./">`）；客户端半边推同源地址就靠它。
@@ -458,32 +459,82 @@ function createEnv(options = {}) {
     JSON,
     console,
   };
+  if (options.chatEmbedBridge) sandbox.__DSH_MOBILE_CHAT_EMBED__ = options.chatEmbedBridge;
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
 
   const required = [];
   const effects = [];
+  let currentContext;
+  let disposeProvider = () => {};
 
-  function run() {
+  function effect(fn, label, owned) {
+    const stop = fn();
+    let active = true;
+    const cleanup = () => {
+      if (!active) return;
+      active = false;
+      if (typeof stop === 'function') return stop();
+    };
+    effects.push({ fn, label, cleanup });
+    owned.push(cleanup);
+    return cleanup;
+  }
+
+  function refreshInjections() {
+    for (const entry of [...injections]) {
+      const values = entry.names.map((name) => services[name]);
+      if (entry.values && entry.values.every((value, index) => value === values[index])) continue;
+      entry.stop();
+      if (values.some((value) => value === undefined)) continue;
+      entry.values = values;
+      const owned = [];
+      entry.stop = () => {
+        entry.values = null;
+        for (const cleanup of owned.splice(0).reverse()) cleanup();
+      };
+      const child = { effect: (fn, label) => effect(fn, label, owned) };
+      entry.names.forEach((name, index) => { child[name] = values[index]; });
+      entry.callback(child);
+    }
+  }
+
+  function inject(names, callback) {
+    const entry = { names: Array.from(names), callback, values: null, stop() {} };
+    injections.add(entry);
+    refreshInjections();
+    return () => { injections.delete(entry); entry.stop(); };
+  }
+
+  function loadPlugin() {
     loaded = null;
     vm.runInContext(options.source || SOURCE, sandbox, { filename: 'client.js' });
     assert.ok(loaded, '工厂必须注册进 window.__ModuleLoader__');
     assert.equal(loaded.id, 'dsh-mobile-plugin');
     required.length = 0;
     registrations.length = 0;
-    const plugin = loaded.factory((name) => {
+    return loaded.factory((name) => {
       required.push(name);
       if (name === 'react') return hooks.react;
       throw new Error(`工厂不该 require ${name}`);
     });
+  }
 
+  function run() {
+    const plugin = loadPlugin();
     let declaring = null;
+    const owned = [];
     const ctx = {
-      effect(fn, label) {
-        // 记下 effect 首次执行返回的清理函数：同一个 fn 再调一次会开新的定时器，
-        // 所以清理必须取第一次的那份，不能靠「重新跑一遍再清」。
-        const cleanup = fn();
-        effects.push({ fn, label, cleanup });
+      effect: (fn, label) => effect(fn, label, owned),
+      provide(name, service) {
+        services[name] = service;
+        refreshInjections();
+        const cleanup = () => {
+          if (services[name] !== service) return;
+          delete services[name];
+          refreshInjections();
+        };
+        owned.push(cleanup);
         return cleanup;
       },
       locale: {
@@ -514,21 +565,21 @@ function createEnv(options = {}) {
           return handle;
         },
       },
-      // 与 Cordis 同形：绿点同步走 `ctx.inject([...], child => …)`，依赖齐了才回调，
-      // 回调拿到的是子 ctx（服务挂在它的属性上）。`get` 只留给自检上报的探测用。
-      // 不给 services 就整条不挂，让「没有桌面服务时不空转」这条门禁可测。
+      // 与 Cordis 同形：依赖齐了才回调，提供方消失时先清理消费方子作用域。
       inject(names, callback) {
-        const list = Array.isArray(names) ? names : [names];
-        if (!services || list.some((name) => !services[name])) return;
-        const child = { effect: this.effect };
-        for (const name of list) child[name] = services[name];
-        callback(child);
+        const stop = inject(names, callback);
+        owned.push(stop);
+        return stop;
       },
       // 真机上本插件是 immediately 档，apply 那一刻 ctx.get 还看不见宿主后提供的服务；
       // hiddenGet 用来钉住「定位只能靠 inject 拿到的子 ctx，不能退回 ctx.get」。
-      ...(services ? { get: (name) => (options.hiddenGet || []).includes(name) ? undefined : services[name] } : {}),
+      get: (name) => (options.hiddenGet || []).includes(name) ? undefined : services[name],
       // uiWorkspace 是宿主合并进来的全局服务，不走 inject；聊天嵌入页的定位靠它打开会话。
       ...(options.uiWorkspace ? { uiWorkspace: options.uiWorkspace } : {}),
+    };
+    currentContext = ctx;
+    disposeProvider = () => {
+      for (const cleanup of owned.splice(0).reverse()) cleanup();
     };
     plugin.apply(ctx);
     assert.equal(registrations.length, 2, 'apply 注册设置那一项与侧边栏那颗图标');
@@ -563,6 +614,11 @@ function createEnv(options = {}) {
 
   return {
     run,
+    loadPlugin,
+    inject,
+    getService: (name) => services[name],
+    get ctx() { return currentContext; },
+    dispose: () => disposeProvider(),
     renderFooter,
     renderSettings,
     byPathname,
@@ -629,6 +685,199 @@ test('源码里的 require 只有 react 一个名字（拆分的根因）', () =
   // 一旦有人加一个相对 require，工厂里的 require 拿到的就是 DSH 模块表，会在运行时报错。
   assert.equal(/require\(['"]\.{1,2}\//.test(SOURCE), false);
   assert.match(SOURCE, /inject: \['slots', 'locale'\]/);
+});
+
+/** App 在 document-start 提供的窄桥，只记录顶部栏可见性。 */
+function chatEmbedBridge(overrides = {}) {
+  const calls = [];
+  return {
+    calls,
+    bridge: { version: 1, surface: 'chat', setTopBarVisible: (visible) => calls.push(visible), ...overrides },
+  };
+}
+
+/** 相同消费方行为同时验证正常实现与变异实现。 */
+function assertSharedTopBarClaims(source = SOURCE) {
+  const { bridge, calls } = chatEmbedBridge();
+  const env = materialize({ source, chatEmbedBridge: bridge });
+  const service = env.getService('mobileChatEmbed');
+  assert.equal(service.isEmbedded(), true);
+  assert.deepEqual(calls, [], '没有声明时不接管顶部栏');
+  const stopA = service.keepTopBar();
+  const stopB = service.keepTopBar();
+  assert.deepEqual(calls, [true]);
+  stopA();
+  stopA();
+  assert.deepEqual(calls, [true], '另一个声明仍在时不得隐藏');
+  stopB();
+  stopB();
+  assert.deepEqual(calls, [true, false], '最后一个声明释放且只隐藏一次');
+  env.dispose();
+}
+
+test('聊天嵌入：多人顶部栏声明合并，最后撤销且重复撤销无副作用', () => {
+  assertSharedTopBarClaims();
+});
+
+test('聊天嵌入：电脑网页、旧 App 与不匹配的桥都始终提供无副作用服务', () => {
+  for (const overrides of [null, { version: 2 }, { surface: 'panel' }, { setTopBarVisible: null }]) {
+    const { bridge, calls } = chatEmbedBridge(overrides || {});
+    const env = materialize({ chatEmbedBridge: overrides ? bridge : undefined });
+    const service = env.getService('mobileChatEmbed');
+    assert.ok(service, '无桥也必须提供服务，不能阻断消费方其它功能');
+    assert.equal(service.isEmbedded(), false);
+    const stop = service.keepTopBar();
+    stop();
+    stop();
+    env.dispose();
+    assert.deepEqual(calls, []);
+    assert.equal(env.getService('mobileChatEmbed'), undefined);
+  }
+});
+
+test('聊天嵌入：提供方卸载归零，旧声明与旧服务不能改变新提供方', () => {
+  const { bridge, calls } = chatEmbedBridge();
+  const env = materialize({ chatEmbedBridge: bridge });
+  const oldService = env.getService('mobileChatEmbed');
+  const stopOldA = oldService.keepTopBar();
+  const stopOldB = oldService.keepTopBar();
+  env.dispose();
+  env.dispose();
+  assert.equal(oldService.isEmbedded(), false);
+  assert.equal(env.getService('mobileChatEmbed'), undefined);
+  assert.deepEqual(calls, [true, false]);
+  env.run();
+  const newService = env.getService('mobileChatEmbed');
+  assert.notEqual(newService, oldService);
+  const stopNew = newService.keepTopBar();
+  stopOldA();
+  stopOldB();
+  oldService.keepTopBar()();
+  assert.deepEqual(calls, [true, false, true], '迟到旧撤销不得隐藏新提供方的顶部栏');
+  stopNew();
+  assert.deepEqual(calls, [true, false, true, false]);
+  env.dispose();
+});
+
+test('聊天嵌入：消费方先后加载都能注入，scope.effect 随消费方卸载释放', () => {
+  for (const consumerFirst of [true, false]) {
+    const { bridge, calls } = chatEmbedBridge();
+    const env = createEnv({ chatEmbedBridge: bridge });
+    let activations = 0;
+    const consume = () => env.inject(['mobileChatEmbed'], (scope) => {
+      activations += 1;
+      scope.effect(() => scope.mobileChatEmbed.keepTopBar());
+    });
+    let stop;
+    if (consumerFirst) stop = consume();
+    assert.deepEqual(calls, []);
+    env.run();
+    if (!consumerFirst) stop = consume();
+    assert.equal(activations, 1);
+    assert.deepEqual(calls, [true]);
+    stop();
+    stop();
+    assert.deepEqual(calls, [true, false]);
+    env.dispose();
+  }
+});
+
+test('聊天嵌入：真实 Cordis 的先后注入、提供方重载与消费方卸载', async () => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  for (const consumerFirst of [true, false]) {
+    const { bridge, calls } = chatEmbedBridge();
+    const env = createEnv({ chatEmbedBridge: bridge });
+    const root = new Context();
+    root.provide('locale', {
+      register: (ns, dict) => { env.dictionaries.set(ns, dict); return () => env.dictionaries.delete(ns); },
+      bind: (ns) => (key) => env.dictionaries.get(ns).zh[key],
+    });
+    root.provide('slots', { inject: (_name, callback) => callback(), register: () => () => {} });
+    let activations = 0;
+    let oldService;
+    let stopOld;
+    const consume = () => root.inject(['mobileChatEmbed'], (scope) => {
+      activations += 1;
+      const service = scope.mobileChatEmbed;
+      scope.effect(() => {
+        const stop = service.keepTopBar();
+        if (!oldService) { oldService = service; stopOld = stop; }
+        return stop;
+      });
+    });
+    try {
+      let consumer;
+      if (consumerFirst) consumer = await consume();
+      assert.deepEqual(calls, []);
+      let provider = await root.plugin(env.loadPlugin());
+      if (!consumerFirst) consumer = await consume();
+      await settle(2);
+      assert.equal(activations, 1);
+      assert.deepEqual(calls, [true]);
+      await provider.dispose();
+      assert.equal(root.get('mobileChatEmbed'), undefined);
+      assert.equal(oldService.isEmbedded(), false);
+      assert.deepEqual(calls, [true, false]);
+      provider = await root.plugin(env.loadPlugin());
+      await settle(2);
+      assert.equal(activations, 2, '服务重载后注入作用域应重新建立声明');
+      assert.deepEqual(calls, [true, false, true]);
+      stopOld();
+      oldService.keepTopBar()();
+      assert.deepEqual(calls, [true, false, true]);
+      await consumer.dispose();
+      assert.deepEqual(calls, [true, false, true, false]);
+      await provider.dispose();
+      assert.deepEqual(calls, [true, false, true, false]);
+    } finally {
+      await root.fiber.dispose();
+    }
+    assert.equal(env.timers.count, 0, '真实 provider 卸载也要清完已有客户端定时器');
+  }
+});
+
+const APP_EMBED_LOADER = path.join(__dirname, '..', '..', 'app', 'scripts', 'load-ts.js');
+test('聊天嵌入：App 真实启动桥与客户端声明共同撤销、恢复顶部隐藏样式', {
+  skip: fs.existsSync(APP_EMBED_LOADER) ? false : '主仓 app/ 不在场，缺少真实桥脚本生成器',
+}, () => {
+  const { loadTsFromApp } = require(APP_EMBED_LOADER);
+  const { embedBootScript } = loadTsFromApp('src/services/viewmodels/chat-embed');
+  const env = createEnv();
+  env.sandbox.document.readyState = 'loading';
+  vm.runInContext(embedBootScript('session-bridge'), env.sandbox);
+  const styles = () => env.styles.filter((node) => node.getAttribute('data-dsh-mobile-chat-topbar') !== null);
+  assert.equal(styles().length, 1);
+  const style = styles()[0];
+  const hidden = style.textContent;
+  assert.match(hidden, /header\[data-window-drag\]/);
+  assert.match(hidden, /\[data-shell-leading\]/);
+  assert.match(hidden, /display:none!important/);
+  env.run();
+  const service = env.getService('mobileChatEmbed');
+  assert.equal(service.isEmbedded(), true);
+  const stopA = service.keepTopBar();
+  const stopB = service.keepTopBar();
+  assert.equal(style.textContent, '', '声明必须通过 App 真桥撤销隐藏规则');
+  stopA();
+  stopA();
+  assert.equal(style.textContent, '', '尚有声明时继续沿用网页顶部原有布局');
+  stopB();
+  assert.equal(style.textContent, hidden, '最后声明释放后恢复同一条隐藏规则');
+  service.keepTopBar();
+  assert.equal(style.textContent, '');
+  env.dispose();
+  assert.equal(style.textContent, hidden, '提供方卸载也必须通过真桥释放显示控制');
+  assert.equal(styles().length, 1, '顶部控制始终使用 App 同一份样式');
+});
+
+test('变异：任意撤销就隐藏、重复撤销再次隐藏都会被同一合并断言拒绝', () => {
+  const marker = 'if (claims.size === 0) bridge.setTopBarVisible(false);';
+  const eager = SOURCE.replace(marker, 'bridge.setTopBarVisible(false);');
+  assert.notEqual(eager, SOURCE, '变异必须命中实际撤销实现');
+  assert.throws(() => assertSharedTopBarClaims(eager), assert.AssertionError);
+  const repeated = SOURCE.replace('disposed || !claims.delete(claim)', 'disposed || (claims.delete(claim), false)');
+  assert.notEqual(repeated, SOURCE, '变异必须命中声明去重实现');
+  assert.throws(() => assertSharedTopBarClaims(repeated), assert.AssertionError);
 });
 
 test('样式只注入一次：同一页面里重复物化不会堆出第二份 <style>', () => {
@@ -1943,8 +2192,8 @@ test('绿点同步门禁在 ctx.inject 上：拿不到桌面服务时连 effect 
   await env.timers.tick(2000);
   assert.deepEqual(
     env.effects.map((e) => e.label),
-    ['mobile-plugin: settings dictionaries', 'mobile-plugin: 客户端半边自检上报'],
-    '没有桌面服务时只该有字典与自检上报两条 effect',
+    ['mobile-plugin: chat embed top bar', 'mobile-plugin: settings dictionaries', 'mobile-plugin: 客户端半边自检上报'],
+    '没有桌面服务时只保留嵌入声明清理、字典与自检上报',
   );
   assert.equal(syncCalls(env).length, 0);
   // 门禁必须写成「拿不到服务就整条不挂」（`ctx.inject` 的依赖永不满足 ⇒ 回调不跑），
@@ -1969,6 +2218,7 @@ test('绿点同步：有桌面服务时两条 effect 都挂上，各带一个标
   assert.deepEqual(
     env.effects.map((e) => e.label),
     [
+      'mobile-plugin: chat embed top bar',
       'mobile-plugin: settings dictionaries',
       'mobile-plugin: 会话清单服务',
       'mobile-plugin: 桌面端已读上报',

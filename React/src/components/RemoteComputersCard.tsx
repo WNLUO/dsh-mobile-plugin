@@ -66,6 +66,23 @@ function TrashIcon() {
   )
 }
 
+/** 浏览器远程入口：官网那个静态站上的 `/r/`。链接把邀请放进地址栏 `#` 后，不发给任何服务器。 */
+const BROWSER_ENTRY = 'https://ai-hub.wnluo.com/r/'
+
+/**
+ * 把一次性的绑定信息（`dshcomputer://v1?data=...`）换成能在任意浏览器直接打开的链接。
+ *
+ * `data` 那一段本身就是邀请 JSON 的 base64url，官网引导页认它；拿不到就原样接在 `#` 后面，
+ * 引导页那侧也收裸 base64url。
+ */
+function toBrowserLink(invite: string): string {
+  try {
+    const data = new URL(invite).searchParams.get('data')
+    if (data) return `${BROWSER_ENTRY}#${data}`
+  } catch { /* 不是 dshcomputer:// 形态，按原文接在后面 */ }
+  return `${BROWSER_ENTRY}#${invite.replace(/^#/, '')}`
+}
+
 function channelText(channel: string | null): string {
   const keys: Record<string, string> = {
     auto: 'auto', lan: 'lan', direct: 'direct', ipv6: 'ipv6', relay: 'relay', tunnel: 'tailcat', tailcat: 'tailcat', p2p: 'p2p',
@@ -81,8 +98,9 @@ export function RemoteComputersCard() {
   const [localOnly, setLocalOnly] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [busy, setBusy] = useState<string[]>([])
-  const [dialog, setDialog] = useState<'invite' | 'add' | null>(null)
+  const [dialog, setDialog] = useState<'invite' | 'add' | 'link' | null>(null)
   const [invitation, setInvitation] = useState<RemoteComputerInvite | null>(null)
+  const [linkText, setLinkText] = useState('')
   const [inviteText, setInviteText] = useState('')
   const [manualCopy, setManualCopy] = useState(false)
   const [modeDevice, setModeDevice] = useState<RemoteComputer | null>(null)
@@ -178,6 +196,39 @@ export function RemoteComputersCard() {
     }
   }
 
+  /** 复制一条能直接在浏览器打开的链接；剪贴板不给就弹出来手动复制。 */
+  async function copyLinkOf(invite: string) {
+    const link = toBrowserLink(invite)
+    setLinkText(link)
+    try {
+      await navigator.clipboard.writeText(link)
+      notify('ok', t('panel.remote.linkCopied'))
+    } catch {
+      setDialog('link')
+    }
+  }
+
+  /** 顶栏那颗「复制浏览器链接」：现生成一份绑定信息，直接换成链接复制走。 */
+  async function copyBrowserLink() {
+    if (busy.includes('link')) return
+    setBusy((keys) => [...keys, 'link'])
+    try {
+      const fresh = await remoteComputers.invite()
+      await copyLinkOf(fresh.invite)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setLocalOnly(true)
+        setList(null)
+        setDialog(null)
+      }
+      notify('error', error instanceof ApiError && error.status === 403
+        ? t('panel.remote.localOnly')
+        : remoteErrorText(error))
+    } finally {
+      setBusy((keys) => keys.filter((item) => item !== 'link'))
+    }
+  }
+
   function open(device: RemoteComputer) {
     void act(`open:${device.id}`, () => openRemoteComputer(device.id))
   }
@@ -206,6 +257,9 @@ export function RemoteComputersCard() {
             <span className="flex flex-wrap items-center gap-1.5">
               <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm xl:before:border xl:before:border-border xl:before:bg-background" disabled={isBusy('invite')} onClick={generateInvite}>
                 {t('panel.remote.createInvite')}
+              </Button>
+              <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm xl:before:border xl:before:border-border xl:before:bg-background" disabled={isBusy('link')} onClick={() => void copyBrowserLink()}>
+                {t('panel.remote.copyLink')}
               </Button>
               <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm xl:before:border xl:before:border-border xl:before:bg-background" disabled={isBusy('add')} onClick={() => { setInviteText(''); setDialog('add') }}>
                 {t('panel.remote.add')}
@@ -288,9 +342,21 @@ export function RemoteComputersCard() {
 
       <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open && !dialogBusy) { setDialog(null); setInvitation(null) } }}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{t(dialog === 'invite' ? 'panel.remote.createInvite' : 'panel.remote.add')}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{t(dialog === 'link' ? 'panel.remote.copyLink' : dialog === 'invite' ? 'panel.remote.createInvite' : 'panel.remote.add')}</DialogTitle></DialogHeader>
           <DialogBody className="flex flex-col gap-3">
-            <p className="text-xs leading-5 text-foreground-muted">{t(dialog === 'invite' ? 'panel.remote.inviteHint' : 'panel.remote.addHint')}</p>
+            {dialog === 'link' ? (
+              <>
+                <p className="text-xs leading-5 text-foreground-muted">{t('panel.remote.linkHint')}</p>
+                <Field>
+                  <FieldLabel htmlFor="remote-browser-link">{t('panel.remote.linkLabel')}</FieldLabel>
+                  <Textarea id="remote-browser-link" rows={3} readOnly value={linkText} onFocus={(event) => event.target.select()} />
+                </Field>
+                <p className="text-xs text-foreground-muted">{t('panel.remote.linkCopied')}</p>
+              </>
+            ) : null}
+            {dialog === 'invite' || dialog === 'add' ? (
+              <p className="text-xs leading-5 text-foreground-muted">{t(dialog === 'invite' ? 'panel.remote.inviteHint' : 'panel.remote.addHint')}</p>
+            ) : null}
             {dialog === 'invite' ? (
               invitation ? (
                 <>
@@ -311,8 +377,15 @@ export function RemoteComputersCard() {
           </DialogBody>
           <DialogFooter className="flex justify-end gap-2">
             <Button variant="outline" disabled={dialogBusy} onClick={() => { setDialog(null); setInvitation(null) }}>{t('panel.common.close')}</Button>
-            {dialog === 'invite' ? (
-              <Button variant="primary" disabled={dialogBusy || !invitation || inviteExpired} onClick={() => void copyInvite()}>{t('panel.remote.copy')}</Button>
+            {dialog === 'link' ? (
+              <Button variant="primary" onClick={() => { void (async () => {
+                try { await navigator.clipboard.writeText(linkText); notify('ok', t('panel.remote.linkCopied')) } catch { /* 文本已选好，手动复制 */ }
+              })() }}>{t('panel.remote.copyLink')}</Button>
+            ) : dialog === 'invite' ? (
+              <>
+                <Button variant="outline" disabled={dialogBusy || !invitation || inviteExpired} onClick={() => { if (invitation) void copyLinkOf(invitation.invite) }}>{t('panel.remote.copyLink')}</Button>
+                <Button variant="primary" disabled={dialogBusy || !invitation || inviteExpired} onClick={() => void copyInvite()}>{t('panel.remote.copy')}</Button>
+              </>
             ) : (
               <Button variant="primary" disabled={dialogBusy || !inviteText.trim()} onClick={() => void act('add', async () => {
                 await remoteComputers.add(inviteText.trim())

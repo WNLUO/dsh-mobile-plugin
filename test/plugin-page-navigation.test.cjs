@@ -1,3 +1,4 @@
+/** 客户端页面导航只列真实页面，并为移动端声明服务保留最小宿主假体。 */
 /** 电脑插件目录只列真实页面，并通过宿主页面状态直达；无桌面窗口依赖。 */
 'use strict';
 const test = require('node:test');
@@ -23,8 +24,10 @@ function harness(text = source) {
     'plugins.row.config': [entry('example-bundle#account', 'Account')],
   };
   const subscribe = (_key, _fn) => () => {};
+  const provided = new Map();
   const ctx = {
     effect(fn) { return fn(); },
+    provide(name, value) { provided.set(name, value); return () => { if (provided.get(name) === value) provided.delete(name); }; },
     get(name) { return name === 'layout' ? layout : name === 'pluginNavigation' ? { openBundle: (name) => opened.push(['bundle', name]) } : undefined; },
     inject(names, fn) { if (names.includes('layout')) return fn(ctx); return () => {}; },
     layout,
