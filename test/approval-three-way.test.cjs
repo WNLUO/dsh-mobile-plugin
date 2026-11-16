@@ -8,7 +8,7 @@
  *    记进本机规则账；下一次同类请求**不再弹卡**、直接静默放行；
  *  - 事实行：从会话日志按 callId 取原始参数算出，随卡下发（`fact` / `rememberable`）；
  *  - 同一轮里相同请求再次出现 → 直接 auto-reject，不再问；
- *  - 规则账的两条路（列出 / 撤销）。
+ *  - 规则账的两条路（列出 / 撤销），含撤销写盘失败时如实报错的变异证明。
  *
  * 规则账落盘路径用环境变量指到临时文件，绝不动用户真实账本。
  */
@@ -393,6 +393,26 @@ test('规则撤销缺少 classKey → 400', async () => {
   const res = jsonResponse();
   await approvals.handleApprovalRuleRevoke(ctx, jsonRequest({}), res);
   assert.equal(res.status, 400);
+});
+
+test('撤销时写盘失败：如实报错、盘上规则还在（不误报成功让手机划掉）', async () => {
+  clearRules();
+  approvalMemory.addRule({ classKey: 'write:lib', label: '改文件 · lib' });
+  assert.equal(approvalMemory.hasRule('write:lib'), true);
+  // saveStore 先把内容写到 `<file>.<pid>.tmp` 再 rename。把这个临时路径占成一个目录 →
+  // writeFileSync 抛 EISDIR → saveStore 回 false → removeRule 抛错 → handler 回非 ok。
+  // 读的是真账本文件，所以「找到这条」成立，走的是写盘失败那条分支，且 root 下也确定失败。
+  const tmp = `${RULES_FILE}.${process.pid}.tmp`;
+  fs.mkdirSync(tmp, { recursive: true });
+  try {
+    const res = jsonResponse();
+    await approvals.handleApprovalRuleRevoke(fakeCtx(), jsonRequest({ classKey: 'write:lib' }), res);
+    assert.equal(res.status, 500, '写盘失败必须回非 2xx，手机才不会把这一行划掉');
+    assert.equal(res.body.ok, false);
+    assert.equal(approvalMemory.hasRule('write:lib'), true, '盘上这条必须还在，重启后仍生效');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test.after(() => { clearRules(); });

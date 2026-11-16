@@ -68,4 +68,4 @@
 - **官方**：本目录，随 `dsh-mobile-plugin` 发版，登记在 `catalog.json`；
 - **第三方插件**：作者自己的插件里声明 `dshMobileExtensions`，用户自己装插件、自己承担；
 - **本地开发包**：作者电脑上的 `$DSH_HOME/extension-dev`（走 `/extension/dev/*`），边写边看，
-  只能手动导入、界面标「本地」。
+  手机上打开开发者模式就自动跟，界面标「本地」。
