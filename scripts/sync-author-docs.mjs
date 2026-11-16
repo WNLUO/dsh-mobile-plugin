@@ -2,7 +2,7 @@
 /**
  * 作者文档与样例的同步。
  *
- * 唯一来源是独立仓库 `dsh-mobile-extensions` 的 `docs/`：`extension-authoring.md` 与
+ * 唯一来源是 `dsh-mobile-extensions` 的 `docs/`：`extension-authoring.md` 与
  * `extension-sample/`。插件包随 npm 发出去时要带上这两份（写扩展的人只装这个包、不翻
  * 维护者的仓库），所以发版前把它们从那个仓库同步进本包的 `docs/`、跟着提交。
  *
@@ -11,8 +11,9 @@
  *   node scripts/sync-author-docs.mjs --require-source
  *                                               --check 模式下来源不在也判红（默认跳过）
  *
- * 来源目录：`$DSH_EXTENSIONS_DOCS`（仓库根或它的 docs/ 都行），否则试同级的
- * `dsh-mobile-extensions` 检出。同步方向只有一个：来源 → 本包，别反向手改。
+ * 来源目录：`$DSH_EXTENSIONS_DOCS`（仓库根或它的 docs/ 都行），否则按顺序试本仓顶层的
+ * `dsh-mobile-extensions/`、主仓库同级的同名检出。同步方向只有一个：来源 → 本包，
+ * 别反向手改。
  */
 
 import { createHash } from 'node:crypto';
@@ -35,11 +36,14 @@ function log(text) {
   process.stdout.write(`${text}\n`);
 }
 
-/** 来源仓库根：env 优先，否则同级检出。都没有就回 null。 */
+/** 来源仓库根：env 优先，否则本仓顶层的检出、再退回主仓库同级的检出。都没有就回 null。 */
 function resolveSourceRoot() {
   const fromEnv = process.env.DSH_EXTENSIONS_DOCS;
   const candidates = [];
   if (fromEnv) candidates.push(fromEnv);
+  // 来源仓库已并入主仓库顶层（与 dsh-mobile-plugin 平级）；同级那条留给单独检出本插件包
+  // 的人 —— 公开仓库跑预检时本来就没有来源，走的是下面那个「跳过」分支。
+  candidates.push(path.resolve(PLUGIN, '../dsh-mobile-extensions'));
   candidates.push(path.resolve(PLUGIN, '../../dsh-mobile-extensions'));
   for (const candidate of candidates) {
     const docsDir = path.join(candidate, 'docs');
@@ -141,7 +145,7 @@ if (MODE_CHECK) {
   }
   const diffs = diffAgainstSource(srcDocs);
   if (diffs.length) {
-    log(`✘ 作者文档/样例与本仓库对不上（共 ${diffs.length} 处）：`);
+    log(`✘ 作者文档/样例与本包 docs/ 对不上（共 ${diffs.length} 处）：`);
     for (const diff of diffs.slice(0, 12)) log(`    ${diff}`);
     log('  跑 node scripts/sync-author-docs.mjs 同步，再把改动一起提交。');
     process.exit(1);
