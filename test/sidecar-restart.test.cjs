@@ -413,3 +413,21 @@ test('轮询自己写上去的 error 必须自愈，配置/重启失败的 error
   const restart = flat(src.slice(src.indexOf('const restartSidecar'), src.indexOf('const onTunnelUp')))
   assert.match(restart, /stateFromPoll = false sidecarState = `error:/, '重启失败必须标明「不是轮询写的」')
 })
+
+test('首次起不来会自动重试一次，不用人点重启（Windows 冷启动撞上启动预算时）', () => {
+  const src = read(LIFECYCLE)
+  const botAt = src.indexOf('const boot = async () => {')
+  assert.ok(botAt > 0, 'start() 里应有一段可重试的 boot —— 起一次就放弃等于把瞬态问题钉成永久故障')
+  const block = src.slice(botAt, src.indexOf('void boot()', botAt))
+  assert.match(block, /catch \(error\)/, 'boot 必须接住首次启动失败，才有机会重试')
+  assert.match(block, /await restartSidecar\(\)/, '首次起不来要自动重启一次（restartSidecar 负责重新 fork 并重下发配置）')
+})
+
+test('启动超时给足冷启动预算，且超时要收掉子进程（不留占端口的孤儿）', () => {
+  const src = read(path.join(PKG_DIR, 'lib', 'sidecar-facade.cjs'))
+  const m = src.match(/const STARTUP_TIMEOUT_MS = ([\d_]+)/)
+  assert.ok(m, '启动超时要是一个具名常量，别再写死 5000 —— 那对 Windows 冷启动太紧')
+  const ms = Number(m[1].replace(/_/g, ''))
+  assert.ok(ms >= 15000, `启动预算要留够 Windows 冷启动，当前只有 ${ms}ms`)
+  assert.match(src, /child\.kill\('SIGKILL'\)/, '启动失败必须杀掉子进程，否则超时留下一个占着端口的孤儿')
+})
