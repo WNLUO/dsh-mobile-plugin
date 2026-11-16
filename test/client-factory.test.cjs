@@ -524,7 +524,11 @@ function createEnv(options = {}) {
         for (const name of list) child[name] = services[name];
         callback(child);
       },
-      ...(services ? { get: (name) => services[name] } : {}),
+      // 真机上本插件是 immediately 档，apply 那一刻 ctx.get 还看不见宿主后提供的服务；
+      // hiddenGet 用来钉住「定位只能靠 inject 拿到的子 ctx，不能退回 ctx.get」。
+      ...(services ? { get: (name) => (options.hiddenGet || []).includes(name) ? undefined : services[name] } : {}),
+      // uiWorkspace 是宿主合并进来的全局服务，不走 inject；聊天嵌入页的定位靠它打开会话。
+      ...(options.uiWorkspace ? { uiWorkspace: options.uiWorkspace } : {}),
     };
     plugin.apply(ctx);
     assert.equal(registrations.length, 2, 'apply 注册设置那一项与侧边栏那颗图标');
@@ -2125,4 +2129,125 @@ test('方向二：拿不到 sessions 服务时一条台账请求都不发', asyn
   await settle();
   await env.timers.tick(2000);
   assert.equal(syncCalls(env).filter((c) => String(c.url).endsWith(READ_RECEIPT_ENDPOINT)).length, 0);
+});
+
+/* ── 聊天嵌入页：按页面注入的目标打开会话 ─────────────────────────────────
+ * 没选工作区时官方整页停在欢迎页，压根没有会话行可点。现在页面只写下一个全局目标，
+ * 客户端等会话清单出现它再打开。这里钉三件事：退订要赶在打开之前（否则通知重入栈溢出）、
+ * 只开一次、回报的 kind 与 located 与 App 那份守卫对得上。
+ */
+
+/** 一份可发布变更的会话清单，带订阅者计数。 */
+function targetSessions(byId = {}) {
+  let snapshot = { byId };
+  let listeners = [];
+  return {
+    list: {
+      getSnapshot: () => snapshot,
+      subscribe(fn) {
+        listeners.push(fn);
+        return () => { listeners = listeners.filter((entry) => entry !== fn); };
+      },
+      publish(next) {
+        snapshot = { byId: next };
+        for (const fn of [...listeners]) fn();
+      },
+      get listenerCount() { return listeners.length; },
+    },
+  };
+}
+
+/** 建好但先不物化的环境：要在 run() 之前把全局目标与 WebView 桥挂进沙箱。 */
+function embedEnv({ sessions, uiWorkspace, target, hiddenGet }) {
+  const env = createEnv({ services: { sessions, uiWorkspace }, uiWorkspace, hiddenGet });
+  const reports = [];
+  env.sandbox.window.ReactNativeWebView = {
+    postMessage(raw) { reports.push(JSON.parse(raw)); },
+  };
+  if (target !== undefined) env.sandbox.__DSH_CHAT_EMBED_TARGET__ = target;
+  return { env, reports };
+}
+
+test('聊天嵌入页：清单服务靠 inject 等到，不靠 apply 时还看不见的 ctx.get', () => {
+  const sessions = targetSessions({ 'target-3': { id: 'target-3' } });
+  const opened = [];
+  const uiWorkspace = { openSession: (id) => { opened.push(id); } };
+  const { env, reports } = embedEnv({
+    sessions,
+    uiWorkspace,
+    target: { sessionId: 'target-3' },
+    hiddenGet: ['sessions', 'uiWorkspace'],
+  });
+  env.run();
+  assert.deepEqual(opened, ['target-3'], 'ctx.get 看不见服务时仍要靠 inject 拿到子 ctx 打开会话');
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-3', located: true }]);
+});
+
+test('聊天嵌入页：清单出现目标后退订再打开一次，并按原 kind 回报成功', () => {
+  const sessions = targetSessions();
+  const opened = [];
+  const { env, reports } = embedEnv({
+    sessions,
+    uiWorkspace: { openSession: (id) => { opened.push(id); } },
+    target: { sessionId: 'target-1' },
+  });
+  env.run();
+  assert.equal(sessions.list.listenerCount, 1, '目标还没进清单就先订阅');
+  assert.deepEqual(reports, [], '没定位到之前不许回报，免得 App 当成失败盖住整页');
+
+  sessions.list.publish({ 'target-1': { id: 'target-1' } });
+  assert.deepEqual(opened, ['target-1']);
+  assert.equal(sessions.list.listenerCount, 0, '打开之前必须先退订，否则会被再次通知顶回自己');
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-1', located: true }]);
+
+  sessions.list.publish({ 'target-1': { id: 'target-1' } });
+  assert.deepEqual(opened, ['target-1'], '退订之后再来通知也不许开第二次');
+  assert.equal(reports.length, 1);
+});
+
+test('聊天嵌入页：清单里已经有目标时立刻打开，不等下一次通知', () => {
+  const sessions = targetSessions({ 'target-2': { id: 'target-2' } });
+  const opened = [];
+  const { env, reports } = embedEnv({
+    sessions,
+    uiWorkspace: { openSession: (id) => { opened.push(id); } },
+    target: { sessionId: 'target-2' },
+  });
+  env.run();
+  assert.deepEqual(opened, ['target-2']);
+  assert.equal(sessions.list.listenerCount, 0);
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'target-2', located: true }]);
+});
+
+test('聊天嵌入页：等不到目标就回报定位失败，让 App 露出重试而不是停在欢迎页', async () => {
+  const sessions = targetSessions();
+  const opened = [];
+  const { env, reports } = embedEnv({
+    sessions,
+    uiWorkspace: { openSession: (id) => { opened.push(id); } },
+    target: { sessionId: 'never' },
+  });
+  env.run();
+  assert.deepEqual(reports, []);
+  await env.timers.tick(9000);
+  assert.deepEqual(opened, []);
+  assert.equal(sessions.list.listenerCount, 0);
+  assert.deepEqual(reports, [{ kind: 'dsh-chat-embed', sessionId: 'never', located: false }]);
+});
+
+test('聊天嵌入页：没有目标或服务没就位时安静跳过，不回报也不抛', () => {
+  const sessions = targetSessions();
+  const uiWorkspace = { openSession: () => { throw new Error('不该走到这里'); } };
+  // 没有目标：回报桥一旦被调用就让测试红。
+  const none = embedEnv({ sessions, uiWorkspace, target: undefined });
+  none.env.sandbox.window.ReactNativeWebView.postMessage = () => { throw new Error('没有目标不该回报'); };
+  none.env.run();
+  assert.equal(sessions.list.listenerCount, 0);
+  assert.deepEqual(none.reports, []);
+
+  // 有目标但 uiWorkspace 没挂上：整条安静降级，不能炸掉 apply 里后面那些注册。
+  const noClient = createEnv({ services: { sessions: targetSessions() } });
+  noClient.sandbox.__DSH_CHAT_EMBED_TARGET__ = { sessionId: 'orphan' };
+  noClient.run();
+  assert.equal(noClient.registrations.length, 2);
 });
