@@ -90,3 +90,106 @@ test('没有 web 端口时 resolve 抛 service-unavailable（调用方回 503）
     fs.rmSync(pluginsRoot, { recursive: true, force: true });
   }
 });
+
+/**
+ * 取数通道的现场记录（`~/.dsh/mobile-extension-data.log`）。
+ *
+ * 加它是因为真机上「前端出来了、取数全失败」这一类现象，从手机屏幕上只能看到一句
+ * `failed to fetch`：断在 App 根本没发过来、服务没登记、路径不在 allow、还是目标服务自己
+ * 回了 4xx/5xx，全分不出来。每一发落一行之后，看一眼日志就知道断在哪一格。
+ */
+function readLog(home) {
+  const file = path.join(home, 'mobile-extension-data.log');
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
+}
+
+function fakeRes() {
+  const res = { status: 0, text: '' };
+  res.writeHead = (status) => { res.status = status; };
+  res.end = (payload) => { res.text = String(payload); };
+  return res;
+}
+
+/** 跑一发 handler，全程把 DSH_HOME 指到临时目录，好读回那行记录。 */
+async function withHome(home, run) {
+  const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previous;
+  }
+}
+
+test('没登记的服务：回 404，并落一行 service-unknown（带服务名、路径、设备）', async () => {
+  const pluginsRoot = makeTmp();
+  const home = makeTmp();
+  try {
+    makePlugin(pluginsRoot, 'some-plugin', {});
+    const res = fakeRes();
+    await withHome(home, () => extensionData.handleExtensionData(
+      fakeCtx(pluginsRoot),
+      { body: { service: 'nope', path: '/api/nope/state' }, __dshRecord: { deviceId: 'd1' } },
+      res,
+    ));
+    assert.equal(res.status, 200, '回包形状固定是 200（失败信息在正文里）');
+    assert.equal(JSON.parse(res.text).code, 'service-unknown');
+    const lines = readLog(home);
+    assert.equal(lines.length, 1, '一发一行');
+    assert.equal(lines[0].code, 'service-unknown');
+    assert.equal(lines[0].service, 'nope');
+    assert.equal(lines[0].path, '/api/nope/state', '拒绝也要记下页面想打哪儿');
+    assert.equal(lines[0].device, 'd1');
+  } finally {
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('路径不在 allow 里：回 403 path-not-allowed，日志同样落一行', async () => {
+  const pluginsRoot = makeTmp();
+  const home = makeTmp();
+  try {
+    makePlugin(pluginsRoot, 'dsh-email-plugin', {
+      dshMobileDataServices: [{ service: 'dsh-email', allow: ['/api/dsh-email/'] }],
+    });
+    const res = fakeRes();
+    await withHome(home, () => extensionData.handleExtensionData(
+      fakeCtx(pluginsRoot),
+      { body: { service: 'dsh-email', path: '/api/other/x' } },
+      res,
+    ));
+    assert.equal(JSON.parse(res.text).code, 'path-not-allowed');
+    assert.equal(readLog(home)[0].code, 'path-not-allowed');
+  } finally {
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('请求走到了目标服务那一步：日志带 upstream 状态码（目标连不上记 0）', async () => {
+  const pluginsRoot = makeTmp();
+  const home = makeTmp();
+  try {
+    makePlugin(pluginsRoot, 'dsh-email-plugin', {
+      dshMobileDataServices: [{ service: 'dsh-email', allow: ['/api/dsh-email/'] }],
+    });
+    // 端口 1 一定没人监听：这就是「插件路由没响应 / 目标服务不在」那一格。
+    const res = fakeRes();
+    await withHome(home, () => extensionData.handleExtensionData(
+      fakeCtx(pluginsRoot, { port: 1 }),
+      { body: { service: 'dsh-email', path: '/api/dsh-email/state' } },
+      res,
+    ));
+    const lines = readLog(home);
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].upstream, 0, '连不上目标时记 0，而不是假装成功');
+    assert.equal(lines[0].code, 'upstream-unreachable');
+    assert.equal(lines[0].method, 'GET');
+  } finally {
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
