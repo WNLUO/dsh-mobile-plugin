@@ -24,7 +24,9 @@ const {
   handlePluginCatalog,
   parseQuery,
   normalizeItem,
+  REGISTRY_SOURCE,
   __setFetchForTests,
+  __setReadFileForTests,
   __setClockForTests,
   __resetForTests,
   CACHE_TTL_MS,
@@ -352,7 +354,7 @@ test('两个源都失败：回 catalog-unavailable，message 把每个源的原�
 
 test('query 清洗：缺省、上限、认不出的值退回缺省', () => {
   const defaults = parseQuery(new URLSearchParams());
-  assert.deepEqual(defaults, { q: '', category: 'all', sort: 'downloads', dir: 'desc', offset: 0, limit: 20 });
+  assert.deepEqual(defaults, { q: '', category: 'all', sort: 'downloads', dir: 'desc', offset: 0, limit: 20, which: 'community' });
 
   const clamped = parseQuery(new URLSearchParams('limit=500&offset=-3&sort=banana&dir=sideways&category='));
   assert.equal(clamped.limit, LIMIT_MAX, 'limit 超过 60 要夹回 60');
@@ -369,7 +371,11 @@ test('query 清洗：缺省、上限、认不出的值退回缺省', () => {
   assert.equal(parseQuery(new URLSearchParams(`q=${'a'.repeat(300)}`)).q.length, 100);
   // 分类与排序/方向按值收
   const kept = parseQuery(new URLSearchParams('q=Theme&category=ui&sort=stars&dir=asc'));
-  assert.deepEqual(kept, { q: 'theme', category: 'ui', sort: 'stars', dir: 'asc', offset: 0, limit: 20 });
+  assert.deepEqual(kept, { q: 'theme', category: 'ui', sort: 'stars', dir: 'asc', offset: 0, limit: 20, which: 'community' });
+  // 需求变更（2026-11-18）：宿主新增「我们自己的手机扩展市场」目录源，App 用 source=registry
+  // 选它；缺省仍是社区清单。parseQuery 因此多返回一个 which 字段，上面两条 deepEqual 随之补格。
+  assert.equal(parseQuery(new URLSearchParams('source=registry')).which, 'registry');
+  assert.equal(parseQuery(new URLSearchParams('source=bogus')).which, 'community');
 });
 
 test('搜索：命中名字 / 作者 / 说明都算，且大小写不敏感', async () => {
@@ -581,4 +587,47 @@ test('拿到的清单空（一条可用的都没有）当成源失败，继续�
   assert.equal(status, 200);
   assert.equal(body.source, INDEX_URL);
   assert.equal(calls.length, 3);
+});
+
+// ---------------------------------------------------------------------------
+// 需求变更（2026-11-18 → 再调整）：我们自己的手机扩展市场目录源，随插件包发版、从包内文件读。
+// ---------------------------------------------------------------------------
+
+test('source=registry 读包内清单，不走网络，且不与社区清单共用缓存', async () => {
+  const registryDoc = {
+    categories: { tools: { en: 'Tools' } },
+    plugins: [{ name: 'Magpie', url: 'https://github.com/WNLUO/dsh-magpie-plugin',
+      description: { en: 'Magpie.' }, npm: 'dsh-magpie-plugin', category: 'tools' }],
+  };
+  const { fetchImpl, calls } = makeFetch({ [AWESOME_URL]: [jsonResponse(awesomeDocument())] });
+  __setFetchForTests(fetchImpl);
+  const readCalls = [];
+  __setReadFileForTests(async (file, encoding) => {
+    readCalls.push(file);
+    assert.equal(file, REGISTRY_SOURCE.file, 'registry 读的是包内那个文件');
+    assert.equal(encoding, 'utf8');
+    return JSON.stringify(registryDoc);
+  });
+
+  const community = await call();
+  const registry = await call('source=registry');
+  assert.equal(community.body.source, AWESOME_URL);
+  assert.equal(registry.body.source, REGISTRY_SOURCE.url, 'registry 来源标识是包内清单');
+  assert.equal(registry.body.items[0].name, 'Magpie');
+  assert.equal(registry.body.items[0].installSpec, 'dsh-magpie-plugin', '安装目标走 npm 包');
+  assert.deepEqual(calls, [AWESOME_URL], 'registry 不发任何网络请求');
+
+  // 再各取一次：两份缓存各自命中，不再读盘、不再发请求。
+  await call();
+  await call('source=registry');
+  assert.deepEqual(calls, [AWESOME_URL], '社区清单只拉一次');
+  assert.equal(readCalls.length, 1, '包内清单只读一次，后续走缓存');
+});
+
+test('包内清单读不到 / 不是 JSON 时回 catalog-unavailable，不连累社区清单', async () => {
+  __setReadFileForTests(async () => { throw new Error('ENOENT'); });
+  const res = await call('source=registry');
+  assert.equal(res.status, 503);
+  assert.equal(res.body.error.code, 'catalog-unavailable');
+  assert.match(res.body.error.message, /读不到包内清单/);
 });

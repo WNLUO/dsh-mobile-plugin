@@ -1,0 +1,45 @@
+# 扩展市场清单的定时扫描。
+#
+# 每天核对一次 entries/ 里每个仓库：还在不在、有没有归档、包里还带不带手机扩展声明。
+# 只报告、不自动改条目 —— 失效的由维护者确认后再处理。清单随插件发版，
+# 所以扫描发现失效后，改动要等下一次发插件版才到用户手里。
+# 匿名访问 GitHub API 有限流，配 GITHUB_TOKEN 走 CI 自带的即可。
+
+name: 扩展清单扫描
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: extension-registry-scan
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: 扫描投稿条目
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 扫描所有仓库
+        id: scan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          node extension-registry/scripts/scan.mjs --json > scan-result.json
+          code=$?
+          set -e
+          echo '### 扩展清单扫描' >> "$GITHUB_STEP_SUMMARY"
+          node -e '
+            const r = require("./scan-result.json");
+            const bad = r.filter(x => !x.ok);
+            if (!bad.length) { console.log("全部 " + r.length + " 条正常。"); process.exit(0); }
+            console.log("失效 " + bad.length + " / " + r.length + " 条：");
+            for (const x of bad) console.log("- " + x.name + "：" + x.reason);
+          ' >> "$GITHUB_STEP_SUMMARY"
+          echo "scan_exit=$code"

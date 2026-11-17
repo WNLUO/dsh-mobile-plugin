@@ -54,6 +54,7 @@
     "icon.png",
     "skills/**",
     "extensions/**",
+    "extension-registry/index.json",
     "docs/extension-authoring.md",
     "docs/chat-embed.md",
     "docs/extension-sample/**",

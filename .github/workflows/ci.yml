@@ -1,0 +1,31 @@
+# 移动端插件的持续集成。
+#
+# 重点是给「扩展市场清单」的投稿 PR 把门：条目形状不对、index.json 没重新生成，
+# 都在这里挡下。守卫是纯 Node、无依赖，不需要 pnpm install。
+# 发版那条独立的 publish.yml 会在打 tag 时跑完整 npm test 再发布。
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: plugin-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  extension-registry:
+    name: 扩展市场清单守卫
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 投稿条目形状 / 索引合法性守卫
+        run: node --test extension-registry/scripts/test-registry.mjs
+      - name: index.json 与 entries 一致
+        run: node extension-registry/scripts/build.mjs --check

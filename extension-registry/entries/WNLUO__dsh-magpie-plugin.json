@@ -1,0 +1,19 @@
+{
+  "name": "dsh-magpie-plugin",
+  "repo": "https://github.com/WNLUO/dsh-magpie-plugin",
+  "owner": "WNLUO",
+  "title": {
+    "en": "Magpie",
+    "zh": "Magpie"
+  },
+  "description": {
+    "en": "Open magpie's own interface on your phone; the host starts the local magpie web service on demand.",
+    "zh": "在手机上打开 magpie 自己的界面，宿主按需拉起本机的 magpie 网页服务。"
+  },
+  "category": "tools",
+  "npm": "dsh-magpie-plugin",
+  "version": "0.1.1",
+  "icon": "https://raw.githubusercontent.com/WNLUO/dsh-magpie-plugin/main/extensions/magpie/icons/icon-512.png",
+  "capabilities": ["host.data"],
+  "added": "2026-11-18"
+}

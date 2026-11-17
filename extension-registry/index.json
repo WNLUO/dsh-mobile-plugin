@@ -1,0 +1,39 @@
+{
+  "title": "DSH Mobile Extension Market",
+  "categories": {
+    "tools": {
+      "en": "Tools",
+      "zh": "工具"
+    }
+  },
+  "plugins": [
+    {
+      "name": "Magpie",
+      "url": "https://github.com/WNLUO/dsh-magpie-plugin",
+      "repository": {
+        "url": "https://github.com/WNLUO/dsh-magpie-plugin"
+      },
+      "owner": "WNLUO",
+      "title": {
+        "en": "Magpie",
+        "zh": "Magpie"
+      },
+      "description": {
+        "en": "Open magpie's own interface on your phone; the host starts the local magpie web service on demand.",
+        "zh": "在手机上打开 magpie 自己的界面，宿主按需拉起本机的 magpie 网页服务。"
+      },
+      "npm": "dsh-magpie-plugin",
+      "category": "tools",
+      "stars": 0,
+      "downloads": null,
+      "icon": "https://raw.githubusercontent.com/WNLUO/dsh-magpie-plugin/main/extensions/magpie/icons/icon-512.png",
+      "screenshots": [],
+      "capabilities": [
+        "host.data"
+      ],
+      "added": "2026-11-18",
+      "installTarget": "dsh-magpie-plugin",
+      "version": "0.1.1"
+    }
+  ]
+}
