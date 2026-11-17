@@ -27,12 +27,26 @@ test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () =
   const card = read('components/PairingCard.tsx');
   assert.match(card, /useState\(\{ relay: false \}\)/);
   // 二维码整块是一个方形入口：点它直接开放大弹窗（「显示」与「放大」合并），
-  // 卡片本体不再内嵌码图（防窥屏，也省高度）。高度由右侧三行撑起来（self-stretch aspect-square）。
+  // 卡片本体不再内嵌码图（防窥屏，也省高度）。
+  // 2026-11-17 需求变更：配对卡与插件更新并排、等高。原先 `lg:self-stretch` 让方块按右侧
+  // 内容反推高度，挪进窄栏后被拉成竖条；改成宽度定死 150 + aspect-square 恒为方形、顶对齐，
+  // 卡片多出来的高度交给右侧三行铺开（见 Props.fill）。这里改钉「恒方形」而不是旧的拉伸法。
   assert.match(card, /onClick=\{\(\) => setQrZoom\(true\)\}/);
-  assert.match(card, /aspect-square[\s\S]{0,160}lg:self-stretch/);
+  assert.match(card, /aspect-square[\s\S]{0,220}sm:w-\[150px\]/);
+  assert.doesNotMatch(card, /lg:self-stretch|lg:w-auto/);
   assert.match(card, /panel\.pairing\.qrHidden/);
   assert.equal((card.match(/dangerouslySetInnerHTML/g) ?? []).length, 1, '二维码 SVG 只在放大弹窗里渲染');
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
+});
+
+test('配对卡与插件更新并排等高：配对卡撑满、内部铺开，比例 6:4', () => {
+  const app = read('Console.tsx');
+  const card = read('components/PairingCard.tsx');
+  assert.match(app, /md:grid-cols-5[^>]*>\s*<div className="md:col-span-3">\s*<PairingCard\s+fill/, '左栏 6 成且配对卡 fill 撑满');
+  assert.match(app, /md:col-span-2">\s*<UpdateCard/, '右栏 4 成放插件更新');
+  assert.match(app, /items-stretch/, '两卡等高');
+  assert.match(card, /fill \? 'flex h-full min-h-0 flex-col'/, 'fill 时卡片全高');
+  assert.match(card, /fill \? 'justify-around'/, '信息行在撑满的卡里铺开，不在底下留空');
 });
 
 test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且不改默认隐藏', () => {

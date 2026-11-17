@@ -12,7 +12,6 @@
  * 跑」（父窗口收起时会通知，见 `lib/embed-visibility.ts`），别写回裸的 `document.hidden`。
  */
 // 控制台按实际状态报告就绪，二维码失败可单独重试并清除旧错误。
-// 远程电脑管理与网页版面板复用同一张卡片。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -22,9 +21,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
+import { PanelWindowActions } from './components/PanelWindowActions.tsx'
 import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
-import { RemoteComputersCard } from './components/RemoteComputersCard.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
@@ -431,6 +430,8 @@ export function Console() {
           <Button variant="ghost" size="sm" disabled={busy !== ''} onClick={() => void reconnect()}>
             {t('panel.pairing.reconnect')}
           </Button>
+          {/* 内嵌窗的窗口操作（浏览器打开 / 关闭）画在页面里，动作交回外壳执行。 */}
+          <PanelWindowActions />
         </div>
       </header>
 
@@ -444,32 +445,39 @@ export function Console() {
 
       {/*
         内容区自上而下：
-        1. 顶部两栏——左边「配对与二维码」收成一张入口卡（点开才弹窗，二维码在里面放大好扫），
-           右边「远程电脑」。绑定完设备后基本不看配对，不再让它独占一整行。
+        1. 顶栏两栏（2026-11-17 定）：左边 6 成「配对与二维码」（点开才弹窗，二维码在里面
+           放大好扫），右边 4 成「插件更新」。两卡等高、跟着内容多的更新卡走，配对卡用
+           `fill` 撑满并把三行地址铺开，矮卡下面不留空。窄屏收成单列。原先这一行的
+           「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
         2. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
            设备再多也在卡内滚动。
         3. 其余维护类卡片按瀑布式几列铺开。
         整页滚动，不做单栏 sticky、也不套内滚动条。
       */}
       <div className="grid grid-cols-1 gap-3">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <PairingCard
-            status={status}
-            pairing={pairing}
-            addressBook={addresses}
-            busy={busy}
-            error={pairingError}
-            restartError={status.sidecar.restartError}
-            onOpenConfig={() => setConfigOpen(true)}
-            onChangePolicy={(policy) => void savePolicy(policy)}
-            onChangeTier={(tier) => void savePairingTier(tier)}
-            onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
-            onOpenSelfCheck={() => setSelfCheckOpen(true)}
-            onRetryPairing={() => void loadPairing()}
-            onSavePreferred={(address) => void savePreferredLanAddress(address)}
-            onEditPort={() => setPortOpen(true)}
-          />
-          <RemoteComputersCard />
+        <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-5">
+          <div className="md:col-span-3">
+            <PairingCard
+              fill
+              status={status}
+              pairing={pairing}
+              addressBook={addresses}
+              busy={busy}
+              error={pairingError}
+              restartError={status.sidecar.restartError}
+              onOpenConfig={() => setConfigOpen(true)}
+              onChangePolicy={(policy) => void savePolicy(policy)}
+              onChangeTier={(tier) => void savePairingTier(tier)}
+              onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
+              onOpenSelfCheck={() => setSelfCheckOpen(true)}
+              onRetryPairing={() => void loadPairing()}
+              onSavePreferred={(address) => void savePreferredLanAddress(address)}
+              onEditPort={() => setPortOpen(true)}
+            />
+          </div>
+          <div className="md:col-span-2">
+            <UpdateCard version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -496,7 +504,6 @@ export function Console() {
           {status.webAccess?.enabled && status.panelScope !== 'loopback' ? (
             <WebAccessCard webAccess={status.webAccess} busy={busy} onToggle={(on) => void toggleWebAccess(on)} />
           ) : null}
-          <UpdateCard version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
         </div>
       </div>
 

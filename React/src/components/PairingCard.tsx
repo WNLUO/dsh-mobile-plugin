@@ -52,6 +52,8 @@ type Props = {
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
   onEditPort: () => void
+  /** 撑满所在网格单元格（与「插件更新」并排时等高，矮卡下面不留空）。 */
+  fill?: boolean
 }
 
 /**
@@ -106,6 +108,7 @@ export function PairingCard({
   onRetryPairing,
   onSavePreferred,
   onEditPort,
+  fill,
 }: Props) {
   const idle = busy !== ''
   const pairingAllowed = status.pairingPolicy === 'code'
@@ -133,7 +136,7 @@ export function PairingCard({
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   return (
-    <Card frame="solid">
+    <Card frame="solid" className={fill ? 'flex h-full min-h-0 flex-col' : undefined}>
       <CardHeader className="flex-none px-4 py-3">
         <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-base lg:text-lg">
           <span>{t('panel.pairing.cardTitle')}</span>
@@ -160,10 +163,13 @@ export function PairingCard({
         </Alert>
       ) : null}
 
-      <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-stretch">
-        {/* 二维码只用一块方形的入口：高度由右侧三行撑起来（`self-stretch aspect-square`），
-            点它直接开放大弹窗——「显示」与「放大」合成一下，卡片里不再摆真正的码图（也更好防窥屏）。 */}
-        <div className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:w-[150px] sm:max-w-none sm:self-start lg:w-auto lg:self-stretch">
+      <div className={`mt-3 flex flex-col gap-4 sm:flex-row sm:items-stretch ${fill ? 'min-h-0 flex-1' : ''}`}>
+        {/* 二维码只用一块方形的入口：点它直接开放大弹窗——「显示」与「放大」合成一下，
+            卡片里不再摆真正的码图（也更好防窥屏）。
+            宽度固定 150（sm 起）、方形不拉伸：原先按大屏视口断点把宽度交给内容反推，
+            卡片挪进窄栏后视口仍宽、卡片却窄了，反推出一条竖条。现在宽度定死、始终方形；
+            等高时它顶部对齐，不跟着右侧拉高。 */}
+        <div className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:w-[150px] sm:max-w-none sm:self-start">
           {!pairing?.svg ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle">
               {error ? (
@@ -194,7 +200,7 @@ export function PairingCard({
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className={`flex min-w-0 flex-1 flex-col ${fill ? 'justify-around' : ''}`}>
           <div className="hscroll -mx-1 px-1">
           <InfoList className="min-w-max">
             <InfoRow label={t('panel.connection.relayUrl')} nowrap>
