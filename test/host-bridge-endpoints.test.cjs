@@ -231,6 +231,51 @@ test('DeepSeek 账号只开放状态、资料和余额读取', () => {
 });
 
 /**
+ * 网关说「没注册」时，话要指向真正缺的那一格，不能一律说成宿主太老（2026-11-17）。
+ *
+ * 真机事故：手机拨「启用智能体团队协作」，宿主网关回的是方法不存在，插件把它译成
+ * 「当前宿主版本没有提供该能力（需要 DSH 0.2.0 的 typertGateway）」。可请求正是经这个
+ * 网关发出去的，网关显然在；这句话把排查方向带到版本上，而实际可能是某台机器上那个
+ * 插件没加载。码必须仍是 `host-unavailable`（子代理打断的旧接口兜底认的是这个码），
+ * 只有「连网关都没有」才该提版本。
+ */
+function gatewayThatThrows(error) {
+  return {
+    async invoke() { throw error; },
+    async stream() { return Readable.from([]); },
+  };
+}
+
+test('网关说方法没注册：仍回 host-unavailable，但点出缺的是哪个接口、不提版本', async () => {
+  const failure = Object.assign(new Error('no such method'), { code: 'gateway/method-unavailable' });
+  const ctx = { get: (key) => (key === 'typertGateway' ? gatewayThatThrows(failure) : undefined), logger: { warn() {} } };
+  const api = createApiProxy(ctx);
+  const envelope = await api.agentTeams.setEnabled({ rpcId: 'mobile', payload: { sessionId: 's-1', enabled: true } });
+  const error = envelope.result.error;
+  assert.equal(error.code, 'host-unavailable', '兜底判据认的仍是这个码');
+  assert.match(error.message, /agentTeams\/setEnabled/, '要点出缺的是哪一格');
+  assert.doesNotMatch(error.message, /版本/, '网关明明在，不许把问题说成版本');
+});
+
+test('网关说服务没装：同样点名服务，不说版本', async () => {
+  const failure = Object.assign(new Error('service not available'), { code: 'gateway/service-unavailable' });
+  const ctx = { get: (key) => (key === 'typertGateway' ? gatewayThatThrows(failure) : undefined), logger: { warn() {} } };
+  const api = createApiProxy(ctx);
+  const envelope = await api.agentTeams.setEnabled({ rpcId: 'mobile', payload: { sessionId: 's-1', enabled: true } });
+  assert.equal(envelope.result.error.code, 'host-unavailable');
+  assert.match(envelope.result.error.message, /agentTeams\/setEnabled/);
+  assert.doesNotMatch(envelope.result.error.message, /版本/);
+});
+
+test('连网关都没有时，才说宿主没提供这个网关', async () => {
+  const ctx = { get: () => undefined, logger: { warn() {} } };
+  const api = createApiProxy(ctx);
+  const envelope = await api.agentTeams.setEnabled({ rpcId: 'mobile', payload: { sessionId: 's-1', enabled: true } });
+  assert.equal(envelope.result.error.code, 'host-unavailable');
+  assert.match(envelope.result.error.message, /typertGateway/);
+});
+
+/**
  * 子代理打断的两代接口：新宿主只有 `interruptByUser(childSessionId)`，老宿主只有
  * `interruptByParent(childSessionId, parentSessionId, mode)`。
  *
