@@ -34,7 +34,9 @@ type Props = {
 /**
  * 「网络配置」弹窗：这台宿主能被手机摸到的四条地址都在这里改。
  *
- *   ① 中转地址（`relayUrl`）—— 走中转隧道的那一条，右上角一颗「公用中转」开清单；
+ *   ① 中转地址（`relayUrl`）—— 拆成两栏：第一栏「公用中转」是内置地址（只读展示，标题右侧
+ *      一颗「启用 / 停用」切换），第二栏「自建中转」可编辑。2026-11-18 用户要求把公用中转
+ *      内置进来、排在第一个，原「选择公用中转」清单弹窗随之撤掉；
  *   ② 局域网地址（`preferredLanAddress`）—— 网卡候选里「手机优先用哪条」，右上角一颗
  *      「选择地址」开选择弹窗（地址可能好几条，摊在本窗里会把版面撑变形）；
  *   ③ 直连地址（`manualLanUrl`）—— 自己把端口暴露到公网域名 / 公网 IP 时填的那一条；
@@ -44,6 +46,10 @@ type Props = {
  * 后四条都是「直连」的一套候选，彼此并存：拨不通的那条手机自己会换下一条，所以界面不强制
  * 只留一个。地址那一块原来分散在两个弹窗里（局域网直连 / 中转配置），用户要求并到一处，
  * 两个入口各改一半迟早对不上。
+ *
+ * **中转两栏**（2026-11-18 用户要求）：公用内置、排在第一个、只读展示；自建在它下面、可编辑。
+ * 宿主只有 `relayUrl` 一个字段，两栏共用它：标题右侧「启用」把内置地址写进去、「停用」清空
+ * 交回局域网直连，自建栏照旧敲。清单弹窗撤掉后，这两颗按钮就是公用的唯一开关。
  *
  * **一屏两列**（2026-11-01 用户要求）：左列是「经公网的那几条」（设备名 / 中转 / 直连），
  * 右列是「局域网这一侧」（局域网地址 / IPv6 / 允许配对）。默认窗口高度下不出现滚动条 ——
@@ -82,14 +88,11 @@ export function RelayConfigDialog({
   const [preferredLan, setPreferredLan] = useState('')
   /** 这一次开窗里用户动过局域网地址那一栏没有：动过就不再拿地址库去盖。 */
   const [lanHint, setLanHint] = useState('')
-  /** 「公用中转」清单弹窗开着没有。 */
-  const [relayPickerOpen, setRelayPickerOpen] = useState(false)
   /** 「选择局域网地址」弹窗开着没有。 */
   const [lanPickerOpen, setLanPickerOpen] = useState(false)
   /** 「FRP 导入」弹窗开着没有。 */
   const [frpImportOpen, setFrpImportOpen] = useState(false)
-  /** 子弹窗的落焦目标：两个清单都让焦点落在容器上，别一开窗就圈住第一行。 */
-  const relayPickerRef = useRef<HTMLDivElement | null>(null)
+  /** 子弹窗的落焦目标：清单让焦点落在容器上，别一开窗就圈住第一行。 */
   const lanPickerRef = useRef<HTMLDivElement | null>(null)
   /** 弹窗打开时的落焦目标：容器自己，不是第一个输入框（见下面 `initialFocus`）。 */
   const dialogRef = useRef<HTMLDivElement | null>(null)
@@ -113,7 +116,6 @@ export function RelayConfigDialog({
   // 主窗关掉时把两个子弹窗一起收掉：下次开窗不能带着上一轮的清单挡在主窗前面。
   useEffect(() => {
     if (open) return
-    setRelayPickerOpen(false)
     setLanPickerOpen(false)
     setFrpImportOpen(false)
   }, [open])
@@ -141,6 +143,16 @@ export function RelayConfigDialog({
   }, [open, addressBook])
 
   const canSave = busy === ''
+  /**
+   * 当前中转地址用的是哪条内置公用地址（命中清单的那条，没命中就是 null）。
+   *
+   * 面板只认 `relayUrl` 一个字段，公用与自建没有独立的类型位，所以从地址本身判。
+   * 命中内置清单 = 正在用公用：那一栏只读展示、标「使用中」，自建栏留空；
+   * 没命中 = 正在用自建（或都没用）：自建栏照旧可编辑。
+   */
+  const activePublicRelay = PUBLIC_RELAYS.find((item) => item.url === relayUrl.trim()) ?? null
+  /** 宿主判定公用被强制停用（用户配了公网自建）：地址划删除线、禁用「启用」，只如实展示。 */
+  const publicRelayBlocked = status.publicRelayBlocked === true
   /** 直连那两条按宿主口径去掉尾部斜杠：它拼出来的是一条候选 URL，多一个 `/` 就多一条重复项。 */
   const trimUrl = (value: string) => value.trim().replace(/\/+$/, '')
 
@@ -184,25 +196,51 @@ export function RelayConfigDialog({
 
           {/* `tabIndex={-1}` 让容器可以被程序聚焦（且不进 Tab 顺序）。
               套一层 div 是因为 `DialogBody` 不接受 ref。
-              两列、一屏排完：左列经公网、右列局域网这一侧；`max-h` 只是给很矮的窗口兜底。 */}
+              两列一屏：6 个 Field 不手动分左右列，交给 grid 按行自动填（grid-auto-flow: row），
+              这样每项增减都会自动重排、两列行数均衡，不会再出现左边 4 行右边 2 行。
+              `max-h` 只是给很矮的窗口兜底。 */}
           <div ref={dialogRef} tabIndex={-1} className="outline-none">
-            <DialogBody className="grid max-h-[calc(100vh-13rem)] grid-cols-2 items-start gap-x-8 overflow-y-auto">
-              {/* 左列：经公网的那几条 */}
-              <div className="flex flex-col gap-4">
+            <DialogBody className="grid max-h-[calc(100vh-13rem)] grid-cols-2 items-start gap-x-8 gap-y-4 overflow-y-auto">
+              {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。
+                  标题右侧一颗文字按钮切换：当前用公用时显示「停用」，否则显示「启用」。
+                  配了公网自建时宿主会把公用强制停用（status.publicRelayBlocked）：地址划
+                  删除线、禁用「启用」，并说明原因——判据在宿主那一处，这里只如实展示。 */}
                 <Field>
-                  {/* 清单收进弹窗：公用中转以后会变多，摊在主窗里会把整页撑长。 */}
-                  {/* 允许折行：手机宽度下这行标签是三五个词（葡语 "Endereço do relay"），
-                      按钮那边也是整句，并排一行会顶出弹窗右沿、和旁边的字叠在一起。 */}
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel htmlFor="relay-url">{t('panel.connection.relayUrl')}</FieldLabel>
-                    {/* 光写「公用中转」看着像标题；带上动词才知道它是颗按钮。 */}
-                    <Button variant="ghost" size="sm" onClick={() => setRelayPickerOpen(true)}>
-                      {t('panel.relay.choosePublicRelay')}
+                    <FieldLabel>{t('panel.relay.publicKind')}</FieldLabel>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!canSave || publicRelayBlocked}
+                      onClick={() => setRelayUrl(activePublicRelay ? '' : PUBLIC_RELAYS[0].url)}
+                    >
+                      {t(activePublicRelay ? 'panel.relay.disablePublic' : 'panel.relay.enablePublic')}
                     </Button>
                   </div>
+                  <div className="flex flex-col gap-1">
+                    {PUBLIC_RELAYS.map((item) => (
+                      <Input
+                        key={item.url}
+                        inputProps={{
+                          className: `font-mono${publicRelayBlocked ? ' line-through text-foreground-muted' : ''}`,
+                          readOnly: true,
+                          'aria-label': t('panel.relay.publicKind'),
+                        }}
+                        value={item.url}
+                      />
+                    ))}
+                  </div>
+                  {publicRelayBlocked ? (
+                    <p className="text-xs text-foreground-muted">{t('panel.relay.publicBlockedHint')}</p>
+                  ) : null}
+                </Field>
+
+                {/* 第二栏：自建中转。用公用时这里留空；敲入任意非内置地址即视为自建。 */}
+                <Field>
+                  <FieldLabel htmlFor="relay-url">{t('panel.relay.selfKind')}</FieldLabel>
                   <Input
                     inputProps={{ id: 'relay-url', className: 'font-mono' }}
-                    value={relayUrl}
+                    value={activePublicRelay ? '' : relayUrl}
                     placeholder="https://example.com"
                     onChange={(event) => setRelayUrl(event.target.value)}
                   />
@@ -241,12 +279,9 @@ export function RelayConfigDialog({
                     }}
                   />
                 </Field>
-              </div>
 
-              {/* 右列：局域网这一侧 */}
-              <div className="flex flex-col gap-4">
+                {/* 局域网地址：地址可能好几条，可以从清单里挑，也可以直接敲一条。 */}
                 <Field>
-                  {/* 地址可能好几条：可以从清单里挑，也可以直接敲一条（机器多网卡时用得上）。 */}
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
                     <Button variant="ghost" size="sm" onClick={() => setLanPickerOpen(true)}>
@@ -286,7 +321,6 @@ export function RelayConfigDialog({
                     }}
                   />
                 </Field>
-              </div>
             </DialogBody>
           </div>
 
@@ -296,55 +330,6 @@ export function RelayConfigDialog({
             </Button>
             <Button variant="primary" disabled={!canSave} onClick={submit}>
               {t('panel.relay.saveConfig')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* 公用中转清单：点一条就填进输入框并关窗，落盘仍由「保存配置」负责。 */}
-      <Dialog open={relayPickerOpen} onOpenChange={setRelayPickerOpen}>
-        <DialogContent className="w-[min(560px,92vw)]" initialFocus={relayPickerRef}>
-          <DialogHeader>
-            <DialogTitle>{t('panel.onboarding.publicRelay')}</DialogTitle>
-          </DialogHeader>
-          <div ref={relayPickerRef} tabIndex={-1} className="outline-none">
-          <DialogBody className="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto">
-            {PUBLIC_RELAYS.map((item) => {
-              const picked = relayUrl.trim() === item.url
-              return (
-                <button
-                  key={item.url}
-                  type="button"
-                  onClick={() => {
-                    setRelayUrl(item.url)
-                    setRelayPickerOpen(false)
-                  }}
-                  className={`flex w-full items-baseline justify-between gap-3 rounded px-2 py-1.5 text-left ${
-                    picked ? 'bg-background-muted' : 'hover:bg-background-muted'
-                  }`}
-                >
-                  <span className="font-mono text-xs text-foreground">{item.url}</span>
-                  <span className="shrink-0 text-xs text-foreground-muted">
-                    {picked ? t('panel.relay.selected') : t(item.nameKey)}
-                  </span>
-                </button>
-              )
-            })}
-          </DialogBody>
-          </div>
-          <DialogFooter className="flex justify-between gap-2">
-            <Button
-              variant="ghost"
-              disabled={relayUrl.trim() === ''}
-              onClick={() => {
-                setRelayUrl('')
-                setRelayPickerOpen(false)
-              }}
-            >
-              {t('panel.relay.clear')}
-            </Button>
-            <Button variant="outline" onClick={() => setRelayPickerOpen(false)}>
-              {t('panel.common.close')}
             </Button>
           </DialogFooter>
         </DialogContent>

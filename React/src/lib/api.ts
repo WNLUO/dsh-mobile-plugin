@@ -148,6 +148,12 @@ export type StatusView = {
   tunnel: TunnelSnapshot
   /** 手机直连隧道（Tailcat）的状态；老宿主没有这个字段时按「不可用」处理。 */
   tailcat?: TailcatStatus | null
+  /**
+   * 公用中转是否被强制停用（host 判定：用户配了公网可达的自建——自建中转 / 直连 / TCP
+   * 直连，排除局域网与 IPv6）。为真时内置公用地址不可用，面板划删除线、禁用「启用」。
+   * 老宿主没有这一格，读成 undefined 时按未停用处理。
+   */
+  publicRelayBlocked?: boolean
   /** 点对点隧道（P2P）的状态；老宿主没有这个字段时按「不可用」处理。 */
   p2p?: P2PStatus | null
   /** FRP 直连：本地 frpc 进程跑没跑（见 lib/frpc/runner.cjs）；老宿主没有这一格，按 null 处理。 */
@@ -453,6 +459,12 @@ export type DeviceRevokeResult = {
   ok: boolean
   revoked: number
   closed: number
+}
+
+/** `POST /api/relay/devices/history/clear` 的回答：清空了多少条已结束的记录（活设备不动）。 */
+export type HistoryClearResult = {
+  ok: boolean
+  cleared: number
 }
 
 /** `POST /api/relay/devices/permissions` 的回答：落定的档位、展开后的权限位、改了几条记录。 */
