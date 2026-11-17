@@ -1,4 +1,4 @@
-/** 手机切模型只追加会话选择，不保存宿主默认，保留宿主校验与子会话限制。 */
+/** 手机切模型等待服务就绪，只追加会话选择，保留默认隔离与宿主限制。 */
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -72,8 +72,28 @@ test('沿用宿主的会话恢复和子代理限制，不旁路写日志', async
   assert.equal(out.result.error.code, error.code);
   assert.equal(events.length, 1);
 });
-test('宿主不具备会话级选择能力时明确失败，不能退回会改默认的接口', async () => {
+test('宿主服务晚于移动路由就绪时重取服务，成功切换会话', async () => {
+  const { ctx, events } = runtime();
+  const reads = new Map();
+  const api = createApiProxy({ get(key) {
+    const count = (reads.get(key) || 0) + 1;
+    reads.set(key, count);
+    return count === 1 ? undefined : ctx.get(key);
+  } });
+  const out = await api.sessions.selectModel({ payload: choice });
+  assert.equal(out.result.ok, true);
+  assert.deepEqual(events.map(([type]) => type), ['resolve', 'validated', 'selected']);
+});
+test('服务始终未就绪时提示重试，不误报需要升级宿主', async () => {
   const api = createApiProxy({ get: () => undefined });
+  const out = await api.sessions.selectModel({ payload: choice });
+  assert.equal(out.result.ok, false);
+  assert.equal(out.result.error.code, 'host-unavailable');
+  assert.ok(!out.result.error.message.includes('更新版本'));
+});
+test('宿主确实缺少会话选择接口时明确失败，不退回会改默认的接口', async () => {
+  const { ctx } = runtime();
+  const api = createApiProxy({ get: (key) => key === 'sessionController' ? {} : ctx.get(key) });
   const out = await api.sessions.selectModel({ payload: choice });
   assert.equal(out.result.ok, false);
   assert.equal(out.result.error.code, 'host-unsupported');
