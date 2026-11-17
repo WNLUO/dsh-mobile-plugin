@@ -1,3 +1,4 @@
+/** 覆盖更新半途改盘、依赖缺失与旧版重新安装的恢复结果。 */
 'use strict';
 
 /**
@@ -252,6 +253,106 @@ test('安装失败：如实带出退出码与输出，版本保持不变', async
   assert.match(result.failure.message, /7/, '退出码要说出来');
   assert.match(result.failure.message, /boom: 装不了/, '包管理器自己那句话要跟着结论一起出来：面板、手机与日志只显示这一句');
   assert.match(result.output, /boom/, '命令输出要能带出来给人看');
+});
+
+async function partialInstallProbe(label, mode, install = installLatest) {
+  const profile = makeProfile(label, '0.1.60');
+  if (mode === 'strict') {
+    const link = path.resolve(profile.nodeModules, PLUGIN);
+    const target = path.resolve(profile.nodeModules, '.pnpm', 'plugin', 'node_modules', PLUGIN);
+    assert.equal(link, path.resolve(TMP, label, 'node_modules', PLUGIN));
+    assert.ok(target.startsWith(`${path.resolve(profile.nodeModules, '.pnpm')}${path.sep}`));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.renameSync(link, target);
+    fs.symlinkSync(target, link, 'junction');
+  }
+  const pkg = path.join(profile.nodeModules, PLUGIN, 'package.json');
+  const dependency = path.join(profile.nodeModules, PLUGIN, 'node_modules', 'ws');
+  fs.mkdirSync(dependency, { recursive: true });
+  fs.writeFileSync(path.join(dependency, 'package.json'), JSON.stringify({ name: 'ws', version: '8.22.2', main: 'index.js' }));
+  fs.writeFileSync(path.join(dependency, 'index.js'), 'module.exports = {};');
+  fs.writeFileSync(pkg, JSON.stringify({ name: PLUGIN, version: '0.1.60', dependencies: { ws: '8.22.2' } }));
+  const lock = path.join(profile.profileDir, 'pnpm-lock.yaml');
+  fs.writeFileSync(lock, 'version: 0.1.60\n');
+  const binDir = path.join(TMP, `bin-${label}`);
+  fs.mkdirSync(binDir, { recursive: true });
+  const file = path.join(binDir, 'pnpm.cjs');
+  const log = path.join(binDir, 'calls.log');
+  fs.writeFileSync(file, `
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const args = process.argv.slice(2);
+    if (args[0] === '--version') { console.log('11.28.5'); process.exit(0); }
+    fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
+    const version = args[1].split('@').at(-1);
+    if (version === '0.1.60' && process.env.FAKE_INSTALL_MODE === 'restore-fail') process.exit(9);
+    const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    manifest.dependencies['${PLUGIN}'] = version;
+    fs.writeFileSync('package.json', JSON.stringify(manifest));
+    fs.writeFileSync('pnpm-lock.yaml', 'version: ' + version + '\\n');
+    fs.writeFileSync(${JSON.stringify(pkg)}, JSON.stringify({ name: '${PLUGIN}', version, dependencies: { ws: '8.22.2' } }));
+    const entry = ${JSON.stringify(path.join(dependency, 'index.js'))};
+    if (version === '0.1.60') { fs.writeFileSync(entry, 'module.exports = {};'); process.exit(0); }
+    fs.unlinkSync(entry);
+    console.error('ENOENT: ws/index.js');
+    process.exit(process.env.FAKE_INSTALL_MODE === 'incomplete' ? 0 : 7);
+  `);
+  const result = await install({ profileNodeModules: profile.nodeModules, version: '0.2.0',
+    packageManager: { command: process.execPath, args: [file] },
+    env: { ...process.env, FAKE_INSTALL_MODE: mode } });
+  return { result, profile, pkg, dependency, lock, calls: fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse) };
+}
+
+function assertRestored(probe) {
+  assert.equal(probe.result.installed, false);
+  assert.equal(probe.result.rollback.ok, true);
+  assert.equal(probe.result.installedVersion, '0.1.60');
+  assert.equal(JSON.parse(fs.readFileSync(probe.pkg, 'utf8')).version, '0.1.60');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(probe.profile.profileDir, 'package.json'), 'utf8')).dependencies[PLUGIN], '0.1.60');
+  assert.equal(fs.readFileSync(probe.lock, 'utf8'), 'version: 0.1.60\n');
+  assert.ok(fs.existsSync(path.join(probe.dependency, 'index.js')));
+  assert.equal(probe.calls.length, 2);
+  assert.equal(probe.calls[1][1], `${PLUGIN}@0.1.60`);
+  assert.ok(probe.calls[1].includes('--force'), '恢复需要重建已经残缺的依赖');
+}
+
+test('半安装非零退出：同一包管理器恢复旧版、锁文件与缺失依赖', async () => {
+  const probe = await partialInstallProbe('half-install', 'failed');
+  assertRestored(probe);
+  assert.equal(probe.result.failure.code, 'INSTALL_FAILED');
+  assert.match(probe.result.failure.message, /已恢复 0.1.60/);
+});
+
+test('退出码零但必需依赖缺失：不激活半个新版，重新安装旧版', async () => {
+  const probe = await partialInstallProbe('missing-dependency', 'incomplete');
+  assertRestored(probe);
+  assert.equal(probe.result.failure.code, 'INSTALL_INCOMPLETE');
+});
+
+test('pnpm 严格链接布局按插件真实目录核对依赖并恢复旧版', async () => {
+  assertRestored(await partialInstallProbe('strict-layout', 'strict'));
+});
+
+test('旧版恢复也失败时如实保留盘上新版和失败原因', async () => {
+  const { result, calls } = await partialInstallProbe('restore-fails', 'restore-fail');
+  assert.equal(result.installed, false);
+  assert.equal(result.rollback.ok, false);
+  assert.equal(result.installedVersion, '0.2.0');
+  assert.match(result.failure.message, /恢复 0.1.60 失败/);
+  assert.equal(calls.length, 2);
+});
+
+test('变异证明：跳过半安装恢复会被完整旧版断言抓住', async () => {
+  const vm = require('node:vm');
+  const { createRequire } = require('node:module');
+  const file = require.resolve('../lib/update-install.cjs');
+  const source = fs.readFileSync(file, 'utf8');
+  const marker = 'previousComplete && installationProblem(profileNodeModules, name, beforeVersion)';
+  assert.ok(source.includes(marker));
+  const mod = { exports: {} };
+  vm.runInNewContext(source.replace(marker, 'false'), { module: mod, exports: mod.exports, require: createRequire(file), process, URL, Buffer, setTimeout, clearTimeout });
+  const probe = await partialInstallProbe('mutant-restore', 'failed', mod.exports.installLatest);
+  assert.throws(() => assertRestored(probe));
 });
 
 test('失败结论里挑的是 ERR_PNPM / ERROR 那几行，不是进度条', async () => {

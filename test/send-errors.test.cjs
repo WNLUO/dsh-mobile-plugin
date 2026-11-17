@@ -1,3 +1,4 @@
+/** 发送保留模型错误与默认隔离，旧宿主缺少切换接口不阻断普通消息。 */
 'use strict';
 
 /** Mobile send handler: accepted modes pass through and omitted mode defaults at the host bridge. */
@@ -178,11 +179,11 @@ test('source contract: errorDetails guards the spread', () => {
 // App 侧选模型不再单独发 /session/select-model，而是把这一发要用的模型塞进 send 的
 // `modelSelection`；插件必须在提交 prompt 之前把它应用到会话上，且模型不可用时明确回 400。
 
-function ctxWithModel(promptStub, { unavailable = false, resolveError, invalidConfig = false } = {}) {
+function ctxWithModel(promptStub, { unavailable = false, resolveError, invalidConfig = false, missingController = false, missingSelect = false } = {}) {
   const events = [];
-  const agent = { model: { select: (selection) => events.push(['selected', selection]) } };
+  const agent = { model: missingSelect ? {} : { select: (selection) => events.push(['selected', selection]) } };
   const services = {
-    sessionController: { resolveAgent: async (id) => { events.push(['resolve', id]); return resolveError ? { error: resolveError } : { agent }; } },
+    sessionController: missingController ? {} : { resolveAgent: async (id) => { events.push(['resolve', id]); return resolveError ? { error: resolveError } : { agent }; } },
     llm: { listProviders: () => [{ id: 'p' }], listModels: async () => (unavailable ? [] : [{ id: 'B' }]),
       resolveCallConfig: async (selection) => { events.push(['validated', selection]); if (invalidConfig) throw Error('invalid effort'); } },
   };
@@ -236,6 +237,54 @@ test('模型配置无效（如档位不认）时回 400，且不提交 prompt', 
   }), res);
   assert.equal(res.status, 400);
   assert.ok(!events.some(([type]) => type === 'prompt'));
+});
+
+// #70：发送允许旧宿主沿用当前会话模型，独立切换接口仍明确拒绝不支持的操作。
+async function sendOnLegacyHost(send, options) {
+  const { ctx, events } = ctxWithModel(async () => ({ result: { ok: true, value: { accepted: true } } }), options);
+  ctx.get = ((get) => (key) => {
+    if (key === 'agentDefaultModel') return { saveSelection() { throw Error('must not save desktop default'); } };
+    return get(key);
+  })(ctx.get);
+  ctx.apiProxy.sessions.selectModel = () => { throw Error('must not use legacy default-saving selector'); };
+  const res = response();
+  await send(ctx, request({ sessionId: 's-1', text: 'hi', modelSelection: { provider: 'p', model: 'B' } }), res);
+  return { res, events };
+}
+
+for (const options of [{ missingController: true }, { missingSelect: true }]) {
+  test(`旧宿主缺少${options.missingController ? '会话查找' : '模型选择'}接口仍发送普通消息`, async () => {
+    const { res, events } = await sendOnLegacyHost(handleSend, options);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { ok: true, accepted: true });
+    assert.equal(events.filter(([type]) => type === 'prompt').length, 1);
+    assert.ok(!events.some(([type]) => type === 'selected'));
+  });
+}
+
+test('模型服务未就绪或会话恢复失败仍阻止发送', async () => {
+  for (const code of ['host-unavailable', 'session/agent-busy']) {
+    const { ctx, events } = ctxWithModel(async () => { throw Error('must not prompt'); }, { resolveError: { code, message: 'try later' } });
+    const res = response();
+    await handleSend(ctx, request({ sessionId: 's-1', text: 'hi', modelSelection: { provider: 'p', model: 'B' } }), res);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error.code, code);
+    assert.ok(!events.some(([type]) => type === 'prompt'));
+  }
+});
+
+test('变异证明：恢复旧宿主模型切换硬门槛会被发送断言抓住', async () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const { createRequire } = require('node:module');
+  const file = require.resolve('../lib/mobile/session-send.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const marker = "result?.error?.code !== 'host-unsupported' && ";
+  assert.ok(source.includes(marker));
+  const mod = { exports: {} };
+  vm.runInNewContext(source.replace(marker, ''), { module: mod, exports: mod.exports, require: createRequire(file), Buffer, URL });
+  const { res } = await sendOnLegacyHost(mod.exports.handleSend, { missingController: true });
+  assert.throws(() => assert.equal(res.status, 200), { code: 'ERR_ASSERTION' });
 });
 
 test('modelSelection 形状不认识时按“没带”处理，不报错', async () => {

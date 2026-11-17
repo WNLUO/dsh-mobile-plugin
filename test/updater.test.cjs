@@ -1,3 +1,4 @@
+/** 安装失败后的新版不能被换代，盘上状态与恢复结果按实际记录。 */
 'use strict';
 
 /**
@@ -192,6 +193,64 @@ test('换不过来之后：自动不再反复抖同一个版本，手按一次�
   // 人按了一次：那是「我知道，再来一次」的出口。
   await assert.rejects(updater.performUpdate({ runtime, base, updateState, auto: false }));
   assert.equal(reloads, 2);
+});
+
+async function failedInstallProbe(updater, t) {
+  install('0.20.0');
+  const market = await startMarket(() => {
+    install('0.21.0');
+    return { state: 'failed', failure: { code: 'INSTALL_FAILED', message: '缺 ws/index.js' } };
+  });
+  t.after(() => market.server.close());
+  let reloads = 0;
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  const runtime = { status: () => ({ version: '0.20.0' }), reload: async () => { reloads += 1; return { version: '0.21.0' }; } };
+  await updater.performUpdate({ runtime, base: updater.marketBase(market.port), updateState });
+  await updater.reconcileInstalledGeneration({ runtime });
+  return { reloads, updateState };
+}
+
+test('安装失败即便盘上已写成新版也不切换，错误留在更新账本', async t => {
+  const { reloads, updateState } = await failedInstallProbe(await loadUpdater(), t);
+  assert.equal(reloads, 0);
+  assert.equal(updateState.lastApply.state, 'failed');
+  assert.equal(updateState.lastApply.installedVersion, '0.21.0');
+  assert.equal(updateState.lastApply.failure.code, 'INSTALL_FAILED');
+  assert.match(updateState.lastError, /缺 ws/);
+});
+
+test('变异证明：安装失败仍按盘上新版换代会被禁止加载断言识别', async t => {
+  const { pathToFileURL } = require('node:url');
+  const file = path.join(__dirname, '..', 'lib', 'shell', 'updater.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const marker = '!outcome.failure && (outcome.installed === true || newerOnDisk)';
+  assert.ok(source.includes(marker));
+  const broken = source.replace(marker, '(outcome.installed === true || newerOnDisk)')
+    .replaceAll("'./manager.js'", JSON.stringify(pathToFileURL(path.join(path.dirname(file), 'manager.js')).href))
+    .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(pathToFileURL(file).href)})`);
+  const updater = await import(`data:text/javascript;base64,${Buffer.from(broken).toString('base64')}`);
+  const { reloads } = await failedInstallProbe(updater, t);
+  assert.throws(() => assert.equal(reloads, 0), { code: 'ERR_ASSERTION' });
+});
+
+test('安装恢复旧版后账本报告已回退，保留安装错误与实际运行版本', async () => {
+  const pkgDir = install('0.22.0');
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'update-install.cjs'), `
+    exports.installLatestIfNeeded = async () => ({
+      installed: false, skipped: false, beforeVersion: '0.22.0', installedVersion: '0.22.0',
+      failure: { code: 'INSTALL_FAILED', message: '新版依赖不完整；已恢复 0.22.0' },
+      rollback: { ok: true, toVersion: '0.22.0', installedVersion: '0.22.0' }
+    });
+  `);
+  const updater = await loadUpdater();
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  const runtime = { status: () => ({ version: '0.22.0' }), reload: async () => { throw Error('must not reload failed installation'); } };
+  const result = await updater.performUpdate({ runtime, updateState });
+  assert.equal(result.state, 'rolled-back');
+  assert.equal(result.rolledBack, true);
+  assert.equal(result.runningAfterRollback, '0.22.0');
+  assert.equal(result.failure.code, 'INSTALL_FAILED');
+  assert.match(updateState.lastError, /已恢复 0.22.0/);
 });
 
 test('装那步就炸：账也要落，不能只留一句「最近一次更新」还是上一轮', async () => {
