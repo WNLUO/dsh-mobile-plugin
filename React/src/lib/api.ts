@@ -106,6 +106,23 @@ export type TunnelSnapshot = {
   admissionHint?: 'register-secret' | 'instance-allowlist'
 }
 
+/**
+ * FRP 直连的本地 frpc 运行状态（控制面 `/api/relay/status` 的 `frp` 字段）。
+ *
+ * 只回答「本机这半边」：可执行文件在不在、进程跑没跑、起没起来。隧道对端通不通由 frpc 自己
+ * 重试，这一格不替它下结论。
+ */
+export type FrpStatus = {
+  available: boolean
+  running: boolean
+  pid: number | null
+  error: string
+  startedAt: number
+  configPresent: boolean
+  /** frpc 连上后服务端实际分给这条隧道的公网地址（`host:port`）；没读到是空串。 */
+  remoteAddress?: string
+}
+
 export type StatusView = {
   enabled: boolean
   instanceId: string
@@ -133,6 +150,8 @@ export type StatusView = {
   tailcat?: TailcatStatus | null
   /** 点对点隧道（P2P）的状态；老宿主没有这个字段时按「不可用」处理。 */
   p2p?: P2PStatus | null
+  /** FRP 直连：本地 frpc 进程跑没跑（见 lib/frpc/runner.cjs）；老宿主没有这一格，按 null 处理。 */
+  frp?: FrpStatus | null
   lan: {
     enabled: boolean
     port: number
@@ -229,6 +248,13 @@ export type AddressBook = {
    * 不参与 `preferred`。老宿主没有这个字段，读成空串。
    */
   manualIpv6?: string
+  /**
+   * 用户手填的「TCP 直连」目标（设置项 `manualTcpUrl`，形如 `主机:端口`，空串 = 没填）。
+   *
+   * 与上面两条并列：它只决定手机用裸 TCP 拨哪个目标（iOS 经本机回环、安卓直连），不进候选
+   * 顺序。老宿主没有这个字段，读成空串。
+   */
+  manualTcp?: string
   lan: AddressEntry[]
   public: AddressEntry[]
   /**
@@ -490,6 +516,10 @@ export type ConfigPatch = {
    * 手填的 IPv6 直连地址（公网 IPv6 域名或字面量）。空串同样合法，表示「清掉这一条」。
    */
   manualIpv6Url?: string
+  /**
+   * 手填的「TCP 直连」目标（`主机:端口`，可带 `http://` 前缀）。空串同样合法，表示「清掉这一条」。
+   */
+  manualTcpUrl?: string
 }
 
 /**
@@ -660,6 +690,21 @@ export function updatePairingTier(tier: Tier): Promise<StatusView> {
  */
 export function updateApprovalAutoReview(enabled: boolean): Promise<StatusView> {
   return apiPost<StatusView>('/api/relay/config', { approvalAutoReview: enabled })
+}
+
+/**
+ * 导入 frpc 配置并拉起本地 frpc（控制面 `/api/relay/frp/import`）。
+ *
+ * 服务端会把配置里的 `localPort` 对齐到插件实际端口再起进程，所以面板原样把配置文本送上去即可。
+ * 回包里带一份运行状态：起没起来、失败原因，界面据此提示，而不是无脑说「已导入」。
+ */
+export function importFrp(config: string): Promise<{ ok: boolean; status: FrpStatus | null }> {
+  return apiPost('/api/relay/frp/import', { config })
+}
+
+/** 停掉本地 frpc 并清掉「启用」标记（控制面 `/api/relay/frp/stop`）。 */
+export function stopFrp(): Promise<{ ok: boolean; status: FrpStatus | null }> {
+  return apiPost('/api/relay/frp/stop')
 }
 
 /**

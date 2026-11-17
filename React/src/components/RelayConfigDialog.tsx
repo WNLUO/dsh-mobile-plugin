@@ -15,6 +15,7 @@ import type { AddressBook, ConfigPatch, StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
+import { FrpImportDialog } from './FrpImportDialog.tsx'
 
 type Props = {
   open: boolean
@@ -37,9 +38,10 @@ type Props = {
  *   ② 局域网地址（`preferredLanAddress`）—— 网卡候选里「手机优先用哪条」，右上角一颗
  *      「选择地址」开选择弹窗（地址可能好几条，摊在本窗里会把版面撑变形）；
  *   ③ 直连地址（`manualLanUrl`）—— 自己把端口暴露到公网域名 / 公网 IP 时填的那一条；
- *   ④ IPv6 地址（`manualIpv6Url`）—— 手填的公网 IPv6 入口。
+ *   ④ IPv6 地址（`manualIpv6Url`）—— 手填的公网 IPv6 入口；
+ *   ⑤ TCP 直连地址（`manualTcpUrl`）—— 手机用裸 TCP 拨的 `主机:端口`（iOS 经本机回环、安卓直连）。
  *
- * 后三条都是「直连」的一套候选，彼此并存：拨不通的那条手机自己会换下一条，所以界面不强制
+ * 后四条都是「直连」的一套候选，彼此并存：拨不通的那条手机自己会换下一条，所以界面不强制
  * 只留一个。地址那一块原来分散在两个弹窗里（局域网直连 / 中转配置），用户要求并到一处，
  * 两个入口各改一半迟早对不上。
  *
@@ -71,6 +73,8 @@ export function RelayConfigDialog({
   const [manualLanUrl, setManualLanUrl] = useState('')
   /** IPv6 直连地址（`manualIpv6Url`）：用户手填的公网 IPv6 入口。 */
   const [manualIpv6Url, setManualIpv6Url] = useState('')
+  /** TCP 直连地址（`manualTcpUrl`）：用户手填的 `主机:端口`，手机用裸 TCP 拨它。 */
+  const [manualTcpUrl, setManualTcpUrl] = useState('')
   /**
    * 局域网地址（`preferredLanAddress`）：**可手填**，不再只让用户从检测到的那几条里挑。
    * 机器有好几块网卡、想直接敲一条地址时用得上；填错了拦在保存那儿（见 `unknownLan`）。
@@ -82,6 +86,8 @@ export function RelayConfigDialog({
   const [relayPickerOpen, setRelayPickerOpen] = useState(false)
   /** 「选择局域网地址」弹窗开着没有。 */
   const [lanPickerOpen, setLanPickerOpen] = useState(false)
+  /** 「FRP 导入」弹窗开着没有。 */
+  const [frpImportOpen, setFrpImportOpen] = useState(false)
   /** 子弹窗的落焦目标：两个清单都让焦点落在容器上，别一开窗就圈住第一行。 */
   const relayPickerRef = useRef<HTMLDivElement | null>(null)
   const lanPickerRef = useRef<HTMLDivElement | null>(null)
@@ -90,6 +96,7 @@ export function RelayConfigDialog({
   /** 这一次开窗里用户动过手填那两栏没有：动过就不再拿地址库去盖。 */
   const editedLanRef = useRef(false)
   const editedIpv6Ref = useRef(false)
+  const editedTcpRef = useRef(false)
   const editedPreferredRef = useRef(false)
 
   /** 能用的局域网地址（与宿主 `advertisedCandidates` 同口径：有私网就只带私网）。 */
@@ -108,6 +115,7 @@ export function RelayConfigDialog({
     if (open) return
     setRelayPickerOpen(false)
     setLanPickerOpen(false)
+    setFrpImportOpen(false)
   }, [open])
 
   // 地址库是开窗之后才取回来的（App 那边是异步的），所以手填的两条单独跟它走：
@@ -117,12 +125,14 @@ export function RelayConfigDialog({
     if (!open) {
       editedLanRef.current = false
       editedIpv6Ref.current = false
+      editedTcpRef.current = false
       editedPreferredRef.current = false
       setLanHint('')
       return
     }
     if (!editedLanRef.current) setManualLanUrl(addressBook?.manual ?? '')
     if (!editedIpv6Ref.current) setManualIpv6Url(addressBook?.manualIpv6 ?? '')
+    if (!editedTcpRef.current) setManualTcpUrl(addressBook?.manualTcp ?? '')
     if (!editedPreferredRef.current) {
       const candidates = addressBook ? (addressBook.lan.length > 0 ? addressBook.lan : addressBook.public) : []
       setPreferredLan((addressBook?.preferred || '').trim() || (candidates[0]?.address ?? ''))
@@ -144,6 +154,10 @@ export function RelayConfigDialog({
     if (direct !== trimUrl(addressBook?.manual ?? '')) patch.manualLanUrl = direct
     const ipv6 = trimUrl(manualIpv6Url)
     if (ipv6 !== trimUrl(addressBook?.manualIpv6 ?? '')) patch.manualIpv6Url = ipv6
+    // TCP 直连目标是 `主机:端口`（可带 http:// 前缀），空串合法（= 清掉这一条）。格式由宿主的
+    // `tcpDirectTarget` 判，这里只去尾部斜杠，免得同一条存成两种写法。
+    const tcp = trimUrl(manualTcpUrl)
+    if (tcp !== trimUrl(addressBook?.manualTcp ?? '')) patch.manualTcpUrl = tcp
     // 局域网地址：空串是合法值（= 不指定优先哪条）。填了一个本机根本没有的地址就当场拦下 ——
     // 宿主只按「候选里有没有这条」排序，敲错等于白填，界面不能装作存上了。
     const wantedLan = preferredLan.trim()
@@ -203,6 +217,27 @@ export function RelayConfigDialog({
                     onChange={(event) => {
                       editedLanRef.current = true
                       setManualLanUrl(event.target.value)
+                    }}
+                  />
+                </Field>
+
+                <Field>
+                  {/* TCP 直连：手机用裸 TCP 拨的目标（iOS 经本机回环绕 ATS、安卓直连）。
+                      与上面的直连地址是两条独立入口，互不覆盖。右侧「FRP 导入」把 frpc 配置里的
+                      公网入口解析出来直接填进来，省得用户自己算。 */}
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <FieldLabel htmlFor="relay-manual-tcp">{t('panel.address.tcp')}</FieldLabel>
+                    <Button variant="ghost" size="sm" onClick={() => setFrpImportOpen(true)}>
+                      {t('panel.address.frpImport')}
+                    </Button>
+                  </div>
+                  <Input
+                    inputProps={{ id: 'relay-manual-tcp', className: 'font-mono' }}
+                    value={manualTcpUrl}
+                    placeholder={t('panel.address.tcpPlaceholder')}
+                    onChange={(event) => {
+                      editedTcpRef.current = true
+                      setManualTcpUrl(event.target.value)
                     }}
                   />
                 </Field>
@@ -344,6 +379,21 @@ export function RelayConfigDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* FRP 导入：粘一段 frpc 配置，解析出公网入口填回地址栏（tcp 进 TCP 栏、https 进直连栏）。 */}
+      <FrpImportDialog
+        open={frpImportOpen}
+        onOpenChange={setFrpImportOpen}
+        onImport={(result) => {
+          if (result.field === 'tcp') {
+            editedTcpRef.current = true
+            setManualTcpUrl(result.value)
+          } else {
+            editedLanRef.current = true
+            setManualLanUrl(result.value)
+          }
+        }}
+      />
     </>
   )
 }

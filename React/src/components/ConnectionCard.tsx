@@ -11,12 +11,14 @@ import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
 
-import type { P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
+import type { AddressBook, P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone, type Tone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 
 type Props = {
   status: StatusView
+  /** 地址库：TCP 直连这条要从里面读配置的 `manualTcp`（状态接口不带它）。 */
+  addressBook: AddressBook | null
   busy: string
   onToggle: (enabled: boolean) => void
   /** 「管理」那颗：打开 Tailcat 隧道的弹窗（查看 / 开关 / 移除手机）。 */
@@ -87,11 +89,35 @@ function tailcatTone(tailcat: TailcatStatus): Tone {
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, busy, onToggle, onManageTailcat, onManageP2P }: Props) {
+export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTailcat, onManageP2P }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
   const tailcat = status.tailcat ?? null
   const p2p = status.p2p ?? null
+  /** TCP 直连配没配、配的哪条：宿主把它放在地址库的 `manualTcp`（状态接口里没有这一格）。 */
+  const tcpTarget = (addressBook?.manualTcp ?? '').trim()
+  // 本地 frpc 进程跑没跑（宿主 status.frp）。配了地址不等于通了——只有进程真在跑才算这条活了。
+  const frp = status.frp ?? null
+  let tcpTone: Tone
+  let tcpText: string
+  let tcpDetail: string | undefined
+  if (frp?.running) {
+    tcpTone = 'ok'
+    tcpText = t('panel.connection.tcpRunning')
+    tcpDetail = frp.remoteAddress || tcpTarget || undefined
+  } else if (frp?.error) {
+    tcpTone = 'error'
+    tcpText = t('panel.connection.tcpFailed')
+    tcpDetail = frp.error
+  } else if (tcpTarget) {
+    tcpTone = 'warn'
+    tcpText = t('panel.connection.tcpSet')
+    tcpDetail = tcpTarget
+  } else {
+    tcpTone = 'off'
+    tcpText = t('panel.connection.tcpOff')
+    tcpDetail = undefined
+  }
 
   return (
     <Card frame="solid">
@@ -157,6 +183,9 @@ export function ConnectionCard({ status, busy, onToggle, onManageTailcat, onMana
             </span>
           </InfoRow>
         ) : null}
+        <InfoRow label={t('panel.connection.tcp')} tone={tcpTone}>
+          <ToneValue tone={tcpTone} text={tcpText} {...(tcpDetail ? { detail: tcpDetail } : {})} />
+        </InfoRow>
         <InfoRow label={t('panel.connection.sidecar')}>
           <ToneValue
             tone={status.sidecar.state === 'healthy' ? 'ok' : 'warn'}

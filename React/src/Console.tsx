@@ -476,6 +476,7 @@ export function Console() {
           <div ref={connectionRef}>
             <ConnectionCard
               status={status}
+              addressBook={addresses}
               busy={busy}
               onToggle={toggle}
               onManageTailcat={() => setTailcatOpen(true)}
