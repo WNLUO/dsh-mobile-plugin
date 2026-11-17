@@ -356,3 +356,70 @@ test('历史：不带凭据材料，也不写盘', () => {
   assert.ok(!JSON.stringify(row).includes(issued.credential), '原串更不能出现')
   assert.equal(JSON.stringify(raw()), before, '纯读：不落盘')
 })
+
+test('清空历史：只删已结束的记录，活设备与别的实例一条不动', () => {
+  reset();
+  // 本实例三台：一台亲手解绑、一台自然过期、一台活着；外加别的实例一条已解绑的。
+  const dead = credentials.issue(INSTANCE, { deviceId: 'clear-dead' }, '')
+  credentials.revokeDevice(INSTANCE, 'clear-dead')
+  const expired = credentials.issue(INSTANCE, { deviceId: 'clear-expired' }, '')
+  const live = credentials.issue(INSTANCE, { deviceId: 'clear-live' }, '')
+  const other = credentials.issue('other-instance', { deviceId: 'clear-other' }, '')
+  credentials.revokeDevice('other-instance', 'clear-other')
+  // 把过期那台的到期时刻挪到过去（直接改盘再重读，跳过 prune）。
+  const file = raw()
+  file.find((r) => r.deviceId === 'clear-expired').expiresAt = Date.now() - 1000
+  fs.writeFileSync(FILE, JSON.stringify(file))
+  credentials.refresh()
+  assert.equal(credentials.listHistory(INSTANCE).length, 2, '清之前本实例有两条历史')
+
+  const cleared = credentials.clearHistory(INSTANCE)
+  assert.equal(cleared, 2, '只报本实例清空的两条')
+  assert.equal(credentials.listHistory(INSTANCE).length, 0, '历史空了')
+  assert.equal(credentials.listDevices(INSTANCE).length, 1, '活设备还在')
+  assert.ok(credentials.find(live.credential, INSTANCE), '活的那枚还能用')
+  assert.ok(!credentials.find(dead.credential, INSTANCE), '解绑的删了')
+  assert.ok(!credentials.find(expired.credential, INSTANCE), '过期的删了')
+  assert.equal(credentials.listHistory('other-instance').length, 1, '别的实例历史不受影响')
+  assert.equal(raw().length, 2, '盘上只剩本实例活的那条 + 别的实例那条')
+})
+
+test('清空历史：解绑后又重配的那台，删旧留新', () => {
+  reset();
+  const old = credentials.issue(INSTANCE, { deviceId: 'reown' }, '')
+  credentials.revokeDevice(INSTANCE, 'reown')
+  const fresh = credentials.issue(INSTANCE, { deviceId: 'reown' }, '')
+  assert.equal(credentials.clearHistory(INSTANCE), 1, '只删那条旧的已结束记录')
+  assert.ok(!credentials.find(old.credential, INSTANCE), '旧凭据已删')
+  assert.ok(credentials.find(fresh.credential, INSTANCE), '重配的新凭据还在、还能用')
+  assert.equal(credentials.listDevices(INSTANCE).length, 1, '活动清单没少')
+})
+
+test('清空历史：只读副本拒绝，避免清了不落盘、重载又复活', () => {
+  reset();
+  credentials.issue(INSTANCE, { deviceId: 'ro-clear' }, '')
+  credentials.revokeDevice(INSTANCE, 'ro-clear')
+  const before = JSON.stringify(raw())
+  credentials.setReadOnly(true)
+  try {
+    assert.throws(() => credentials.clearHistory(INSTANCE), (err) => err.code === 'READ_ONLY')
+  } finally {
+    credentials.setReadOnly(false)
+  }
+  assert.equal(JSON.stringify(raw()), before, '只读副本没动盘')
+  assert.equal(credentials.clearHistory(INSTANCE), 1, '回到主进程后照样能清')
+})
+
+test('清空历史：超出窗口的残余也一起收走（不等下次 prune）', () => {
+  reset();
+  credentials.issue(INSTANCE, { deviceId: 'stale' }, '')
+  const day = 24 * 3600 * 1000
+  const records = raw()
+  records[0].revokedAt = Date.now() - 90 * day
+  fs.writeFileSync(FILE, JSON.stringify(records))
+  credentials.refresh()
+  assert.equal(credentials.listHistory(INSTANCE).length, 0, '查询时它已经不算历史')
+  assert.ok(raw().length === 1, '但库里还留着这条残余')
+  assert.equal(credentials.clearHistory(INSTANCE), 1, '清空把它也收走')
+  assert.equal(raw().length, 0, '盘上干净了')
+})

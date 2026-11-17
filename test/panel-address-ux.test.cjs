@@ -127,15 +127,13 @@ test('宿主说没法就地换代时，更新卡不许把用户往插件市场�
   assert.ok(!/没有可换代的外壳/.test(branch), '那句「这一版没有可换代的外壳」的标题别再回来');
 });
 
-test('网络配置弹窗：两列一屏、两条清单都收进弹窗、局域网开关撤掉、配对策略是开关', () => {
+test('网络配置弹窗：两列一屏、公用中转内置清单、局域网开关撤掉、配对策略是开关', () => {
   const dialog = read('RelayConfigDialog.tsx');
-  // 公用中转清单从主窗搬进弹窗（入口是「中转地址」标题右侧那颗按钮）：
-  // 清单以后会长，摊在主窗里会把版面撑长。
-  assert.match(dialog, /onClick=\{\(\) => setRelayPickerOpen\(true\)\}/, '中转地址右侧要有「公用中转」按钮');
-  assert.ok(
-    dialog.indexOf('setRelayPickerOpen(true)') < dialog.indexOf('PUBLIC_RELAYS.map'),
-    '公用中转的清单只能出现在弹窗里，不能又摊回主窗',
-  );
+  // 公用中转 2026-11-18 改成内置在主窗第一栏（只读展示 + 「使用」按钮），
+  // 「选择公用中转」清单弹窗随之撤掉 —— 内置的东西不用再选。详见 panel-public-relay.test.cjs。
+  assert.match(dialog, /PUBLIC_RELAYS\.map\(/, '内置公用地址要在主窗第一栏列出来');
+  assert.match(dialog, /readOnly: true/, '内置地址只读');
+  assert.ok(!/relayPickerOpen/.test(dialog), '「选择公用中转」清单弹窗已撤，别留下状态');
   // 局域网地址同样收进弹窗：一台机器可能好几条网卡地址，条数不许影响主窗尺寸。
   assert.match(dialog, /onClick=\{\(\) => setLanPickerOpen\(true\)\}/, '局域网地址要有「选择地址」按钮');
   assert.ok(

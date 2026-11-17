@@ -30,7 +30,6 @@ import { Switch } from '@appica/ui-react/switch'
 import { useCallback, useEffect, useState } from 'react'
 
 import { errorText } from '../lib/api.ts'
-import { timeText } from '../lib/format.ts'
 import { useNotify } from '../lib/notify.ts'
 import {
   MarketError,
@@ -70,12 +69,6 @@ const SOFT_CODES = new Set(['OPERATION_BUSY', 'RELEASE_TOO_FRESH', 'VERSION_UNCH
  * 优先；老宿主上退回市场那份客户端（`lib/market.ts`，不带时间）。
  */
 type UpdateView = MarketUpdate & { checkedAt?: string | null }
-
-/** 时间戳（宿主给的是 ISO 串）→ 本机可读；给不出就直说「还没」。 */
-function stampText(value: string | null | undefined, fallback: string): string {
-  if (!value) return fallback
-  return timeText(value)
-}
 
 /** 把「装完了」这件事说成一句人话。 */
 function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
@@ -414,12 +407,6 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             <InfoRow label={t('panel.update.latestOnline')} mono>
               {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
-            <InfoRow label={t('panel.update.lastCheck')}>
-              {stampText(update?.checkedAt ?? host.marketLastCheckedAt, t('panel.update.notChecked'))}
-            </InfoRow>
-            <InfoRow label={t('panel.update.lastApply')}>
-              {host.lastApply ? stampText(host.appliedAt, t('panel.update.neverUpdated')) : t('panel.update.neverUpdated')}
-            </InfoRow>
           </InfoList>
 
           {/* 两处「运行中版本」对不上：面板那份是进程启动时读进内存的，外壳那份是实际装载的。 */}
@@ -437,9 +424,9 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
           ) : null}
 
           {/*
-            「上一次更新的结果」不再在这里铺一条长条（原先是绿/红 `Alert`）：宿主记得的
-            `lastApply` 每次打开页面都会重放一遍，那条大绿条就是这么来的；它要说的
-            「最近一次更新」上面那行 `InfoRow` 已经说了。**这次动作**的结论走胶囊。
+            「上一次更新的结果」不在这里铺一条长条（原先是绿/红 `Alert`）：宿主记得的
+            `lastApply` 每次打开页面都会重放一遍，那条大绿条就是这么来的。
+            **这次动作**的结论走胶囊。
           */}
           {/* 2026-11-17：原先这里有一条「这次更新里外壳也换了 / 要重启 DSH 才生效」的
               Alert，用户用不到，删掉。宿主照旧报 shellChanged，指纹计算与手机端提示不动。 */}

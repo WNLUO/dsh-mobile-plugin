@@ -21,6 +21,12 @@
  * 设备清单（`listDevices`）只画还活着的；已解绑的那部分由 `listHistory` 聚合出来。
  * 两份是同一趟扫描的两半（`scanDevices`）：键与「取最新有值」的口径只写一份，路由要两份时
  * 也只扫一遍。历史那半与清理共用同一个保留窗口，纯读、不写盘。
+ *
+ * `clearHistory` 是面板「一键清空历史」的落点：只删本实例**已结束**的手机记录，活着的凭据
+ * 与电脑网页授权一条不碰（同一个 deviceId 解绑后又重配的，旧记录删掉、新记录留着）。它比
+ * `prune` 更彻底——一次把所有已结束的都清掉，包括超出窗口、原本要等下次写入才被 prune 的
+ * 残余；两者都不轮换密钥、不影响任何还能用的通行证。只读副本拒绝，与 `revoke` 同理：清了
+ * 不落盘、下次重载复活。
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -663,6 +669,32 @@ function listDevicesWithHistory(instanceId) {
 }
 
 /**
+ * 清空本实例的「已解绑」历史：所有已结束的手机记录整条删掉，活着的与电脑网页授权一条不动。
+ *
+ * 「已结束」只认 `isLive` 的反面，与 `scanDevices` 里聚历史那半完全同源 —— 面板看得到的
+ * 历史清得到，同一台重配过就留活 record、删旧 record。超出 30 天窗口的残余也一起收走
+ * （它们本就该被 `prune` 删掉）。返回删掉的条数。只读副本拒绝，理由同 `revoke`。
+ */
+function clearHistory(instanceId) {
+  load();
+  if (readOnly) {
+    const error = new Error('凭据库的只读副本不能清空历史；旁路子进程请经 IPC 交给主进程');
+    error.code = 'READ_ONLY';
+    throw error;
+  }
+  const now = Date.now();
+  const before = records.length;
+  records = records.filter((record) => {
+    if (record.instanceId !== instanceId || record.kind === 'computer') return true;
+    // isLive 为假即已结束（吊销或过期）；活记录留下。判据只有这一处。
+    return isLive(record, now);
+  });
+  const cleared = before - records.length;
+  if (cleared) { rebuildIndex(); save(); }
+  return cleared;
+}
+
+/**
  * 本实例签发过、仍然有效的凭据摘要，按签发时间从新到旧。
  *
  * 中转的离线镜像要在桌面宿主上线之前判断「来读缓存的人是不是配对过的手机」，而它手上只有
@@ -714,6 +746,7 @@ module.exports = {
   listDevices,
   listHistory,
   listDevicesWithHistory,
+  clearHistory,
   setDevicePermissions,
   activeDigests,
   revoke,

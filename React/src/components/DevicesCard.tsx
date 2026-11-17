@@ -58,6 +58,7 @@ import {
   type DeviceHistoryList,
   type DeviceList,
   type DeviceRevokeResult,
+  type HistoryClearResult,
   type RelayDevice,
   type RelayHistoryDevice,
   type Tier,
@@ -259,6 +260,9 @@ export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [history, setHistory] = useState<DeviceHistoryList | null>(null)
   const [historyError, setHistoryError] = useState(false)
+  /** 清空历史的确认框开没开、请求在不在飞。 */
+  const [historyConfirm, setHistoryConfirm] = useState(false)
+  const [historyClearing, setHistoryClearing] = useState(false)
 
   /** 最近一次历史请求的序号：晚到的旧回答不许盖掉新的那一份。 */
   const historySeq = useRef(0)
@@ -375,6 +379,22 @@ export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
     }
   }
 
+  /** 清空已解绑的历史：只删凭据库里已结束的记录，活设备不受影响。 */
+  async function clearHistory() {
+    setHistoryClearing(true)
+    try {
+      const result = await apiPost<HistoryClearResult>('/api/relay/devices/history/clear', {})
+      setHistoryConfirm(false)
+      await load()
+      if (historyOpen) void loadHistory()
+      notify('soft', t('panel.devices.historyClearDone', { count: result.cleared }))
+    } catch (error) {
+      notify('error', t('panel.devices.historyClearFailed', { message: errorText(error) }))
+    } finally {
+      setHistoryClearing(false)
+    }
+  }
+
   /** 提交权限档位：成功后立刻重拉（别等下一轮 3 秒），并把结果说清楚。 */
   async function savePermissions(device: RelayDevice, tier: Tier) {
     setSavingPerm(true)
@@ -469,12 +489,14 @@ export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
       </div>
 
       {/* 历史 · 已解绑：次要信息，摆在这张卡最下面、默认收起，字号与颜色跟主列表第二行同一档。
-          它是「谁连过、后来怎么没的」，不是当前设备，所以行上没有按钮。 */}
+          它是「谁连过、后来怎么没的」，不是当前设备，所以行上没有按钮。清空历史的入口只在
+          这一段的标题行（不是每一台那行）：它是整段的操作，放每台下面会跟解绑那颗混淆。 */}
       <div className="mt-1 border-t border-border-muted pt-2">
+        <div className="flex w-full items-center justify-between gap-2">
         <button
           type="button"
           aria-expanded={historyOpen}
-          className="flex w-full cursor-pointer items-center justify-between gap-2 text-xs text-foreground-muted focus-visible:outline-none"
+          className="flex min-w-0 cursor-pointer items-center gap-2 text-xs text-foreground-muted focus-visible:outline-none"
           onClick={() => setHistoryOpen((open) => !open)}
         >
           <span className="flex items-center gap-2">
@@ -497,6 +519,18 @@ export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
             <path d="m4.5 2.5 3.5 3.5-3.5 3.5" />
           </svg>
         </button>
+        {revokedCount > 0 ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0"
+            disabled={historyClearing || busy !== ''}
+            onClick={() => setHistoryConfirm(true)}
+          >
+            {t('panel.devices.historyClear')}
+          </Button>
+        ) : null}
+        </div>
 
         {historyOpen ? (
           <div className="mt-2">
@@ -628,6 +662,45 @@ export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
                 </span>
               ) : (
                 t('panel.devices.permissionsApply')
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 清空已解绑的历史：整段操作，二次确认。正在发请求时不许靠遮罩 / Esc 关掉。 */}
+      <AlertDialog
+        open={historyConfirm}
+        onOpenChange={(open) => {
+          if (!open && !historyClearing) setHistoryConfirm(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('panel.devices.historyClearTitle')}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogBody className="flex flex-col gap-2 text-sm">
+            <AlertDialogDescription>
+              {t('panel.devices.historyClearConfirm', { count: revokedCount })}
+            </AlertDialogDescription>
+            <p className="text-foreground-muted">{t('panel.devices.historyClearHint')}</p>
+          </AlertDialogBody>
+          <AlertDialogFooter className="flex justify-end gap-2">
+            <Button variant="outline" disabled={historyClearing} onClick={() => setHistoryConfirm(false)}>
+              {t('panel.devices.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={historyClearing}
+              onClick={() => void clearHistory()}
+            >
+              {historyClearing ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Spinner />
+                  {t('panel.devices.historyClearing')}
+                </span>
+              ) : (
+                t('panel.devices.historyClear')
               )}
             </Button>
           </AlertDialogFooter>

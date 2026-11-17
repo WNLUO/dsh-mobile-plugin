@@ -295,12 +295,24 @@ test('历史行的结局按 kind 分叉：亲手解绑与自然到期是两句',
 });
 
 test('历史行没有动作按钮，也不跟主列表抢注意力', () => {
-  // 已解绑的再解绑一次没有意义，过期的那本通行证也已经进不来：这一块只读。
+  // 已解绑的再解绑一次没有意义，过期的那本通行证也已经进不来：每一行历史都没有动作。
+  // 2026-11-18 需求变了：用户要在**整段**上加一颗「清空历史」，放在折叠标题行、不在每一台
+  // 那行 —— 所以判据从「整块不许有 Button」收窄成「历史行（每台那行）不许有 Button」，
+  // 并单独钉住那颗清空按钮只接确认框、不接解绑 / 改权限。
   const block = devices.slice(devices.indexOf('panel.devices.historyTitle'), devices.indexOf('<AlertDialog'));
   assert.ok(block.length > 0, '没找到历史那一块');
-  assert.ok(!/<Button/.test(block), '历史行不许有动作按钮');
-  assert.ok(!/setPending\(|setPermPending\(/.test(block), '历史行不许接解绑 / 改权限的入口');
-  // 视觉收得住：只用卡片里已有的字号与颜色档，不新造底色与圆角。
+  // 每台那一行的渲染段（historyRows.map 起）里不许有动作按钮。
+  const rows = block.slice(block.indexOf('historyRows.map'), block.indexOf('historyUnreadable'));
+  assert.ok(rows.length > 0, '没找到历史行的渲染段');
+  assert.ok(!/<Button/.test(rows), '历史行不许有动作按钮');
+  assert.ok(!/setPending\(|setPermPending\(/.test(rows), '历史行不许接解绑 / 改权限的入口');
+  // 整块里那颗清空按钮：只在台数 > 0 时出现、只开确认框、请求在飞或全局忙时禁用。
+  assert.match(block, /revokedCount > 0 \? \(/, '没有历史时不摆清空按钮');
+  const clear = block.slice(block.indexOf('revokedCount > 0 ? ('), block.indexOf('historyUnreadable'));
+  assert.match(clear, /<Button/, '历史标题行要有清空按钮');
+  assert.match(clear, /setHistoryConfirm\(true\)/, '清空按钮只开确认框，不直接清');
+  assert.match(clear, /historyClearing \|\| busy !== ''/, '清空按钮在请求中或全局忙时禁用');
+  // 视觉收得住：标题行沿用卡片里已有的字号与颜色档，不新造底色与圆角。
   assert.ok(!/bg-/.test(block), '历史那一块不许加底色');
   assert.ok(!/rounded/.test(block), '历史那一块不许加圆角');
   assert.ok(!/font-(semibold|medium|bold)/.test(block), '历史那一块不许加粗');
@@ -311,6 +323,34 @@ test('历史行没有动作按钮，也不跟主列表抢注意力', () => {
   assert.ok(!/duration-/.test(head), '折叠头不许加 duration：动效沿用既有那套');
   assert.ok(!/hover:/.test(head), '折叠头不许加 hover 变色');
   assert.match(head, /transition-transform/, '箭头旋转保留（与既有折叠同一写法）');
+});
+
+test('清空历史：只走专用路由、二次确认、清完重拉，文案十门齐全', () => {
+  // 清空是整段的破坏性操作，判据按「怎么发、怎么确认、清完怎么收尾」钉住。
+  const clearFn = devices.slice(devices.indexOf('async function clearHistory'), devices.indexOf('async function savePermissions'));
+  assert.match(clearFn, /apiPost<HistoryClearResult>\('\/api\/relay\/devices\/history\/clear', \{\}\)/, '清空走专用路由');
+  assert.ok(!/setPending\(|revoke\(/.test(clearFn), '清空不许复用单台解绑那条路');
+  assert.match(clearFn, /await load\(\)/, '清完立刻重拉设备清单（台数要跟着变）');
+  assert.match(clearFn, /if \(historyOpen\) void loadHistory\(\)/, '展开着就补历史，否则台数归零、列表还停着');
+  assert.match(clearFn, /setHistoryConfirm\(false\)/, '成功后关掉确认框');
+  assert.match(clearFn, /historyClearDone.*count: result\.cleared/, '成功提示说清清空了几条');
+  assert.match(clearFn, /historyClearFailed.*message: errorText\(error\)/, '失败提示带原因');
+  // 确认框：请求在飞时不许靠遮罩 / Esc 关掉。
+  const dialog = devices.slice(devices.indexOf('open={historyConfirm}'));
+  assert.match(dialog, /!open && !historyClearing/, '请求中不许关确认框');
+  assert.match(dialog, /historyClearConfirm.*count: revokedCount/, '确认框写明要清空几台');
+  assert.match(dialog, /variant="destructive"/, '清空用危险按钮那一档');
+  // 回答类型与十门文案。
+  assert.match(api, /export type HistoryClearResult/, '清空回答要有自己的类型');
+  assert.match(api, /cleared: number/, '回答要带回清空条数');
+  for (const key of ['historyClear', 'historyClearTitle', 'historyClearConfirm', 'historyClearHint', 'historyClearing', 'historyClearDone', 'historyClearFailed']) {
+    const rows = dict.split(`panel.devices.${key}`).length - 1;
+    assert.ok(rows >= 10, `panel.devices.${key} 只在 ${rows} 门语言里出现，十门都得有`);
+  }
+  // 确认框的「几台」和成功提示的「几条」都得走占位符，别拼死在文案里。
+  assert.match(zh('panel.devices.historyClearConfirm'), /\{count\}/, '确认文案用 {count} 占位符');
+  assert.match(zh('panel.devices.historyClearDone'), /\{count\}/, '成功文案用 {count} 占位符');
+  assert.match(zh('panel.devices.historyClearFailed'), /\{message\}/, '失败文案带 {message}');
 });
 
 test('老宿主没有 ?history=1 分支时，不许把活设备当成历史摆出来', () => {

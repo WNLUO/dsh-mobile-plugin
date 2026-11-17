@@ -62,6 +62,8 @@ type DemoState = {
   manualIpv6Url: string
   autoUpdate: boolean
   qrIndex: number
+  /** 历史是否已被「清空历史」抹掉：只影响演示页自己，刷新即回到初始那份。 */
+  historyCleared: boolean
 }
 
 /**
@@ -91,12 +93,13 @@ function initial(): DemoState {
     manualIpv6Url: '',
     autoUpdate: false,
     qrIndex: 0,
+    historyCleared: false,
   }
 }
 
 const state = initial()
 
-/** 演示里出现的时刻：固定一份，别让画面上的「最近一次检查」每次刷新都往前跳。 */
+/** 演示里出现的时刻：固定一份，别让画面上的时间每次刷新都往前跳。 */
 const DEMO_TIME = new Date('2026-10-20T10:30:00+08:00')
 const iso = (offsetMinutes = 0) => new Date(DEMO_TIME.getTime() + offsetMinutes * 60_000).toISOString()
 
@@ -182,7 +185,7 @@ function deviceHistory() {
   return {
     ok: true,
     serverNow: now,
-    devices: [
+    devices: state.historyCleared ? [] : [
       {
         deviceId: 'demo-revoked-4',
         name: 'iPad Air',
@@ -407,6 +410,12 @@ function route(pathname: string, init?: RequestInit, search = new URLSearchParam
     const target = String(body(init).deviceId || '')
     const revoked = target ? 1 : 0
     return json({ ok: true, revoked, closed: 0 })
+  }
+  if (pathname === '/api/relay/devices/history/clear' && method === 'POST') {
+    // 与真宿主同口径：答清空了几条，并把演示状态翻成空历史（台数徽标跟着归零）。
+    const cleared = state.historyCleared ? 0 : 2
+    state.historyCleared = true
+    return json({ ok: true, cleared })
   }
   if (pathname === '/api/relay/pairing' && method === 'GET') {
     // 与宿主同口径：没启用远程控制时这一条回 409，二维码那块自己会说出来。

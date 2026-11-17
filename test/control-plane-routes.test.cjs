@@ -455,6 +455,8 @@ test('危险动作清单没腐化：每条都还在，且都仍受窗口白名�
     assert.ok(routes.has(route), `LOCAL_OPERATOR_ROUTES 里的 ${route} 已经不存在，请删掉`);
     assert.ok(WEB_ACCESS_ROUTES.has(route), `${route} 收紧了只认本机，但仍应留在窗口白名单里保持语义统一`);
   }
+  // 清空已解绑历史是删数据的动作：必须收紧到本机 / 局域网，不能让公网两小时窗口碰到。
+  assert.ok(LOCAL_OPERATOR_ROUTES.has('/api/relay/devices/history/clear'), '清空历史要在危险动作清单里');
 });
 
 test('网页管理窗口默认关闭、固定两小时且访问不续期', () => {

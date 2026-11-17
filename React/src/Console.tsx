@@ -30,6 +30,7 @@ import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { P2PDialog } from './components/P2PDialog.tsx'
 import { PortDialog } from './components/PortDialog.tsx'
+import { PublicRelayNoticeDialog } from './components/PublicRelayNoticeDialog.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { SelfCheckDialog } from './components/SelfCheckDialog.tsx'
 import { TailcatDialog } from './components/TailcatDialog.tsx'
@@ -513,6 +514,9 @@ export function Console() {
           </DialogBody>
         </DialogContent>
       </Dialog>
+
+      {/* 公用中转体验提示：进来就弹一次，可关闭（现为强制显示，先过样式，见该组件文件头）。 */}
+      <PublicRelayNoticeDialog />
     </main>
   )
 }
