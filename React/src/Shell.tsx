@@ -14,7 +14,6 @@
  */
 import { useEffect } from 'react'
 
-import { FloatingActions } from './components/FloatingActions.tsx'
 import { TopRightActions } from './components/TopRightActions.tsx'
 import { t } from './lib/i18n/index.ts'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
@@ -33,20 +32,12 @@ export function Shell() {
     document.documentElement.lang = language
     document.title = t('panel.shell.title')
   }, [language])
-  // 调试页是嵌在 DSH 那个弹窗里的一窗（宽约一千），右上角那组「日夜 / 语言」与右下角
-  // 「加入交流群」都会压到读数或那排操作按钮上；它们是给「人从浏览器打开这一页」准备的，
-  // 调试图不挂。主题跟随系统，够用。
-  //
-  // **控制台那一窗也挂这三颗，但用小号**（2026-11-13 用户要求保留悬浮按钮：悬浮才看得清）。
-  // 那一窗比网页版矮，原尺寸会吃掉不小一块右下角、还压住设备列表最后几行，所以三颗统一
-  // 降一档（`compact`，见各组件里那段说明），位置仍是最右边那一列、从下往上排。
   const path = window.location.pathname.replace(/\/+$/, '')
-  // 调试页单独一屏：不挂那几颗按钮，主题跟系统。
-  const bare = /\/debug$/.test(path)
-  // 除调试页与演示页外，面板的每一条地址都是控制台这一版（2026-11-15 收成一套）：
-  // 配色跟 DSH 走、用控制台顶栏自带的语言 / 日夜、悬浮按钮用小号。演示页（`/demo.html`）
-  // 不在这里面，它有自己的假宿主与录屏用法，保持原样。
-  const consolePage = !bare && !/\/demo(\.html)?$/.test(path)
+  // 除演示页外，面板的每一条地址都是控制台这一版（2026-11-15 收成一套，2026-11-17 删掉
+  // 唯一的例外调试页）：配色跟 DSH 走、用控制台顶栏自带的语言 / 日夜。Star / 赞助 / 交流群
+  // 三颗 2026-11-17 也进了顶栏（Console 的 header），外壳不再全局挂任何悬浮按钮。
+  // 演示页（`/demo.html`）不在这里面，它有自己的假宿主与录屏用法，保持原样。
+  const consolePage = !/\/demo(\.html)?$/.test(path)
 
   // 控制台那一窗的日夜**跟着 DSH 走**（同源父窗口的 `data-ds-dark-theme`），
   // 单独在浏览器里打开就跟随系统。别的页不接：那几页有自己的日夜按钮，两套一起写
@@ -64,12 +55,10 @@ export function Shell() {
     <>
       <Root />
       {/* 右上角那组（语言 + 日夜）：**控制台那一窗不挂**（2026-11-13 用户要求把它们放进
-          顶栏、跟着窗口标题排），它自己那两行里就有同样两颗。别的地方照旧。 */}
-      {bare || consolePage ? null : <TopRightActions />}
-      {/* 右下角那三颗（交流群 / 赞助 / Star）：与右上角那组同理，**不属于任何一屏** ——
-          2026-10-26 用户要求引导页也放一颗，与其在两页各挂一次，不如跟着外壳渲染一次。
-          调试图不挂（`hidden`）；控制台用 `compact`（小一号），见组件里那段说明。 */}
-      <FloatingActions compact={consolePage} hidden={bare} />
+          顶栏、跟着窗口标题排），它自己那两行里就有同样两颗。演示页照旧。 */}
+      {consolePage ? null : <TopRightActions />}
+      {/* Star / 赞助 / 交流群三颗 2026-11-17 挪进了顶栏左侧（Console 的 header 里），
+          不再由外壳全局悬浮挂载。 */}
     </>
   )
 }

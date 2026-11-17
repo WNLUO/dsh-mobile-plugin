@@ -52,7 +52,8 @@ type Props = {
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
   onEditPort: () => void
-  /** 撑满所在网格单元格（与「插件更新」并排时等高，矮卡下面不留空）。 */
+  /** 撑满所在网格单元格（与「插件更新」并排时等高，矮卡下面不留空）。信息行顶部对齐、
+   *  跟二维码齐平，多出的高度留在卡片下方，不把三行地址拉散到中间。 */
   fill?: boolean
 }
 
@@ -200,7 +201,7 @@ export function PairingCard({
           )}
         </div>
 
-        <div className={`flex min-w-0 flex-1 flex-col ${fill ? 'justify-around' : ''}`}>
+        <div className="flex min-w-0 flex-1 flex-col">
           <div className="hscroll -mx-1 px-1">
           <InfoList className="min-w-max">
             <InfoRow label={t('panel.connection.relayUrl')} nowrap>

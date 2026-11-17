@@ -46,7 +46,9 @@ test('配对卡与插件更新并排等高：配对卡撑满、内部铺开，�
   assert.match(app, /md:col-span-2">\s*<UpdateCard/, '右栏 4 成放插件更新');
   assert.match(app, /items-stretch/, '两卡等高');
   assert.match(card, /fill \? 'flex h-full min-h-0 flex-col'/, 'fill 时卡片全高');
-  assert.match(card, /fill \? 'justify-around'/, '信息行在撑满的卡里铺开，不在底下留空');
+  // 三行地址顶部对齐、跟二维码齐平，多出的高度留在卡片下方；信息行这层不许再垂直居中。
+  assert.match(card, /className="flex min-w-0 flex-1 flex-col"/, '信息行顶部对齐，不靠 justify 拉散');
+  assert.doesNotMatch(card, /flex-1 flex-col justify-/, '信息行不许 justify-around/center 把行拉到中间');
 });
 
 test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且不改默认隐藏', () => {

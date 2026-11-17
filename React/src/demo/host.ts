@@ -428,7 +428,6 @@ function route(pathname: string, init?: RequestInit, search = new URLSearchParam
     state.pairingCode = FAKE_QR[state.qrIndex].code
     return json(statusView())
   }
-  if (pathname === '/api/relay/reconnect' && method === 'POST') return json(statusView())
   if (pathname === '/api/relay/restart-sidecar' && method === 'POST') {
     return json({ ok: true, status: statusView() })
   }

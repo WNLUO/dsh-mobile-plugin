@@ -485,7 +485,6 @@ export const SHELL: PanelMessages = {
   'zh-Hans': {
     'panel.shell.remoteEnabled': '已启用远程控制。',
     'panel.shell.remoteDisabled': '已停用远程控制，手机将断开。',
-    'panel.shell.reconnecting': '已发起重连。',
     'panel.shell.sidecarRestarted': '旁挂进程已重启。',
     'panel.shell.revokeConfirm': '吊销全部设备授权？所有手机都要重新配对，这一步不能撤销。',
     'panel.shell.revoked': '已吊销 {count} 个授权',
@@ -509,7 +508,6 @@ export const SHELL: PanelMessages = {
   'zh-Hant': {
     'panel.shell.remoteEnabled': '已啟用遠端控制。',
     'panel.shell.remoteDisabled': '已停用遠端控制，手機將斷開。',
-    'panel.shell.reconnecting': '已發起重新連線。',
     'panel.shell.sidecarRestarted': '旁掛程序已重新啟動。',
     'panel.shell.revokeConfirm': '吊銷全部裝置授權？所有手機都要重新配對，這一步不能撤銷。',
     'panel.shell.revoked': '已吊銷 {count} 個授權',
@@ -533,7 +531,6 @@ export const SHELL: PanelMessages = {
   en: {
     'panel.shell.remoteEnabled': 'Remote control enabled.',
     'panel.shell.remoteDisabled': 'Remote control disabled — your phone will disconnect.',
-    'panel.shell.reconnecting': 'Reconnecting.',
     'panel.shell.sidecarRestarted': 'Sidecar process restarted.',
     'panel.shell.revokeConfirm': 'Revoke all device authorisations? Every phone has to be paired again, and this cannot be undone.',
     'panel.shell.revoked': 'Revoked {count} authorisation(s)',
@@ -557,7 +554,6 @@ export const SHELL: PanelMessages = {
   ja: {
     'panel.shell.remoteEnabled': 'リモート操作をオンにしました。',
     'panel.shell.remoteDisabled': 'リモート操作をオフにしました。スマートフォンは切断されます。',
-    'panel.shell.reconnecting': '再接続を開始しました。',
     'panel.shell.sidecarRestarted': 'サイドカープロセスを再起動しました。',
     'panel.shell.revokeConfirm': 'すべてのデバイス認証を取り消しますか？すべてのスマートフォンで再ペアリングが必要になり、元に戻せません。',
     'panel.shell.revoked': '{count} 件の認証を取り消しました',
@@ -581,7 +577,6 @@ export const SHELL: PanelMessages = {
   ko: {
     'panel.shell.remoteEnabled': '원격 제어를 켰습니다.',
     'panel.shell.remoteDisabled': '원격 제어를 껐습니다. 휴대폰 연결이 끊깁니다.',
-    'panel.shell.reconnecting': '재연결을 시작했습니다.',
     'panel.shell.sidecarRestarted': '사이드카 프로세스를 재시작했습니다.',
     'panel.shell.revokeConfirm': '모든 기기 인증을 취소할까요? 모든 휴대폰을 다시 페어링해야 하며 되돌릴 수 없습니다.',
     'panel.shell.revoked': '인증 {count}개를 취소했습니다',
@@ -605,7 +600,6 @@ export const SHELL: PanelMessages = {
   de: {
     'panel.shell.remoteEnabled': 'Fernsteuerung aktiviert.',
     'panel.shell.remoteDisabled': 'Fernsteuerung deaktiviert – dein Handy wird getrennt.',
-    'panel.shell.reconnecting': 'Verbindung wird neu aufgebaut.',
     'panel.shell.sidecarRestarted': 'Sidecar-Prozess neu gestartet.',
     'panel.shell.revokeConfirm': 'Alle Geräteautorisierungen widerrufen? Jedes Handy muss neu gekoppelt werden, das lässt sich nicht rückgängig machen.',
     'panel.shell.revoked': '{count} Autorisierung(en) widerrufen',
@@ -629,7 +623,6 @@ export const SHELL: PanelMessages = {
   es: {
     'panel.shell.remoteEnabled': 'Control remoto activado.',
     'panel.shell.remoteDisabled': 'Control remoto desactivado: tu teléfono se desconectará.',
-    'panel.shell.reconnecting': 'Reconectando.',
     'panel.shell.sidecarRestarted': 'Proceso sidecar reiniciado.',
     'panel.shell.revokeConfirm': '¿Revocar todas las autorizaciones de dispositivos? Todos los teléfonos deberán vincularse de nuevo y esto no se puede deshacer.',
     'panel.shell.revoked': '{count} autorización(es) revocada(s)',
@@ -653,7 +646,6 @@ export const SHELL: PanelMessages = {
   fr: {
     'panel.shell.remoteEnabled': 'Contrôle à distance activé.',
     'panel.shell.remoteDisabled': 'Contrôle à distance désactivé : ton téléphone va se déconnecter.',
-    'panel.shell.reconnecting': 'Reconnexion en cours.',
     'panel.shell.sidecarRestarted': 'Processus sidecar redémarré.',
     'panel.shell.revokeConfirm': 'Révoquer toutes les autorisations d\'appareil ? Chaque téléphone devra être appairé à nouveau, et c\'est irréversible.',
     'panel.shell.revoked': '{count} autorisation(s) révoquée(s)',
@@ -677,7 +669,6 @@ export const SHELL: PanelMessages = {
   pt: {
     'panel.shell.remoteEnabled': 'Controle remoto ativado.',
     'panel.shell.remoteDisabled': 'Controle remoto desativado — o celular vai se desconectar.',
-    'panel.shell.reconnecting': 'Reconectando.',
     'panel.shell.sidecarRestarted': 'Processo sidecar reiniciado.',
     'panel.shell.revokeConfirm': 'Revogar todas as autorizações de dispositivos? Todos os celulares precisarão ser emparelhados de novo, e isso não pode ser desfeito.',
     'panel.shell.revoked': '{count} autorização(ões) revogada(s)',
@@ -701,7 +692,6 @@ export const SHELL: PanelMessages = {
   ru: {
     'panel.shell.remoteEnabled': 'Удалённое управление включено.',
     'panel.shell.remoteDisabled': 'Удалённое управление отключено — телефон отключится.',
-    'panel.shell.reconnecting': 'Переподключение.',
     'panel.shell.sidecarRestarted': 'Процесс sidecar перезапущен.',
     'panel.shell.revokeConfirm': 'Отозвать все разрешения устройств? Каждому телефону придётся пройти сопряжение заново, отменить это нельзя.',
     'panel.shell.revoked': 'Отозвано авторизаций: {count}',

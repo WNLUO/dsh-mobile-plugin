@@ -3,7 +3,7 @@
  *
  * 几条地址由宿主吐同一份 HTML（`lib/routes/control-plane.js` 那几条 `/api/relay/panel*`），
  * 差别全在这里：`/panel` 自己问宿主配过没有、`/panel/setup` 强制引导、`/panel/settings`
- * 强制主页、`/panel/debug` 强制调试页。
+ * 强制主页、`/panel/remote` 进远程电脑页。原先还有 `/panel/debug` 调试页，2026-11-17 删除。
  *
  * **主页只有控制台这一版**（`Console.tsx`）：原先另有一版网页设置页（`App.tsx`），
  * 2026-11-15 收成一套，根地址与各入口统一进控制台。认后缀用 `endsWith`：这一页可能挂在
@@ -15,7 +15,6 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
 
 import { Console } from './Console.tsx'
-import { Debug } from './Debug.tsx'
 import { Onboarding } from './Onboarding.tsx'
 import { Remote } from './Remote.tsx'
 import { apiGet, errorText, type StatusView } from './lib/api.ts'
@@ -32,8 +31,7 @@ import { t } from './lib/i18n/index.ts'
  *   它们本来就在正常用。
  * - `.../api/relay/panel/setup`     强制先走引导，走完才进控制台（想再看一遍流程时用）。
  * - `.../api/relay/panel/settings`  强制进控制台，跳过引导（演示 / 排查时用）。
- * - `.../api/relay/panel/debug`     强制进调试页，什么都不问（那块屏本来就是给排障看的，
- *   状态读不到时更得进得去）。
+ * - `.../api/relay/panel/remote`    强制进远程电脑独立页。
  *
  * 用 `endsWith` 而不是全等：这一页挂在某个前缀下面，前缀变了不该把几条路弄丢。
  */
@@ -41,12 +39,10 @@ export function Root() {
   const path = window.location.pathname.replace(/\/+$/, '')
   const forcedSetup = path.endsWith('/setup')
   const forcedSettings = path.endsWith('/settings')
-  /** `/api/relay/panel/debug`：调试页（桌面端那颗手机图标的次级入口）。 */
-  const forcedDebug = path.endsWith('/debug')
   /** `/api/relay/panel/remote`：远程电脑独立页（桌面端那颗电脑图标点开的那一窗）。 */
   const forcedRemote = path.endsWith('/remote')
-  /** 除强制引导 / 强制主页 / 调试页 / 远程电脑页之外（含根地址与 `/console`）都要先问宿主配过没有。 */
-  const needsStatus = !forcedSetup && !forcedSettings && !forcedDebug && !forcedRemote
+  /** 除强制引导 / 强制主页 / 远程电脑页之外（含根地址与 `/console`）都要先问宿主配过没有。 */
+  const needsStatus = !forcedSetup && !forcedSettings && !forcedRemote
   /** null = 首屏状态尚未返回；请求失败时显示错误与重新载入入口。强制主页直接当作已配过。 */
   const [configured, setConfigured] = useState<boolean | null>(forcedSettings ? true : null)
   const [startupError, setStartupError] = useState('')
@@ -84,7 +80,6 @@ export function Root() {
     )
   }
 
-  if (forcedDebug) return <Debug />
   if (forcedRemote) return <Remote />
 
   if (forcedSetup) return entered ? <Console /> : <Onboarding onDone={() => setEntered(true)} />

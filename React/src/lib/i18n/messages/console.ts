@@ -3,7 +3,6 @@ import type { PanelMessages } from './shell.ts'
 
 export const CONSOLE: PanelMessages = {
   'zh-Hans': {
-    'panel.console.troubleshoot': '报错调试',
     'panel.console.openBrowser': '在浏览器打开',
     'panel.console.replayGuide': '重看引导',
     'panel.console.reload': '重新载入',
@@ -12,7 +11,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': '获取二维码超时，请重试。',
   },
   'zh-Hant': {
-    'panel.console.troubleshoot': '報錯除錯',
     'panel.console.openBrowser': '在瀏覽器開啟',
     'panel.console.replayGuide': '重看引導',
     'panel.console.reload': '重新載入',
@@ -21,7 +19,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': '取得 QR 碼逾時，請再試一次。',
   },
   en: {
-    'panel.console.troubleshoot': 'Troubleshoot',
     'panel.console.openBrowser': 'Open in browser',
     'panel.console.replayGuide': 'Replay setup',
     'panel.console.reload': 'Reload',
@@ -30,7 +27,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': 'Getting the QR code timed out. Please try again.',
   },
   ja: {
-    'panel.console.troubleshoot': 'トラブルシュート',
     'panel.console.openBrowser': 'ブラウザーで開く',
     'panel.console.replayGuide': 'セットアップをやり直す',
     'panel.console.reload': '再読み込み',
@@ -39,7 +35,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': 'QR コードの取得がタイムアウトしました。もう一度お試しください。',
   },
   ko: {
-    'panel.console.troubleshoot': '문제 진단',
     'panel.console.openBrowser': '브라우저에서 열기',
     'panel.console.replayGuide': '설정 안내 다시 보기',
     'panel.console.reload': '다시 불러오기',
@@ -48,7 +43,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': 'QR 코드 요청 시간이 초과되었습니다. 다시 시도해 주세요.',
   },
   de: {
-    'panel.console.troubleshoot': 'Fehlersuche',
     'panel.console.openBrowser': 'Im Browser öffnen',
     'panel.console.replayGuide': 'Einrichtung erneut ansehen',
     'panel.console.reload': 'Neu laden',
@@ -57,7 +51,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': 'Zeitüberschreitung beim Abrufen des QR-Codes. Bitte erneut versuchen.',
   },
   es: {
-    'panel.console.troubleshoot': 'Diagnóstico',
     'panel.console.openBrowser': 'Abrir en el navegador',
     'panel.console.replayGuide': 'Ver la configuración otra vez',
     'panel.console.reload': 'Volver a cargar',
@@ -66,7 +59,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': 'Se agotó el tiempo para obtener el código QR. Inténtalo de nuevo.',
   },
   fr: {
-    'panel.console.troubleshoot': 'Diagnostic',
     'panel.console.openBrowser': 'Ouvrir dans le navigateur',
     'panel.console.replayGuide': 'Revoir la configuration',
     'panel.console.reload': 'Recharger',
@@ -75,7 +67,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': 'Le délai de récupération du code QR a expiré. Veuillez réessayer.',
   },
   pt: {
-    'panel.console.troubleshoot': 'Diagnóstico',
     'panel.console.openBrowser': 'Abrir no navegador',
     'panel.console.replayGuide': 'Rever a configuração',
     'panel.console.reload': 'Recarregar',
@@ -84,7 +75,6 @@ export const CONSOLE: PanelMessages = {
     'panel.console.pairingTimeout': 'A obtenção do código QR excedeu o tempo limite. Tente novamente.',
   },
   ru: {
-    'panel.console.troubleshoot': 'Диагностика',
     'panel.console.openBrowser': 'Открыть в браузере',
     'panel.console.replayGuide': 'Посмотреть настройку снова',
     'panel.console.reload': 'Перезагрузить',

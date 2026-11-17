@@ -441,15 +441,8 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             `lastApply` 每次打开页面都会重放一遍，那条大绿条就是这么来的；它要说的
             「最近一次更新」上面那行 `InfoRow` 已经说了。**这次动作**的结论走胶囊。
           */}
-
-          {host.shellChanged ? (
-            <Alert variant="info" className="mt-3">
-              <AlertIcon />
-              <AlertTitle>{t('panel.update.shellChangedTitle')}</AlertTitle>
-              <AlertDescription>{t('panel.update.shellChangedBody')}</AlertDescription>
-            </Alert>
-          ) : null}
-
+          {/* 2026-11-17：原先这里有一条「这次更新里外壳也换了 / 要重启 DSH 才生效」的
+              Alert，用户用不到，删掉。宿主照旧报 shellChanged，指纹计算与手机端提示不动。 */}
 
           {/* 宿主自己记下来的最近一次失败（自动更新失败也落在这里）。 */}
           {host.lastError ? (

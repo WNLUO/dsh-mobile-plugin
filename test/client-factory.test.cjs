@@ -11,7 +11,7 @@
  * 是引入打包器，那会让「OTA 直接发源码」这条部署路径整个失效。
  *
  * 这里测的是它的行为，以及「它赖以工作的形状」——形状一变设置页会静默变空白，而没有
- * 任何测试会红。
+ * 任何测试会红。2026-11-17 起也测设置卡上那两颗侧边栏图标开关的落盘与即时联动。
  */
 
 const test = require('node:test');
@@ -1060,7 +1060,8 @@ test('字典覆盖两张界面，中英一一对应', () => {
     'diagTitleOpen', 'footerAgoDays', 'footerAgoHours', 'footerAgoMinutes', 'footerAgoNow',
     'footerDeviceCount', 'footerDeviceSeen', 'footerLoadMissing', 'footerNoDevice', 'footerOpen',
     'footerPending', 'footerPublicConfirm', 'footerRemoteOpen', 'footerSidecarBad', 'footerTunnelBad',
-    'heading', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
+    'heading', 'iconComputer', 'iconHidden', 'iconKeepOne', 'iconPhone', 'iconSaveFailed',
+    'iconShown', 'iconsHint', 'iconsTitle', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
     'pluginPageMissing', 'pluginPages', 'pluginPagesEmpty', 'pluginPagesHint', 'remoteConsoleTitle'
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
@@ -1080,15 +1081,113 @@ test('设置项只是一张薄卡：旧的整块设置界面没有跟着回来',
 test('设置项：还没读到地址时不挂死链，卡上说清在等什么', () => {
   const env = materialize();
   const tree = env.renderSettings();
-  // 一张薄卡：配置页（标题/说明/一颗按钮）。
+  // 两张卡：配置页（标题/说明/一颗按钮）+ 侧边栏图标选择。
+  // 2026-11-17 用户要在这一页选侧边栏那两颗图标，第二张卡是需求本身变的，不是旧界面回潮。
   assert.deepEqual(classNames(tree).filter((name) => name.startsWith('dshm_')), [
     'dshm_root', 'dshm_heading',
     'dshm_card', 'dshm_cardTitle', 'dshm_note', 'dshm_actions', 'dshm_btn dshm_btnPrimary',
-  ], '配置页一张卡，标题 / 说明 / 那一颗按钮');
+    'dshm_card', 'dshm_cardTitle', 'dshm_note',
+    'dshm_iconRow', 'dshm_iconSwitch', 'dshm_iconRow', 'dshm_iconSwitch',
+  ], '配置页一张卡，图标选择另一张小卡');
   const button = findByClass(tree, 'dshm_btnPrimary');
   assert.equal(button.props.href, undefined);
   assert.equal(button.props['aria-disabled'], 'false', '没地址也照样能点：点了会自己去开窗再取地址');
   assert.equal(texts(tree).includes('正在读取页面地址…'), true);
+});
+
+const iconSwitches = (tree) => elements(tree).filter((node) => node.props.className === 'dshm_iconSwitch');
+
+test('侧边栏图标：状态说收起哪颗，哪颗就不画，另一颗照旧', async () => {
+  // 两颗图标在同一个假 env 里共用一组 useState 槽位，分开建环境才不会互相读到对方的槽位。
+  const phoneEnv = materialize({
+    fetch: async (url) => (String(url).endsWith('/status')
+      ? { ok: true, status: 200, json: async () => readyStatus({ desktopPhoneIcon: false }) }
+      : { ok: true, status: 200, json: async () => ({ ok: true }) }),
+  });
+  phoneEnv.renderFooter({}, { wide: false });
+  await phoneEnv.hooks.flush();
+  assert.equal(phoneEnv.renderFooter({}, { wide: false }), null, '收起来的手机图标不该再出现在侧边栏');
+
+  const computerEnv = materialize({
+    fetch: async (url) => (String(url).endsWith('/status')
+      ? { ok: true, status: 200, json: async () => readyStatus({ desktopPhoneIcon: false }) }
+      : { ok: true, status: 200, json: async () => ({ ok: true }) }),
+  });
+  computerEnv.renderRemoteFooter({}, { wide: false });
+  await computerEnv.hooks.flush();
+  assert.ok(computerEnv.renderRemoteFooter({}, { wide: false }), '没动过的电脑图标照常显示');
+
+  const settingsEnv = materialize({
+    fetch: async (url) => (String(url).endsWith('/status')
+      ? { ok: true, status: 200, json: async () => readyStatus({ desktopPhoneIcon: false }) }
+      : { ok: true, status: 200, json: async () => ({ ok: true }) }),
+  });
+  settingsEnv.renderSettings();
+  await settingsEnv.hooks.flush();
+  const switches = iconSwitches(settingsEnv.renderSettings());
+  assert.equal(switches.length, 2);
+  assert.equal(switches[0].props['aria-checked'], 'false', '设置卡要如实回显收起状态');
+  assert.equal(switches[1].props['aria-checked'], 'true');
+});
+
+test('侧边栏图标开关：写进配置，同一页的开关当场跟着变', async () => {
+  const posts = [];
+  const env = materialize({
+    fetch: async (url, init = {}) => {
+      if (String(url).endsWith('/config')) posts.push(JSON.parse(init.body));
+      return String(url).endsWith('/status')
+        ? { ok: true, status: 200, json: async () => readyStatus() }
+        : { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderSettings();
+  await env.hooks.flush();
+  const phone = findByClass(env.renderSettings(), 'dshm_iconSwitch');
+  assert.equal(phone.props['aria-checked'], 'true', '默认两颗都显示');
+  await phone.props.onClick();
+  await settle();
+  assert.deepEqual(posts, [{ desktopPhoneIcon: false, desktopComputerIcon: true }], '两格一起写，避免半套状态');
+  const after = iconSwitches(env.renderSettings());
+  assert.equal(after[0].props['aria-checked'], 'false', '不用等下一轮状态轮询');
+  assert.equal(after[1].props['aria-checked'], 'true');
+});
+
+test('侧边栏图标：最后一颗不许收起，也不写一发注定锁死自己的配置', async () => {
+  const posts = [];
+  const env = materialize({
+    fetch: async (url, init = {}) => {
+      if (String(url).endsWith('/config')) posts.push(JSON.parse(init.body));
+      return String(url).endsWith('/status')
+        ? { ok: true, status: 200, json: async () => readyStatus({ desktopComputerIcon: false }) }
+        : { ok: true, status: 200, json: async () => ({ ok: true }) };
+    },
+  });
+  env.renderSettings();
+  await env.hooks.flush();
+  const [phone, computer] = iconSwitches(env.renderSettings());
+  assert.deepEqual([phone.props['aria-checked'], computer.props['aria-checked']], ['true', 'false']);
+  await phone.props.onClick();
+  await settle();
+  assert.equal(posts.length, 0, '不能把两颗都关掉');
+  assert.equal(iconSwitches(env.renderSettings())[0].props['aria-checked'], 'true');
+  assert.match(texts(env.renderSettings()).join(' '), /至少要保留一颗图标/);
+});
+
+test('侧边栏图标：写盘失败要回滚开关并说清原因', async () => {
+  const env = materialize({
+    fetch: async (url) => (String(url).endsWith('/config')
+      ? { ok: false, status: 500, json: async () => ({ error: { message: '盘满了' } }) }
+      : String(url).endsWith('/status')
+        ? { ok: true, status: 200, json: async () => readyStatus() }
+        : { ok: true, status: 200, json: async () => ({ ok: true }) }),
+  });
+  env.renderSettings();
+  await env.hooks.flush();
+  const phone = findByClass(env.renderSettings(), 'dshm_iconSwitch');
+  await phone.props.onClick();
+  await settle();
+  assert.equal(iconSwitches(env.renderSettings())[0].props['aria-checked'], 'true', '没写成就还原');
+  assert.match(texts(env.renderSettings()).join(' '), /保存图标设置失败.*盘满了/);
 });
 
 test('设置项：读状态被窗口门挡住（423）时，点它先开窗再取地址', async () => {
@@ -1501,7 +1600,8 @@ test('切语言之后标题跟着换（插进那一行的按钮不吃旧文案�
   await env.hooks.flush();
   assert.equal(node.attrs['aria-label'], '打开手机网页', '切语言后插进去的那颗要换标题');
   // 依赖数组里必须是**文案本身**：`t` 是 bind 出来的稳定函数，只依赖它 effect 不会重跑。
-  assert.match(SOURCE, /\}, \[wide, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess, hint, fault\]\);/);
+  // 2026-11-17 起还要带上 visible：用户收起这颗图标时，effect 必须重跑把插进去的节点摘掉。
+  assert.match(SOURCE, /\}, \[wide, visible, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess, hint, fault\]\);/);
 });
 
 test('地址问不到时会自己再问，问到了就停（不再打宿主）', async () => {

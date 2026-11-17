@@ -1,9 +1,8 @@
 /**
- * 页面右下角那颗「加入交流群」的悬浮按钮（微信图标），点开弹群二维码。
+ * 「加入交流群」按钮（微信图标），点开弹群二维码。
  *
- * 为什么挂在页面边缘而不是卡片里：这一页所有卡片都是「这台机器现在怎么样了」，
- * 跟用户的机器无关的事不该占卡片的位置；群里问的人多半正是卡在某一步的时候，
- * 所以让它一直看得见。
+ * 与「给个 Star」「赞助」同一排：2026-11-17 从页面悬浮挪进控制台顶栏左侧，三颗横排，
+ * 由 `FloatingActions` 统一编排，这里只管自己这颗按钮与那扇窗。
  *
  * 图标用 Simple Icons 的官方 WeChat 标（CC0，`simple-icons/icons/wechat.svg`）：
  * 单条 `path` 的实心标，24×24。之前手画的那版一对气泡不像，换掉。实心标靠
@@ -27,6 +26,7 @@ import { useState } from 'react'
 
 import wechatGroup from '../assets/wechat-group.png'
 import { t } from '../lib/i18n/index.ts'
+import { usePanelLanguage } from '../lib/i18n/use-language.ts'
 
 /** 二维码是张方图，窗宽按它给：再宽就只剩白边了。 */
 const QR_ALT = () => t('panel.links.wechatQrAlt')
@@ -46,18 +46,21 @@ function WechatIcon() {
 }
 
 /**
- * `compact`：小一号的悬浮胶囊（控制台那一窗用）。
+ * `compact`：小一号的胶囊（控制台那一窗用）。
  *
- * 那一窗是嵌在同源 iframe 里的、高度常常只有七八百，三颗 `size="lg"` 的胶囊会吃掉不小一块
- * 右下角，还会压住设备列表最后几行。降成 `sm` + 收一句说明用的图标间距，位置仍是最下面
- * （`bottom-4`）—— 与网页版那套**同一份组件、同一个弹窗**，只是尺寸不同。
+ * 那一窗比网页版窄，三颗 `size="lg"` 的胶囊并排在顶栏会挤到设备名，所以降成 `sm`。
+ * 与网页版那套是**同一份组件、同一个弹窗**，只是尺寸不同。
  */
 export function JoinGroupButton({ compact = false }: { compact?: boolean } = {}) {
   const [open, setOpen] = useState(false)
+  // 微信群只服务中文用户：群公告、交流都用中文，其他语言的人进来看不懂、也问不到答案。
+  // 2026-11-17 用户要求非简中 / 繁中时不显示这颗按钮。切语言时随外壳重绘即时生效。
+  const language = usePanelLanguage()
+  if (language !== 'zh-Hans' && language !== 'zh-Hant') return null
 
   return (
     <>
-      {/* 坐标归 `FloatingActions`（三颗同一列、左对齐）；这里只管自己那颗按钮。 */}
+      {/* 三颗的横排编排归 `FloatingActions`；这里只管自己那颗按钮。 */}
       <Button
         variant="primary"
         size={compact ? 'sm' : 'lg'}

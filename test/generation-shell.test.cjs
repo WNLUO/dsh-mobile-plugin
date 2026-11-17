@@ -20,6 +20,9 @@
  * 这里刻意用**真的 cordis 根上下文**（不是假 ctx）：`ctx.effect` 的清理时机、路由注册的
  * 去重规则、dispose 的串行化都是被测对象本身。假 webServer 保留「重复路径抛错」的行为，
  * 于是「新代能注册同一条路径」本身就证明旧代的注册被摘干净了。
+ *
+ * 外壳指纹的清单由下面那条守卫按**磁盘目录**钉死：新增外壳文件忘了加进指纹清单就会红，
+ * 不必靠人记得同步清单。
  */
 
 const assert = require('node:assert/strict');
@@ -66,6 +69,19 @@ const updaterUrl = pathToFileURL(path.join(PKG_DIR, 'lib', 'shell', 'updater.js'
 
 /** 随包发布的那一代的版本号（外壳自己所在包）。 */
 const BUNDLED_VERSION = JSON.parse(fs.readFileSync(path.join(PKG_DIR, 'package.json'), 'utf8')).version;
+
+/**
+ * 磁盘上的外壳文件全集：`lib/index.js` + `lib/shell/` 下所有 .js。
+ * 指纹清单必须与此一致；守卫按这里枚举，新增外壳文件忘了进清单就会红。
+ */
+function shellFilesOnDisk() {
+  const files = [path.join('lib', 'index.js')];
+  const shellDir = path.join(PKG_DIR, 'lib', 'shell');
+  for (const name of fs.readdirSync(shellDir).sort()) {
+    if (name.endsWith('.js')) files.push(path.join('lib', 'shell', name));
+  }
+  return files;
+}
 
 test.after(() => {
   if (PREVIOUS_DSH_HOME === undefined) delete process.env.DSH_HOME;
@@ -658,20 +674,11 @@ export function apply(ctx) {
 test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不报「外壳变了」', async t => {
   await resetProfile();
   const { manager, updater } = await loadShellModules();
-  const SHELL_FILES = [
-    ['lib', 'index.js'],
-    ['lib', 'shell', 'runtime.js'],
-    ['lib', 'shell', 'manager.js'],
-    ['lib', 'shell', 'updater.js'],
-    ['lib', 'shell', 'device-ota.js'],
-    ['lib', 'shell', 'ota-package.js'],
-  ];
-
   const dir = makeGeneration('shellhash', '0.9.9', goodGeneration('shell-0.9.9'));
   const pkgDir = pkgDirOf(dir);
-  for (const parts of SHELL_FILES) {
-    fs.mkdirSync(path.dirname(path.join(pkgDir, ...parts)), { recursive: true });
-    fs.copyFileSync(path.join(PKG_DIR, ...parts), path.join(pkgDir, ...parts));
+  for (const rel of shellFilesOnDisk()) {
+    fs.mkdirSync(path.dirname(path.join(pkgDir, rel)), { recursive: true });
+    fs.copyFileSync(path.join(PKG_DIR, rel), path.join(pkgDir, rel));
   }
   install(dir);
 
@@ -698,14 +705,18 @@ test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不�
  *
  * 漏掉的那几个同样在进程启动时被 Node 缓存、同样换不掉；只改它们时如果不报「外壳变了」，
  * 就是用户在界面上看着「更新成功」、跑的却是旧代码 —— 静默失效是最贵的失效。
+ *
+ * 守卫从**磁盘目录**枚举外壳文件全集，逐个改一个字节再算指纹：任何一个漏进清单，这一格
+ * 就会红。这样以后往 lib/shell/ 里加新文件，不必记得同步指纹清单 —— 忘了守卫会提醒。
  */
-test('换代：指纹把 OTA 那两个外壳文件也算上（只改它们也要报「外壳变了」）', async () => {
+test('换代：指纹盖住磁盘上每一个外壳文件（漏一个就必须报「外壳变了」）', async () => {
   await resetProfile();
   const { updater } = await loadShellModules();
-  const SHELL_FILES = ['lib/index.js', 'lib/shell/runtime.js', 'lib/shell/manager.js', 'lib/shell/updater.js', 'lib/shell/device-ota.js', 'lib/shell/ota-package.js'];
+  const shellFiles = shellFilesOnDisk();
+  assert.ok(shellFiles.length >= 8, `外壳文件数不对，目录枚举可能坏了：${shellFiles.length}`);
   const copyShell = () => {
     const dir = fs.mkdtempSync(path.join(HOME_ROOT, 'shell-fingerprint-'));
-    for (const rel of SHELL_FILES) {
+    for (const rel of shellFiles) {
       fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
       fs.copyFileSync(path.join(PKG_DIR, rel), path.join(dir, rel));
     }
@@ -713,10 +724,10 @@ test('换代：指纹把 OTA 那两个外壳文件也算上（只改它们也要
   };
   const base = updater.shellFingerprint(copyShell());
   assert.match(base, /^[a-f0-9]{16}$/);
-  for (const rel of ['lib/shell/device-ota.js', 'lib/shell/ota-package.js']) {
+  for (const rel of shellFiles) {
     const dir = copyShell();
     fs.appendFileSync(path.join(dir, rel), '\n// 这一版只动了它\n');
-    assert.notEqual(updater.shellFingerprint(dir), base, `只改 ${rel} 也得报「外壳变了」`);
+    assert.notEqual(updater.shellFingerprint(dir), base, `指纹漏了 ${rel}：只改它却没报「外壳变了」`);
   }
 });
 

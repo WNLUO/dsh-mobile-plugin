@@ -5,7 +5,7 @@
  *
  * 这块以前是 apply() 闭包里的一坨内联函数，插件测试**从不加载 lib/index.js**，只把它当
  * 源码文本读——所以 status() 的字段拼装从来没有被真正执行过一次。抽出来之后可以直接
- * require 真模块跑。
+ * require 真模块跑。桌面侧边栏两颗图标的可见性也在这里回给客户端。
  */
 
 const test = require('node:test');
@@ -52,6 +52,17 @@ test('status() 的身份字段来自内存 state 与本进程端口', () => {
   assert.equal(status.localPort, 3080);
   assert.equal(status.pairingPolicy, 'code');
   assert.equal(status.platform, process.platform);
+  // 老机器没落过这两格时按显示处理：升级不该让侧边栏的入口凭空少一颗。
+  assert.equal(status.desktopPhoneIcon, true);
+  assert.equal(status.desktopComputerIcon, true);
+});
+
+test('status() 如实回出侧边栏图标的收起状态', () => {
+  const status = createStatusView(baseDeps({
+    state: { ...baseDeps().state, desktopPhoneIcon: false, desktopComputerIcon: true },
+  }))();
+  assert.equal(status.desktopPhoneIcon, false);
+  assert.equal(status.desktopComputerIcon, true);
 });
 
 test('status() 的 lan 段以本进程解析出的实际端口为准', () => {

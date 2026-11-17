@@ -24,6 +24,7 @@ import { LanguageMenu } from './components/LanguageMenu.tsx'
 import { PanelWindowActions } from './components/PanelWindowActions.tsx'
 import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
+import { FloatingActions } from './components/FloatingActions.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
@@ -49,31 +50,12 @@ import {
   type WebAccessState,
 } from './lib/api.ts'
 import { Dot } from './components/InfoRow.tsx'
-import { lanText, tunnelText, type Tone } from './lib/format.ts'
+import { type Tone } from './lib/format.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
 import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
 import { useNotify } from './lib/notify.ts'
 import { mobileLooksIdle, useSelfCheck } from './lib/selfcheck.ts'
-
-/**
- * 从这一页的地址推另外两页的地址。
- *
- * 一律**文档相对**（`new URL(..., document.baseURI)`）：这一页可能挂在反代给的子路径下，
- * 也可能被嵌在桌面壳的 `dsh-app://app/` 里，绝对地址在两种环境里只有一种能用。
- */
-function pageUrlOf(mode: 'panel' | 'debug' | 'setup'): string {
-  try {
-    const base = new URL(document.baseURI)
-    const root = base.pathname.replace(/\/console\/?$/, '')
-    base.pathname = mode === 'debug' ? `${root}/debug` : mode === 'setup' ? `${root}/setup` : root
-    base.search = ''
-    base.hash = ''
-    return base.href
-  } catch {
-    return ''
-  }
-}
 
 /**
  * 这一页轮询的相位偏移。
@@ -284,12 +266,6 @@ export function Console() {
       notify('soft', enabled ? t('panel.shell.remoteEnabled') : t('panel.shell.remoteDisabled'))
     })
 
-  const reconnect = () =>
-    act('reconnect', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/reconnect'))
-      notify('soft', t('panel.shell.reconnecting'))
-    })
-
   const restartSidecar = () =>
     act('restart', async () => {
       const payload = await apiPost<{ status: StatusView }>('/api/relay/restart-sidecar')
@@ -355,11 +331,6 @@ export function Console() {
       notify('soft', address ? t('panel.shell.preferredAddress', { address }) : t('panel.shell.preferredAuto'))
     })
 
-  const openPage = (mode: 'panel' | 'debug' | 'setup') => {
-    const url = pageUrlOf(mode)
-    if (url) window.open(url, '_blank', 'noreferrer')
-  }
-
   /** 顶栏那枚点：中转通了或局域网在听 = 正常；开着但都没通 = 琥珀；远程没开 = 灰。 */
   const tone: Tone | null = status
     ? status.tunnel.state === 'connected' || status.lan.state === 'listening'
@@ -395,9 +366,8 @@ export function Console() {
           <Badge variant="soft" size="sm">
             {status.appVersion || t('panel.shell.unknownVersion')}
           </Badge>
-          <span className="hidden whitespace-nowrap text-xs text-foreground-muted lg:inline">
-            {t('panel.connection.tunnel')} {tunnelText(status.tunnel.state)} · {t('panel.connection.lan')} {lanText(status.lan.state, status.lan.enabled)}
-          </span>
+          {/* 2026-11-17 用户要求：Star / 赞助 / 交流群从页面悬浮挪进顶栏、挨着左侧设备名。 */}
+          <FloatingActions compact />
         </div>
         {busy ? (
           <span className="inline-flex items-center gap-1.5 text-xs text-foreground-muted">
@@ -406,13 +376,16 @@ export function Console() {
           </span>
         ) : null}
         <div className="flex flex-wrap items-center gap-1">
-          {/* 语言与日夜跟着窗口标题走（2026-11-13 用户要求放这里）：它们不属于任何一块卡片，
-              是「这一页自己怎么显示」，摆在标题那一行最右边最省地方。日夜那颗拧的是这一窗
-              的主题（默认跟随 DSH，按下之后改手动，见 `lib/shell-theme.ts`）。 */}
+          {/* 公告：长期不变的低频信息，做成顶栏一颗小按钮，点开看。
+              2026-11-17：原先这里还有「报错调试」与「重新连接」两颗——调试页整体删掉；
+              重新连接与「插件更新」卡的重启是同一件事，只留卡里那颗，不重复摆。 */}
+          <NoticeBoard lanPort={status.lan.port} />
+          {/* 2026-11-17 用户要求：语言、日夜、收件三颗与窗口操作排在顶栏最右，成整齐一排。
+              语言与日夜是「这一页怎么显示」；昼夜拧的是这一窗的主题（默认跟随 DSH，按下
+              之后改手动，见 `lib/shell-theme.ts`）。收件文件是弹窗入口（中性色垃圾桶，不
+              摆成删除动作），点开才拉取与清理。 */}
           <LanguageMenu />
           <ConsoleThemeToggle />
-          {/* 收件文件从常驻卡片改成弹窗：入口是日夜右边这颗垃圾桶图标（中性色描边，不摆成删除
-              动作），点开才拉取与清理。 */}
           <Button
             variant="ghost"
             size="icon-md"
@@ -421,14 +394,6 @@ export function Console() {
             onClick={() => setInboxOpen(true)}
           >
             <TrashIcon />
-          </Button>
-          {/* 公告：长期不变的低频信息，做成顶栏右端一颗小按钮，点开看。 */}
-          <NoticeBoard lanPort={status.lan.port} />
-          <Button variant="ghost" size="sm" onClick={() => openPage('debug')}>
-            {t('panel.console.troubleshoot')}
-          </Button>
-          <Button variant="ghost" size="sm" disabled={busy !== ''} onClick={() => void reconnect()}>
-            {t('panel.pairing.reconnect')}
           </Button>
           {/* 内嵌窗的窗口操作（浏览器打开 / 关闭）画在页面里，动作交回外壳执行。 */}
           <PanelWindowActions />

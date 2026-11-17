@@ -12,6 +12,7 @@
  *
  * 配对与管理操作允许本机及标准局域网直连；公网窗口只放行只读面板。
  * 局域网部署由另一台电脑操作是受支持场景，不要求先开启两小时窗口。
+ * 桌面侧边栏两颗图标的显示开关也走改配置那条路由，形状必须是布尔值。
  */
 
 const test = require('node:test');
@@ -82,8 +83,7 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/panel',
     '/api/relay/panel/setup',
     '/api/relay/panel/settings',
-    // 调试页：桌面端那颗手机图标点开的就是它（同一份 HTML，分流在 React 侧）。
-    '/api/relay/panel/debug',
+    // 调试页 /api/relay/panel/debug 2026-11-17 删除，不再注册。
     // 控制台那一窗：同一份 HTML，点手机图标进来的第一屏。
     '/api/relay/panel/console',
     // 远程电脑独立页：同一份 HTML，点电脑图标进来的那一窗。
@@ -166,7 +166,7 @@ test('改配置的路由逐字段校验，不接受任意键', () => {
   assert.notEqual(at, -1);
   const end = source.indexOf('registerRoute', at + 1);
   const route = source.slice(at, end < 0 ? at + 1600 : end);
-  for (const field of ['relayUrl', 'lanEnabled', 'lanPort', 'name', 'pairingPolicy', 'registerSecret', 'preferredLanAddress', 'manualLanUrl', 'manualIpv6Url']) {
+  for (const field of ['relayUrl', 'lanEnabled', 'lanPort', 'name', 'pairingPolicy', 'registerSecret', 'preferredLanAddress', 'manualLanUrl', 'manualIpv6Url', 'desktopPhoneIcon', 'desktopComputerIcon']) {
     assert.ok(route.includes(`patch.${field}`), `config 路由必须逐字段校验并只写白名单字段，缺 ${field}`);
   }
   // 端口范围与注册密钥长度是防呆，别被"顺手清理"掉。
@@ -198,14 +198,15 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  * 依赖全给最小假体，真正会跑到的只有配置 / 地址库这两条；`settings.update` 是唯一的真值
  * 落点 —— 这样才谈得上「写进去能读回」，只对着源码正则断言字段名是钉不住的。
  */
-function controlRoutes({ state = {}, settingsCalls = [], credentials: credentialStore,
+function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
   localOnly = (_method, handler) => handler, trustedLocalUi = () => true } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
   const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
   const settings = {
-    async update(patch) {
+    async update(patch, options) {
       settingsCalls.push(patch);
+      notifyCalls.push(options && options.notify);
       Object.assign(state, patch);
       return state;
     },
@@ -282,6 +283,32 @@ test('行为：审批自动审阅档只认布尔值，写进同一份配置（�
     assert.equal(Object.prototype.hasOwnProperty.call(calls2[0], 'approvalAutoReview'), false,
       `${JSON.stringify(bad)} 不该被当成布尔值写进去`);
     assert.equal(calls2[0].name, 'ok', '其余合法字段照旧写入');
+  }
+});
+
+test('行为：侧边栏图标开关只认布尔值，与其余配置写进同一份', async () => {
+  const calls = [];
+  const notifies = [];
+  const table = controlRoutes({ state: { desktopPhoneIcon: true, desktopComputerIcon: true }, settingsCalls: calls, notifyCalls: notifies });
+  const saved = {};
+  await table.get('/api/relay/config')({ method: 'POST', body: { desktopPhoneIcon: false, desktopComputerIcon: true } }, saved);
+  assert.equal(saved.status, 200);
+  assert.deepEqual(calls[0], { desktopPhoneIcon: false, desktopComputerIcon: true });
+  assert.equal(notifies[0], false, '纯图标写入不许顺手重建隧道');
+
+  await table.get('/api/relay/config')({ method: 'POST', body: { desktopPhoneIcon: true, name: '桌机' } }, {});
+  assert.equal(notifies[1], true, '混着真实配置项时照旧下发');
+
+  for (const bad of ['false', 0, 1, null, {}]) {
+    const badCalls = [];
+    const badTable = controlRoutes({ state: { desktopPhoneIcon: true, desktopComputerIcon: true }, settingsCalls: badCalls });
+    const res = {};
+    await badTable.get('/api/relay/config')({ method: 'POST', body: { desktopPhoneIcon: bad, desktopComputerIcon: bad, name: 'ok' } }, res);
+    assert.equal(res.status, 200);
+    assert.equal(Object.prototype.hasOwnProperty.call(badCalls[0], 'desktopPhoneIcon'), false,
+      `${JSON.stringify(bad)} 不该写成显示状态`);
+    assert.equal(Object.prototype.hasOwnProperty.call(badCalls[0], 'desktopComputerIcon'), false);
+    assert.equal(badCalls[0].name, 'ok', '其余合法字段照旧写入');
   }
 });
 
@@ -649,7 +676,7 @@ test('只有面板页放开「人点开的一页」，别的控制面路由不�
   // 社区桌面壳会把自己接住的链接原地打开，从自定义协议页跳到面板地址时必带
   // `sec-fetch-site: cross-site`。这一种形态只对「只读的一页」放开（面板页、桌面画布页）；
   // 放开别的就得先想清楚它是不是也能被别人的网页点开。
-  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/console', '/api/relay/panel/debug', '/api/relay/panel/remote', '/api/relay/panel/settings', '/api/relay/panel/setup']);
+  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/console', '/api/relay/panel/remote', '/api/relay/panel/settings', '/api/relay/panel/setup']);
 });
 
 test('行为：设备清单带「历史有几条」，同一个 handler 按 ?history=1 换成已解绑清单', async () => {

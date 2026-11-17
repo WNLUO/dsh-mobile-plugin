@@ -11,7 +11,6 @@ import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../index.css'
 import { Console } from '../Console.tsx'
-import { FloatingActions } from '../components/FloatingActions.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import { Shell } from '../Shell.tsx'
 import { watchShellTheme } from '../lib/shell-theme.ts'
@@ -50,22 +49,17 @@ const scene = sceneName
 function Scene() {
   if (scene === 'status') return <StatusPreview />
   if (scene === 'onboarding') return <Onboarding />
-  // 控制台那一幕要连右下角那三颗、以及**主题跟随**一起画：外壳在正式页里负责这两件事
-  // （见 `Shell.tsx`），而演示版绕过了外壳直接渲染组件，所以自己补上同一份 ——
-  // 否则预览里既看不到那三颗、日夜按钮也「按了会变、刷新又回去」。
+  // 控制台那一幕要连**主题跟随**一起画：外壳在正式页里负责这件事（见 `Shell.tsx`），
+  // 而演示版绕过了外壳直接渲染组件，所以自己补上 —— 否则日夜按钮「按了会变、刷新又回去」。
+  // Star / 赞助 / 交流群三颗 2026-11-17 已进 Console 顶栏，这里不再单独挂。
   if (scene === 'console') return <ConsoleScene />
   return <Shell />
 }
 
-/** 控制台那一幕：与 `Shell` 里那两件事逐条对应（跟随主题 + 右下角三颗）。 */
+/** 控制台那一幕：与 `Shell` 里那件事逐条对应（跟随主题）。 */
 function ConsoleScene() {
   useEffect(() => watchShellTheme(), [])
-  return (
-    <>
-      <Console />
-      <FloatingActions compact />
-    </>
-  )
+  return <Console />
 }
 
 /**

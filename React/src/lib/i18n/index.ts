@@ -1,5 +1,5 @@
 /**
- * 面板取词的唯一出口：`t('panel.pairing.reconnect')`。
+ * 面板取词的唯一出口：`t('panel.pairing.cardTitle')`。
  *
  * 只做「合并各领域表 + 查当前语言」两件事。当前语言由 `core.ts` 那一份状态回答：
  * 缺省跟着浏览器 / 系统走，右上角那颗按钮选了某一门就按那一门（见 `core.ts` 的文件头）。
@@ -18,12 +18,11 @@ import { UPDATE } from './messages/update.ts'
 import { DEVICES } from './messages/devices.ts'
 import { NOTICE } from './messages/notice.ts'
 import { SELFCHECK } from './messages/selfcheck.ts'
-import { DEBUG } from './messages/debug.ts'
 import { CONSOLE } from './messages/console.ts'
 import { REMOTE_COMPUTERS } from './messages/remote-computers.ts'
 
 /** 全部领域表。守卫按它逐门检查键集对齐与占位符一致。 */
-export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, TAILCAT, P2P, ONBOARDING, UPDATE, DEVICES, NOTICE, SELFCHECK, DEBUG, CONSOLE, REMOTE_COMPUTERS]
+export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, TAILCAT, P2P, ONBOARDING, UPDATE, DEVICES, NOTICE, SELFCHECK, CONSOLE, REMOTE_COMPUTERS]
 
 /** 合并后的字典：语言 → 扁平表。 */
 export const MESSAGES: Record<PanelLanguage, Record<string, string>> = (() => {

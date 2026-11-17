@@ -1,9 +1,8 @@
 /**
- * 页面右下角那颗「赞助」的悬浮按钮，点开弹 USDT 收款二维码。
+ * 「赞助」按钮，点开弹 USDT 收款二维码。
  *
- * 与「加入交流群」并排：那颗落在 `bottom-6`，这颗排在它上面（`bottom-24`）。
- * 同样是「跟这台机器现在怎么样了无关、但想让人一直看得见」的东西，所以挂在页面
- * 边缘而不是某张卡片里。
+ * 与「加入交流群」「给个 Star」同一排：2026-11-17 从页面悬浮挪进控制台顶栏左侧，
+ * 三颗横排，由 `FloatingActions` 统一编排，这里只管自己这颗按钮与那扇窗。
  *
  * 收款地址是 Polygon 上的 USDT：`0x` 开头是 EVM 地址，收不了 TRC20 那种 `T` 开头的。
  * 二维码里编的是**纯地址**，不带 EIP-681 的链前缀 —— 带链的写法只有部分钱包认，认不出
@@ -61,7 +60,7 @@ export function SponsorButton({ compact = false }: { compact?: boolean } = {}) {
 
   return (
     <>
-      {/* 坐标归 `FloatingActions`（三颗同一列、左对齐）；这里只管自己那颗按钮。 */}
+      {/* 三颗的横排编排归 `FloatingActions`；这里只管自己那颗按钮。 */}
       <Button
         variant="secondary"
         size={compact ? 'sm' : 'lg'}

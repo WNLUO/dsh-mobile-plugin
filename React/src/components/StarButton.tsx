@@ -1,9 +1,8 @@
 /**
- * 页面右下角那颗「给个 Star」的悬浮按钮，点一下直接开 GitHub 仓库页。
+ * 「给个 Star」按钮，点一下直接开 GitHub 仓库页。
  *
- * 与「加入交流群」「赞助」同一串：都落在 `bottom`/`end-6` 那条竖线上，从下往上依次是
- * 交流群（`bottom-6`）、赞助（`bottom-24`）、这颗（`bottom-[10.5rem]`）。三颗的间距是
- * 24px（上一颗 96px + 按钮自身 48px + 24px），加一颗新的就按这个式子往上挪一格。
+ * 与「加入交流群」「赞助」同一排：2026-11-17 从页面悬浮挪进控制台顶栏左侧，三颗横排，
+ * 由 `FloatingActions` 统一编排（顺序、间距都在那一层），这里只管自己这颗按钮。
  *
  * **点开就是外链，不开弹窗**：求 star 这件事一句话说完就够，弹窗只会让人多点一下；
  * 而站点链接必须是绝对 http(s)，面板在桌面壳里挂在 `dsh-app://app/` 下，相对地址会被
@@ -30,7 +29,7 @@ function GithubMark() {
 }
 
 export function StarButton({ compact = false }: { compact?: boolean } = {}) {
-  // 坐标归 `FloatingActions`（三颗同一列、左对齐）；这里只管自己那颗按钮。
+  // 三颗的横排编排归 `FloatingActions`；这里只管自己这颗按钮。
   return (
     <a
       href={PLUGIN_REPO_URL}

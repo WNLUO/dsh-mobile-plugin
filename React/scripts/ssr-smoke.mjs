@@ -57,7 +57,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Con, Onb, Join, Spn, Star, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice, Dbg] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Con, Onb, Join, Spn, Star, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -75,7 +75,6 @@ const [Conn, Pair, Upd, Dialog, Lan, Con, Onb, Join, Spn, Star, Toggle, Picker, 
   server.ssrLoadModule('/src/components/LanguageMenu.tsx'),
   server.ssrLoadModule('/src/components/TopRightActions.tsx'),
   server.ssrLoadModule('/src/components/NoticeBoard.tsx'),
-  server.ssrLoadModule('/src/Debug.tsx'),
 ])
 
 const noop = () => {}
@@ -200,8 +199,8 @@ const cases = [
   // 四页的完整流程要用浏览器点（见 .../api/relay/panel/setup）。
   ['Onboarding（欢迎页）', h(Onb.Onboarding, {})],
   ['Onboarding（强制引导 setup）', h(Onb.Onboarding, { replay: true })],
-  // 悬浮那颗「加入交流群」独立于两张卡，单独过一遍：它要贴住右下角（`fixed`）、
-  // 文字和微信图标都得在。点开之后是什么还没定，所以只看按钮在不在。
+  // 「加入交流群」独立于两张卡，单独过一遍：文字和微信图标都得在（烟测已钉 zh-Hans，
+  // 所以这颗对中文用户是渲染的）。点开之后是什么还没定，所以只看按钮在不在。
   ['JoinGroupButton', h(Join.JoinGroupButton, {}), '加入交流群'],
   // 赞助那颗悬浮按钮：按钮文字与网络说明都得在；弹窗同样走 portal，SSR 是空串，
   // 收款地址 / 二维码要真浏览器点开看。
@@ -222,11 +221,7 @@ const cases = [
   ['DownloadAppButton', h(Dl.DownloadAppButton, {}), '下载 APP'],
   // 公告板：标题与那条号都得在 —— 号是常量、正文从它拼，缺了就是占位符没接上。
   // 公告卡里两条：版本门槛 + 「自己搭一台中转」，后者带一个指向仓库的链接。
-  // 调试页（桌面端那颗手机图标弹的就是它）：首屏还没读回宿主，只有标题与引导句，
-  // 但「加载、链路、故障账本」这几段的骨架得先立着，所以四段标题都该在。
-  ['Debug', h(Dbg.Debug, {}), '插件调试'],
-  ['Debug（装载段在）', h(Dbg.Debug, {}), '盘上版本'],
-  ['Debug（故障账本段在）', h(Dbg.Debug, {}), '故障账本'],
+  // 调试页 2026-11-17 删除，这三条烟测随之撤掉。
   // 公告板：2026-11-13 从常驻卡片改成「按钮 + 弹窗」，所以首屏只剩那颗按钮 ——
   // 标题与「最低插件版本 ≥ x.y.z」都在它身上。正文（版本门槛那两句、以及「自己搭一台
   // 中转」那一节）住在弹窗里，收起时不渲染，这一遍冒烟看不到，要看得点开（浏览器里看）。
@@ -252,6 +247,20 @@ for (const [label, element, must] of cases) {
     failed += 1
     console.log(`FAIL ${label}: ${err && err.message}`)
     console.log(String((err && err.stack) || '').split('\n').slice(1, 4).join('\n'))
+  }
+}
+
+// 「加入交流群」只对中文用户显示（2026-11-17）：切到英文后这颗按钮不该渲染，
+// 简中 / 繁中仍要渲染。切回 zh-Hans，别影响下面按源语言原文断言的用例。
+for (const [language, shouldShow] of [['en', false], ['zh-Hant', true], ['zh-Hans', true]]) {
+  setPanelLanguagePreference(language)
+  const html = renderToString(h(ToastProvider, {}, h(Join.JoinGroupButton, {})))
+  const shown = html.includes('加入交流群')
+  if (shown !== shouldShow) {
+    failed += 1
+    console.log(`FAIL JoinGroupButton[${language}]: ${shouldShow ? '该显示却没渲染' : '不该显示却渲染了'}`)
+  } else {
+    console.log(`ok   JoinGroupButton[${language}]  ${shouldShow ? '显示' : '隐藏'}`)
   }
 }
 
