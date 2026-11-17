@@ -21,9 +21,18 @@ function tempDir() {
 
 function fakeChild() {
   const handlers = {};
+  const stream = () => {
+    const streamHandlers = {};
+    return {
+      setEncoding() {},
+      on(event, cb) { streamHandlers[event] = cb; },
+      emit(event, ...args) { if (streamHandlers[event]) streamHandlers[event](...args); },
+    };
+  };
   return {
     pid: 4242,
-    stderr: { setEncoding() {}, on() {} },
+    stdout: stream(),
+    stderr: stream(),
     kill() { return true; },
     on(event, cb) { handlers[event] = cb; },
     emit(event, ...args) { if (handlers[event]) handlers[event](...args); },
@@ -63,10 +72,32 @@ test('start 起进程、status 报运行中；进程退出后报已退出', asyn
   const started = await runner.start();
   assert.equal(started.running, true);
   assert.equal(started.pid, 4242);
-  child.emit('exit', 1, null);
+  child.emit('close', 1, null);
   const after = runner.status();
   assert.equal(after.running, false);
   assert.match(after.error, /退出/);
+});
+
+test('退出原因取自 stdout：只收 stderr 或太早拼文案都会让这条变红', async () => {
+  const root = tempDir();
+  const child = fakeChild();
+  const runner = createFrpcRunner({
+    root,
+    portOf: () => 49906,
+    ensure: async () => ({ ok: true, path: '/fake/frpc' }),
+    spawnImpl: () => child,
+  });
+  runner.saveConfig(CONFIG);
+  await runner.start();
+  // 若还监听 exit 并当场拼文案，这一发就会清掉进程、且收不到随后的输出。
+  child.emit('exit', 1, null);
+  assert.equal(runner.status().running, true, '退出出口已改为 close，exit 不该生效');
+  // frpc 的致命原因（这里模拟 token 不匹配）写在 stdout，stderr 是空的。
+  child.stdout.emit('data', '2026-11-17 10:00:00 [E] token in login does not match\n');
+  child.emit('close', 1, null);
+  const after = runner.status();
+  assert.equal(after.running, false);
+  assert.match(after.error, /token in login does not match/, 'stdout 上的原因必须带进文案');
 });
 
 test('stop 关掉进程、清启用标记', async () => {

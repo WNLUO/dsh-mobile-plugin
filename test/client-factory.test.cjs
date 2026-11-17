@@ -381,11 +381,19 @@ function createEnv(options = {}) {
       if (match) return styles.find((tag) => tag.dataset.pluginCss === match[1]) || null;
       // 侧栏底部那颗图标靠这个标记认设置那一行（见源码里的 FOOTER_ANCHOR）。
       if (selector === '[data-slot="settings.launcher"]') return sidebar ? sidebar.outlet : null;
+      // 电脑图标靠手机图标的记号定位；两颗都挂进那只带记号的方框。
+      if (selector === '[data-dshm-mobile-web]') {
+        return created.find((node) => node.attrs['data-dshm-mobile-web'] !== undefined && node.parentElement !== null) || null;
+      }
+      if (selector === '[data-dshm-footer-group]') {
+        return created.find((node) => node.attrs['data-dshm-footer-group'] !== undefined && node.parentElement !== null) || null;
+      }
       return null;
     },
     querySelectorAll(selector) {
-      if (selector !== '[data-dshm-mobile-web]') return [];
-      return created.filter((node) => node.attrs['data-dshm-mobile-web'] !== undefined && node.parentElement !== null);
+      const mark = /^\[(data-dshm-mobile-web|data-dshm-remote-web|data-dshm-footer-group)\]$/.exec(selector);
+      if (!mark) return [];
+      return created.filter((node) => node.attrs[mark[1]] !== undefined && node.parentElement !== null);
     },
     listeners: {},
     addEventListener(type, fn) {
@@ -582,7 +590,7 @@ function createEnv(options = {}) {
       for (const cleanup of owned.splice(0).reverse()) cleanup();
     };
     plugin.apply(ctx);
-    assert.equal(registrations.length, 2, 'apply 注册设置那一项与侧边栏那颗图标');
+    assert.equal(registrations.length, 3, 'apply 注册设置那一项与侧边栏两颗图标');
     return plugin;
   }
 
@@ -605,6 +613,15 @@ function createEnv(options = {}) {
   }
 
   /** 渲染「设置 → 移动端」那张薄卡；`preset` 按 useState 顺序（0 url / 1 scope / 2 access / 3 failure）。 */
+  /** 渲染侧边栏那颗电脑图标；preset 顺序同 renderFooter 的来源读数。 */
+  function renderRemoteFooter(preset, props = {}) {
+    const registration = registrations.find((entry) => entry.pathname === 'sidebar.footer.action' && entry.id === 'remote-web');
+    assert.ok(registration, '没有注册电脑图标');
+    const { t } = registration.inject();
+    hooks.begin(preset);
+    return registration.component({ wide: true, ...props, t });
+  }
+
   function renderSettings(preset) {
     const registration = byPathname('settings.section');
     const { t } = registration.inject();
@@ -620,6 +637,7 @@ function createEnv(options = {}) {
     get ctx() { return currentContext; },
     dispose: () => disposeProvider(),
     renderFooter,
+    renderRemoteFooter,
     renderSettings,
     byPathname,
     registrations,
@@ -1010,11 +1028,12 @@ function findByClass(node, wanted) {
   return null;
 }
 
-test('两个入口都注册着：设置里那一项与侧边栏那颗图标', () => {
+test('三个入口都注册着：设置里那一项与侧边栏那两颗图标', () => {
   const env = materialize();
-  assert.equal(env.registrations.length, 2, 'apply 注册设置项与侧边栏那颗图标');
+  assert.equal(env.registrations.length, 3, 'apply 注册设置项与侧边栏两颗图标');
   assert.equal(env.byPathname('settings.section').id, 'mobile');
-  assert.equal(env.byPathname('sidebar.footer.action').id, 'mobile-web');
+  const icons = env.registrations.filter((entry) => entry.pathname === 'sidebar.footer.action');
+  assert.deepEqual(icons.map((entry) => entry.id), ['mobile-web', 'remote-web'], '手机图标在前、电脑图标在后');
 });
 
 test('字典覆盖两张界面，中英一一对应', () => {
@@ -1028,8 +1047,7 @@ test('字典覆盖两张界面，中英一一对应', () => {
   // —— 调试页退到操作栏里那颗次要按钮。
   assert.deepEqual(Object.keys(dict.zh).sort(), [
     'cardPanel',
-    'consoleFrameless', 'consoleLoading', 'consoleOpenBrowser', 'consolePopupBlocked', 'consoleReload',
-    'consoleTitle', 'consoleTroubleshoot',
+    'consoleFrameless', 'consoleLoading', 'consolePopupBlocked', 'consoleTitle',
     'diagBusy', 'diagChecking', 'diagClose', 'diagCopied', 'diagCopy', 'diagCopyFailed',
     'diagFactActivated', 'diagFactOnDisk', 'diagFactPanelUrl', 'diagFactPlugin', 'diagFactReason',
     'diagFactRetry', 'diagFactReturned', 'diagFactScope', 'diagFactSelfcheck', 'diagFactShell',
@@ -1041,9 +1059,9 @@ test('字典覆盖两张界面，中英一一对应', () => {
     'diagSummaryOpenFailed', 'diagSummaryRestored', 'diagSummaryUnreachable', 'diagTitleLoad',
     'diagTitleOpen', 'footerAgoDays', 'footerAgoHours', 'footerAgoMinutes', 'footerAgoNow',
     'footerDeviceCount', 'footerDeviceSeen', 'footerLoadMissing', 'footerNoDevice', 'footerOpen',
-    'footerPending', 'footerPublicConfirm', 'footerSidecarBad', 'footerTunnelBad',
+    'footerPending', 'footerPublicConfirm', 'footerRemoteOpen', 'footerSidecarBad', 'footerTunnelBad',
     'heading', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
-    'pluginPageMissing', 'pluginPages', 'pluginPagesEmpty', 'pluginPagesHint'
+    'pluginPageMissing', 'pluginPages', 'pluginPagesEmpty', 'pluginPagesHint', 'remoteConsoleTitle'
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
 });
@@ -1170,17 +1188,36 @@ async function clickDialogButton(env, label) {
   return button;
 }
 
-/** 弹窗里那颗按钮（按文案找）。 */
+/** 弹窗里那颗按钮（按文案或无障碍名找）。内容窗的按钮是图标，名字在 aria-label。 */
 function dialogButton(env, label) {
   const dialog = diagnosisNode(env);
   if (!dialog) return undefined;
   // 弹窗是命令式 DOM，元素的 tag 在 `node.tag`；react 元素才用 `node.type`。
-  return elements(dialog).find((node) => (node.tag === 'button' || node.type === 'button') && texts(node).join('') === label);
+  return elements(dialog).find((node) => {
+    if (node.tag !== 'button' && node.type !== 'button') return false;
+    if (texts(node).join('') === label) return true;
+    const attrs = node.attrs || node.props || {};
+    return attrs['aria-label'] === label || attrs.title === label;
+  });
 }
 
-/** 那一行里被我们插进去的那颗（没有返回 undefined）。 */
+/** 方框节点（没有返回 undefined）：两颗图标都挂在它里面。 */
+function footerGroupNode(sidebar) {
+  return [...sidebar.row.children].find((node) => node.attrs['data-dshm-footer-group'] !== undefined);
+}
+
+/** 方框里那颗手机图标（没有返回 undefined）。 */
 function footerDomNode(sidebar) {
-  return [...sidebar.row.children].find((node) => node.attrs[FOOTER_MARK] !== undefined);
+  const group = footerGroupNode(sidebar);
+  if (!group) return undefined;
+  return [...group.children].find((node) => node.attrs[FOOTER_MARK] !== undefined);
+}
+
+/** 方框里那颗电脑图标（没有返回 undefined）。 */
+function remoteDomNode(sidebar) {
+  const group = footerGroupNode(sidebar);
+  if (!group) return undefined;
+  return [...group.children].find((node) => node.attrs['data-dshm-remote-web'] !== undefined);
 }
 
 test('图标注册信息：槽名走 sidebar.footer.action、id 是自己的、标签走字典', () => {
@@ -1217,9 +1254,13 @@ test('展开态：图标插进设置那一行、紧跟头像出口，不遮住�
   assert.ok(node, '必须插进设置那一行（否则就退回自己那一行了）');
   assert.equal(node.tag, 'a');
   assert.equal(node.className, 'dshm_footAction');
-  // 紧跟在头像出口后面、在连接状态/更新提示前面：那一行里设置按钮是 flex:1，
-  // 它自己让出宽度，所以谁都不会被盖住。
-  assert.equal(node.previousSibling, sidebar.outlet);
+  // 方框紧跟在头像出口后面、在连接状态/更新提示前面：那一行里设置按钮是 flex:1，
+  // 它自己让出宽度，所以谁都不会被盖住。手机图标是方框里的第一颗。
+  const group = footerGroupNode(sidebar);
+  assert.ok(group, '两颗图标要合在同一只方框里');
+  assert.equal(group.className, 'dshm_footerGroup');
+  assert.equal(group.previousSibling, sidebar.outlet);
+  assert.equal(group.children[0], node);
   assert.equal(node.children[0].tag, 'svg', '图标本体要挂上');
   // 用户 2026-11-02 拍的尺寸：展开那一行 20（先 18、嫌小又抬一档）。别再调回 16/18 ——
   // 手机图形窄，按名义尺寸画出来比同行那几颗 16 的方形图标显小。
@@ -1240,6 +1281,71 @@ test('展开态：图标插进设置那一行、紧跟头像出口，不遮住�
   assert.equal(env.renderFooter(), null);
 });
 
+test('电脑图标插在设置那一行、手机图标右边，显示器图形与文案到位', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status') ? readyStatus() : { ok: true }),
+    }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderRemoteFooter();
+  await env.hooks.flush();
+  env.renderRemoteFooter();
+  await env.hooks.flush();
+
+  const phone = footerDomNode(sidebar);
+  const remote = remoteDomNode(sidebar);
+  assert.ok(remote, '电脑图标必须插进设置那一行');
+  assert.equal(remote.previousSibling, phone, '紧跟手机图标右边');
+  // 两颗合在同一只方框里：盒子紧跟出口，手机第一颗、电脑第二颗，只有一个盒子。
+  const groups = [...sidebar.row.children].filter((node) => node.attrs['data-dshm-footer-group'] !== undefined);
+  assert.equal(groups.length, 1, '两颗图标共用一只方框，不叠出第二个');
+  assert.equal(groups[0].children.length, 2);
+  assert.equal(remote.tag, 'a');
+  assert.equal(remote.children[0].tag, 'svg');
+  assert.equal(remote.children[0].children.length, 3, '显示器图形：屏幕 + 底座 + 中柱');
+  assert.match(remote.children[0].children[0].attrs.d, /^M4\.5 3\.5h15/);
+  assert.equal(remote.attrs['aria-label'], '打开远程电脑');
+  assert.equal(remote.attrs.href, readyStatus().panelUrl);
+  assert.equal(remote.attrs.target, '_blank');
+  // 展开态下电脑图标不该同时在自己那一行里画第二颗。
+  assert.equal(env.renderRemoteFooter(), null);
+});
+
+test('两颗渲染顺序颠倒时，方框里仍是手机在左、电脑在右', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({ sidebar });
+  env.renderRemoteFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const group = footerGroupNode(sidebar);
+  assert.ok(group, '两颗共用一只方框');
+  assert.equal(group.children.length, 2);
+  assert.equal(group.children[0], footerDomNode(sidebar), '第一颗是手机');
+  assert.equal(group.children[1], remoteDomNode(sidebar), '第二颗是电脑');
+});
+
+test('方框样式在：细边框圈一组，进组后两颗的间距收紧', () => {
+  assert.match(SOURCE, /\.dshm_footerGroup\{[^}]*display:inline-flex[^}]*gap:2px[^}]*border:1px solid var\(--dsw-alias-settings-card-stroke\)/, '带边框的容器与 2px 间隙要在');
+  assert.match(SOURCE, /\.dshm_footerGroup \.dshm_footAction\{margin:0\}/, '进组后撤掉单颗外边距，别把间距撑大');
+});
+
+test('内容窗宽高自适应、顶部留白收紧，不再写死 82vh/1040px', () => {
+  assert.doesNotMatch(SOURCE, /\.dshm_dialogWide\{[^}]*height:82vh/, '高度不许再写死 82vh');
+  assert.doesNotMatch(SOURCE, /\.dshm_dialogWide\{[^}]*max-width:1040px(?!\w)/, '宽度不许再写死 1040px');
+  assert.match(SOURCE, /\.dshm_overlay\{[^}]*padding:clamp\(/, '遮罩留白随视口收放');
+  assert.match(SOURCE, /\.dshm_dialogWide\{[^}]*max-width:min\(1040px,100%\)[^}]*height:min\(88vh,900px\)[^}]*padding:6px;gap:0/, '内容窗宽高自适应且顶部只留 6px');
+  assert.doesNotMatch(SOURCE, /\.dshm_dialogTools\{/, '外壳不再画按钮行，按钮进了页面');
+  assert.doesNotMatch(SOURCE, /\.dshm_iconBtn\{/, '外壳不再画图标按钮');
+  assert.match(SOURCE, /\.dshm_dialogNote:empty\{display:none\}/, '空说明行不占位');
+});
+
 test('重复渲染不会插出第二颗', async () => {
   const sidebar = fakeSidebarRow();
   const env = materialize({ sidebar });
@@ -1247,8 +1353,10 @@ test('重复渲染不会插出第二颗', async () => {
   await env.hooks.flush();
   env.renderFooter();
   await env.hooks.flush();
-  const ours = [...sidebar.row.children].filter((node) => node.attrs[FOOTER_MARK] !== undefined);
+  const group = footerGroupNode(sidebar);
+  const ours = group ? [...group.children].filter((node) => node.attrs[FOOTER_MARK] !== undefined) : [];
   assert.equal(ours.length, 1);
+  assert.equal([...sidebar.row.children].filter((node) => node.attrs['data-dshm-footer-group'] !== undefined).length, 1, '也不叠出第二只方框');
 });
 
 test('窄条（56 点）那一行塞不下第二颗：改为自己占一行', async () => {
@@ -1583,11 +1691,6 @@ function consolePageOf() {
   return 'http://127.0.0.1:56495/api/relay/panel/console';
 }
 
-/** 调试页地址（同源推，`panelPageUrlOf('debug')`）。 */
-function debugPageOf() {
-  return 'http://127.0.0.1:56495/api/relay/panel/debug';
-}
-
 /** 只给一颗图标用的环境：`panelScope` 与窗口状态由调用方定。 */
 function clickEnv({ panelScope = 'loopback', webAccess = { enabled: false, expiresAt: 0 }, confirm = true, pageProtocol = 'http:', source } = {}) {
   const posts = [];
@@ -1637,10 +1740,44 @@ test('本机回环：点下去直接嵌控制台那一屏，不再有中间那�
   );
 });
 
+test('点电脑图标：本机回环直接嵌远程电脑页，不是控制台页', async () => {
+  const { env, posts } = clickEnv({ panelScope: 'loopback' });
+  env.renderRemoteFooter({}, { wide: false });
+  await env.hooks.flush();
+  const icon = env.renderRemoteFooter({}, { wide: false });
+  assert.equal(icon.props['aria-label'], '打开远程电脑');
+  let prevented = false;
+  await icon.props.onClick({ preventDefault() { prevented = true; } });
+  await settle();
+  assert.equal(prevented, true, '点击先拦下来：这一下是弹窗');
+  assert.equal(env.openedWindows.length, 0, '不许跳走');
+  assert.deepEqual(posts, [], '本机不必开两小时窗口');
+  const frame = consoleFrame(env);
+  assert.ok(frame, '点下去就地嵌那一页');
+  assert.equal(frame.attrs.src, remotePageOf(), '嵌的是远程电脑独立页');
+  assert.equal(frame.attrs.title, '远程电脑');
+});
+
+/** 远程电脑独立页地址（同源推，`panelPageUrlOf('remote')` 就是这么算的）。 */
+function remotePageOf() {
+  return 'http://127.0.0.1:56495/api/relay/panel/remote';
+}
+
 /** 回执来自实际 iframe 窗口；别的窗口发同名消息不能解除加载态。 */
 function sendPanelState(env, frame, state, source = frame.contentWindow) {
   for (const fn of env.sandbox.window.listeners.message || []) {
     fn({ source, data: { type: 'dsh-mobile-plugin:panel-state', state } });
+  }
+}
+
+/** 页面顶栏那两颗按钮发来的窗口动作：同样只认 iframe 的来源。 */
+function sendPanelAction(env, action, source) {
+  const frame = consoleFrame(env);
+  // 真 iframe 一定有 contentWindow；假体里多数测试没设，这里补一颗身份牌再发。
+  if (!frame.contentWindow) frame.contentWindow = { postMessage() {} };
+  const from = source === undefined ? frame.contentWindow : source;
+  for (const fn of env.sandbox.window.listeners.message || []) {
+    fn({ source: from, data: { type: 'dsh-mobile-plugin:panel-action', action } });
   }
 }
 
@@ -1659,7 +1796,9 @@ test('控制台：空白文档 load 不算就绪，超时给出重试提示', as
   await env.timers.tick(20000);
   assert.equal(diagnosisNode(env).__dshmFrameState, 'error');
   assert.match(texts(diagnosisNode(env)).join(' '), /未能完成加载/);
-  assert.ok(dialogButton(env, '重新载入'));
+  // 外壳不放任何按钮：重试是关窗重开或页面顶栏那颗，窗口操作由页面发消息。
+  assert.equal(dialogButton(env, '重新载入'), undefined);
+  assert.equal(dialogButton(env, '在浏览器里打开'), undefined);
 });
 
 test('控制台：已就绪页面保活，失败或未就绪页面重新打开要换一页', async () => {
@@ -1671,7 +1810,7 @@ test('控制台：已就绪页面保活，失败或未就绪页面重新打开�
     const frame = consoleFrame(env);
     frame.contentWindow = { postMessage() {} };
     if (state !== 'loading') sendPanelState(env, frame, state);
-    await clickDialogButton(env, '关闭');
+    sendPanelAction(env, 'close');
     await icon.props.onClick({ preventDefault() {} });
     await settle();
     assert.equal(consoleFrame(env) === frame, state === 'ready', state);
@@ -1679,7 +1818,7 @@ test('控制台：已就绪页面保活，失败或未就绪页面重新打开�
   }
 });
 
-test('控制台：文档就绪标记可补发回执，重载按钮丢弃旧页面', async () => {
+test('控制台：文档就绪标记可补发回执，加载提示随即撤掉', async () => {
   const { env } = clickEnv();
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
@@ -1689,13 +1828,7 @@ test('控制台：文档就绪标记可补发回执，重载按钮丢弃旧页�
   frame.onload();
   assert.equal(diagnosisNode(env).__dshmFrameState, 'ready');
   assert.ok(!elements(diagnosisNode(env)).some((node) => node.className === 'dshm_frameTip'));
-  await clickDialogButton(env, '重新载入');
-  await settle();
-  assert.notEqual(consoleFrame(env), frame);
-  assert.equal(diagnosisNode(env).__dshmFrameState, 'loading');
   assert.equal(env.sandbox.window.listeners.message.length, 1);
-  consoleFrame(env).onerror();
-  assert.equal(diagnosisNode(env).__dshmFrameState, 'error');
 });
 
 test('控制台：入口卸载时清掉保活页面、消息监听和加载定时器', async () => {
@@ -1726,26 +1859,48 @@ test('变异：空白 load 直接就绪、失败页继续保活都会被回归�
     .replace("if (overlay && overlay.__dshmFrameState !== 'ready') overlay.__dshmKeep = false;", '')
     .replace("&& overlay.__dshmFrameState === 'ready'", ''));
   cached.frame.onerror();
-  await clickDialogButton(cached.env, '关闭');
+  sendPanelAction(cached.env, 'close');
   await cached.icon.props.onClick({ preventDefault() {} });
   await settle();
   assert.throws(() => assert.notEqual(consoleFrame(cached.env), cached.frame), assert.AssertionError);
 });
 
-test('「报错调试」在操作栏里，点了才开调试页（次要按钮，不是第一屏）', async () => {
+test('内容窗外壳不画按钮：页面顶栏那两颗发消息，外壳只执行', async () => {
   const { env } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  const button = dialogButton(env, '报错调试');
-  assert.ok(button, '操作栏里要有「报错调试」');
-  assert.equal(button.primary, undefined, '它是次要按钮，不跟「在浏览器里打开」抢主色');
-  if (typeof button.onclick === 'function') await button.onclick();
-  else await button.props.onClick();
+  const dialog = diagnosisNode(env);
+  // 外壳自己一颗按钮都不画：标题行、图标行、底部文字按钮行全撤了。
+  assert.equal(elements(dialog).filter((node) => node.tag === 'button' || node.type === 'button').length, 0);
+  for (const cls of ['dshm_dialogTitle', 'dshm_dialogTools', 'dshm_dialogActions']) {
+    assert.equal(elements(dialog).filter((node) => String(node.className || '').includes(cls)).length, 0, `${cls} 不在外壳里`);
+  }
+  // 「关闭」这条消息真的把窗收起来（未就绪的窗 hide 即销毁）。
+  sendPanelAction(env, 'close');
+  assert.equal(diagnosisNode(env), undefined, '页面发 close，外壳收窗');
+});
+
+test('窗口动作只认内嵌页自己，别的窗口发同名消息不算', async () => {
+  const { env } = clickEnv({ panelScope: 'loopback' });
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
   await settle();
-  // 调试页是**开在新窗口里**的独立一页（不再是窗里第二层）：这一窗就地收掉。
+  sendPanelAction(env, 'open-browser', {});
+  assert.equal(env.openedWindows.length, 0, '冒认的消息不许开窗');
+  assert.ok(diagnosisNode(env), '也不许收窗');
+});
+
+test('页面发 open-browser：外壳开同源地址并收掉这一窗', async () => {
+  const { env } = clickEnv({ panelScope: 'loopback' });
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  sendPanelAction(env, 'open-browser');
+  await settle();
   assert.equal(env.openedWindows.length, 1, '按了才开浏览器窗口');
-  assert.equal(env.openedWindows[0].location.href, debugPageOf());
+  assert.equal(env.openedWindows[0].location.href, consolePageOf(), '开的是同源地址');
+  assert.equal(consoleFrame(env), undefined, '开出去就把这一窗收掉');
 });
 
 test('局域网地址：直接嵌控制台，不开启两小时窗口', async () => {
@@ -1811,17 +1966,14 @@ test('窗口已经开着：不再确认也不再重复开（不续期），照�
   assert.ok(consoleFrame(env));
 });
 
-test('「在浏览器里打开」开的是**同源**地址，不是宿主报的那个 panelUrl', async () => {
+test('页面发 open-browser 开的是**同源**地址，不是宿主报的那个 panelUrl', async () => {
   // 2026-11-13 用户报的根因就在这一条：云服务器上 `panelUrl` 常是 `127.0.0.1:端口`，
   // 从公网打开 DSH 的人点过去必然打不开。所以开窗一律用按 `baseURI` 推的同源地址。
   const { env } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  const button = dialogButton(env, '在浏览器里打开');
-  assert.ok(button, '「在浏览器里打开」还在');
-  if (typeof button.onclick === 'function') await button.onclick();
-  else await button.props.onClick();
+  sendPanelAction(env, 'open-browser');
   await settle();
   assert.equal(env.openedWindows.length, 1, '按了才开浏览器窗口');
   assert.equal(
@@ -1833,17 +1985,14 @@ test('「在浏览器里打开」开的是**同源**地址，不是宿主报的�
   assert.equal(consoleFrame(env), undefined, '开出去就把这一窗收掉');
 });
 
-test('桌面壳里「在浏览器里打开」交给页面导航去开系统浏览器，不再走被拒的 window.open', async () => {
+test('桌面壳里页面发 open-browser：交给页面导航开系统浏览器，不走被拒的 window.open', async () => {
   // 壳里 `window.open` 一律被拒，点这里只会得到一句「浏览器拦掉了新窗口」；正路是把宿主
   // 报的绝对 http(s) 地址交给页面导航，壳的 will-navigate 再转给系统浏览器。
   const { env } = clickEnv({ panelScope: 'loopback', pageProtocol: 'dsh-app:' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  const button = dialogButton(env, '在浏览器里打开');
-  assert.ok(button, '「在浏览器里打开」还在');
-  if (typeof button.onclick === 'function') await button.onclick();
-  else await button.props.onClick();
+  sendPanelAction(env, 'open-browser');
   await settle();
   assert.equal(env.openedWindows.length, 0, '壳里不许再走 window.open');
   assert.equal(
@@ -1852,20 +2001,6 @@ test('桌面壳里「在浏览器里打开」交给页面导航去开系统浏�
     '把宿主报的绝对地址交给页面导航，由壳转给系统浏览器',
   );
   assert.equal(consoleFrame(env), undefined, '开出去就把这一窗收掉');
-});
-
-test('桌面壳里「报错调试」同样走页面导航，目标是 /debug', async () => {
-  const { env } = clickEnv({ panelScope: 'loopback', pageProtocol: 'dsh-app:' });
-  const icon = await railIcon(env);
-  await icon.props.onClick({ preventDefault() {} });
-  await settle();
-  const button = dialogButton(env, '报错调试');
-  assert.ok(button, '操作栏里要有「报错调试」');
-  if (typeof button.onclick === 'function') await button.onclick();
-  else await button.props.onClick();
-  await settle();
-  assert.equal(env.openedWindows.length, 0, '壳里不许再走 window.open');
-  assert.equal(env.sandbox.window.location.href, `${readyStatus().panelUrl}/debug`);
 });
 
 test('桌面壳里的页面（dsh-app:）：照样就地嵌，页面不被导航走', async () => {
@@ -1952,6 +2087,9 @@ test('点一颗没地址的图标会弹诊断窗：原因、读数、自查步�
   assert.ok(dialog, '点了必须有反应：不许一颗灰图标什么都不做');
   assert.equal(dialog.attrs.role, 'dialog');
   assert.equal(dialog.attrs['aria-modal'], 'true');
+  // 诊断窗没跟着内容窗一起瘦：标题与文字按钮行照旧，它那几行读数是给人看的。
+  assert.equal(elements(dialog).filter((node) => String(node.className || '').includes('dshm_dialogTitle')).length, 1);
+  assert.equal(elements(dialog).filter((node) => String(node.className || '').includes('dshm_dialogActions')).length, 1);
   const text = texts(dialog).join(' ');
   // ① 谁说了什么
   assert.match(text, /打不开移动端配置页/);
@@ -2598,5 +2736,5 @@ test('聊天嵌入页：没有目标或服务没就位时安静跳过，不回�
   const noClient = createEnv({ services: { sessions: targetSessions() } });
   noClient.sandbox.__DSH_CHAT_EMBED_TARGET__ = { sessionId: 'orphan' };
   noClient.run();
-  assert.equal(noClient.registrations.length, 2);
+  assert.equal(noClient.registrations.length, 3);
 });

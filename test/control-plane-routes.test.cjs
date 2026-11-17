@@ -86,6 +86,8 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/panel/debug',
     // 控制台那一窗：同一份 HTML，点手机图标进来的第一屏。
     '/api/relay/panel/console',
+    // 远程电脑独立页：同一份 HTML，点电脑图标进来的那一窗。
+    '/api/relay/panel/remote',
     '/api/relay/onboarded',
     '/api/relay/read-receipt',
     '/api/relay/desktop-read',
@@ -393,7 +395,7 @@ test('行为：地址库回显手填的 IPv6，并把它缀进 ipv6 候选最后
 
 test('面板读不到时报的是能定位的诊断，不是一句「还没构建」', () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
-  // 三个面板地址共用 servePanel。2026-10-10 的真机现场：装完没重启，旧实例挂在被删掉的
+  // 几条面板地址共用 servePanel。2026-10-10 的真机现场：装完没重启，旧实例挂在被删掉的
   // 目录上，而那句写死的「还没构建」把人往「去跑 React 构建」上带 —— 所以诊断必须现场算。
   const at = source.indexOf('const servePanel');
   assert.notEqual(at, -1, '找不到 servePanel');
@@ -647,7 +649,7 @@ test('只有面板页放开「人点开的一页」，别的控制面路由不�
   // 社区桌面壳会把自己接住的链接原地打开，从自定义协议页跳到面板地址时必带
   // `sec-fetch-site: cross-site`。这一种形态只对「只读的一页」放开（面板页、桌面画布页）；
   // 放开别的就得先想清楚它是不是也能被别人的网页点开。
-  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/console', '/api/relay/panel/debug', '/api/relay/panel/settings', '/api/relay/panel/setup']);
+  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/console', '/api/relay/panel/debug', '/api/relay/panel/remote', '/api/relay/panel/settings', '/api/relay/panel/setup']);
 });
 
 test('行为：设备清单带「历史有几条」，同一个 handler 按 ?history=1 换成已解绑清单', async () => {

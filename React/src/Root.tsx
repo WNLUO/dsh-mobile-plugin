@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react'
 import { Console } from './Console.tsx'
 import { Debug } from './Debug.tsx'
 import { Onboarding } from './Onboarding.tsx'
+import { Remote } from './Remote.tsx'
 import { apiGet, errorText, type StatusView } from './lib/api.ts'
 import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
@@ -42,8 +43,10 @@ export function Root() {
   const forcedSettings = path.endsWith('/settings')
   /** `/api/relay/panel/debug`：调试页（桌面端那颗手机图标的次级入口）。 */
   const forcedDebug = path.endsWith('/debug')
-  /** 除强制引导 / 强制主页 / 调试页之外（含根地址与 `/console`）都要先问宿主配过没有。 */
-  const needsStatus = !forcedSetup && !forcedSettings && !forcedDebug
+  /** `/api/relay/panel/remote`：远程电脑独立页（桌面端那颗电脑图标点开的那一窗）。 */
+  const forcedRemote = path.endsWith('/remote')
+  /** 除强制引导 / 强制主页 / 调试页 / 远程电脑页之外（含根地址与 `/console`）都要先问宿主配过没有。 */
+  const needsStatus = !forcedSetup && !forcedSettings && !forcedDebug && !forcedRemote
   /** null = 首屏状态尚未返回；请求失败时显示错误与重新载入入口。强制主页直接当作已配过。 */
   const [configured, setConfigured] = useState<boolean | null>(forcedSettings ? true : null)
   const [startupError, setStartupError] = useState('')
@@ -82,6 +85,7 @@ export function Root() {
   }
 
   if (forcedDebug) return <Debug />
+  if (forcedRemote) return <Remote />
 
   if (forcedSetup) return entered ? <Console /> : <Onboarding onDone={() => setEntered(true)} />
 

@@ -9,11 +9,11 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const choice = { sessionId: 's', provider: 'p', model: 'B', reasoningEffort: 'high' };
-function runtime({ unavailable = false, resolveError, invalidConfig = false } = {}) {
+function runtime({ unavailable = false, resolveError, invalidConfig = false, agent } = {}) {
   const events = [];
-  const agent = { model: { select: (selection) => events.push(['selected', selection]) } };
+  const target = agent === undefined ? { model: { select: (selection) => events.push(['selected', selection]) } } : agent;
   const services = {
-    sessionController: { resolveAgent: async (id) => { events.push(['resolve', id]); return resolveError ? { error: resolveError } : { agent }; } },
+    sessionController: { resolveAgent: async (id) => { events.push(['resolve', id]); return resolveError ? { error: resolveError } : { agent: target }; } },
     llm: { listProviders: () => [{ id: 'p' }], listModels: async () => unavailable ? [] : [{ id: 'B' }],
       resolveCallConfig: async (selection) => { events.push(['validated', selection]); if (invalidConfig) throw Error('invalid effort'); } },
     agentDefaultModel: { saveSelection: () => { throw Error('must not save desktop default'); } },
@@ -97,4 +97,19 @@ test('宿主确实缺少会话选择接口时明确失败，不退回会改默�
   const out = await api.sessions.selectModel({ payload: choice });
   assert.equal(out.result.ok, false);
   assert.equal(out.result.error.code, 'host-unsupported');
+});
+test('会话没有可切换模型时说清是这条会话，不误报需要升级宿主', async () => {
+  const { api } = runtime({ agent: {} });
+  const out = await api.sessions.selectModel({ payload: choice });
+  assert.equal(out.result.ok, false);
+  assert.equal(out.result.error.code, 'host-unsupported');
+  assert.ok(out.result.error.message.includes('没有可切换的模型'));
+  assert.ok(!out.result.error.message.includes('更新版本'));
+});
+test('宿主模型对象缺少选择能力时明确提示需要更新版本', async () => {
+  const { api } = runtime({ agent: { model: {} } });
+  const out = await api.sessions.selectModel({ payload: choice });
+  assert.equal(out.result.ok, false);
+  assert.equal(out.result.error.code, 'host-unsupported');
+  assert.ok(out.result.error.message.includes('更新版本'));
 });

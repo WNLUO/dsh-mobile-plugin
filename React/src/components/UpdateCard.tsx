@@ -325,6 +325,10 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
   const shellVersion = host?.version ?? null
   // 面板报的是进程启动时读进内存的版本，外壳报的是它实际装载的那一代。
   const versionsDisagree = hostMode && !!shellVersion && !!version && shellVersion !== version
+  // 盘上装着的版本（市场装完立刻变）和实际跑的版本对不上，就是自动更新装到一半没切干净——
+  // 盘上写了新版、依赖却空着、跑的还是旧版，这种混态原先只看得到「运行中版本」一行。
+  const diskVersion = host?.installedVersion ?? null
+  const diskDisagree = hostMode && !!diskVersion && !!version && diskVersion !== version
 
   return (
     <Card frame="solid">
@@ -402,6 +406,11 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
             </InfoRow>
+            {diskVersion ? (
+              <InfoRow label={t('panel.update.diskVersion')} mono>
+                {diskVersion}
+              </InfoRow>
+            ) : null}
             <InfoRow label={t('panel.update.latestOnline')} mono>
               {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
@@ -417,6 +426,13 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
           {versionsDisagree ? (
             <p className="mt-2 text-xs text-foreground-muted">
               {t('panel.update.versionDrift', { version: version ?? '', shell: shellVersion ?? '' })}
+            </p>
+          ) : null}
+
+          {/* 盘上装了新版、跑的还是旧版（或反过来）：自动更新装到一半没切干净的混态。 */}
+          {diskDisagree ? (
+            <p className="mt-2 text-xs text-foreground-muted">
+              {t('panel.update.diskDrift', { disk: diskVersion ?? '', running: version ?? '' })}
             </p>
           ) : null}
 

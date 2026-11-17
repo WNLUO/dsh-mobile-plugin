@@ -65,13 +65,15 @@ function helpersFrom(source) {
   return vm.runInContext(`${code}\n({remoteLease, trustedRemoteUrl})`, context);
 }
 
-test('控制台接一份共用卡，不改入站手机设备卡', () => {
-  for (const page of ['Console.tsx']) {
-    const text = fs.readFileSync(path.join(SRC, page), 'utf8');
-    assert.match(text, /import \{ RemoteComputersCard \} from '\.\/components\/RemoteComputersCard\.tsx'/);
-    assert.equal((text.match(/<RemoteComputersCard \/>/g) || []).length, 1);
-    assert.match(text, /<DevicesCard onRevokeAll=\{revokeAll\} busy=\{busy\}(?: fill)? \/>/);
-  }
+// 2026-11-17 需求变更：远程电脑从控制台主页抽到独立页（桌面侧边栏电脑图标点开的
+// `/api/relay/panel/remote`），主页不再显示这张卡。共用卡本身不动，手机设备卡也不动。
+test('共用卡只在远程电脑独立页出现一次，控制台不动入站手机设备卡', () => {
+  const home = fs.readFileSync(path.join(SRC, 'Console.tsx'), 'utf8');
+  assert.doesNotMatch(home, /RemoteComputersCard/, '主页不再放远程电脑卡');
+  assert.match(home, /<DevicesCard onRevokeAll=\{revokeAll\} busy=\{busy\}(?: fill)? \/>/);
+  const remote = fs.readFileSync(path.join(SRC, 'Remote.tsx'), 'utf8');
+  assert.match(remote, /import \{ RemoteComputersCard \} from '\.\/components\/RemoteComputersCard\.tsx'/);
+  assert.equal((remote.match(/<RemoteComputersCard \/>/g) || []).length, 1);
   assert.match(component, /<Card frame="solid"/);
   assert.doesNotMatch(component, /#[\da-fA-F]{3,8}|style=\{/);
   assert.doesNotMatch(component, /\/api\/relay\/devices/);
