@@ -28,7 +28,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 
-const { handleFileRead } = require('../lib/mobile/file-read.js');
+const { handleFileRead, handleFileStat } = require('../lib/mobile/file-read.js');
 const e2ee = require('../lib/shared/e2ee.js');
 const { readWiring } = require('./lib/wiring.cjs');
 
@@ -299,4 +299,40 @@ test('路由接线：/file/read 挂在移动端路由表上，且引入了 handl
     '路由表缺少 /api/mobile/v1/file/read',
   );
   assert.match(wiring, /require\(['"](?:\.\.?\/mobile)\/file-read\.js['"]\)/);
+  assert.ok(
+    wiring.includes("route('/api/mobile/v1/file/stat', fileRead.handleFileStat)"),
+    '路由表缺少 /api/mobile/v1/file/stat',
+  );
+});
+
+test('/file/stat 只回大小，放行面与 /file/read 同一份', async (t) => {
+  const { Readable } = require('node:stream');
+  const ws = await tempDir(t, 'dsh-file-stat-ws-');
+  await fs.writeFile(path.join(ws, 'doc.pdf'), Buffer.alloc(4321, 7));
+  const outside = await tempDir(t, 'dsh-file-stat-out-');
+  await fs.writeFile(path.join(outside, 'secret.txt'), 'nope', 'utf8');
+
+  const ctx = {
+    apiProxy: {
+      workspace: { list: async () => ({ result: { ok: true, value: { items: [{ workspaceId: 'w1', path: ws }] } } }) },
+      sessions: { list: async () => ({ result: { ok: true, value: { items: [{ sessionId: 's1', cwd: null }] } } }) },
+    },
+  };
+  const run = async (body) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+    req.headers = {};
+    const res = { writeHead(status) { this.status = status; }, end(chunk) { this.body = JSON.parse(String(chunk)); } };
+    await handleFileStat(ctx, req, res);
+    return res;
+  };
+
+  const okRes = await run({ path: path.join(ws, 'doc.pdf') });
+  assert.equal(okRes.status, 200);
+  assert.equal(okRes.body.ok, true);
+  assert.equal(okRes.body.size, 4321);
+
+  // 工作区之外的文件：与 /file/read 同一条判据，403 outside-allowed（问大小也不能多看一条路径）。
+  const denied = await run({ path: path.join(outside, 'secret.txt') });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.error.code, 'outside-allowed');
 });

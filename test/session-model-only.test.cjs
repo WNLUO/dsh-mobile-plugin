@@ -113,3 +113,24 @@ test('宿主模型对象缺少选择能力时明确提示需要更新版本', as
   assert.equal(out.result.error.code, 'host-unsupported');
   assert.ok(out.result.error.message.includes('更新版本'));
 });
+test('HTTP 切模型入口对 host-unsupported 静默放过，不阻断新建会话', async () => {
+  // 反馈 #70：App 新建会话时先单独请求一次切模型；老宿主上这条会话还没有模型对象，
+  // 原来回 400 会让 App 直接归档空会话、第一条消息发不出去。这里必须和 `/session/send`
+  // 一样放过（200 + ok），继续用会话当前模型。
+  const contexts = [
+    runtime({ agent: {} }).ctx, // 新建会话：agent 还没有 model
+    (() => {
+      const base = runtime();
+      return { get: (key) => key === 'sessionController' ? {} : base.ctx.get(key) }; // 老宿主：没有 resolveAgent
+    })(),
+  ];
+  for (const ctx of contexts) {
+    const req = Readable.from([Buffer.from(JSON.stringify(choice))]);
+    req.headers = {};
+    const res = { writeHead(status) { this.status = status; }, end(body) { this.body = JSON.parse(String(body)); } };
+    await handleSelectModel(ctx, req, res);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.applied, false);
+  }
+});

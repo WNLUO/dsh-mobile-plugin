@@ -17,6 +17,10 @@ const zlib = require('node:zlib');
 
 const {
   FRP_VERSION,
+  DEFAULT_BASE_URL,
+  MIRROR_BASE_URLS,
+  baseUrlsOf,
+  fetchErrorMessage,
   platformId,
   findOnPath,
   resolveInstalled,
@@ -276,4 +280,75 @@ test('inspect 不联网：报当前平台与可用性', () => {
   const after = inspectFrpc({ platformId: 'linux-x64', env: noPath, cacheRoot: root });
   assert.equal(after.available, true);
   assert.equal(after.source, 'cache');
+});
+
+// ── 国内镜像回退（2026-11-18）────────────────────────────────────────────
+test('下载源顺序：官方在前，镜像在后；显式钉死只试一条', () => {
+  const bases = baseUrlsOf();
+  assert.equal(bases[0], DEFAULT_BASE_URL);
+  assert.deepEqual(bases.slice(1), MIRROR_BASE_URLS);
+  assert.ok(MIRROR_BASE_URLS.length > 0, '得有镜像可退');
+  for (const url of bases) assert.match(url, /^https:\/\//);
+  assert.deepEqual(baseUrlsOf({ baseUrl: 'https://example.invalid/v' }), ['https://example.invalid/v']);
+});
+
+test('fetchErrorMessage：跳过表层的 fetch failed，挖出 cause 里的真话', () => {
+  const buried = Object.assign(new Error('fetch failed'), {
+    cause: Object.assign(new Error('connect ETIMEDOUT 140.82.112.4:443'), {
+      cause: new Error('whatever'),
+    }),
+  });
+  assert.equal(fetchErrorMessage(buried), 'connect ETIMEDOUT 140.82.112.4:443');
+  assert.equal(fetchErrorMessage(new Error('HTTP 503')), 'HTTP 503');
+  assert.equal(fetchErrorMessage(new Error('fetch failed')), 'fetch failed');
+});
+
+test('官方不通时自动换镜像：后面那条成功就落盘，且确实按序试过官方', async () => {
+  const root = tempDir();
+  const archive = makeTarGz([{ name: `frp_${FRP_VERSION}_linux_amd64/frpc`, content: 'MIRROR-BIN' }]);
+  const asset = { file: 'x.tar.gz', archive: 'tar.gz', bin: 'frpc', sha256: sha256(archive) };
+  const tried = [];
+  const fetchImpl = async (url) => {
+    tried.push(url);
+    if (tried.length === 1) {
+      throw Object.assign(new Error('fetch failed'), { cause: new Error('connect ETIMEDOUT') });
+    }
+    return { ok: true, status: 200, arrayBuffer: async () => archive };
+  };
+  const r = await ensureFrpc({ platformId: 'linux-x64', env: noPath, cacheRoot: root, asset, fetchImpl });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.source, 'downloaded');
+  assert.equal(fs.readFileSync(r.path, 'utf8'), 'MIRROR-BIN');
+  assert.equal(tried.length, 2, '第一条不通就该换第二条，不用试便停');
+  assert.match(tried[0], /github\.com/);
+  assert.equal(tried[1], `${MIRROR_BASE_URLS[0]}/x.tar.gz`);
+});
+
+test('所有源都不通：原因列出每条源的底层真话，不是一句 fetch failed 了事', async () => {
+  const root = tempDir();
+  const asset = { file: 'x.tar.gz', archive: 'tar.gz', bin: 'frpc', sha256: 'a'.repeat(64) };
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    throw Object.assign(new Error('fetch failed'), { cause: new Error(`connect ENOTFOUND source-${calls}`) });
+  };
+  const r = await ensureFrpc({ platformId: 'linux-x64', env: noPath, cacheRoot: root, asset, fetchImpl });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'download-failed');
+  assert.equal(calls, baseUrlsOf().length, '每条源都要给一次机会');
+  for (let i = 1; i <= calls; i += 1) assert.match(r.message, new RegExp(`ENOTFOUND source-${i}`));
+  assert.doesNotMatch(r.message, /^下载 frpc 失败：fetch failed$/);
+});
+
+test('镜像给的字节校验不符：当场拒掉，不再拿剩下的源假装在尽力', async () => {
+  const root = tempDir();
+  const archive = makeTarGz([{ name: 'frp/frpc', content: 'BAD' }]);
+  const asset = { file: 'x.tar.gz', archive: 'tar.gz', bin: 'frpc', sha256: 'f'.repeat(64) };
+  let calls = 0;
+  const fetchImpl = async () => { calls += 1; return { ok: true, status: 200, arrayBuffer: async () => archive }; };
+  const r = await ensureFrpc({ platformId: 'linux-x64', env: noPath, cacheRoot: root, asset, fetchImpl });
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'checksum');
+  assert.equal(calls, 1, '校验不符是内容问题，换源救不了，别继续');
+  assert.equal(fs.existsSync(path.join(root, FRP_VERSION, 'linux-x64', 'frpc')), false);
 });
