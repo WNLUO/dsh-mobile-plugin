@@ -230,14 +230,15 @@ test('普通响应 headers 后闲置会排队 httpError，SSE 不启用该超时
   }
 });
 
-test('上游响应头 7s 超时会销毁仍未响应的本地请求', () => withFakeTimers((timers) => {
+test('上游响应头 30s 超时会销毁仍未响应的本地请求', () => withFakeTimers((timers) => {
   const { tunnel } = makeTunnel(0);
   let destroyedWith = null;
   const entry = tunnel.createHttpResponseEntry({ destroy: (error) => { destroyedWith = error; } }, null);
   tunnel.reqClients.set(89, entry);
   tunnel.armUpstreamHeaderTimeout(89, entry);
-  const headerTimer = timers.find((timer) => timer.ms === 7_000 && !timer.cleared);
-  assert.ok(headerTimer, '上游请求应有 7 秒响应头期限');
+  // 与「响应空转」同档：这道闸量的是宿主做出响应的时间，历史页要能在宿主忙时折叠完。
+  const headerTimer = timers.find((timer) => timer.ms === 30_000 && !timer.cleared);
+  assert.ok(headerTimer, '上游请求应有 30 秒响应头期限');
   headerTimer.fn();
   assert.match(destroyedWith?.message || '', /upstream response headers timeout/);
   tunnel.finishHttpRequest(89, entry);
