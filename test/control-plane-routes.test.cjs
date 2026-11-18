@@ -420,6 +420,34 @@ test('行为：地址库回显手填的 IPv6，并把它缀进 ipv6 候选最后
   assert.equal(last.url, 'http://[2001:4860:4860::8888]:18787');
 });
 
+test('行为：局域网地址栏不回显混进来的中转地址（2026-11-18 现场）', async () => {
+  // 户外选路曾把「当前在用的中转地址」写进手机的局域网地址，手机再存成 preferred 传回来，
+  // 面板的局域网地址栏就显示了一枚用户没填过的中转地址。这里认出是中转 host 就不再回显。
+  const relayHost = 'dsh-relay.example.com';
+  const table = controlRoutes({
+    state: { relayUrl: `https://${relayHost}`, relayUrls: [`https://${relayHost}`], preferredLanAddress: relayHost },
+  });
+  const res = {};
+  await table.get('/api/relay/addresses')({ method: 'GET' }, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.preferred, '', '中转地址的 host 不许当「优先局域网地址」回显');
+
+  const real = controlRoutes({
+    state: { relayUrl: `https://${relayHost}`, relayUrls: [`https://${relayHost}`], preferredLanAddress: '192.168.1.5' },
+  });
+  const realRes = {};
+  await real.get('/api/relay/addresses')({ method: 'GET' }, realRes);
+  assert.equal(realRes.body.preferred, '192.168.1.5', '真的局域网地址照旧回显');
+
+  const pubHost = 'ai-hub-de-1.wnluo.com';
+  const pub = controlRoutes({
+    state: { relayUrl: `https://${pubHost}`, relayUrls: [`https://${pubHost}`], preferredLanAddress: pubHost },
+  });
+  const pubRes = {};
+  await pub.get('/api/relay/addresses')({ method: 'GET' }, pubRes);
+  assert.equal(pubRes.body.preferred, '', '公用中转 host 同样不许回显');
+});
+
 test('面板读不到时报的是能定位的诊断，不是一句「还没构建」', () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
   // 几条面板地址共用 servePanel。2026-10-10 的真机现场：装完没重启，旧实例挂在被删掉的
