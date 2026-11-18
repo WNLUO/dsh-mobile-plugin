@@ -26,10 +26,7 @@
 
 手机连的是**你自己那台电脑上的 DeepSeek Harness**，不是某个云端服务。电脑不用公网 IP，也不用在路由器上开端口：插件从内网主动往外建一条隧道，手机沿这条路回来。
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/screenshot-phone.png" alt="手机上接着聊、看回复流式到达" width="300">
-  <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/screenshot-ipad.png" alt="平板上的工作区与会话" width="580">
-</p>
+
 
 ## 功能
 
@@ -88,22 +85,13 @@ DeepSeek Harness 跑在电脑上，但我不是一直坐在电脑前。出门、
 
 **各家 AI 助手的手机 App**：那些跑在厂商的服务器上，会话、文件和额度都在别人那儿。这里连的是你自己电脑上那个 DSH，模型是你配的，文件在你硬盘上。
 
-## 已知限制
 
-写在这里的是我们确实还没做到的，不是待办清单的美化版。
-
-- **iOS 的后台提醒不是随时都准**。系统不允许 App 常驻后台，所以任务完成通知靠 App 进后台那一段轮询加系统择机唤醒——被系统冻结或额度用尽时可能迟到，甚至这一轮收不到。配了离线推送才有稳定的兜底。
-- **中转能看到明文**。链路是 WSS / HTTPS 加密的，但没有端到端加密，与 frp / ngrok 同一个模型。会话正文在中转上不落盘，但中转进程本身能解密。
-- **中转默认不做隧道鉴权**：能连上中转端口的人就能接走隧道。要在公网上用，请开中转控制台的限制模式，或者只把端口暴露给可信网络。
-- **承载手机连接的那个插件不能在手机上卸**。第三方插件的安装、升级、卸载都能在手机上做，但 `dsh-mobile-plugin` 自己卸掉这台手机就再也连不上了，所以入口不给；另外手机上卸完要等电脑下次启动 DSH 才真的不在。
-- **桌面端窗口只在部分平台打包**。目前只提供 mac（arm64 / x64）、linux（x64 / arm64）、win（x64）五种平台包，其它平台会自动退回系统浏览器打开，功能照常可用。
-- **桌面壳里靠弹窗回调的登录用不了**。OAuth 这类登录的回调会落到系统浏览器，那边没有壳里的当前会话，登录回不到窗口。这类登录请在普通浏览器里完成，或者换一种登录方式。
 
 ## 交流与反馈
 
 ![企业微信群二维码](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/wechat-group.png)
 
-扫上面的码进企业微信群。**这个码更新于 2026-11-09，如果扫不出来或者提示已过期**，发邮件到 <admin@wnluo.com> 索取新的，或者直接提 issue。
+扫上面的码进企业微信群。**如果扫不出来或者提示已过期**，发邮件到 <admin@wnluo.com> 索取新的，或者直接提 issue。
 
 不方便的话发邮件到 <admin@wnluo.com> 或 <wnluo2@gmail.com>。用着顺手就给仓库点个 star，这是最实在的支持。
 
