@@ -33,6 +33,11 @@ One thing that sets it apart from most DSH plugins: **it needs no desktop shell 
 
 Your phone talks to **the DeepSeek Harness running on your own computer**, not to a cloud service. That computer needs no public IP address and no port forwarding: the plugin dials out from the local network, and the phone comes back along that tunnel.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/screenshot-phone.png" alt="Keep chatting on the phone and watch replies stream in" width="300">
+  <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/screenshot-ipad.png" alt="Workspaces and sessions on a tablet" width="580">
+</p>
+
 ## Features
 
 ### Sessions and workspaces
@@ -40,7 +45,7 @@ Your phone talks to **the DeepSeek Harness running on your own computer**, not t
 - Create, resume, rename, and search sessions — or fork any of them into a branch that runs on its own.
 - Create, rename, delete, pin, and archive workspaces from the phone; the order you set there syncs back to the desktop.
 - Replies stream in chunk by chunk, so you see the text while it is still being written, and tool calls land in real time.
-- Reading a session on the phone clears its unread dot on the desktop; sidebar expansion state syncs to the phone, so both sides show the same shape.
+- Reading a session on the phone clears its unread dot on the desktop; sidebar expansion state stays in sync.
 
 ### Everything you would otherwise walk back for
 
@@ -60,61 +65,19 @@ Your phone talks to **the DeepSeek Harness running on your own computer**, not t
 
 The mobile API exposes only what the phone needs (`/api/mobile/v1/*`) — no shell, no system settings, no arbitrary file writes.
 
+## Remote computer
+
+When you would rather not carry your main computer around, you can drive its full DSH web interface from another computer. Generate a one-time binding on computer A, tap once on computer B, and A's full web interface opens through a local address — no domain, no phone involved. The binding is valid for ten minutes and works once.
+
+The window opens in the desktop display shell the plugin ships, laid out like the official desktop app on Mac; each visit lasts an hour and can be renewed. Details and how to revoke are in [docs/remote-computer.md](docs/remote-computer.md).
+
 ## Install and update
 
 Installing the app is only half of it; the plugin on this side is what connects it.
 
-### DSH desktop
+In DSH, open **Settings → Plugins**, install `dsh-mobile-plugin`, then open **Settings → Mobile → Open configuration page** to pair. The entry point is DSH's "Settings → Mobile": the pairing QR code, the current listening address and the relay status all live on that page, and everything the phone does starts there. The plugin marketplace handles update checks and installation; an update usually does not need a DSH restart.
 
-In DSH, open **Settings → Plugins**, install `dsh-mobile-plugin`, then open **Settings → Mobile → Open configuration page** to pair. The plugin marketplace handles update checks and installation; an update usually does not need a DSH restart.
-
-After that, **the entry point is DSH's "Settings → Mobile"**: click "Open configuration page" for the pairing QR code, the current listening address and the relay status. Everything the phone does starts from that page.
-
-### Headless host (Linux)
-
-Requires Node.js, pnpm, and the DSH plugin host dependencies. `host.js` in this repository is the standalone entry point:
-
-```sh
-pnpm install --frozen-lockfile
-DSH_HOME=/opt/dsh-mobile/.dsh DSH_MOBILE_PROFILE=mobile node host.js
-```
-
-`DSH_HOME` is the data root and defaults to `~/.dsh`; `DSH_MOBILE_PROFILE` is the profile name and defaults to `mobile`. The headless host's web service listens on `127.0.0.1:3080` only and is not reachable from the LAN.
-
-The configuration endpoints are local-only. Check status and read pairing info with:
-
-```sh
-curl http://127.0.0.1:3080/api/relay/status
-curl http://127.0.0.1:3080/api/relay/pairing
-```
-
-### Headless deployment
-
-On a headless server the launcher and the plugin are managed separately: the launcher is synced to `/opt/dsh-mobile/` by your deployment process, while the plugin itself goes into the profile:
-
-```sh
-cd <DSH_HOME>/profiles/<profile>
-pnpm add dsh-mobile-plugin@<version>
-```
-
-The host prefers the copy installed in the profile and falls back to the source tree. The device credential store ships inside the npm package, so there is nothing extra to install. Lockfiles are installed with `pnpm install --frozen-lockfile`.
-
-> Do not install the plugin with `npm install --legacy-peer-deps`; the supported path is the DSH plugin marketplace.
-
-## Configuration and API
-
-When running headless, these local endpoints manage the remote connection:
-
-- `POST /api/relay/toggle`: turn remote control on or off.
-- `POST /api/relay/regenerate`: regenerate the pairing code.
-- `POST /api/relay/config`: set `relayUrl`, `lanEnabled`, `lanPort`, `name`, and `pairingPolicy`.
-- `POST /api/relay/reconnect`: reconnect the tunnel and the LAN proxy.
-
-The mobile API requires a Bearer token. The device event stream `GET /api/mobile/v1/events/stream` forwards host events over SSE. Creating a session accepts either `workspaceId` or `cwd`; the former wins and files the session into that workspace. Session ordering set on the phone syncs to the host workspace as well.
-
-The pairing policy defaults to `code`, admitting devices that present a valid pairing code; set it to `deny` to reject every new pairing. Pairing requests may carry device information — the app sends `id`, `deviceId`, `name`, `platform`, `osVersion`, and `appVersion`, and the LAN proxy and relay add the phone IP they observed.
-
-`session_cleanup` archives sessions and can permanently delete archived ones. Deletion asks for explicit confirmation and cannot be undone. **Deletion is queued**: the session disappears from the list immediately, while its logs and projection cache are removed from disk on the next host start — the host has no "delete session" endpoint, and deleting files out from under a running host makes it open a log that is no longer there, which is an uncaught exception that takes the whole host process with it.
+To run on a server with no display, see [headless deployment and config endpoints](docs/headless-deploy.md) — local endpoints, the mobile API and session cleanup are documented there.
 
 ## Why I built this
 
@@ -136,10 +99,12 @@ That made two constraints hard. One is networking: no public IP, no port forward
 
 What is written here is what we genuinely do not do yet, not a polished to-do list.
 
-- **Background notifications on iOS are not always prompt.** The system does not let the app stay resident, so task-completion notifications rely on polling while the app is in the background plus occasional system wake-ups — if the system freezes the app or the background budget runs out, they can arrive late or not at all. With offline push configured there is a reliable fallback; without it, notifications only land while the app is in the foreground or still has background budget.
+- **Background notifications on iOS are not always prompt.** The system does not let the app stay resident, so task-completion notifications rely on polling while the app is in the background plus occasional system wake-ups — if the system freezes the app or the background budget runs out, they can arrive late or not at all. With offline push configured there is a reliable fallback.
 - **The relay sees plaintext.** The link is WSS / HTTPS encrypted but not end-to-end encrypted — the same model as frp / ngrok. Session bodies are not persisted on the relay, but the relay process itself can decrypt them.
 - **The relay does not authenticate tunnels by default**: whoever can reach the relay port can take over the tunnel. To use it on the public internet, enable the relay console's restricted mode, or expose the port only to a trusted network.
 - **The plugin carrying the phone connection cannot be uninstalled from the phone.** Third-party plugins can be installed, upgraded, and removed on the phone, but removing `dsh-mobile-plugin` itself would cut this phone off for good, so the button is not offered; and anything uninstalled there only takes effect the next time DSH starts on the computer.
+- **The desktop window is packaged for some platforms only.** It currently ships for mac (arm64 / x64), linux (x64 / arm64), and win (x64); other platforms fall back to opening in the system browser, and everything still works.
+- **Logins that rely on a pop-up callback do not work inside the desktop shell.** OAuth callbacks land in the system browser, which has no access to the session in the shell, so the login cannot return to the window. Do those logins in a normal browser, or use another sign-in method.
 
 ## Contact
 
@@ -161,6 +126,8 @@ npm test
 ```
 
 If you changed anything under `React/`, run `pnpm run build` there first and commit the generated `lib/panel/index.html` together with the source.
+
+If a web plugin needs to keep the web top bar on the phone's chat page, see [keeping the chat top bar](docs/chat-embed.md).
 
 ## License
 
