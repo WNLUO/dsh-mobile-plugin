@@ -44,8 +44,20 @@ test('公用中转提示弹窗：强制显示、可关闭、挂控制台，文�
   }
   // 正文的 \n\n 分段靠 whitespace-pre-line 还原，不拆成多条键。
   assert.match(dialog, /whitespace-pre-line/, '正文的分段要能显示出来');
-  // 挂在控制台根部。
-  assert.match(consoleSrc, /<PublicRelayNoticeDialog \/>/, '弹窗要挂在控制台上');
+  // 挂在控制台根部，并把网络配置那扇窗的开关传进去。
+  assert.match(consoleSrc, /<PublicRelayNoticeDialog onOpenConfig=\{\(\) => setConfigOpen\(true\)\} \/>/, '弹窗要挂在控制台上并接好开配置的回调');
+});
+
+test('提示弹窗的「网络配置」按钮：关掉自己、打开配置窗', () => {
+  // 收件区两颗按钮：「网络配置」在左、「我已知晓」在右（先网络配置后知晓）。
+  const footer = dialog.slice(dialog.indexOf('<DialogFooter'));
+  const configAt = footer.indexOf("t('panel.pairing.openConfig')");
+  const gotItAt = footer.indexOf("t('panel.publicRelayNotice.action')");
+  assert.ok(configAt > 0 && gotItAt > configAt, '「网络配置」要在「我已知晓」左边');
+  // 点击时先关自己、再开配置窗，避免两扇叠着；文案复用现成那条（十门已齐）。
+  assert.match(footer, /onClick=\{\(\) => \{ setOpen\(false\); onOpenConfig\(\) \}\}/, '关掉提示、打开网络配置');
+  assert.match(dialog, /onOpenConfig: \(\) => void/, '组件要收开配置的回调');
+  assert.match(panelDict, /'panel\.pairing\.openConfig': '网络配置'/, '复用现成的网络配置文案');
 });
 
 test('网络配置：公用中转内置只读排第一，自建可编辑，清单弹窗已撤', () => {

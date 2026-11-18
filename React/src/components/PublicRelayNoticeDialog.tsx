@@ -8,6 +8,10 @@
  *
  * 文案走字典（与 App 的 `notice.publicRelay.*` 同一段话，前缀换成面板的 `panel.`），
  * 正文是一整段带空行的长句，靠 `whitespace-pre-line` 还原分段 —— 不拆成多条键。
+ *
+ * 底部两颗按钮：「网络配置」直接去开网络配置弹窗（由调用方把那扇窗的开关传进来），
+ * 「我已知晓」只关这一扇。前者先关自己再开配置窗，避免两扇叠在一起（同 NoticeBoard 切
+ * 搭建教程的写法）。
  */
 import { Button } from '@appica/ui-react/button'
 import {
@@ -22,7 +26,12 @@ import { useState } from 'react'
 
 import { t } from '../lib/i18n/index.ts'
 
-export function PublicRelayNoticeDialog() {
+type Props = {
+  /** 打开网络配置弹窗（Console 里那扇的开关）。 */
+  onOpenConfig: () => void
+}
+
+export function PublicRelayNoticeDialog({ onOpenConfig }: Props) {
   // 强制显示：先过样式，触发条件以后接（见文件头）。
   const [open, setOpen] = useState(true)
 
@@ -36,6 +45,9 @@ export function PublicRelayNoticeDialog() {
           {t('panel.publicRelayNotice.body')}
         </DialogBody>
         <DialogFooter className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => { setOpen(false); onOpenConfig() }}>
+            {t('panel.pairing.openConfig')}
+          </Button>
           <Button variant="primary" onClick={() => setOpen(false)}>
             {t('panel.publicRelayNotice.action')}
           </Button>

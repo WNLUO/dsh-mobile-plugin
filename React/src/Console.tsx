@@ -515,8 +515,9 @@ export function Console() {
         </DialogContent>
       </Dialog>
 
-      {/* 公用中转体验提示：进来就弹一次，可关闭（现为强制显示，先过样式，见该组件文件头）。 */}
-      <PublicRelayNoticeDialog />
+      {/* 公用中转体验提示：进来就弹一次，可关闭（现为强制显示，先过样式，见该组件文件头）。
+          「网络配置」按钮直接把上面那扇配置窗打开。 */}
+      <PublicRelayNoticeDialog onOpenConfig={() => setConfigOpen(true)} />
     </main>
   )
 }
