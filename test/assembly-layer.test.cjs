@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 守卫：装配层的边界。
+ * 守卫：装配层的边界与隧道连通后的协作接线。
  *
  * 装配层一度是 845 行的单函数——两套路由基建、sidecar 生命周期、镜像推送调度器、状态视图
  * 全挤在里面。这类拆分最常见的失败方式不是「抽错了」，而是后来有人嫌绕，又把实现搬回
@@ -107,8 +107,35 @@ test('两个 effect 各自只负责挂载，逻辑在被挂载的模块里', () 
   const src = read(INDEX);
   assert.match(src, /ctx\.effect\(\(\) => sidecarLifecycle\.start\(\)/, 'sidecar effect 应只挂 lifecycle.start()');
   assert.match(src, /ctx\.effect\(\(\) => mirror\.start\(\)/, '镜像 effect 应只挂 mirror.start()');
-  // 隧道接通时补推全量，是两个模块之间唯一的协作点，写成订阅而不是互相调用。
-  assert.match(src, /sidecarLifecycle\.onTunnelUp\(\(\) => \{ void mirror\.pushMirror\(\); \}\)/);
+});
+
+function verifyTunnelUp(source) {
+  const match = source.match(/sidecarLifecycle\.onTunnelUp\(\(\) => \{([\s\S]*?)\n  \}\)/);
+  assert.ok(match, '隧道接通后的协作必须经订阅挂载');
+  const calls = [];
+  const notify = new Function('mirror', 'control', match[1]);
+  notify({ pushMirror: () => calls.push('mirror') }, { sync: () => calls.push('control') });
+  assert.deepEqual(calls, ['mirror', 'control'], '隧道接通后必须补推镜像并立即上报总控');
+  calls.length = 0;
+  assert.doesNotThrow(() => notify(
+    { pushMirror: () => calls.push('mirror') },
+    { sync: () => { throw new Error('control unavailable'); } },
+  ));
+  assert.deepEqual(calls, ['mirror'], '总控暂不可用不影响镜像补推');
+}
+
+test('隧道接通后补推镜像并立即上报总控', () => {
+  // 公用中转由电脑侧选路后，连通事件还须立即上报当前线路，手机才能及时跟随。
+  verifyTunnelUp(read(INDEX));
+});
+
+test('变异：移除镜像补推或总控上报都会被接线断言拒绝', () => {
+  const src = read(INDEX);
+  const hook = src.match(/sidecarLifecycle\.onTunnelUp\(\(\) => \{[\s\S]*?\n  \}\)/)[0];
+  for (const call of ['void mirror.pushMirror()', 'control.sync()']) {
+    const mutated = src.replace(hook, hook.replace(call, 'void 0'));
+    assert.throws(() => verifyTunnelUp(mutated), assert.AssertionError);
+  }
 });
 
 test('镜像记账仍然是状态视图唯一的来源', () => {
