@@ -386,3 +386,11 @@ test('tunnelSignature 对地址组只认顺序：同一组不同顺序是两次�
   );
   assert.equal(tunnelSignature(base), tunnelSignature({ ...base }), '同一份配置必须给同一个签名，否则每次下发都重建');
 });
+
+test('中转地址列表按安全上限封顶（防有人塞进成千上万条把电脑压垮）', () => {
+  const many = Array.from({ length: 200 }, (_, i) => `https://r${i}.example.com`);
+  const out = core.normalizeRelayUrlList(many);
+  assert.equal(out.length, core.MAX_RELAY_ADDRESSES, '超过上限按原顺序截断');
+  assert.equal(out[0], many[0]);
+  assert.equal(out[core.MAX_RELAY_ADDRESSES - 1], many[core.MAX_RELAY_ADDRESSES - 1]);
+});

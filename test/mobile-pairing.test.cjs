@@ -234,3 +234,28 @@ test('配对码错误与策略拒绝回同一个响应，码的真假不可探�
   assert.equal(wrong.status, denied.status, '两种失败的状态码必须一致')
   assert.deepEqual(wrong.body, denied.body, '两种失败的响应体必须一致')
 })
+
+test('配对回包带总控地址与令牌（补「配过但没连过一次」的盲区）；没令牌就不带', async () => {
+  resetPairLocks()
+  function handlerWith(getControl) {
+    const state = { instanceId: INSTANCE, pairingCode: CODE, lanSecret: SECRET, pairingPolicy: 'code', lanEnabled: false }
+    const credentials = { issue: () => ({ deviceId: 'dev-1', credential: 'cred', expiresAt: 1 }) }
+    return createPairHandler({
+      state, core, credentials, pairingApproval,
+      lanCandidates: () => [], ipv6Candidates: () => [], lanPort: () => 18787,
+      getControl, log: () => {},
+    })
+  }
+  const reqBody = { code: CODE, device: { deviceId: 'dev-1', name: 'iPhone', platform: 'ios' } }
+
+  const withToken = fakeRes()
+  await handlerWith(() => ({ url: 'https://control.example/findme', connected: true, token: 'tok-abc' }))(fakeReq(reqBody), withToken)
+  assert.equal(withToken.status, 200)
+  assert.deepEqual(withToken.body.control, { url: 'https://control.example/findme', token: 'tok-abc' }, '配对回包要带总控地址与令牌')
+
+  resetPairLocks()
+  const noToken = fakeRes()
+  await handlerWith(() => ({ url: 'https://control.example/findme', connected: false, token: null }))(fakeReq(reqBody), noToken)
+  assert.equal(noToken.status, 200)
+  assert.equal(noToken.body.control, undefined, '没令牌（还没向总控注册）就不带这一格')
+})

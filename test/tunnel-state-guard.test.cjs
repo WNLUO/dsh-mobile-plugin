@@ -66,6 +66,7 @@ function bootWorker() {
     let relayLatencyAt = 0;
     const orderByLatency = (urls) => urls;
     const probeRelayHealth = async () => null;
+    const PROBE_CONCURRENCY = 6;
     // 隧道世代号在 startTunnel() 探测前读一次、raceTunnels() 每轮自检；这里照生产语义声明并随 stopTunnel 前进。
     let tunnelGeneration = 0;
     // 与 lib/sidecar-facade-worker.cjs 的 stopTunnel() 逐行同义（含换代）。
