@@ -8,7 +8,7 @@
  * **只在配对那一刻写一次**，之后谁都不碰；旧会话升级写进来的记录更是只带密钥、不带身份。
  *
  * 这条契约由三截组成，缺一截就回到老样子：
- *  1. 手机在统一的鉴权头里带上这四样（`app/src/services/viewmodels/authHeaders.ts`）；
+ *  1. 手机在统一的鉴权头里带上这几样（`app/src/services/viewmodels/authHeaders.ts`）；
  *  2. 宿主在鉴权通过那一刻把它们写回凭据记录（`lib/impl.js` 的 `onAuthorized`）；
  *  3. 凭据库按「有哪几格就写哪几格」合并 —— **缺一个不能把已有值冲成空**。
  *
@@ -24,7 +24,7 @@ const path = require('node:path');
 
 const { deviceMetaFromHeaders } = require('../lib/shared/device-headers.js');
 
-test('五个头各读各的；缺的格子不出现在结果里（空串会冲掉已有值）', () => {
+test('八个头各读各的；缺的格子不出现在结果里（空串会冲掉已有值）', () => {
   const meta = deviceMetaFromHeaders({
     headers: {
       'x-dsh-device-name': 'Pixel 9',
@@ -32,11 +32,17 @@ test('五个头各读各的；缺的格子不出现在结果里（空串会冲�
       'x-dsh-platform': 'android',
       'x-dsh-os-version': '34',
       'x-dsh-app-version': '0.3.24',
+      'x-dsh-package-id': 'com.dsh.mobile',
+      'x-dsh-build-number': '465',
+      'x-dsh-channel': 'direct',
     },
   });
-  assert.deepEqual(meta, { name: 'Pixel 9', model: 'Xiaomi 9', platform: 'android', osVersion: '34', appVersion: '0.3.24' });
+  assert.deepEqual(meta, {
+    name: 'Pixel 9', model: 'Xiaomi 9', platform: 'android', osVersion: '34', appVersion: '0.3.24',
+    packageId: 'com.dsh.mobile', buildNumber: '465', channel: 'direct',
+  });
 
-  // 老版本 App 一个头都不带：结果必须是空对象，不能是五个空串。
+  // 老版本 App 一个头都不带：结果必须是空对象，不能是八个空串。
   assert.deepEqual(deviceMetaFromHeaders({ headers: {} }), {});
   assert.deepEqual(deviceMetaFromHeaders(undefined), {});
   assert.deepEqual(deviceMetaFromHeaders({}), {});
@@ -46,6 +52,11 @@ test('五个头各读各的；缺的格子不出现在结果里（空串会冲�
 
   // 只带机型（这一格出生之前配的对，靠这里补登记）：也只写这一格。
   assert.deepEqual(deviceMetaFromHeaders({ headers: { 'x-dsh-device-model': ' iPhone 15 Pro ' } }), { model: 'iPhone 15 Pro' });
+
+  // 只带安装包三格：也只写这三格（老 App 不带它们，留下的原值不能被冲掉）。
+  assert.deepEqual(deviceMetaFromHeaders({ headers: { 'x-dsh-package-id': 'com.dsh.mobile', 'x-dsh-build-number': '466', 'x-dsh-channel': 'appstore' } }), {
+    packageId: 'com.dsh.mobile', buildNumber: '466', channel: 'appstore',
+  });
 
   // 重复头是数组，只认第一个；首尾空白裁掉。
   assert.equal(deviceMetaFromHeaders({ headers: { 'x-dsh-device-name': ['  iPhone  ', 'x'] } }).name, 'iPhone');
@@ -67,18 +78,32 @@ test('凭据库：touch 带身份时写回去，缺的格子保持原值', () =>
     model: 'iPhone 14 Pro',
     platform: 'ios',
     appVersion: '0.3.0',
+    packageId: 'com.dsh.mobile',
+    buildNumber: '450',
+    channel: 'appstore',
   });
   const record = credentials.lookup(issued.credential, 'inst-meta');
   assert.equal(record.appVersion, '0.3.0');
   assert.equal(record.model, 'iPhone 14 Pro', '配对那一刻带的机型要落进记录');
+  assert.equal(record.packageId, 'com.dsh.mobile', '配对那一刻带的包名要落进记录');
+  assert.equal(record.buildNumber, '450');
+  assert.equal(record.channel, 'appstore');
 
-  // 手机升级了：只带版本与系统版本 → 名字、机型与平台保持原样。
+  // 手机升级了：只带版本与系统版本 → 名字、机型、平台与安装包三格保持原样。
   credentials.touch(record, { channel: 'lan', meta: { appVersion: '0.3.24', osVersion: '18.2' } });
   assert.equal(record.appVersion, '0.3.24', '版本必须被刷新（这正是「面板还报旧版本」那条）');
   assert.equal(record.osVersion, '18.2');
   assert.equal(record.name, '旧名字', '这次没带名字，已有的必须留着');
   assert.equal(record.model, 'iPhone 14 Pro', '这次没带机型，已有的必须留着 —— 冲成空就成了「认不出是哪台」');
   assert.equal(record.platform, 'ios');
+  assert.equal(record.packageId, 'com.dsh.mobile', '这次没带包名，已有的必须留着');
+  assert.equal(record.buildNumber, '450', '这次没带构建号，已有的必须留着');
+  assert.equal(record.channel, 'appstore', '这次没带渠道，已有的必须留着');
+
+  // 安装包三格也随身份头刷新：换了一个构建，记录要跟着走。
+  credentials.touch(record, { channel: 'lan', meta: { packageId: 'com.dsh.mobile', buildNumber: '466', channel: 'direct' } });
+  assert.equal(record.buildNumber, '466', '构建号变了要刷新（反馈要按真实安装包报）');
+  assert.equal(record.channel, 'direct');
 
   // 不带任何身份（老版本 App）：什么都不改。
   credentials.touch(record, { channel: 'lan' });
@@ -114,7 +139,10 @@ test('两侧头名逐字一致：App 写的名字必须就是宿主读的那几�
     'utf8',
   );
   const host = fs.readFileSync(path.join(__dirname, '..', 'lib', 'shared', 'device-headers.js'), 'utf8');
-  for (const name of ['X-Dsh-Device-Model', 'X-Dsh-Platform', 'X-Dsh-Os-Version', 'X-Dsh-App-Version']) {
+  for (const name of [
+    'X-Dsh-Device-Model', 'X-Dsh-Platform', 'X-Dsh-Os-Version', 'X-Dsh-App-Version',
+    'X-Dsh-Package-Id', 'X-Dsh-Build-Number', 'X-Dsh-Channel',
+  ]) {
     assert.ok(app.includes(name), `App 侧没有写 ${name}`);
     assert.ok(
       host.toLowerCase().includes(name.toLowerCase()),

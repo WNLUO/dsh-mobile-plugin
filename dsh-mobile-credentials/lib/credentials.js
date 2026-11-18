@@ -1,4 +1,5 @@
 'use strict';
+// 安装包身份（包名 / 构建号 / 渠道）随设备记录存下，AI 反馈提交要从这里取（2026-11-18）。
 // 有效设备记录保留本地重新发现能力，未知设备禁止自动换入口。
 // 电脑网页授权独立于手机权限；调整设备权限会同步收回该授权。
 
@@ -157,6 +158,14 @@ function deviceMeta(device) {
   if (osVersion) meta.osVersion = osVersion;
   const appVersion = truncate(device?.appVersion, FIELD_MAX);
   if (appVersion) meta.appVersion = appVersion;
+  // 安装包三格（2026-11-18）：包名 / 构建号 / 渠道。反馈工具提交到分发平台时要按真实安装包
+  // 报，缺了就不写（老 App 不带这几格，不能把已有值冲成空）。
+  const packageId = truncate(device?.packageId, FIELD_MAX);
+  if (packageId) meta.packageId = packageId;
+  const buildNumber = truncate(device?.buildNumber, FIELD_MAX);
+  if (buildNumber) meta.buildNumber = buildNumber;
+  const channel = truncate(device?.channel, FIELD_MAX);
+  if (channel) meta.channel = channel;
   if (device?.lanDiscovery === 1 || device?.lanDiscovery === 0) meta.lanDiscovery = device.lanDiscovery;
   return meta;
 }
@@ -518,6 +527,9 @@ function activeRow(deviceId, createdAt) {
     platform: '',
     osVersion: '',
     appVersion: '',
+    packageId: '',
+    buildNumber: '',
+    channel: '',
     boundAt: createdAt,
     lastSeenAt: 0,
     lastChannel: '',
@@ -562,6 +574,9 @@ function accumulateDevice(row, record, createdAt) {
   if (record.platform && createdAt >= (row.platformAt || 0)) { row.platform = record.platform; row.platformAt = createdAt; }
   if (record.osVersion && createdAt >= (row.osVersionAt || 0)) { row.osVersion = record.osVersion; row.osVersionAt = createdAt; }
   if (record.appVersion && createdAt >= (row.appVersionAt || 0)) { row.appVersion = record.appVersion; row.appVersionAt = createdAt; }
+  if (record.packageId && createdAt >= (row.packageIdAt || 0)) { row.packageId = record.packageId; row.packageIdAt = createdAt; }
+  if (record.buildNumber && createdAt >= (row.buildNumberAt || 0)) { row.buildNumber = record.buildNumber; row.buildNumberAt = createdAt; }
+  if (record.channel && createdAt >= (row.channelAt || 0)) { row.channel = record.channel; row.channelAt = createdAt; }
   const seenAt = Number(record.lastSeenAt) || 0;
   if (seenAt >= row.lastSeenFrom) {
     row.lastSeenFrom = seenAt;
@@ -588,7 +603,7 @@ function activeOut(rows) {
   }
   const out = [];
   for (const row of rows.values()) {
-    const { modelAt, nameAt, platformAt, osVersionAt, appVersionAt, lastSeenFrom, permissionsAt, ...rest } = row;
+    const { modelAt, nameAt, platformAt, osVersionAt, appVersionAt, packageIdAt, buildNumberAt, channelAt, lastSeenFrom, permissionsAt, ...rest } = row;
     out.push(rest);
   }
   // 最近连着的排前面；从没连过的按绑定时间倒序垫后。
