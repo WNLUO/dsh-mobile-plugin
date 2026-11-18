@@ -824,6 +824,50 @@ test('构成快照跟着会话走，取最近活跃的那条', () => {
   assert.equal(overview.composition.systemTokens, 100);
 });
 
+test('全 0 的构成不算观测：最新那条空会话不顶掉别人的快照', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([
+    { sessionId: 'used', at: now - 7200000, delta: usage({ uncachedInputTokens: 10 }) },
+    { sessionId: 'empty', at: now, delta: {} },
+  ]);
+  book.sessions.used.composition = { systemTokens: 1, toolsTokens: 2, messageTokens: 3, at: now - 7200000 };
+  book.sessions.empty.composition = { systemTokens: 0, toolsTokens: 0, messageTokens: 0, at: now };
+  const overview = ledger.summarize(book, '7d', now);
+  assert.equal(overview.compositionSessionId, 'used', '刚开的空会话不是一份观测');
+  assert.equal(overview.composition.systemTokens, 1);
+});
+
+test('一份非 0 构成都没有时整块不报（页面不画 0 的环）', () => {
+  const now = Date.UTC(2026, 9, 22, 6, 0);
+  const book = bookWith([{ sessionId: 'empty', at: now, delta: {} }]);
+  book.sessions.empty.composition = { systemTokens: 0, toolsTokens: 0, messageTokens: 0, at: now };
+  book.composition = { systemTokens: 0, toolsTokens: 0, messageTokens: 0 };
+  const overview = ledger.summarize(book, '7d', now);
+  assert.equal(overview.composition, undefined, '全 0 的快照不进总览');
+  assert.equal(overview.compositionSessionId, undefined);
+});
+
+test('采集只把非 0 的构成写进记录', async () => {
+  await withHome(async () => {
+    const items = [
+      { sessionId: 'empty', title: '空', updatedAt: Date.now() },
+      { sessionId: 'used', title: '有内容', updatedAt: Date.now() },
+    ];
+    const ctx = fakeCtx({
+      items,
+      projectionsById: {
+        empty: { ...emptyProjection(), contextBreakdown: { systemTokens: 0, toolsTokens: 0, messageTokens: 0 } },
+        used: { ...emptyProjection(), contextBreakdown: { systemTokens: 1, toolsTokens: 2, messageTokens: 3 } },
+      },
+    });
+    await collectStats(ctx, { force: true });
+    // 读的是采集写进去的那份内存账本，不经过读盘清洗 —— 钉的就是写入这一侧。
+    const book = ledger.readLedger();
+    assert.equal(book.sessions.empty.composition, null, '三个 0 是「没观测到」，不是一份快照');
+    assert.equal(book.sessions.used.composition.systemTokens, 1, '真有构成照常记下来');
+  });
+});
+
 test('采集串行：两个请求同时进来不会把同一段增量记两遍', async () => {
   await withHome(async () => {
     const items = [{ sessionId: 's1', title: 'x', updatedAt: Date.now() }];
