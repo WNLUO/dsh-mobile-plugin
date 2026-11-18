@@ -22,7 +22,12 @@
 
 它和绝大多数 DeepSeek Harness 插件不一样的一点：**这个APP不是网页套壳，它更适合生产工作，它不为噱头稀奇而设计，一切以提高生产力为原则**。
 
-![手机 App 经中转或局域网连到你电脑上的 DeepSeek Harness](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-light.svg)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-dark.svg">
+    <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-light.svg" alt="手机 App 经中转或局域网连到你电脑上的 DeepSeek Harness" width="720">
+  </picture>
+</p>
 
 连的是**你自己的 DeepSeek Harness**，不是某个云端服务。
 
