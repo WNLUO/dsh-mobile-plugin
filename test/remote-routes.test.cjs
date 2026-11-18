@@ -27,6 +27,7 @@ function setup() {
   const records = [{ deviceId: 'B', name: '出门电脑', createdAt: 1, remoteWeb: true, hash: 'hidden', deviceKey: 'private' },
     { deviceId: 'phone', name: '手机', createdAt: 1 }];
   const controller = { list: async () => [], open: async id => { calls.push(id); return { url: 'http://127.0.0.1:4321/', expiresAt: 5000 }; },
+    diagnose: async id => { calls.push('diagnose:' + id); return [{ channel: 'lan', url: 'http://192.168.1.2:18787', ok: true, latencyMs: 5, errorCode: null }]; },
     watchWindow: () => {} };
   const host = { mintInvite: async () => ({ invite: 'invite', expiresAt: 1000 }), revoke: id => calls.push('closed:' + id) };
   const credentials = { listRemoteComputers: () => records.filter(row => row.remoteWeb).map(row => ({ deviceId: row.deviceId, name: row.name, platform: '', lastSeenAt: 0, createdAt: row.createdAt })), revokeDevice: (instance, id) => { calls.push(instance + ':' + id); return 1; } };
@@ -56,6 +57,7 @@ test('桌面壳入口带专属标记，普通浏览器入口不变，回包仍�
   const shell = await invoke(routes, '/open-shell', { body: { id: 'A' } });
   assert.equal(shell.status, 200);
   assert.equal(shell.body.url, 'http://127.0.0.1:4321/');
+  assert.equal(shell.body.shellOpened, true);
   assert.equal(launches.length, 1);
   const opened = new URL(launches[0].url);
   assert.equal(opened.origin, 'http://127.0.0.1:4321');
@@ -66,6 +68,19 @@ test('桌面壳入口带专属标记，普通浏览器入口不变，回包仍�
   assert.equal(launches.length, 1);
 });
 
+test('桌面壳进程起手就退出时回 shellOpened:false，让前端退回浏览器', async () => {
+  const child = new EventEmitter();
+  child.exitCode = null;
+  setTimeout(() => { child.exitCode = 1; child.emit('exit', 1); }, 5);
+  const controller = { list: async () => [], open: async () => ({ url: 'http://127.0.0.1:4321/', expiresAt: 5000 }), diagnose: async () => [], watchWindow: () => { throw new Error('不该记窗口'); } };
+  const host = { mintInvite: async () => ({}), revoke: () => {} };
+  const credentials = { listRemoteComputers: () => [], revokeDevice: () => 1 };
+  const routes = createRemoteRoutes({ controller, host, credentials, instanceId: 'A', now: () => 100, launch: () => child });
+  const response = await invoke(routes, '/open-shell', { body: { id: 'A' } });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.shellOpened, false);
+});
+
 test('GET不能触发续期，表单不能触发打开，错误不反射凭据', async () => {
   const { routes } = setup();
   assert.equal((await invoke(routes, '/renew', { method: 'GET' })).status, 405);
@@ -73,4 +88,32 @@ test('GET不能触发续期，表单不能触发打开，错误不反射凭据',
   const failed = await invoke(routes, '/open', { body: { id: '../secret-token' } });
   assert.equal(failed.status, 400);
   assert.doesNotMatch(JSON.stringify(failed.body), /secret-token/);
+});
+
+test('线路检测只接受POST且返回逐线路结果，id校验与其它路由一致', async () => {
+  const { routes, calls } = setup();
+  const res = await invoke(routes, '/diagnose', { body: { id: 'A' } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.routes[0].channel, 'lan');
+  assert.deepEqual(calls, ['diagnose:A']);
+  assert.equal((await invoke(routes, '/diagnose', { method: 'GET' })).status, 405);
+  assert.equal((await invoke(routes, '/diagnose', { body: { id: '../secret-token' } })).status, 400);
+});
+
+test('模式不再接受空的 direct 挡位', async () => {
+  const { routes } = setup();
+  const res = await invoke(routes, '/mode', { body: { id: 'A', mode: 'direct' } });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+});
+
+test('协议版本不兼容单独返回 REMOTE_VERSION 文案', async () => {
+  const controller = { list: async () => [], diagnose: async () => { throw Object.assign(new Error('Remote'), { code: 'REMOTE_VERSION' }); } };
+  const routes = createRemoteRoutes({ controller, host: { mintInvite: async () => ({}), revoke() {} },
+    credentials: { listRemoteComputers: () => [], revokeDevice() {} }, instanceId: 'A' });
+  const res = await invoke(routes, '/diagnose', { body: { id: 'A' } });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error.code, 'REMOTE_VERSION');
+  assert.equal(res.body.error.message, '对方插件版本不兼容，请升级到支持远程电脑的版本');
 });

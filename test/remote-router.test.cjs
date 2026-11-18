@@ -157,6 +157,34 @@ test('强制局域网不预热或刷新公网隧道，回自动档恢复候选�
   assert.equal(warmed, 1); router.close();
 });
 
+test('逐线路诊断：并发探活所有安全候选，单条失败隔离且不改已选线路与状态', async () => {
+  const candidates = [
+    { url: 'http://lan.invalid', channel: 'lan' },
+    { url: 'https://relay.invalid', channel: 'relay' },
+    { url: 'http://[::1]:5000', channel: 'ipv6' },
+  ];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const router = createRemoteRouter({ binding: { routes: candidates, mode: 'lan' }, transport: {
+    async probeRemote(_binding, route) {
+      inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise(setImmediate); inFlight -= 1;
+      if (route.channel === 'lan') throw Object.assign(new Error('denied'), { code: 'REMOTE_AUTH' });
+      return route.channel === 'relay' ? 20 : 80;
+    },
+    async openRemoteStream() { return result(); },
+  } });
+  const before = router.snapshot();
+  const rows = await router.diagnose();
+  const byChannel = Object.fromEntries(rows.map((row) => [row.channel, row]));
+  assert.deepEqual(byChannel.lan, { channel: 'lan', url: 'http://lan.invalid', ok: false, latencyMs: null, errorCode: 'REMOTE_AUTH' });
+  assert.equal(byChannel.relay.ok, true); assert.equal(byChannel.relay.latencyMs, 20); assert.equal(byChannel.relay.errorCode, null);
+  assert.equal(byChannel.ipv6.ok, true); assert.equal(byChannel.ipv6.latencyMs, 80);
+  assert.equal(maxInFlight, 3, '三条候选应并发探测');
+  assert.deepEqual(router.snapshot(), before, '诊断不能改动已选线路或线路状态');
+  router.close();
+});
+
 test('认证后的最新地址持久回调，拒绝秘密线路且无新地址保留旧线路', async () => {
   const fresh = [{ url: 'http://192.168.2.2:5000', channel: 'lan' }, routes[1]];
   const saved = [];

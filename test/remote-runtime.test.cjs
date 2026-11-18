@@ -10,7 +10,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-runtime-'));
 process.env.DEVICE_CREDENTIALS_FILE = path.join(dir, 'credentials.json');
 const credentials = require('../dsh-mobile-credentials/lib/credentials.js');
 const { mountRemoteComputers } = require('../lib/remote/runtime.cjs');
-const { createHostControl } = require('../lib/remote/host-control.cjs');
+const { createHostControl, routesOf } = require('../lib/remote/host-control.cjs');
 
 test('运行期管理入口使用真实安全清单，邀请可复制且卸载完成', async () => {
   const effects = [];
@@ -51,4 +51,14 @@ test('隧道会合只映射对端公钥与候选，使用已有固定入口且�
   assert.equal(result.tailcat.address, 'tc-address');
   await assert.rejects(control.onControl(record, { op: 'shell' }), /unsupported/);
   await assert.rejects(control.onControl({ deviceId: 'phone' }, { op: 'tunnels' }), /denied/);
+});
+test('远程电脑候选按 lanAvailable 谓词产出局域网/IPv6，与手机开关解耦', () => {
+  const state = { enabled: true, lanEnabled: false, relayUrl: 'https://relay.test', relayUrls: ['https://relay.test'] };
+  // 手机开关关、也没有远程电脑绑定：行为与旧实现一致，只产出 relay。
+  assert.deepEqual(routesOf({ state, lanPortInUse: () => 0 }).map((row) => row.channel), ['relay']);
+  // 注入的 lanAvailable 为真（有远程电脑）：即便手机开关是关的，仍产出 lan/ipv6 候选。
+  const rows = routesOf({ state, lanPortInUse: () => 18787, lanAvailable: () => true });
+  assert.ok(rows.some((row) => row.channel === 'lan'));
+  assert.ok(rows.some((row) => row.channel === 'ipv6'));
+  assert.ok(rows.some((row) => row.channel === 'relay'));
 });

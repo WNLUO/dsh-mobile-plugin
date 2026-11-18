@@ -3,6 +3,15 @@ import { ApiError, apiGet, apiPost } from './api.ts'
 import { t } from './i18n/index.ts'
 
 export type RemoteComputerRoute = { url: string; channel: string }
+/** 逐条线路探活结果：只读，不选中也不改访问状态。 */
+export type RemoteComputerDiagnoseRoute = {
+  channel: string
+  url: string
+  ok: boolean
+  latencyMs: number | null
+  errorCode: string | null
+}
+export type RemoteComputerDiagnose = { ok: boolean; routes: RemoteComputerDiagnoseRoute[] }
 export type RemoteComputer = {
   id: string
   name: string
@@ -33,7 +42,7 @@ export type RemoteComputerList = {
   serverNow: number
 }
 export type RemoteComputerInvite = { ok: boolean; invite: string; expiresAt: number }
-type RemoteComputerOpen = { ok: boolean; url: string; expiresAt: number }
+type RemoteComputerOpen = { ok: boolean; url: string; expiresAt: number; shellOpened?: boolean }
 
 /** 远程模块仅按错误码取词，不把服务端原始错误文本带进其他语言。 */
 export function remoteErrorText(error: unknown): string {
@@ -43,7 +52,7 @@ export function remoteErrorText(error: unknown): string {
     REMOTE_EXPIRED: 'errorExpired', REMOTE_TIMEOUT: 'errorTimeout', REMOTE_CONNECT: 'errorConnect',
     REMOTE_INVITATION: 'errorInvitation', REMOTE_OPEN_URL: 'invalidOpenUrl',
     REMOTE_POPUP: 'popupBlocked', REMOTE_EXTERNAL_OPEN: 'externalOpenFailed',
-    SHELL_UNAVAILABLE: 'shellUnavailable',
+    REMOTE_VERSION: 'errorVersion', SHELL_UNAVAILABLE: 'shellUnavailable',
   }
   return t(keys[code] ? `panel.remote.${keys[code]}` : 'panel.remote.failed')
 }
@@ -57,6 +66,7 @@ export const remoteComputers = {
   add: (invite: string) => apiPost<{ ok: boolean; device: RemoteComputer }>(`${BASE}/add`, { invite }),
   open: (id: string) => apiPost<RemoteComputerOpen>(`${BASE}/open`, { id }),
   openShell: (id: string) => apiPost<RemoteComputerOpen>(`${BASE}/open-shell`, { id }),
+  diagnose: (id: string) => apiPost<RemoteComputerDiagnose>(`${BASE}/diagnose`, { id }),
   remove: (id: string) => apiPost<{ ok: boolean }>(`${BASE}/remove`, { id }),
   mode: (id: string, mode: string) => apiPost<{ ok: boolean }>(`${BASE}/mode`, { id, mode }),
   revoke: (deviceId: string) => apiPost<{ ok: boolean }>(`${BASE}/revoke`, { deviceId }),
@@ -69,9 +79,9 @@ export function remoteLease(device: Pick<RemoteComputer, 'state' | 'expiresAt'>,
   return { active, remainingMs, warning: active && remainingMs <= REMOTE_LEASE_WARNING_MS }
 }
 
-/** 手动挡只列这台电脑已有的通道，不在前端生成地址。 */
+/** 手动挡只列这台电脑已有的通道，不在前端生成地址。direct 与局域网同为本机直连，不单独作为可选线路露出。 */
 export function remoteModes(routes: RemoteComputerRoute[]): string[] {
-  return ['auto', ...new Set(routes.map((route) => route.channel).filter((channel) => channel && channel !== 'auto'))]
+  return ['auto', ...new Set(routes.map((route) => route.channel).filter((channel) => channel && channel !== 'auto' && channel !== 'direct'))]
 }
 
 /** 一次性入口只能交给本机代理；拒绝其他主机、协议和 URL 中的账号密码。 */
@@ -101,6 +111,8 @@ export async function openRemoteComputer(id: string): Promise<RemoteComputerOpen
   try {
     const result = await remoteComputers.openShell(id)
     trustedRemoteUrl(result.url)
+    // 壳进程没起来（闪退 / 缺运行库）仍是 200，不当作错误：直接转浏览器打开，并带上标记让界面提示。
+    if (result.shellOpened === false) return { ...(await openInBrowser(id)), shellOpened: false }
     return result
   } catch (error) {
     if (!shellUnavailable(error)) throw error

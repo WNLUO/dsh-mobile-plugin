@@ -212,3 +212,36 @@ test('邀请解析不接受旧六位码或携带秘密的路由URL', () => {
   assert.throws(() => parseInvitation('123456'), { code: 'REMOTE_INVITATION' });
   assert.throws(() => parseInvitation({ type: 'dsh-computer', version: 1, instanceId: 'a', name: 'a', ticketId: c.random(16), ticket: c.random(), expiresAt: Date.now() + 1000, routes: [{ url: 'http://user:secret@example.com', channel: 'relay' }] }), { code: 'REMOTE_INVITATION' });
 });
+
+test('邀请版本号是数字但不等于1时报版本不兼容，非数字仍按邀请非法', () => {
+  const invite = { type: 'dsh-computer', instanceId: 'a', name: 'a', ticketId: c.random(16), ticket: c.random(), expiresAt: Date.now() + 1000, routes: [{ url: 'http://127.0.0.1:1/prefix', channel: 'relay' }] };
+  assert.throws(() => parseInvitation({ ...invite, version: 2 }), { code: 'REMOTE_VERSION' });
+  assert.throws(() => parseInvitation({ ...invite, version: '1' }), { code: 'REMOTE_INVITATION' });
+});
+
+test('配对响应版本号是数字但不等于1时报版本不兼容', async () => {
+  const server = http.createServer((req, res) => {
+    req.resume(); req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ v: 2, ok: true })); });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const invite = { type: 'dsh-computer', version: 1, instanceId: 'a', name: 'a', ticketId: c.random(16), ticket: c.random(), expiresAt: Date.now() + 10_000, routes: [{ url: `http://127.0.0.1:${server.address().port}/prefix`, channel: 'relay' }] };
+    await assert.rejects(pairComputer(invite), { code: 'REMOTE_VERSION' });
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('握手信令版本号是数字但不等于1时报版本不兼容', { timeout: 8000 }, async () => {
+  const server = http.createServer();
+  const wss = new WebSocketServer({ server });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const binding = { instanceId: 'a', deviceId: 'b', keyId: '0123456789abcdef', deviceKey: c.random(), credential: 'private' };
+  const route = { url: `http://127.0.0.1:${server.address().port}`, channel: 'relay' };
+  try {
+    wss.once('connection', (ws) => ws.send(JSON.stringify({ v: 2, type: 'welcome' })));
+    await assert.rejects(probeRemote(binding, route), { code: 'REMOTE_VERSION' });
+  } finally {
+    for (const ws of wss.clients) ws.terminate();
+    await new Promise((resolve) => wss.close(resolve));
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

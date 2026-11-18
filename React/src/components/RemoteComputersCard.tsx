@@ -20,6 +20,7 @@ import {
   remoteErrorText,
   remoteModes,
   type RemoteComputer,
+  type RemoteComputerDiagnoseRoute,
   type RemoteComputerInvite,
   type RemoteComputerList,
 } from '../lib/remote-computers.ts'
@@ -87,6 +88,8 @@ export function RemoteComputersCard() {
   const [manualCopy, setManualCopy] = useState(false)
   const [modeDevice, setModeDevice] = useState<RemoteComputer | null>(null)
   const [mode, setMode] = useState('auto')
+  const [diagnoseRoutes, setDiagnoseRoutes] = useState<RemoteComputerDiagnoseRoute[] | null>(null)
+  const [diagnosing, setDiagnosing] = useState(false)
   const [now, setNow] = useState(0)
   const clockOffset = useRef(0)
   const loading = useRef(false)
@@ -160,6 +163,19 @@ export function RemoteComputersCard() {
     }
   }
 
+  /** 逐条探活当前设备的线路；只读探测，不改选中状态。 */
+  async function diagnose(device: RemoteComputer) {
+    if (diagnosing) return
+    setDiagnosing(true)
+    try {
+      setDiagnoseRoutes((await remoteComputers.diagnose(device.id)).routes)
+    } catch (error) {
+      notify('error', remoteErrorText(error))
+    } finally {
+      setDiagnosing(false)
+    }
+  }
+
   function generateInvite() {
     setInvitation(null)
     setManualCopy(false)
@@ -179,7 +195,11 @@ export function RemoteComputersCard() {
   }
 
   function open(device: RemoteComputer) {
-    void act(`open:${device.id}`, () => openRemoteComputer(device.id))
+    void act(`open:${device.id}`, async () => {
+      const result = await openRemoteComputer(device.id)
+      // 桌面端壳没起来（200 但 shellOpened=false）时已自动走浏览器，明确告诉用户不是出错。
+      if (result.shellOpened === false) notify('ok', t('panel.remote.shellFellBack'))
+    })
   }
 
   function remove(device: RemoteComputer) {
@@ -240,7 +260,7 @@ export function RemoteComputersCard() {
                       <Badge variant="secondary" size="xs">{t(`panel.remote.state.${state}`)}</Badge>
                     </div>
                     <span className="flex shrink-0 items-center gap-1.5">
-                      <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-2 xl:text-sm" disabled={rowBusy} onClick={() => { setMode(device.mode); setModeDevice(device) }}>
+                      <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-2 xl:text-sm" disabled={rowBusy} onClick={() => { setMode(device.mode); setDiagnoseRoutes(null); setModeDevice(device) }}>
                         {t('panel.remote.route')}
                       </Button>
                       {opened ? (
@@ -326,7 +346,7 @@ export function RemoteComputersCard() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={modeDevice !== null} onOpenChange={(open) => { if (!open && !modeBusy) setModeDevice(null) }}>
+      <Dialog open={modeDevice !== null} onOpenChange={(open) => { if (!open && !modeBusy) { setModeDevice(null); setDiagnoseRoutes(null) } }}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>{t('panel.remote.route')}</DialogTitle></DialogHeader>
           <DialogBody className="flex flex-col gap-3 text-sm">
@@ -336,6 +356,29 @@ export function RemoteComputersCard() {
                 <label key={channel} className="flex cursor-pointer items-center gap-2"><Radio value={channel} /><span>{channelText(channel)}</span></label>
               ))}
             </RadioGroup>
+            <div className="border-t border-border-muted pt-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-foreground-muted">{t('panel.remote.diagnoseHint')}</span>
+                <Button variant="ghost" size="sm" className="px-2 text-xs" disabled={diagnosing} onClick={() => { if (modeDevice) void diagnose(modeDevice) }}>
+                  {t('panel.remote.diagnose')}
+                </Button>
+              </div>
+              {diagnosing ? <Spinner /> : null}
+              {diagnoseRoutes ? (
+                <ul className="mt-1 flex flex-col gap-1">
+                  {diagnoseRoutes.map((route) => (
+                    <li key={`${route.channel}:${route.url}`} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate">{channelText(route.channel)}</span>
+                      <span className="shrink-0 whitespace-nowrap text-foreground-muted">
+                        {route.ok ? t('panel.remote.diagnoseOk') : t('panel.remote.diagnoseFail')}
+                        {route.ok && route.latencyMs !== null ? ` · ${route.latencyMs} ms` : ''}
+                        {!route.ok && route.errorCode ? ` · ${remoteErrorText(route.errorCode)}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </DialogBody>
           <DialogFooter className="flex justify-end gap-2">
             <Button variant="outline" disabled={modeBusy} onClick={() => setModeDevice(null)}>{t('panel.common.cancel')}</Button>

@@ -146,3 +146,32 @@ test('网页令牌缺失时明确拒绝，不返回空凭据或拨上游', deadl
     assert.equal(f.upstreamConnections, 0);
   } finally { await f.close(); }
 });
+
+test('配对请求版本号是数字但不等于1时回版本不兼容', deadline, async () => {
+  const f = await fixture();
+  try {
+    const invite = await f.invite();
+    const result = await new Promise((resolve, reject) => {
+      const req = http.request(`${f.route.url}/api/mobile/v1/remote-computers/pair`, { method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
+        let raw = ''; res.on('data', (chunk) => { raw += chunk; });
+        res.on('end', () => { let body = {}; try { body = JSON.parse(raw); } catch { /* 空响应按无 code 处理 */ } resolve({ status: res.statusCode, body }); });
+      });
+      req.on('error', reject);
+      req.end(JSON.stringify({ ticketId: invite.ticketId, instanceId: 'instance-a', v: 2 }));
+    });
+    assert.equal(result.status, 401);
+    assert.equal(result.body.code, 'REMOTE_VERSION');
+  } finally { await f.close(); }
+});
+
+test('信令消息版本号是数字但不等于1时按版本不兼容关闭连接', deadline, async () => {
+  const f = await fixture();
+  try {
+    const ws = new WebSocket(`${f.route.url.replace('http:', 'ws:')}/api/mobile/v1/remote-computers/tunnel`);
+    await once(ws, 'open');
+    const closed = once(ws, 'close');
+    ws.send(JSON.stringify({ v: 2, type: 'hello', instanceId: 'instance-a', keyId: '0123456789abcdef' }));
+    const [code] = await closed;
+    assert.equal(code, 1011, '版本不兼容走协议错误码而不是普通鉴权的 4003');
+  } finally { await f.close(); }
+});

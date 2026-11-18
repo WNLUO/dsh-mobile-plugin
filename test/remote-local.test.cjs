@@ -297,6 +297,23 @@ test('打开凭据一分钟失效', async (t) => {
   assert.equal(f.state.dials, 0);
 });
 
+test('同一页面多个顺序请求复用同一条加密流，不重复握手', async (t) => {
+  const f = await fixture(t);
+  const g = await f.gateway();
+  const first = await request(`${g.origin}/first`, { headers: headers(g) });
+  assert.equal(first.status, 200);
+  const dials = f.state.dials;
+  assert.equal(dials, 1, '首个请求只握手一次');
+  assert.equal(f.state.auth, 1);
+  for (let i = 0; i < 4; i += 1) {
+    const response = await request(`${g.origin}/page-${i}`, { headers: headers(g) });
+    assert.equal(response.status, 200);
+    assert.equal(response.body, 'ok');
+  }
+  assert.equal(f.state.dials, dials, '顺序请求应复用同一加密流，不再逐个握手');
+  assert.equal(f.state.auth, 1, '同一会话只认证一次');
+});
+
 test('只有桌面壳会话拿到 Mac 排版脚本，壳标记与本机凭据都不外送', async (t) => {
   const f = await fixture(t);
   const g = await f.gateway({ platform: 'darwin' });

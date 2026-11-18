@@ -21,7 +21,7 @@ function memoryStore() {
   };
 }
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const sockets = new Set();
   const state = { probes: 0, dials: 0, renewals: [], writes: 0, closes: [], failure: null, connectionInfo: null, dialRoutes: [] };
   const target = http.createServer((req, res) => {
@@ -48,7 +48,7 @@ async function fixture(t) {
       return { stream, host: { port: target.address().port, token: 'launch-secret' } };
     },
   };
-  const controller = createRemoteController({ store, transport, name: '本机', tunnels: { routesFor: async () => [], close: async (id) => state.closes.push(id) } });
+  const controller = createRemoteController({ store, transport, name: '本机', tunnels: { routesFor: async () => [], close: async (id) => state.closes.push(id) }, onBindingsChanged: options.onBindingsChanged });
   t.after(async () => { await controller.close(); for (const socket of sockets) socket.destroy(); target.close(); });
   await controller.add('invite');
   return { controller, store, state, binding };
@@ -158,4 +158,23 @@ test('认证过的吊销错误主动关闭本地访问，列表不暴露原始�
   assert.equal(JSON.stringify(row).includes('credential-secret'), false);
   const denied = await fetch(page.base, { headers: { cookie: page.cookie } }).catch(() => null);
   assert.ok(!denied || denied.status >= 400);
+});
+
+test('逐线路诊断直接返回每条候选的探测结果，不改设备状态', async (t) => {
+  const f = await fixture(t);
+  const rows = await f.controller.diagnose('A');
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((row) => row.ok === true && row.latencyMs === 5 && row.errorCode === null));
+  assert.deepEqual(rows.map((row) => row.channel), ['lan', 'relay']);
+  assert.equal((await f.controller.list())[0].state, 'idle', '诊断不改变设备状态');
+});
+
+test('绑定增删后触发 onBindingsChanged，让局域网监听随远程电脑开关联动', async (t) => {
+  let calls = 0;
+  const f = await fixture(t, { onBindingsChanged: () => { calls += 1; } });
+  assert.equal(calls, 1, 'fixture 的首次 add 已触发一次');
+  await f.controller.add('invite');
+  assert.equal(calls, 2, '再次 add 也要联动');
+  await f.controller.remove('A');
+  assert.equal(calls, 3, 'remove 也要联动');
 });

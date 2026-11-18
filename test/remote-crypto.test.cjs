@@ -2,6 +2,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const c = require('../lib/remote/crypto.cjs');
 
 function connection() {
@@ -41,4 +42,42 @@ test('邀请请求和响应使用不同方向密钥，部署前缀完整保留',
   assert.deepEqual(c.openJson(keys.up, sealed, 'aad'), { key: 'secret' });
   assert.throws(() => c.openJson(keys.down, sealed, 'aad'));
   assert.equal(c.endpoint({ url: 'https://relay.example/deploy/' }, '/api/mobile/v1/remote-computers/tunnel', true).href, 'wss://relay.example/deploy/api/mobile/v1/remote-computers/tunnel');
+});
+
+function wsMock() {
+  const ws = new EventEmitter();
+  ws.readyState = 1;
+  ws.sent = [];
+  ws.send = (data, _options, callback) => { ws.sent.push(Buffer.from(data)); if (typeof callback === 'function') callback(); };
+  ws.pause = () => {};
+  ws.resume = () => {};
+  ws.close = () => { ws.readyState = 3; ws.emit('close'); };
+  ws.terminate = () => { ws.readyState = 3; ws.emit('close'); };
+  return ws;
+}
+
+test('空闲时自动发心跳帧，长时空闲不误判死连接', async () => {
+  const keys = connection();
+  const ws = wsMock();
+  const stream = c.secureStream(ws, c.codecs(keys, false), { heartbeatIdleMs: 40, heartbeatTimeoutMs: 5000 });
+  const server = c.codecs(keys, true);
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  const kinds = ws.sent.map((frame) => server.receive.open(frame).kind);
+  assert.ok(kinds.length > 0, '空闲应发出心跳帧');
+  assert.ok(kinds.every((kind) => kind === 5), '空闲只发心跳帧');
+  assert.equal(stream.destroyed, false);
+  stream.destroy();
+});
+
+test('收到对端心跳可保活，超时无任何入站帧则销毁', async () => {
+  const keys = connection();
+  const ws = wsMock();
+  const stream = c.secureStream(ws, c.codecs(keys, false), { heartbeatIdleMs: 40, heartbeatTimeoutMs: 140 });
+  const server = c.codecs(keys, true);
+  const timer = setInterval(() => { ws.emit('message', server.send.seal(5), true); }, 30);
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  assert.equal(stream.destroyed, false, '持续收到对端心跳不应判定死连接');
+  clearInterval(timer);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(stream.destroyed, true, '长时间无入站帧应销毁连接');
 });
