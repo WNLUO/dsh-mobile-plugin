@@ -205,43 +205,52 @@ export function RelayConfigDialog({
           <div ref={dialogRef} tabIndex={-1} className="outline-none">
             <DialogBody className="grid max-h-[calc(100vh-13rem)] grid-cols-2 items-start gap-x-8 gap-y-4 overflow-y-auto">
               {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。
-                  标题右侧一颗文字按钮切换：当前用公用时显示「停用」，否则显示「启用」。
-                  配了公网自建时宿主会把公用强制停用（status.publicRelayBlocked）：地址划
-                  删除线、禁用「启用」——判据在宿主那一处，这里只如实展示。 */}
+                  标题右侧两颗文字按钮：「查看面板」在左、「启用 / 停用」在右（2026-11-19 用户要求）。
+                  配了公网自建时宿主会把公用强制停用（status.publicRelayBlocked）：这一栏直接显示
+                  一句「已禁用」，不再列地址、也不划删除线（2026-11-19 用户口径）——判据在宿主那一处，
+                  这里只如实展示。 */}
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel>{t('panel.relay.publicKind')}</FieldLabel>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!canSave || publicRelayBlocked}
-                      onClick={() => setRelayUrl(activePublicRelay ? '' : PUBLIC_RELAYS[0].url)}
-                    >
-                      {t(activePublicRelay ? 'panel.relay.disablePublic' : 'panel.relay.enablePublic')}
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setPublicPanelOpen(true)}>
+                        {t('panel.relay.viewPanel')}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canSave || publicRelayBlocked}
+                        onClick={() => setRelayUrl(activePublicRelay ? '' : PUBLIC_RELAYS[0].url)}
+                      >
+                        {t(activePublicRelay ? 'panel.relay.disablePublic' : 'panel.relay.enablePublic')}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    {PUBLIC_RELAYS.map((item) => (
-                      <Input
-                        key={item.url}
-                        inputProps={{
-                          className: `font-mono${publicRelayBlocked ? ' line-through text-foreground-muted' : ''}`,
-                          readOnly: true,
-                          'aria-label': t('panel.relay.publicKind'),
-                        }}
-                        value={item.url}
-                      />
-                    ))}
-                  </div>
-                  {/* 查看面板：另起一扇窗，列出各条内置地址与测出来的延迟 / 心电图。 */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="self-start"
-                    onClick={() => setPublicPanelOpen(true)}
-                  >
-                    {t('panel.relay.viewPanel')}
-                  </Button>
+                  {/* 停用时只摆一句「已禁用」，不列链接（2026-11-19 用户要求）。 */}
+                  {publicRelayBlocked ? (
+                    <Input
+                      inputProps={{
+                        className: 'text-foreground-muted',
+                        readOnly: true,
+                        'aria-label': t('panel.relay.publicKind'),
+                      }}
+                      value={t('panel.relay.publicDisabled')}
+                    />
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      {PUBLIC_RELAYS.map((item) => (
+                        <Input
+                          key={item.url}
+                          inputProps={{
+                            className: 'font-mono',
+                            readOnly: true,
+                            'aria-label': t('panel.relay.publicKind'),
+                          }}
+                          value={item.url}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </Field>
 
                 {/* 第二栏：自建中转。用公用时这里留空；敲入任意非内置地址即视为自建。

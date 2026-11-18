@@ -96,15 +96,17 @@ test('网络配置：公用中转内置只读排第一，自建可编辑，清�
   assert.ok(!/t\('panel\.relay\.choosePublicRelay'\)/.test(config), '主窗不许再有「选择公用中转」按钮');
 });
 
-test('网络配置：公用被强制停用时划删除线、禁用启用，但不摆说明文字', () => {
+test('网络配置：公用被强制停用时只显「已禁用」、禁用启用、不划删除线', () => {
   // 判据在宿主那一处，面板只读 status.publicRelayBlocked 如实展示，不另算一套。
   assert.match(config, /status\.publicRelayBlocked === true/, '从宿主 status 读被停用标志');
   assert.match(config, /const publicRelayBlocked =/, '收敛成一个具名变量');
   const first = config.slice(config.indexOf('第一栏：公用中转'), config.indexOf('第二栏：自建中转'));
   // 按钮：被停用时禁用「启用」（与正在保存一起做或）。
   assert.match(first, /disabled=\{!canSave \|\| publicRelayBlocked\}/, '被停用时启用按钮要禁用');
-  // 地址：被停用时加 line-through 与弱前景。
-  assert.match(first, /publicRelayBlocked \? ' line-through text-foreground-muted' : ''/, '被停用时地址划删除线');
+  // 2026-11-19 用户口径：停用时输入框只摆一句「已禁用」，不再列链接、也不划删除线。
+  assert.match(first, /publicRelayBlocked \? \(/, '停用时走单独一个输入框');
+  assert.match(first, /t\('panel\.relay\.publicDisabled'\)/, '停用时显示「已禁用」提示');
+  assert.ok(!/line-through/.test(first), '停用时不再给地址划删除线');
   // 用户 2026-11-18 要求删掉那段说明文字：组件不引用、字典也不留死键。
   assert.ok(!/publicBlockedHint/.test(first), '被停用时不再摆那段说明文字');
   assert.equal(countKey(panelDict, 'panel.relay.publicBlockedHint'), 0, '说明文案的键已删干净');
@@ -147,11 +149,16 @@ test('网络配置：自建中转那一栏右侧有「中转仓库」外链', ()
   );
 });
 
-test('网络配置：公用栏有「查看面板」按钮，另起弹窗看各条入口的延迟与心电图', () => {
+test('网络配置：公用栏「查看面板」在标题右侧、启用/停用左边，另起弹窗看延迟', () => {
   // 用户 2026-11-19 要求：公用中转地址越来越多，要给一个面板看各条入口的性能。
   const first = config.slice(config.indexOf('第一栏：公用中转'), config.indexOf('第二栏：自建中转'));
   assert.match(first, /t\('panel\.relay\.viewPanel'\)/, '按钮文案走字典');
   assert.match(first, /onClick=\{\(\) => setPublicPanelOpen\(true\)\}/, '点开另起面板弹窗');
+  // 位置：在标题行那组按钮里，「查看面板」在前、「启用/停用」在后。
+  assert.ok(
+    first.indexOf('setPublicPanelOpen(true)') < first.indexOf("activePublicRelay ? '' : PUBLIC_RELAYS[0].url"),
+    '「查看面板」在启用/停用按钮左侧',
+  );
   // 挂在主窗、接收当前在用的那条（标「使用中」）。
   assert.match(config, /<PublicRelayPanelDialog[\s\S]*?open=\{publicPanelOpen\}[\s\S]*?activeUrl=/, '面板弹窗挂上并传当前地址');
 
@@ -165,11 +172,16 @@ test('网络配置：公用栏有「查看面板」按钮，另起弹窗看各�
   // 折线 + 延迟值：复用同一把刻度尺，不在这里另写一套算法。
   assert.match(panel, /latencySparklinePath\(/, '画心电图复用共享的折线函数');
   assert.match(panel, /latencyLevel\(/, '快 / 一般 / 慢按共享口径上色');
+  // 高度封顶、列表内滚动（地址可能很多）。
+  assert.match(panel, /max-h-\[60vh\][^"']*overflow-y-auto/, '弹窗正文限高并可滚动');
+  // 用户 2026-11-19 要求去掉「更新于」那行。
+  assert.ok(!/panelUpdated/.test(panel), '面板里不再引用「更新于」');
+  assert.equal(countKey(panelDict, 'panel.relay.panelUpdated'), 0, '「更新于」的键已删干净');
   const spark = read('lib', 'latency-sparkline.ts');
   assert.match(spark, /SPARK_FAST_MS = 100/, '刻度拐点 100ms（与 App 同一把尺）');
   assert.match(spark, /SPARK_CEILING_MS = 600/, '刻度封顶 600ms');
-  // 文案十门齐。
-  for (const key of ['viewPanel', 'panelTitle', 'panelHint', 'panelUpdated']) {
+  // 文案十门齐（含停用时那句「已禁用」）。
+  for (const key of ['viewPanel', 'panelTitle', 'panelHint', 'publicDisabled']) {
     assert.equal(countKey(panelDict, `panel.relay.${key}`), 10, `${key} 要十门齐全`);
   }
 });

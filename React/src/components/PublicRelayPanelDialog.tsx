@@ -65,7 +65,6 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
   // 每条地址各自一条采样序列；key 是 URL，值是被裁到 HISTORY_POINTS 的滚动窗口。
   const [history, setHistory] = useState<Record<string, (number | null)[]>>({})
   const [error, setError] = useState('')
-  const [lastAt, setLastAt] = useState<number | null>(null)
   /** 开窗期间在飞的一轮用 ref 串起来，关窗时把定时器清掉、让在飞的那一轮作废。 */
   const aliveRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -99,7 +98,6 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
           }
           return next
         })
-        setLastAt(Date.now())
         setError('')
       } catch (err) {
         if (aliveRef.current) setError(errorText(err))
@@ -123,7 +121,8 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
         <DialogHeader>
           <DialogTitle>{t('panel.relay.panelTitle')}</DialogTitle>
         </DialogHeader>
-        <DialogBody className="flex flex-col gap-1">
+        {/* 高度封顶、列表内滚动：公用中转会越来越多，别让条目把弹窗撑到屏幕外。 */}
+        <DialogBody className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
           <p className="mb-2 text-xs text-foreground-muted">{t('panel.relay.panelHint')}</p>
           {PUBLIC_RELAYS.map((item) => {
             const series = history[item.url] || [null]
@@ -154,11 +153,6 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
             )
           })}
           {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
-          {!error && lastAt !== null ? (
-            <p className="mt-2 text-xs text-foreground-muted">
-              {t('panel.relay.panelUpdated', { time: new Date(lastAt).toLocaleTimeString() })}
-            </p>
-          ) : null}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
