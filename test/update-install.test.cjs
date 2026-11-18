@@ -772,7 +772,7 @@ test('排除清单：没有这个键就补一段，看不懂的 flow 写法不�
   assert.equal(again.installed, false, '版本没变不算装上');
 });
 
-test('装成功后，插件按当前平台带出的可选依赖也一并登记（漏记的正是刚发的平台包）', async () => {
+test('装成功后，插件声明的可选依赖按声明版本登记（所有平台都要写，不只是本机装上的那份）', async () => {
   const profile = makeProfile('register-optdep', '0.1.60');
   // 这个平台装上的那份可选依赖的目录（假包管理器在空 PATH 下没有 mkdir，先建好；另一个平台包故意不建，模拟被 os/cpu 跳过）。
   fs.mkdirSync(path.join(profile.nodeModules, 'dsh-mobile-tailcat-linux-x64'), { recursive: true });
@@ -788,9 +788,12 @@ test('装成功后，插件按当前平台带出的可选依赖也一并登记�
   assert.equal(result.releaseAgeRecorded, true);
   const yaml = fs.readFileSync(path.join(profile.profileDir, 'pnpm-workspace.yaml'), 'utf8');
   assert.match(yaml, /dsh-mobile-plugin@0\.1\.60 \|\| 0\.2\.0/, '插件本体并进原行、不新开一行');
-  assert.match(yaml, /dsh-mobile-tailcat-linux-x64@1\.0\.0/, '按平台装上的可选依赖要登记');
-  assert.doesNotMatch(yaml, /dsh-mobile-tailcat-win32-x64/, '被 os/cpu 跳过的平台包不登记');
+  assert.match(yaml, /dsh-mobile-tailcat-linux-x64@1\.0\.0/, '本机装上的可选依赖要登记');
+  // 断言的期望值按 issue #21 改：pnpm 校验整份 lockfile，没装到盘上的平台变体照样参与校验，
+  // 所以必须按声明把另一个平台也登记，否则它会把整个 profile 的插件安装挡在冷却窗口外。
+  assert.match(yaml, /dsh-mobile-tailcat-win32-x64@1\.0\.0/, '没装到盘上的平台变体也要按声明版本登记');
   assert.equal((yaml.match(/dsh-mobile-tailcat-linux-x64/g) || []).length, 1, '同一个包只登记一次');
+  assert.equal((yaml.match(/dsh-mobile-tailcat-win32-x64/g) || []).length, 1, '同一个包只登记一次');
 });
 
 test('宿主 pnpm 说依赖树是旧版建的：重建一次再重试', async () => {
