@@ -49,7 +49,7 @@ type Props = {
  * 两个入口各改一半迟早对不上。
  *
  * **中转两栏**（2026-11-18 用户要求）：公用内置、排在第一个、只读展示；自建在它下面、可编辑。
- * 宿主只有 `relayUrl` 一个字段，两栏共用它：标题右侧「启用」把内置地址写进去、「停用」清空
+ * 公用走整份 `relayUrls`、自建走单条 `relayUrl`：标题右侧「启用」把整份内置清单写进去、「停用」清空
  * 交回局域网直连，自建栏照旧敲。清单弹窗撤掉后，这两颗按钮就是公用的唯一开关。
  *
  * **一屏两列**（2026-11-01 用户要求）：左列是「经公网的那几条」（设备名 / 中转 / 直连），
@@ -149,7 +149,7 @@ export function RelayConfigDialog({
   /**
    * 当前中转地址用的是哪条内置公用地址（命中清单的那条，没命中就是 null）。
    *
-   * 面板只认 `relayUrl` 一个字段，公用与自建没有独立的类型位，所以从地址本身判。
+   * 公用走整份 `relayUrls`、自建走单条 `relayUrl`，没有独立的类型位，所以从地址本身判。
    * 命中内置清单 = 正在用公用：那一栏只读展示、标「使用中」，自建栏留空；
    * 没命中 = 正在用自建（或都没用）：自建栏照旧可编辑。
    */
@@ -162,7 +162,12 @@ export function RelayConfigDialog({
   function submit() {
     if (!canSave) return
     const patch: ConfigPatch = {}
-    if (relayUrl.trim() !== status.relayUrl) patch.relayUrl = relayUrl.trim()
+    // 公用走整份 `relayUrls`（电脑在几台内置中转之间选择 / 失败切换）；自建走单条 `relayUrl`。
+    if (activePublicRelay) {
+      patch.relayUrls = PUBLIC_RELAYS.map((r) => r.url)
+    } else if (relayUrl.trim() !== status.relayUrl) {
+      patch.relayUrl = relayUrl.trim()
+    }
     // 手填地址：空串是合法值（= 清掉这一条），所以这里跟 `name` 不一样，只在**真的变了**时带上，
     // 而不是「非空才带」。
     const direct = trimUrl(manualLanUrl)

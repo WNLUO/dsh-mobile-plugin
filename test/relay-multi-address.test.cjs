@@ -196,7 +196,7 @@ function workerConfig(relayUrls, overrides = {}) {
   };
 }
 
-test('换到下一条：第一条判死、第二条注册成功，主用就是第二条', async () => {
+test('换到下一条：第一条判死，别的能连上的候选被选中并写回', async () => {
   const relays = await startThree();
   const parent = await startParent();
   const facade = await startFacade(parent);
@@ -208,26 +208,28 @@ test('换到下一条：第一条判死、第二条注册成功，主用就是�
     const status = await waitForStatus(facade, (s) => s?.tunnel?.state === 'connected', 12_000, '前两条里必有一条能连上，隧道应变成 connected');
     assert.equal(status.tunnel.error, null, '连上之后不许再挂着上一轮的错');
 
-    // 注册必须真的落在第二条上：第一条的握手在 upgrade 阶段就被拒了（它已经 fail()）。
-    assert.equal(relays[1].connections.length, 1, '连接要落在第二条假中转上');
-    assert.equal(relays[1].connections[0].registrations.length, 1, '注册帧要真的发出去');
-    assert.equal(relays[2].connections.length, 0, '第二条既然通了，第三条就不该被碰到');
+    // 第一条判死（握手在 upgrade 阶段就被拒）。剩下两条都活着，谁先连上取决于实测延迟排序
+    // （需求：按实测延迟最快优先），所以不再钉死「第二条」；只验「恰好一条活的中选、另一条不被碰」。
+    // 中选哪条以 /status 报的当前主用为准（它必须等于真的连上的那台）。
+    const connectedUrl = status.relayUrl;
+    const connectedIndex = relayUrls.indexOf(connectedUrl);
+    assert.ok(connectedIndex === 1 || connectedIndex === 2, '应连上一条存活的候选（第一条已判死）');
+    assert.equal(relays[connectedIndex].connections.length, 1, '连接要落在中选的那条假中转上');
+    assert.equal(relays[connectedIndex].connections[0].registrations.length, 1, '注册帧要真的发出去');
+    const untouched = [1, 2].find((i) => i !== connectedIndex);
+    assert.equal(relays[untouched].connections.length, 0, '已经有一条连上了，排在后面的存活候选不该再被碰');
+    assert.equal(relays[0].connections.length, 0, '判死的那条握手就被拒，不该有连接');
 
-    // 择路的账：这次连的是列表里第 1 条（从 0 数）、试了 2 条、一共 3 条。
+    // 择路的账：index 是「这次连上的是排序队列里的第几条」，tried 是顺着队列试到它为止的条数。
     const route = status.tunnel.route;
     assert.ok(route, '/status 要能看出「用的第几条、试过几条」');
-    assert.equal(route.url, relayUrls[1]);
-    assert.equal(route.index, 1, 'index 是这次连上的是列表里第几条');
-    assert.equal(route.tried, 2, '第一条试失败、第二条成功 → 试过 2 条');
+    assert.equal(route.url, connectedUrl, '路由账里的中选地址就是真的连上的那条');
     assert.equal(route.total, 3);
-
-    // 写回的形状：中选那条提到队首，其余相对顺序不动（契约「择路」第 2 条）。
-    assert.equal(route.adopted, true, '中选的不在队首 → 要写回');
-    assert.deepEqual(route.urls, [relayUrls[1], relayUrls[0], relayUrls[2]], '只换队首，其余相对顺序不动');
+    assert.equal(route.urls[0], route.url, '写回后队首就是中选的地址');
+    assert.equal(route.tried, route.index + 1, '从排序队首依次试到中选那条');
 
     // 旁路自己那份配置也已经是写回之后的顺序：宿主拿它落盘，两边必须一字不差，
     // 否则那次配置下发会判成「变了」并重建隧道。
-    assert.equal(status.relayUrl, relayUrls[1], '主用地址跟着变成中选那条');
     assert.deepEqual(status.relayUrls, route.urls);
   } finally {
     await facade.stop();
@@ -244,9 +246,14 @@ test('写回队首之后不许重建隧道：同一份列表再下发一次仍�
     relays[0].fail();
     const relayUrls = relays.map((relay) => relay.url);
     await facade.configure(workerConfig(relayUrls));
-    const status = await waitForStatus(facade, (s) => s?.tunnel?.state === 'connected', 12_000, '应连上第二条');
-    assert.equal(relays[1].connections.length, 1);
-    const registeredAt = relays[1].connections[0].closed;
+    const status = await waitForStatus(facade, (s) => s?.tunnel?.state === 'connected', 12_000, '应连上一条存活候选');
+    // 存活的中选哪条由实测延迟排序决定，不再钉死「第二条」；以 /status 报的当前主用为准。
+    const connectedUrl = status.relayUrl;
+    const connectedIndex = relayUrls.indexOf(connectedUrl);
+    assert.ok(connectedIndex === 1 || connectedIndex === 2, '应有一条存活的中转完成注册');
+    const liveRelay = relays[connectedIndex];
+    assert.equal(liveRelay.connections.length, 1, '连接要落在中选的那条上');
+    const registeredAt = liveRelay.connections[0].closed;
 
     // 宿主按 relayRoute.urls 落盘之后会下发同一份配置（`buildConfig` 就是从 state 拼的）。
     // 这条路径必须幂等：签名没变 → 不重建 → 那条隧道一条连接都不许多开。
@@ -254,14 +261,24 @@ test('写回队首之后不许重建隧道：同一份列表再下发一次仍�
     await wait(300);
     const after = await facade.request('/status');
     assert.equal(after.tunnel.state, 'connected', '写回之后隧道不许断');
-    assert.equal(relays[1].connections.length, 1, '写回不能触发重建：多了第二条连接就是刚连上的隧道被自己拆了');
-    assert.equal(relays[1].connections[0].closed, registeredAt, '原来那条隧道实例还活着（没被 close）');
+    assert.equal(liveRelay.connections.length, 1, '写回不能触发重建：多了第二条连接就是刚连上的隧道被自己拆了');
+    assert.equal(liveRelay.connections[0].closed, registeredAt, '原来那条隧道实例还活着（没被 close）');
 
-    // 顺序真的变了（比如人把别的地址挪到前面）才该重建，这是同一条判据的另一面。
+    // 候选集变了才该重建。按实测延迟排序后「换顺序」的结果不唯一，所以只验「确实重新建了一次
+    // 连接、且新主用是存活候选之一」，不钉死连到哪条。
+    const before = relays.reduce((n, relay) => n + relay.connections.length, 0);
     await facade.configure(workerConfig([relayUrls[2], relayUrls[1], relayUrls[0]]));
-    const moved = await waitForStatus(facade, (s) => s?.relayUrl === relayUrls[2], 12_000, '换了优先级顺序应重新择路到新的首项');
-    assert.equal(moved.relayUrl, relayUrls[2], '顺序变了就是一次新的择路');
-    assert.equal(relays[2].connections.length, 1, '新首项应被真的用上');
+    const moved = await waitForStatus(
+      facade,
+      (s) => s?.tunnel?.state === 'connected'
+        && [relayUrls[1], relayUrls[2]].includes(s?.relayUrl)
+        && relays.reduce((n, relay) => n + relay.connections.length, 0) > before,
+      12_000,
+      '候选列表变了应重新择路到一条存活候选并真的新建连接',
+    );
+    const built = relays.reduce((n, relay) => n + relay.connections.length, 0);
+    assert.ok(built > before, '列表变了要真的新建一次连接，不能假装没换');
+    assert.ok([relayUrls[1], relayUrls[2]].includes(moved.relayUrl), '新主用必须是存活候选之一');
   } finally {
     await facade.stop();
     await new Promise((resolve) => parent.close(resolve));
@@ -295,7 +312,7 @@ test('全部不通：状态是 error，不退化成「假装连着」，并报�
   }
 });
 
-test('全部都不通之后：下一次重连从列表第一条重新开始，不记「上次卡在第几条」', async () => {
+test('全部都不通之后：下一次重连从排序队首重新开始，不记「上次卡在第几条」', async () => {
   const relays = await startThree();
   const parent = await startParent();
   const facade = await startFacade(parent);
@@ -313,12 +330,20 @@ test('全部都不通之后：下一次重连从列表第一条重新开始，�
       facade,
       (s) => s?.tunnel?.state === 'connected',
       15_000,
-      '第一条恢复之后，退避重连必须从列表第一条重新试',
+      '第一条恢复之后，退避重连必须从排序队首重新试',
     );
-    assert.equal(back.relayUrl, relayUrls[0], '重连从第一条开始，连上的是第一条');
+    assert.equal(back.relayUrl, relayUrls[0], '只有第一条被救活，重连必然连上它');
     assert.equal(relays[0].connections.length, 1, '注册要真的落在第一条上');
-    assert.equal(back.tunnel.route.index, 0, 'index 归零：没有记住上一轮卡在第几条');
-    assert.equal(back.tunnel.route.adopted, false, '中选那条本来就在队首 → 不需要写回');
+    // 需求改成「按实测延迟排序」后，候选顺序不再等于配置顺序，第一条未必排在队首，
+    // 所以这里不钉死 index===0 / adopted===false，只验路由账自洽、且这次从排序队首重新数起
+    // （tried = index + 1，没记住上一轮卡在第几条）。
+    const route = back.tunnel.route;
+    assert.equal(route.total, 3, '三条候选都在账里');
+    assert.equal(route.url, relayUrls[0], '中选那条就是真连上的第一条');
+    assert.equal(route.urls[0], relayUrls[0], '写回之后队首就是中选的地址');
+    assert.equal(route.tried, route.index + 1, '从排序队首重新数起，不记上一轮卡在哪条');
+    // adopted 现在表示「写回后的顺序是否与当前 config 不同」，取决于实测延迟给出的相对次序，
+    // 不再是「有没有从 0 挪到队首」，这里不做具体断言。
   } finally {
     await facade.stop();
     await new Promise((resolve) => parent.close(resolve));

@@ -6,7 +6,7 @@
  * 同时带着这两条（见 `lib/relay/pairing-payload.cjs` 的 `lanUrls` 与 `relayUrl`），手机扫一张码，
  * 在家走局域网、在外面走中转 —— 选哪条由 App 的自动档按实测往返决定，不需要人在这里挑。
  *
- * 公用中转只用清单第一条（`lib/links.ts` 的 `PUBLIC_RELAY_URL`）：公用入口本来就只有一个。
+ * 公用中转写入整份清单（`lib/links.ts` 的 `PUBLIC_RELAYS`），由电脑在几台之间选择 / 失败切换。
  * 想自建中转、或者用内网穿透域名的人，从二维码下面那两颗小入口进去配。
  *
  * 按钮那一下：`POST /api/relay/config` → `/api/relay/toggle {enabled:true}` →
@@ -51,7 +51,7 @@ import {
   verdictText,
   verdictTone,
 } from './lib/selfcheck.ts'
-import { PUBLIC_RELAY_URL } from './lib/links.ts'
+import { PUBLIC_RELAYS } from './lib/links.ts'
 import { t } from './lib/i18n/index.ts'
 
 type Props = {
@@ -245,7 +245,7 @@ export function Onboarding({ onDone }: Props) {
   /**
    * 把这台机器的两条路一起配上：局域网直连 + 公用中转。
    *
-   * 写的就是 `relayUrl` + `lanEnabled: true` 这一对 —— 宿主据此既开局域网代理、又连中转，
+   * 写的就是整份 `relayUrls` + `lanEnabled: true` 这一对 —— 宿主据此既开局域网代理、又连中转，
    * 二维码里于是同时有两条路。设备名与端口都不写，宿主自己会填宿主机名和默认端口。
    */
   async function applyAuto(toggle: boolean) {
@@ -254,7 +254,7 @@ export function Onboarding({ onDone }: Props) {
     if (toggle) setConnectionAttemptSettled(false)
     setError('')
     const patch: ConfigPatch = {
-      relayUrl: PUBLIC_RELAY_URL,
+      relayUrls: PUBLIC_RELAYS.map((r) => r.url),
       lanEnabled: true,
       pairingPolicy: 'code',
     }

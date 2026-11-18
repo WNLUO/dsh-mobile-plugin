@@ -60,8 +60,17 @@ function bootWorker() {
     let tunnelError = null;
     let tunnelRoute = null;
     let pendingAttempt = null;
-    // 与 lib/sidecar-facade-worker.cjs 的 stopTunnel() 逐行同义。
+    // relayRoutePlan() 现在会读这两格做「实测延迟排序」。本用例只钉状态机，不测延迟：
+    // relayLatencyAt=0 让保鲜期判定恒为过期，于是候选取配置原序；探测 stub 直接返回 null。
+    let relayLatencyCache = new Map();
+    let relayLatencyAt = 0;
+    const orderByLatency = (urls) => urls;
+    const probeRelayHealth = async () => null;
+    // 隧道世代号在 startTunnel() 探测前读一次、raceTunnels() 每轮自检；这里照生产语义声明并随 stopTunnel 前进。
+    let tunnelGeneration = 0;
+    // 与 lib/sidecar-facade-worker.cjs 的 stopTunnel() 逐行同义（含换代）。
     const stopTunnel = () => {
+      tunnelGeneration += 1;
       if (tunnel) tunnel.stop();
       tunnel = null; tunnelState = 'off'; tunnelError = null;
     };
@@ -133,10 +142,14 @@ function bootWorker() {
 }
 
 // ── 行为面：旧实例迟到的 registered 不许污染状态 ────────────────────────────
-{
+// startTunnel 现在会先 await 一次延迟探测再进 raceTunnels，实例的创建因此推迟一个 microtask；
+// 行为面的用例要 await 一拍再读 instances。
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+async function behaviorStaleRegistered() {
   const w = bootWorker()
 
   w.startTunnel()
+  await flush()
   const first = w.instances[0]
   assert.equal(w.snapshot().state, 'connecting', '刚建实例时是 connecting')
   assert.equal(w.live(), 'connecting', '底层 ws 还没 OPEN')
@@ -147,6 +160,7 @@ function bootWorker() {
 
   // configure() 或网络监视器重建隧道；旧实例必须被停掉
   w.startTunnel()
+  await flush()
   const second = w.instances[1]
   assert.equal(first.stopped, true, '重建时旧实例必须 stop()')
   assert.equal(w.snapshot().state, 'connecting')
@@ -166,13 +180,15 @@ function bootWorker() {
 }
 
 // ── 行为面 2：断线必须由「当前」实例记账并安排重连 ──────────────────────────
-{
+async function behaviorDisconnect() {
   const w = bootWorker()
   w.startTunnel()
+  await flush()
   const first = w.instances[0]
   first.deliverRegistered()
 
   w.startTunnel()
+  await flush()
   const second = w.instances[1]
   second.deliverRegistered()
 
@@ -203,10 +219,11 @@ function bootWorker() {
   const publishes = START_TUNNEL_BODY.match(/publishState\(\)/g) || []
   assert.ok(publishes.length >= 3, `startTunnel 里应至少 3 处 publishState()，实际 ${publishes.length}`)
 }
-{
+async function behaviorPublishOnTransition() {
   const w = bootWorker()
   w.startTunnel()
   assert.equal(w.log.publishes, 1, '建实例（connecting）就该上报一次')
+  await flush()
   const first = w.instances[0]
   first.deliverRegistered()
   assert.equal(w.log.publishes, 2, '注册成功（connected）必须立刻上报')
@@ -219,6 +236,7 @@ function bootWorker() {
   assert.equal(w.log.publishes, 3, '过期实例的注册帧不得上报状态跳变')
   assert.equal(w.log.resets, 1, '过期实例的注册帧不得清掉重连退避账（清了就等于放过一次重连风暴）')
 
+  await flush()
   const second = w.instances[1]
   second.deliverRegistered()
   assert.equal(w.log.publishes, 4, '新实例真正连上才上报 connected')
@@ -239,4 +257,9 @@ function bootWorker() {
     'enabled 转 false 的早退必须清掉 pendingAttempt，否则下一次真实掉线会被 onClose 静默吞掉');
 }
 
-console.log('tunnel state guard tests passed')
+;(async () => {
+  await behaviorStaleRegistered()
+  await behaviorDisconnect()
+  await behaviorPublishOnTransition()
+  console.log('tunnel state guard tests passed')
+})()

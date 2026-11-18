@@ -503,6 +503,8 @@ export type PortCheck = {
 /** `/api/relay/config` 只认这几个字段，其余一律忽略（宿主侧白名单）。 */
 export type ConfigPatch = {
   relayUrl?: string
+  /** 整份内置公用中转清单（公用走整份 relayUrls、自建走单条 relayUrl）。 */
+  relayUrls?: string[]
   lanEnabled?: boolean
   lanPort?: number
   name?: string
