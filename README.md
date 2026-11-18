@@ -16,15 +16,15 @@
   <a href="EN-README.md"><img alt="English" src="https://img.shields.io/badge/README-English-2f81f7?style=flat-square"></a>
 </p>
 
-<p align="center">电脑上开着的 DeepSeek Harness，手机上接着用。</p>
+<p align="center">远程你的 DeepSeek Harness</p>
 
-**AI-HUB 的手机端插件。** 装在电脑这边，手机 App 就通过一条中转隧道或局域网配对连进你的 DeepSeek Harness —— 看会话、接着聊、管理文件和工作区，进度实时同步。
+**这是DeepSeek Harness 的插件。** 装上之后，可以通过网络链接你的 DeepSeek Harness —— 看会话、接着聊、管理文件和工作区，进度实时同步。提高你的生产力，让你摆脱生产环境的束缚。
 
-它和绝大多数 DSH 插件不一样的一点：**不需要桌面外壳，也不需要 Electron**。同一份包可以单独跑在没有图形界面的服务器上，当作无头宿主用 —— 手机连的是一台根本没有屏幕的机器。
+它和绝大多数 DeepSeek Harness 插件不一样的一点：**这个APP不是网页套壳，它更适合生产工作，它不为噱头稀奇而设计，一切以提高生产力为原则**。
 
 ![手机 App 经中转或局域网连到你电脑上的 DeepSeek Harness](https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/connection-light.svg)
 
-手机连的是**你自己那台电脑上的 DeepSeek Harness**，不是某个云端服务。电脑不用公网 IP，也不用在路由器上开端口：插件从内网主动往外建一条隧道，手机沿这条路回来。
+连的是**你自己的 DeepSeek Harness**，不是某个云端服务。
 
 
 
@@ -58,6 +58,10 @@
 ## 远程电脑
 
 不想带着主电脑走的时候，可以从另一台电脑上用完整的 DSH 网页操作它。在家里的 A 电脑生成一份一次性绑定，到随身的 B 电脑上一点，就能通过本机地址打开 A 的完整网页，不用域名，也不用手机参与。绑定十分钟内有效、只能用一次。
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/remote-computer.jpg" alt="在另一台电脑上通过本机地址打开 DeepSeek Harness 的完整网页" width="720">
+</p>
 
 窗口优先由插件随包分发的桌面显示壳打开，Mac 上按官方桌面端的样式排版；每次访问一小时，可续期。细节和撤销方式见 [docs/remote-computer.md](docs/remote-computer.md)。
 
