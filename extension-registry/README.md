@@ -15,21 +15,34 @@
   "name": "dsh-your-plugin",
   "repo": "https://github.com/owner/dsh-your-plugin",
   "owner": "owner",
-  "title": { "en": "Your Plugin", "zh": "你的插件" },
-  "description": { "en": "一句功能说明，句号结尾。", "zh": "一句功能说明，句号结尾。" },
+  "title": { "zh-Hans": "你的插件", "zh-Hant": "你的插件", "en": "Your Plugin", "ja": "…", "ko": "…", "de": "…", "es": "…", "fr": "…", "pt": "…", "ru": "…", "tr": "…" },
+  "description": { "zh-Hans": "一句功能说明，句号结尾。", "zh-Hant": "…", "en": "…", "ja": "…", "ko": "…", "de": "…", "es": "…", "fr": "…", "pt": "…", "ru": "…", "tr": "…" },
   "category": "tools",
   "npm": "dsh-your-plugin",
-  "icon": "https://raw.githubusercontent.com/owner/dsh-your-plugin/main/icon.png",
+  "icon": "https://raw.githubusercontent.com/owner/dsh-your-plugin/master/icon.png",
   "capabilities": ["host.data"],
   "added": "2026-11-18"
 }
 ```
 
-- 必填：`name`、`repo`、`description`（至少一门语言）。`owner` 写了就必须和 repo 对得上。
-- `npm` 可省：省了就用 `github:owner/repo` 装；填了必须是真实发布在 npm 的包名，**包的 `repository` 字段要指回这个 repo**。
+三条硬规范（build 会挡，缺一不可）：
+
+- **`name` 就是这个插件的 npm 包名**，必须是合法 npm 名（形如 `dsh-xxx` 或 `@scope/xxx`）。
+  显示名另写在 `title`（`name` 是身份、不是给人看的标题）。填了 `npm` 字段就必须与 `name` 一致，
+  **只写一个更省事**：安装目标直接从 `name` 取。
+- **`title` 和 `description` 必须齐 App 的全部 11 门语言**：`zh-Hans`、`zh-Hant`、`en`、`ja`、
+  `ko`、`de`、`es`、`fr`、`pt`、`ru`、`tr`。用户用哪门语言就显示哪门，缺一门那门用户就会看到
+  回退的英文。**建议用机器翻译生成**，维护者抽查准确性；数字、命令、API 名别让机翻改坏。
+  注意标签是 `zh-Hans`/`zh-Hant`（不是 `zh`/`zh-TW`），多写一门或少写一门都 build 不过。
+- **`repo` / `owner`**：repo 写 GitHub 地址，owner 写了就必须和 repo 对得上。
+
+可选字段：
+
+- `icon` 可选：填你仓库里一张图片的 **https raw 地址**（注意用对默认分支，magpie 是 `master`），
+  市场卡片显示这张图；不填就显示名字首字母。**没有上传流程**，你把自己的图片放进仓库、贴地址即可。
 - `category` 取值：`tools` / `office` / `life` / `fun` / `dev`；别的也可，只是没有中文名。
-- `icon` / `screenshots` 只认 https 绝对地址；不填图标就显示名字首字母。
-- `added` 用 `YYYY-MM-DD`。描述只说功能，不写营销词，数字与 API 名要与代码对得上。
+- `screenshots`（最多 4 张 https 图）、`capabilities`、`version`、`added`（`YYYY-MM-DD`）按需填。
+- 描述只说功能，不写营销词，数字与 API 名要与代码对得上。
 
 ### 准入
 

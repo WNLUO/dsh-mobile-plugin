@@ -6,33 +6,63 @@
       "zh": "工具"
     }
   },
+  "languages": [
+    "zh-Hans",
+    "zh-Hant",
+    "en",
+    "ja",
+    "ko",
+    "de",
+    "es",
+    "fr",
+    "pt",
+    "ru",
+    "tr"
+  ],
   "plugins": [
     {
-      "name": "Magpie",
+      "name": "dsh-magpie-plugin",
       "url": "https://github.com/WNLUO/dsh-magpie-plugin",
       "repository": {
         "url": "https://github.com/WNLUO/dsh-magpie-plugin"
       },
       "owner": "WNLUO",
       "title": {
+        "zh-Hans": "Magpie",
+        "zh-Hant": "Magpie",
         "en": "Magpie",
-        "zh": "Magpie"
+        "ja": "Magpie",
+        "ko": "Magpie",
+        "de": "Magpie",
+        "es": "Magpie",
+        "fr": "Magpie",
+        "pt": "Magpie",
+        "ru": "Magpie",
+        "tr": "Magpie"
       },
       "description": {
+        "zh-Hans": "在手机上打开 magpie 自己的界面，宿主按需拉起本机的 magpie 网页服务。",
+        "zh-Hant": "在手機上打開 magpie 自己的介面，宿主按需拉起本機的 magpie 網頁服務。",
         "en": "Open magpie's own interface on your phone; the host starts the local magpie web service on demand.",
-        "zh": "在手机上打开 magpie 自己的界面，宿主按需拉起本机的 magpie 网页服务。"
+        "ja": "スマートフォンで magpie 独自のインターフェースを開きます。ホストがローカルの magpie Web サービスを必要に応じて起動します。",
+        "ko": "휴대폰에서 magpie 고유의 인터페이스를 엽니다. 호스트가 필요할 때 로컬 magpie 웹 서비스를 실행합니다.",
+        "de": "Öffne magpies eigene Oberfläche auf deinem Telefon; der Host startet den lokalen magpie-Webdienst bei Bedarf.",
+        "es": "Abre la interfaz propia de magpie en tu teléfono; el host inicia el servicio web local de magpie cuando hace falta.",
+        "fr": "Ouvre l'interface propre à magpie sur votre téléphone ; l'hôte démarre le service web local de magpie à la demande.",
+        "pt": "Abra a interface própria do magpie no seu telemóvel; o host inicia o serviço web local do magpie quando necessário.",
+        "ru": "Открывает собственный интерфейс magpie на телефоне; хост при необходимости запускает локальный веб-сервис magpie.",
+        "tr": "magpie'nin kendi arayüzünü telefonunuzda açar; host, yerel magpie web servisini gerektiğinde başlatır."
       },
       "npm": "dsh-magpie-plugin",
       "category": "tools",
       "stars": 0,
       "downloads": null,
-      "icon": "https://raw.githubusercontent.com/WNLUO/dsh-magpie-plugin/main/extensions/magpie/icons/icon-512.png",
+      "icon": "https://raw.githubusercontent.com/WNLUO/dsh-magpie-plugin/master/extensions/magpie/icons/icon-512.png",
       "screenshots": [],
       "capabilities": [
         "host.data"
       ],
       "added": "2026-11-18",
-      "installTarget": "dsh-magpie-plugin",
       "version": "0.1.1"
     }
   ]

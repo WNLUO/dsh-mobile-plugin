@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /**
- * 把 entries/*.json 合成一份 DSH format-1 索引（index.json），给宿主按目录源读。
+ * 把 entries/*.json 合成一份清单索引（index.json），给宿主按目录源读。
  *
- * 判据跟宿主 plugin-catalog.js 的 normalizeItem 对齐：条目要有合法名字、GitHub 仓库、
- * 合法 npm 名或可退回的 github: 安装目标；脏条目整条丢，不在索引里留。
- * 分类表从条目的 category 收集，缺文案时退回 id。
+ * 投稿硬规范（2026-11-18 定，缺一不合成、PR 挡下）：
+ *  1. name 就是这个 DSH 插件的 npm 包名（合法 npm 名）；填了 npm 字段必须与 name 一致；
+ *  2. title / description 必须齐 App 支持的全部 11 门语言，用户用哪种语言就显示哪种；
+ *     语言标签与 App 的 AppLanguage 一字不差（zh-Hans 不是 zh、zh-Hant 不是 zh-TW）。
+ *  3. icon 可选：填合法的 https 图片地址，不填显示名字首字母；repo/owner 对得上。
  *
+ * 输出成社区「主源」形状：name 是包名、title 是双语显示名、npm 是安装目标，宿主按主源分支收窄。
  * 纯文件操作，不联网。--check 时只比对现有 index.json 与合成结果是否一致（CI 用）。
  */
 import fs from 'node:fs';
@@ -18,6 +21,8 @@ const INDEX_FILE = path.join(ROOT, 'index.json');
 
 const GITHUB_REPO = /^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/;
 const NPM_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+/** 与 App 的 AppLanguage 完全一致；多一门少一门都不行。 */
+const LANGUAGES = ['zh-Hans', 'zh-Hant', 'en', 'ja', 'ko', 'de', 'es', 'fr', 'pt', 'ru', 'tr'];
 const CATEGORIES = {
   tools: { en: 'Tools', zh: '工具' },
   office: { en: 'Office', zh: '办公' },
@@ -30,46 +35,56 @@ function text(value, max = 400) {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null;
 }
 
-function localized(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const out = {};
-  for (const [lang, line] of Object.entries(value)) {
-    const clean = text(line, 600);
-    if (clean) out[lang] = clean;
+/** 收一门多语言表，缺任何一门都抛错；顺带拒绝多出来的语言标签（拼错 zh-TW 之类）。 */
+function requiredLocalized(value, field, file) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${file} 的 ${field} 必须是 {语言: 文本} 表`);
   }
-  return Object.keys(out).length ? out : null;
+  const out = {};
+  for (const lang of LANGUAGES) {
+    const clean = text(value[lang], 600);
+    if (!clean) throw new Error(`${file} 的 ${field} 缺 ${lang}（11 门语言必须齐全，可用机器翻译）`);
+    out[lang] = clean;
+  }
+  for (const key of Object.keys(value)) {
+    if (!LANGUAGES.includes(key)) throw new Error(`${file} 的 ${field} 有多余语言 ${key}（只认 App 的 11 门，注意 zh-Hans / zh-Hant）`);
+  }
+  return out;
 }
 
-function normalize(entry) {
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-  const name = text(entry.name, 200);
+function normalize(entry, file) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error(`${file} 不是对象`);
+  const name = text(entry.name, 214);
+  if (!name || !NPM_NAME.test(name)) {
+    throw new Error(`${file} 的 name 必须是合法 npm 包名（形如 dsh-xxx 或 @scope/xxx）`);
+  }
   const match = GITHUB_REPO.exec(text(entry.repo, 300) || '');
-  if (!name || !match) return null;
+  if (!match) throw new Error(`${file} 缺合法的 GitHub 仓库地址`);
   const owner = match[1];
   const repo = match[2];
   const declaredOwner = text(entry.owner, 100);
-  if (declaredOwner && declaredOwner.toLowerCase() !== owner.toLowerCase()) return null;
+  if (declaredOwner && declaredOwner.toLowerCase() !== owner.toLowerCase()) {
+    throw new Error(`${file} 的 owner 与 repo 不符`);
+  }
   const npm = text(entry.npm, 214);
-  const npmValid = npm && NPM_NAME.test(npm) ? npm : null;
+  if (npm && npm !== name) throw new Error(`${file} 的 npm（${npm}）与 name（${name}）不一致，只留一个或写同一个`);
   const version = text(entry.version, 64);
-  const description = localized(entry.description);
-  if (!description) return null;
-  const title = localized(entry.title) || { en: name };
-  // 输出成社区「主源」那种形状（name 是显示名、npm 是安装包名），宿主按主源分支收窄，
-  // 安装目标由它从 npm 名或 github: 算好。这样跟清单 id 叫什么无关，不会踩 format-1
-  // 那条「name 即包名」的镜像约定。
+  const title = requiredLocalized(entry.title, 'title', file);
+  const description = requiredLocalized(entry.description, 'description', file);
+  const icon = text(entry.icon, 1000);
+  if (icon && !/^https:\/\//i.test(icon)) throw new Error(`${file} 的 icon 必须是 https 地址`);
   return {
-    name: title.en || name,
+    name,
     url: `https://github.com/${owner}/${repo}`,
     repository: { url: `https://github.com/${owner}/${repo}` },
     owner,
     title,
     description,
-    npm: npmValid,
+    npm: name,
     category: text(entry.category, 64) || 'other',
     stars: Number.isSafeInteger(entry.stars) && entry.stars >= 0 ? entry.stars : 0,
     downloads: Number.isSafeInteger(entry.downloads) && entry.downloads >= 0 ? entry.downloads : null,
-    icon: text(entry.icon, 1000) && /^https:\/\//i.test(entry.icon) ? entry.icon : null,
+    icon: icon || null,
     screenshots: Array.isArray(entry.screenshots)
       ? entry.screenshots.filter((s) => typeof s === 'string' && /^https:\/\//i.test(s)).slice(0, 4)
       : [],
@@ -77,8 +92,6 @@ function normalize(entry) {
       ? entry.capabilities.filter((c) => typeof c === 'string' && c.trim()).slice(0, 12)
       : [],
     added: typeof entry.added === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.added) ? entry.added : null,
-    // installSpec 由宿主算好；这里只给源信息，宿主按 npm 名或 github: 目标二选一。
-    installTarget: npmValid || `github:${owner}/${repo}`,
     version,
   };
 }
@@ -95,8 +108,7 @@ function build() {
     } catch (error) {
       throw new Error(`${file} 不是合法 JSON：${error.message}`);
     }
-    const item = normalize(entry);
-    if (!item) throw new Error(`${file} 缺名字 / 仓库 / 说明，或与 owner 打架`);
+    const item = normalize(entry, file);
     const key = `${item.owner}/${item.name}`.toLowerCase();
     if (used.has(key)) throw new Error(`${file} 与已有条目重名：${key}`);
     used.add(key);
@@ -106,15 +118,21 @@ function build() {
     }
   }
   plugins.sort((a, b) => a.name.localeCompare(b.name));
-  // 主源形状（与社区 plugins.json 同构）：categories 是 { id: {en,zh} }，宿主按 plugins 分支收窄。
   return {
     title: 'DSH Mobile Extension Market',
     categories,
+    languages: LANGUAGES,
     plugins,
   };
 }
 
-const index = build();
+let index;
+try {
+  index = build();
+} catch (error) {
+  console.error(`✖ 清单校验失败：${error.message}`);
+  process.exit(1);
+}
 const output = `${JSON.stringify(index, null, 2)}\n`;
 if (process.argv.includes('--check')) {
   const existing = fs.existsSync(INDEX_FILE) ? fs.readFileSync(INDEX_FILE, 'utf8') : '';
@@ -125,5 +143,5 @@ if (process.argv.includes('--check')) {
   console.log(`✔ index.json 与 ${index.plugins.length} 条 entries 一致`);
 } else {
   fs.writeFileSync(INDEX_FILE, output);
-  console.log(`✔ 已生成 index.json（${index.plugins.length} 条）`);
+  console.log(`✔ 已生成 index.json（${index.plugins.length} 条，${LANGUAGES.length} 门语言）`);
 }
