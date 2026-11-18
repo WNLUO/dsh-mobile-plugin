@@ -97,6 +97,10 @@ DeepSeek Harness 跑在电脑上，但我不是一直坐在电脑前。出门、
 
 隐私政策见 [PRIVACY.md](PRIVACY.md)，常见问题见 [SUPPORT.md](SUPPORT.md)。
 
+## 赞助与合作
+
+公司或产品想支持这个项目的长期维护，见 [赞助与合作页](https://ai-hub.wnluo.com/sponsor)（也可直接发邮件到 <admin@wnluo.com> 说明合作意向）。赞助用于持续的维护与发版；它换来的是鸣谢与沟通渠道，不会解锁功能、不带来特权，也不表示与深度求索存在隶属或背书关系。个人想支持的话，仓库点个 star 或 App 设置页里的「赞助」入口都可以。
+
 ## 开发
 
 ```sh
