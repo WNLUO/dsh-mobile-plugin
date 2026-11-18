@@ -3,12 +3,14 @@
 /**
  * 面板上两件跟「公用中转」有关的约定（2026-11-18 用户要求）。
  *
- *  ① 公用中转体验提示弹窗：现为**强制显示**（先过样式，触发条件以后接），进来就弹一次、
- *     可关闭、挂在控制台根部；文案走字典（十门）。将来接条件时只该换触发那一处判据。
- *  ② 网络配置弹窗的中转地址栏：拆成两栏——第一栏「公用中转」是内置地址（只读展示、带「使用」
- *     按钮切过去），第二栏「自建中转」可编辑（2026-11-18 用户要求：把公用中转内置进来、排在
- *     第一个，原「选择公用中转」清单弹窗随之撤掉）。宿主只有 relayUrl 一个字段，两栏共用它：
- *     点公用的「使用」写入内置地址；当前用的那条标「使用中」。
+ *  ① 公用中转体验提示弹窗：只在公用中转**启用**时显示（2026-11-18 用户要求）——Console 拿
+ *     status.relayUrl 问 isPublicRelayUrl 得 visible，停用时整扇不渲染，不必每次进来都看；
+ *     可关闭、挂在控制台根部，文案走字典（十门）。
+ *  ② 网络配置弹窗的中转地址栏：拆成两栏——第一栏「公用中转」是内置地址（只读展示、带
+ *     启用/停用切换），第二栏「自建中转」可编辑（2026-11-18 用户要求：把公用中转内置进来、
+ *     排在第一个，原「选择公用中转」清单弹窗随之撤掉）。宿主只有 relayUrl 一个字段，两栏共用它。
+ *     配公网自建时宿主把公用强制停用（status.publicRelayBlocked）：地址划删除线、禁用「启用」，
+ *     但**不再摆那段说明文字**（用户 2026-11-18 要求删掉）。
  *
  * 读源码（不是产物）：这几条是写法上的约定，产物要重建才更新，源码一变就该红。
  * 真正渲染长什么样由 ssr-smoke 与开发服务器看。
@@ -31,12 +33,18 @@ const panelDict = read('lib', 'i18n', 'messages', 'panel.ts');
 /** 从字典文件里数某个键出现几次（每门语言一次）。 */
 const countKey = (dict, key) => dict.split(`'${key}'`).length - 1;
 
-test('公用中转提示弹窗：强制显示、可关闭、挂控制台，文案十门齐', () => {
-  // 强制显示先过样式：判据就是 useState(true)，将来接条件只换这一处。
-  assert.match(dialog, /useState\(true\)/, '现在是强制显示：挂载即弹');
-  // 可关闭：Confirm 按钮关窗，Dialog 本身也把 onOpenChange 接上（遮罩 / Esc 能关）。
-  assert.match(dialog, /<Dialog open=\{open\} onOpenChange=\{setOpen\}>/, '弹窗要能靠遮罩 / Esc 关');
-  assert.match(dialog, /onClick=\{\(\) => setOpen\(false\)\}/, '「我已知晓」按钮要能关窗');
+test('公用中转提示弹窗：只在公用启用时显示、可关闭、挂控制台，文案十门齐', () => {
+  // 只在公用启用时显示：Console 从 status.relayUrl 判，停用时整扇不渲染。
+  assert.match(dialog, /visible: boolean/, '组件收 visible 判定');
+  assert.match(dialog, /if \(!visible \|\| dismissed\) return null/, '停用或已关过就不渲染');
+  // 判定与网络配置同源：用 links 的 isPublicRelayUrl，不在组件里另写一份。
+  const links = read('lib', 'links.ts');
+  assert.match(links, /export function isPublicRelayUrl/, '公用地址判定在 links 一份');
+  assert.match(consoleSrc, /visible=\{isPublicRelayUrl\(status\.relayUrl\)\}/, 'Console 用它算 visible 传进来');
+  // 可关闭：dismissed 状态关窗，Dialog 的 onOpenChange 也接上（遮罩 / Esc 能关）。
+  assert.match(dialog, /useState\(false\)/, 'Dismissed 初始为假');
+  assert.match(dialog, /<Dialog open onOpenChange=\{\(open\) => \{ if \(!open\) setDismissed\(true\) \}\}>/, '弹窗要能靠遮罩 / Esc 关');
+  assert.match(dialog, /onClick=\{\(\) => setDismissed\(true\)\}/, '「我已知晓」按钮要能关窗');
   // 三类文案都走字典，不写死中文。
   for (const key of ['title', 'body', 'action']) {
     assert.match(dialog, new RegExp(`t\\('panel\\.publicRelayNotice\\.${key}'\\)`), `${key} 要走字典`);
@@ -45,7 +53,7 @@ test('公用中转提示弹窗：强制显示、可关闭、挂控制台，文�
   // 正文的 \n\n 分段靠 whitespace-pre-line 还原，不拆成多条键。
   assert.match(dialog, /whitespace-pre-line/, '正文的分段要能显示出来');
   // 挂在控制台根部，并把网络配置那扇窗的开关传进去。
-  assert.match(consoleSrc, /<PublicRelayNoticeDialog onOpenConfig=\{\(\) => setConfigOpen\(true\)\} \/>/, '弹窗要挂在控制台上并接好开配置的回调');
+  assert.match(consoleSrc, /<PublicRelayNoticeDialog[\s\S]*?onOpenConfig=\{\(\) => setConfigOpen\(true\)\}/, '弹窗要挂在控制台上并接好开配置的回调');
 });
 
 test('提示弹窗的「网络配置」按钮：关掉自己、打开配置窗', () => {
@@ -55,7 +63,7 @@ test('提示弹窗的「网络配置」按钮：关掉自己、打开配置窗',
   const gotItAt = footer.indexOf("t('panel.publicRelayNotice.action')");
   assert.ok(configAt > 0 && gotItAt > configAt, '「网络配置」要在「我已知晓」左边');
   // 点击时先关自己、再开配置窗，避免两扇叠着；文案复用现成那条（十门已齐）。
-  assert.match(footer, /onClick=\{\(\) => \{ setOpen\(false\); onOpenConfig\(\) \}\}/, '关掉提示、打开网络配置');
+  assert.match(footer, /onClick=\{\(\) => \{ setDismissed\(true\); onOpenConfig\(\) \}\}/, '关掉提示、打开网络配置');
   assert.match(dialog, /onOpenConfig: \(\) => void/, '组件要收开配置的回调');
   assert.match(panelDict, /'panel\.pairing\.openConfig': '网络配置'/, '复用现成的网络配置文案');
 });
@@ -88,7 +96,7 @@ test('网络配置：公用中转内置只读排第一，自建可编辑，清�
   assert.ok(!/t\('panel\.relay\.choosePublicRelay'\)/.test(config), '主窗不许再有「选择公用中转」按钮');
 });
 
-test('网络配置：公用被强制停用时划删除线、禁用启用、给出原因', () => {
+test('网络配置：公用被强制停用时划删除线、禁用启用，但不摆说明文字', () => {
   // 判据在宿主那一处，面板只读 status.publicRelayBlocked 如实展示，不另算一套。
   assert.match(config, /status\.publicRelayBlocked === true/, '从宿主 status 读被停用标志');
   assert.match(config, /const publicRelayBlocked =/, '收敛成一个具名变量');
@@ -97,9 +105,9 @@ test('网络配置：公用被强制停用时划删除线、禁用启用、给�
   assert.match(first, /disabled=\{!canSave \|\| publicRelayBlocked\}/, '被停用时启用按钮要禁用');
   // 地址：被停用时加 line-through 与弱前景。
   assert.match(first, /publicRelayBlocked \? ' line-through text-foreground-muted' : ''/, '被停用时地址划删除线');
-  // 说明文案十门齐。
-  assert.match(first, /t\('panel\.relay\.publicBlockedHint'\)/, '被停用时给出原因');
-  assert.equal(countKey(panelDict, 'panel.relay.publicBlockedHint'), 10, '说明文案要十门齐');
+  // 用户 2026-11-18 要求删掉那段说明文字：组件不引用、字典也不留死键。
+  assert.ok(!/publicBlockedHint/.test(first), '被停用时不再摆那段说明文字');
+  assert.equal(countKey(panelDict, 'panel.relay.publicBlockedHint'), 0, '说明文案的键已删干净');
   // StatusView 类型带了这一格（老宿主缺省按未停用）。
   const api = read('lib', 'api.ts');
   assert.match(api, /publicRelayBlocked\?: boolean/, '接口类型要带被停用标志');

@@ -204,7 +204,7 @@ export function RelayConfigDialog({
               {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。
                   标题右侧一颗文字按钮切换：当前用公用时显示「停用」，否则显示「启用」。
                   配了公网自建时宿主会把公用强制停用（status.publicRelayBlocked）：地址划
-                  删除线、禁用「启用」，并说明原因——判据在宿主那一处，这里只如实展示。 */}
+                  删除线、禁用「启用」——判据在宿主那一处，这里只如实展示。 */}
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel>{t('panel.relay.publicKind')}</FieldLabel>
@@ -230,9 +230,6 @@ export function RelayConfigDialog({
                       />
                     ))}
                   </div>
-                  {publicRelayBlocked ? (
-                    <p className="text-xs text-foreground-muted">{t('panel.relay.publicBlockedHint')}</p>
-                  ) : null}
                 </Field>
 
                 {/* 第二栏：自建中转。用公用时这里留空；敲入任意非内置地址即视为自建。 */}

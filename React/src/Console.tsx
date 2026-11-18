@@ -52,6 +52,7 @@ import {
 } from './lib/api.ts'
 import { Dot } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
+import { isPublicRelayUrl } from './lib/links.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
 import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
@@ -515,9 +516,12 @@ export function Console() {
         </DialogContent>
       </Dialog>
 
-      {/* 公用中转体验提示：进来就弹一次，可关闭（现为强制显示，先过样式，见该组件文件头）。
+      {/* 公用中转体验提示：只在公用中转启用时弹（relayUrl 命中内置清单），停用时整扇不渲染。
           「网络配置」按钮直接把上面那扇配置窗打开。 */}
-      <PublicRelayNoticeDialog onOpenConfig={() => setConfigOpen(true)} />
+      <PublicRelayNoticeDialog
+        visible={isPublicRelayUrl(status.relayUrl)}
+        onOpenConfig={() => setConfigOpen(true)}
+      />
     </main>
   )
 }

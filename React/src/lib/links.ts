@@ -95,3 +95,16 @@ export const PUBLIC_RELAYS: { nameKey: string; url: string }[] = [
 
 /** 列表里的第一条：没有任何偏好时的默认选择。 */
 export const PUBLIC_RELAY_URL = PUBLIC_RELAYS[0].url
+
+/**
+ * 一条地址是不是我们内置的公用中转（按 URL 去尾斜杠比，与清单同源）。
+ *
+ * 面板两处用同一份判据：网络配置那栏标「公用 / 自建」，通知弹窗据此决定该不该弹
+ * （公用停用 — 用户已切自建或清空 — 就不必每次进来都提醒）。别在组件里另写一份 URL 比对，
+ * 加一台公用中转要改 PUBLIC_RELAYS 一处，两个消费者自动跟上。
+ */
+export function isPublicRelayUrl(url: string): boolean {
+  const trim = (value: string) => value.trim().replace(/\/+$/, '')
+  const target = trim(url)
+  return Boolean(target) && PUBLIC_RELAYS.some((item) => trim(item.url) === target)
+}
