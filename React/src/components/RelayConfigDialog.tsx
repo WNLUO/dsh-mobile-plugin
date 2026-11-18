@@ -1,4 +1,4 @@
-import { Button } from '@appica/ui-react/button'
+import { Button, buttonVariants } from '@appica/ui-react/button'
 import {
   Dialog,
   DialogBody,
@@ -12,7 +12,7 @@ import { Input } from '@appica/ui-react/input'
 import { useEffect, useRef, useState } from 'react'
 
 import type { AddressBook, ConfigPatch, StatusView } from '../lib/api.ts'
-import { PUBLIC_RELAYS } from '../lib/links.ts'
+import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { FrpImportDialog } from './FrpImportDialog.tsx'
@@ -232,9 +232,22 @@ export function RelayConfigDialog({
                   </div>
                 </Field>
 
-                {/* 第二栏：自建中转。用公用时这里留空；敲入任意非内置地址即视为自建。 */}
+                {/* 第二栏：自建中转。用公用时这里留空；敲入任意非内置地址即视为自建。
+                    右侧那颗「中转仓库」跳去中转本体与部署说明的仓库：想自己搭的人不用再去
+                    别处找地址。外链用 `<a>` 而不是 `window.open` —— 桌面壳只把 http(s) 交给
+                    系统浏览器，新标签页由浏览器自己开，脚本被拦也不影响（同 StarButton）。 */}
                 <Field>
-                  <FieldLabel htmlFor="relay-url">{t('panel.relay.selfKind')}</FieldLabel>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <FieldLabel htmlFor="relay-url">{t('panel.relay.selfKind')}</FieldLabel>
+                    <a
+                      href={RELAY_REPO_URL}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                    >
+                      {t('panel.relay.selfRepo')}
+                    </a>
+                  </div>
                   <Input
                     inputProps={{ id: 'relay-url', className: 'font-mono' }}
                     value={activePublicRelay ? '' : relayUrl}

@@ -126,3 +126,23 @@ test('网络配置：六个字段交给 grid 自动排版，不手动分左右�
   assert.match(first, /variant="ghost"/, '启用 / 停用是普通文字按钮');
   assert.ok(!/variant=\{activePublicRelay/.test(first), '不许按状态切成描边 / 主按钮');
 });
+
+test('网络配置：自建中转那一栏右侧有「中转仓库」外链', () => {
+  // 用户 2026-11-18 要求：自建中转那一块右侧加一颗文字按钮，点了跳去中转本体的仓库。
+  const second = config.slice(config.indexOf('第二栏：自建中转'));
+  const field = second.slice(0, second.indexOf('</Field>'));
+  assert.match(field, /t\('panel\.relay\.selfRepo'\)/, '按钮文案走字典');
+  assert.match(field, /href=\{RELAY_REPO_URL\}/, '地址用 links 里那一条，不在组件里另写');
+  assert.match(field, /target="_blank"/, '外链在新标签页打开（桌面壳只把 http(s) 交给系统浏览器）');
+  assert.match(field, /buttonVariants\(\{ variant: 'ghost', size: 'sm' \}\)/, '与面板其它文字按钮同一套样式');
+  assert.ok(
+    field.indexOf('FieldLabel') < field.indexOf('href={RELAY_REPO_URL}'),
+    '按钮在「自建中转」标题右侧',
+  );
+  assert.equal(countKey(panelDict, 'panel.relay.selfRepo'), 10, '文案十门齐全');
+  assert.match(
+    read('lib', 'links.ts'),
+    /RELAY_REPO_URL = 'https:\/\/github\.com\/WNLUO\/dsh-mobile-server'/,
+    '仓库地址仍是中转本体那个仓',
+  );
+});
