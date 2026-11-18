@@ -18,11 +18,11 @@
   <a href="README.md"><img alt="中文" src="https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-2f81f7?style=flat-square"></a>
 </p>
 
-<p align="center">Pick up on your phone where your desktop left off.</p>
+<p align="center">Control your DeepSeek Harness remotely</p>
 
-**The mobile-side plugin for AI-HUB.** Install it on the computer and the phone app reaches your DeepSeek Harness through a relay tunnel or a LAN pairing — browse sessions, keep chatting, manage files and workspaces, with progress synced live.
+**This is the plugin for DeepSeek Harness.** Once installed, you can reach your DeepSeek Harness over the network — browse sessions, keep chatting, manage files and workspaces, with progress synced live. It raises your productivity and frees you from being tied to the production environment.
 
-One thing that sets it apart from most DSH plugins: **it needs no desktop shell and no Electron**. The same package runs on a server with no display, as a headless host — the phone talks to a machine that has no screen at all.
+What sets it apart from most DeepSeek Harness plugins: **this app is not a web wrapper. It is built for real production work — not designed for gimmicks or novelty; everything is guided by raising productivity.**
 
 <p align="center">
   <picture>
@@ -31,7 +31,7 @@ One thing that sets it apart from most DSH plugins: **it needs no desktop shell 
   </picture>
 </p>
 
-Your phone talks to **the DeepSeek Harness running on your own computer**, not to a cloud service. That computer needs no public IP address and no port forwarding: the plugin dials out from the local network, and the phone comes back along that tunnel.
+It connects to **your own DeepSeek Harness**, not to some cloud service.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/screenshot-phone.png" alt="Keep chatting on the phone and watch replies stream in" width="300">
@@ -67,15 +67,19 @@ The mobile API exposes only what the phone needs (`/api/mobile/v1/*`) — no she
 
 ## Remote computer
 
-When you would rather not carry your main computer around, you can drive its full DSH web interface from another computer. Generate a one-time binding on computer A, tap once on computer B, and A's full web interface opens through a local address — no domain, no phone involved. The binding is valid for ten minutes and works once.
+When you would rather not carry your main computer around, you can drive its full DSH web interface from another computer. Generate a one-time binding on computer A, tap once on computer B, and A's full web interface opens through a local address — no domain, no phone involved.
 
-The window opens in the desktop display shell the plugin ships, laid out like the official desktop app on Mac; each visit lasts an hour and can be renewed. Details and how to revoke are in [docs/remote-computer.md](docs/remote-computer.md).
+<p align="center">
+  <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/remote-computer.jpg" alt="Opening the full DeepSeek Harness web interface on another computer through a local address" width="720">
+</p>
+
+The window opens in the desktop display shell the plugin ships, laid out like the official desktop app on Mac; each visit lasts an hour and renews automatically. Details and how to revoke are in [docs/remote-computer.md](docs/remote-computer.md).
 
 ## Install and update
 
-Installing the app is only half of it; the plugin on this side is what connects it.
+Installing the phone app is only the first step; the plugin on this side is what connects it.
 
-In DSH, open **Settings → Plugins**, install `dsh-mobile-plugin`, then open **Settings → Mobile → Open configuration page** to pair. The entry point is DSH's "Settings → Mobile": the pairing QR code, the current listening address and the relay status all live on that page, and everything the phone does starts there. The plugin marketplace handles update checks and installation; an update usually does not need a DSH restart.
+In DeepSeek Harness, open **Settings → Plugins**, search for and install `dsh-mobile-plugin`, then open **Settings → Mobile → Open configuration page** to pair. The pairing QR code, the current listening address and the relay status all live on that page, and everything the phone does starts there. The plugin updates automatically; an update usually does not need a DeepSeek Harness restart.
 
 To run on a server with no display, see [headless deployment and config endpoints](docs/headless-deploy.md) — local endpoints, the mobile API and session cleanup are documented there.
 
@@ -83,17 +87,17 @@ To run on a server with no display, see [headless deployment and config endpoint
 
 DeepSeek Harness runs on my computer, and I am not always sitting in front of it. Out of the house, in another room, lying in bed — when I want to know how far a task got, or it is stuck on an approval waiting for me to tap, the only option used to be walking back.
 
-The starting point is that narrow: this does not squeeze DSH onto a phone screen. It lets you see, keep talking, and tap the thing that needs tapping after you leave the desk.
+The starting point is that narrow: this does not squeeze the whole DeepSeek Harness onto a phone screen. It lets you see, keep talking, and tap the thing that needs tapping after you leave the desk.
 
 That made two constraints hard. One is networking: no public IP, no port forwarding on the router, no DDNS set up just to use it once — the plugin dials out from the local network and the phone comes back along that tunnel. The other is capability: the phone gets only the openings it needs — sessions, approvals, file transfer, some configuration — but not a shell and not arbitrary file writes. If the phone is lost or picked up by someone else, the damage is bounded and knowable.
 
 ## Alternatives
 
-**Opening DSH's web interface in a mobile browser**: nothing to install, but you have to remember the address every time, the layout is sized for a desktop, and you navigate by pinch-zooming and dragging. No push notifications either, so the moment you leave the page you know nothing — and approvals are the worst of it, since they need a precise tap.
+**Opening the DeepSeek Harness web interface in a mobile browser**: nothing to install, but you have to remember the address every time, the layout is sized for a desktop, and you navigate by pinch-zooming and dragging. No push notifications either, so the moment you leave the page you know nothing — and approvals are the worst of it, since they need a precise tap.
 
 **Remote desktop**: you are still operating that screen, with the phone as a monitor. Lose the network and you get a black screen, and on a small display every action starts with zooming in.
 
-**The mobile apps from AI assistant vendors**: those run on the vendor's servers, and your sessions, files, and quota live there. This connects to the DSH on your own computer, with models you configured and files on your own disk.
+**The mobile apps from AI assistant vendors**: those run on the vendor's servers, and your sessions, files, and quota live there. This connects to the DeepSeek Harness on your own computer, with models you configured and files on your own disk.
 
 ## Known limitations
 
@@ -117,6 +121,10 @@ Scan the code above to join our WeCom group. **This code was updated on 2026-11-
 If that is awkward, email <admin@wnluo.com> or <wnluo2@gmail.com>. If it works well for you, a star on the repository is the most concrete way to help.
 
 Privacy policy: [PRIVACY.md](PRIVACY.md). Support and FAQ: [SUPPORT.md](SUPPORT.md).
+
+## Sponsorship & partnership
+
+Companies or products that want to support the project's long-term maintenance can see the [sponsorship & partnership page](https://ai-hub.wnluo.com/sponsor) — or email <admin@wnluo.com> about working together. Sponsorship funds ongoing maintenance and releases; it buys acknowledgement and a channel to talk, not feature unlocks and not special privileges, and it does not imply any affiliation with, or endorsement by, DeepSeek. Individuals who want to help can star the repository or use the "Donate" entry in the app's settings.
 
 ## Development
 
