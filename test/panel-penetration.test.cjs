@@ -35,7 +35,8 @@ test('引导页不再提供内网穿透入口（2026-11-07 起），主流程只
 
   // 主流程配的就是这两条，一条都不许少：少了局域网，家里扫完就要绕中转。
   assert.match(onboarding, /lanEnabled: true/, '局域网直连要一起开着');
-  assert.match(onboarding, /relayUrl: PUBLIC_RELAY_URL/, '默认那条中转是清单第一条（公用入口只有一个）');
+  // 2026-11-19 需求变更：公用中转改由电脑选路，引导页写入整份内置清单（不再只有第一条）。
+  assert.match(onboarding, /relayUrls: PUBLIC_RELAYS\.map\(/, '默认把整份内置公用中转清单写进配置（电脑在几台间选路）');
 });
 
 test('宿主把穿透域名报给面板，主页「网络配置」接着改（引导页已不再提供这一格）', () => {

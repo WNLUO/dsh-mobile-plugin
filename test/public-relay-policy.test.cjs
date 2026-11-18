@@ -92,3 +92,47 @@ test('接线：配置写入点真调用了剔除，status 补了标志', () => {
   assert.match(mobile, /publicRelayBlocked: publicRelayBlocked\(state\)/, '手机心跳也带标志');
   assert.match(mobile, /const \{ relayAddressesOf, publicRelayBlocked \} = require\('\.\.\/relay\/core\.js'\)/, '判据仍只走 core 那一处');
 });
+
+// ── 老设备补齐：纯公用、只配了第一台 → 读盘时补成整份内置清单（2026-11-19 用户口径） ──
+
+test('补齐：只配了第一台内置公用中转 → 补成整份，主用不动', () => {
+  const state = { relayUrl: PUBLIC, relayUrls: [PUBLIC] };
+  assert.equal(core.expandDefaultPublicRelays(state), true);
+  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS], '补成整份内置清单，第一台照旧在首位');
+  assert.equal(state.relayUrl, PUBLIC, 'relayUrl 恒为首项');
+});
+
+test('补齐：只配了内置清单里的两条 → 追加缺的那台，原顺序保留在前', () => {
+  const [a, b, c] = core.PUBLIC_RELAY_URLS;
+  const state = { relayUrl: b, relayUrls: [b, a] };
+  assert.equal(core.expandDefaultPublicRelays(state), true);
+  assert.deepEqual(state.relayUrls, [b, a, c], '原有顺序在前，缺的补在后面');
+  assert.equal(state.relayUrl, b);
+});
+
+test('补齐：有自建中转就不动（不归这管）', () => {
+  const state = { relayUrl: 'https://self.example.com', relayUrls: ['https://self.example.com'] };
+  assert.equal(core.expandDefaultPublicRelays(state), false);
+  assert.deepEqual(state.relayUrls, ['https://self.example.com']);
+});
+
+test('补齐：配了公网自建直连（公用强制停用）就不补', () => {
+  const state = { relayUrl: PUBLIC, relayUrls: [PUBLIC], manualLanUrl: 'https://穿透.example.com' };
+  assert.equal(core.expandDefaultPublicRelays(state), false);
+  assert.deepEqual(state.relayUrls, [PUBLIC]);
+});
+
+test('补齐：整份已齐 / 空列表都不动', () => {
+  const full = { relayUrl: core.PUBLIC_RELAY_URLS[0], relayUrls: [...core.PUBLIC_RELAY_URLS] };
+  assert.equal(core.expandDefaultPublicRelays(full), false);
+  const empty = { relayUrl: '', relayUrls: [] };
+  assert.equal(core.expandDefaultPublicRelays(empty), false);
+});
+
+test('读盘即补齐：落盘只有第一台时 loadState 直接返回整份', () => {
+  fs.mkdirSync(path.dirname(core.STATE_FILE), { recursive: true });
+  fs.writeFileSync(core.STATE_FILE, JSON.stringify({ relayUrl: PUBLIC, relayUrls: [PUBLIC] }));
+  const loaded = core.loadState();
+  assert.deepEqual(loaded.relayUrls, [...core.PUBLIC_RELAY_URLS], '启动读盘就把老设备补成整份');
+  assert.equal(loaded.relayUrl, PUBLIC);
+});
