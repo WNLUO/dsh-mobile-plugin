@@ -1,4 +1,5 @@
 /**
+ * 演示宿主的版本坐标由统一发版脚本更新。
  * 演示宿主版本与正式发布的插件包保持同步。
  * 演示用的假宿主：把这一页会打的那组 `/api/relay/*` 全部就地答掉，一个字节都不出浏览器。
  *
@@ -25,7 +26,7 @@ import qr2 from './qr-2.svg?raw'
 import qr3 from './qr-3.svg?raw'
 
 /** 画面上报的那个版本。必须跟插件包一致，否则演示里会出现一个不存在的版本号（守卫钉着）。 */
-export const DEMO_VERSION = '0.5.75'
+export const DEMO_VERSION = '0.5.76'
 
 /** 固定的演示身份。名字走真机也会有的那种，不写「演示」二字。 */
 const DEMO_NAME = 'Studio-Mac'
