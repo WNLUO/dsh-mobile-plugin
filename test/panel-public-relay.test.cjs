@@ -146,3 +146,30 @@ test('网络配置：自建中转那一栏右侧有「中转仓库」外链', ()
     '仓库地址仍是中转本体那个仓',
   );
 });
+
+test('网络配置：公用栏有「查看面板」按钮，另起弹窗看各条入口的延迟与心电图', () => {
+  // 用户 2026-11-19 要求：公用中转地址越来越多，要给一个面板看各条入口的性能。
+  const first = config.slice(config.indexOf('第一栏：公用中转'), config.indexOf('第二栏：自建中转'));
+  assert.match(first, /t\('panel\.relay\.viewPanel'\)/, '按钮文案走字典');
+  assert.match(first, /onClick=\{\(\) => setPublicPanelOpen\(true\)\}/, '点开另起面板弹窗');
+  // 挂在主窗、接收当前在用的那条（标「使用中」）。
+  assert.match(config, /<PublicRelayPanelDialog[\s\S]*?open=\{publicPanelOpen\}[\s\S]*?activeUrl=/, '面板弹窗挂上并传当前地址');
+
+  const panel = read('components', 'PublicRelayPanelDialog.tsx');
+  // 走宿主代测接口（浏览器直连会被 CORS 挡）：POST /api/relay/probe-relays，带全部内置地址。
+  assert.match(panel, /apiPost<\{ ok: boolean; results: ProbeResult\[\] \}>\('\/api\/relay\/probe-relays'/, '探测走宿主接口');
+  assert.match(panel, /PUBLIC_RELAYS\.map\(\(item\) => item\.url\)/, '一次把所有内置地址送测');
+  // 定时重测：开窗一轮、之后按间隔再跑；关窗停掉（不常驻打外网）。
+  assert.match(panel, /setInterval\(/, '按间隔重复测');
+  assert.match(panel, /clearInterval\(/, '关窗停掉定时器');
+  // 折线 + 延迟值：复用同一把刻度尺，不在这里另写一套算法。
+  assert.match(panel, /latencySparklinePath\(/, '画心电图复用共享的折线函数');
+  assert.match(panel, /latencyLevel\(/, '快 / 一般 / 慢按共享口径上色');
+  const spark = read('lib', 'latency-sparkline.ts');
+  assert.match(spark, /SPARK_FAST_MS = 100/, '刻度拐点 100ms（与 App 同一把尺）');
+  assert.match(spark, /SPARK_CEILING_MS = 600/, '刻度封顶 600ms');
+  // 文案十门齐。
+  for (const key of ['viewPanel', 'panelTitle', 'panelHint', 'panelUpdated']) {
+    assert.equal(countKey(panelDict, `panel.relay.${key}`), 10, `${key} 要十门齐全`);
+  }
+});

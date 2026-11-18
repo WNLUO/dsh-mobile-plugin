@@ -16,6 +16,7 @@ import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { FrpImportDialog } from './FrpImportDialog.tsx'
+import { PublicRelayPanelDialog } from './PublicRelayPanelDialog.tsx'
 
 type Props = {
   open: boolean
@@ -92,6 +93,8 @@ export function RelayConfigDialog({
   const [lanPickerOpen, setLanPickerOpen] = useState(false)
   /** 「FRP 导入」弹窗开着没有。 */
   const [frpImportOpen, setFrpImportOpen] = useState(false)
+  /** 「公用中转面板」弹窗开着没有：查看各条入口的延迟与心电图。 */
+  const [publicPanelOpen, setPublicPanelOpen] = useState(false)
   /** 子弹窗的落焦目标：清单让焦点落在容器上，别一开窗就圈住第一行。 */
   const lanPickerRef = useRef<HTMLDivElement | null>(null)
   /** 弹窗打开时的落焦目标：容器自己，不是第一个输入框（见下面 `initialFocus`）。 */
@@ -230,6 +233,15 @@ export function RelayConfigDialog({
                       />
                     ))}
                   </div>
+                  {/* 查看面板：另起一扇窗，列出各条内置地址与测出来的延迟 / 心电图。 */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="self-start"
+                    onClick={() => setPublicPanelOpen(true)}
+                  >
+                    {t('panel.relay.viewPanel')}
+                  </Button>
                 </Field>
 
                 {/* 第二栏：自建中转。用公用时这里留空；敲入任意非内置地址即视为自建。
@@ -388,6 +400,12 @@ export function RelayConfigDialog({
             setManualLanUrl(result.value)
           }
         }}
+      />
+      {/* 公用中转面板：查看各条内置地址的延迟与心电图，定时重测。 */}
+      <PublicRelayPanelDialog
+        open={publicPanelOpen}
+        onOpenChange={setPublicPanelOpen}
+        activeUrl={activePublicRelay?.url ?? ''}
       />
     </>
   )
