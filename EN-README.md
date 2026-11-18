@@ -33,11 +33,6 @@ What sets it apart from most DeepSeek Harness plugins: **this app is not a web w
 
 It connects to **your own DeepSeek Harness**, not to some cloud service.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/screenshot-phone.png" alt="Keep chatting on the phone and watch replies stream in" width="300">
-  <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/screenshot-ipad.png" alt="Workspaces and sessions on a tablet" width="580">
-</p>
-
 ## Features
 
 ### Sessions and workspaces
@@ -99,24 +94,13 @@ That made two constraints hard. One is networking: no public IP, no port forward
 
 **The mobile apps from AI assistant vendors**: those run on the vendor's servers, and your sessions, files, and quota live there. This connects to the DeepSeek Harness on your own computer, with models you configured and files on your own disk.
 
-## Known limitations
-
-What is written here is what we genuinely do not do yet, not a polished to-do list.
-
-- **Background notifications on iOS are not always prompt.** The system does not let the app stay resident, so task-completion notifications rely on polling while the app is in the background plus occasional system wake-ups — if the system freezes the app or the background budget runs out, they can arrive late or not at all. With offline push configured there is a reliable fallback.
-- **The relay sees plaintext.** The link is WSS / HTTPS encrypted but not end-to-end encrypted — the same model as frp / ngrok. Session bodies are not persisted on the relay, but the relay process itself can decrypt them.
-- **The relay does not authenticate tunnels by default**: whoever can reach the relay port can take over the tunnel. To use it on the public internet, enable the relay console's restricted mode, or expose the port only to a trusted network.
-- **The plugin carrying the phone connection cannot be uninstalled from the phone.** Third-party plugins can be installed, upgraded, and removed on the phone, but removing `dsh-mobile-plugin` itself would cut this phone off for good, so the button is not offered; and anything uninstalled there only takes effect the next time DSH starts on the computer.
-- **The desktop window is packaged for some platforms only.** It currently ships for mac (arm64 / x64), linux (x64 / arm64), and win (x64); other platforms fall back to opening in the system browser, and everything still works.
-- **Logins that rely on a pop-up callback do not work inside the desktop shell.** OAuth callbacks land in the system browser, which has no access to the session in the shell, so the login cannot return to the window. Do those logins in a normal browser, or use another sign-in method.
-
 ## Contact
 
 <p align="center">
   <img src="assets/wechat-group.png" alt="WeCom group QR code" width="180">
 </p>
 
-Scan the code above to join our WeCom group. **This code was updated on 2026-11-09; if it will not scan or says it has expired**, the code has been rotated — email <admin@wnluo.com> for a fresh one, or open an issue.
+Scan the code above to join our WeCom group. **If it will not scan or says it has expired**, email <admin@wnluo.com> for a fresh one, or open an issue.
 
 If that is awkward, email <admin@wnluo.com> or <wnluo2@gmail.com>. If it works well for you, a star on the repository is the most concrete way to help.
 
