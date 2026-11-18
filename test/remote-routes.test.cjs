@@ -26,8 +26,12 @@ function setup() {
   const launches = [];
   const records = [{ deviceId: 'B', name: '出门电脑', createdAt: 1, remoteWeb: true, hash: 'hidden', deviceKey: 'private' },
     { deviceId: 'phone', name: '手机', createdAt: 1 }];
+  // 挡位校验的真实判据在 router.setMode：这里照它实现（只有对方报来的通道可选），
+  // 这样 `/mode` 的用例钉的是那条存在性校验，而不是假体缺方法抛错兜成 400。
+  const selectable = ['auto', 'lan', 'ipv6', 'relay', 'tunnel', 'p2p'];
   const controller = { list: async () => [], open: async id => { calls.push(id); return { url: 'http://127.0.0.1:4321/', expiresAt: 5000 }; },
     diagnose: async id => { calls.push('diagnose:' + id); return [{ channel: 'lan', url: 'http://192.168.1.2:18787', ok: true, latencyMs: 5, errorCode: null }]; },
+    setMode: async (id, mode) => { calls.push('mode:' + id + ':' + mode); if (!selectable.includes(mode)) throw Object.assign(new Error('这条线路当前不可用'), { code: 'bad-mode' }); },
     watchWindow: () => {} };
   const host = { mintInvite: async () => ({ invite: 'invite', expiresAt: 1000 }), revoke: id => calls.push('closed:' + id) };
   const credentials = { listRemoteComputers: () => records.filter(row => row.remoteWeb).map(row => ({ deviceId: row.deviceId, name: row.name, platform: '', lastSeenAt: 0, createdAt: row.createdAt })), revokeDevice: (instance, id) => { calls.push(instance + ':' + id); return 1; } };
@@ -101,11 +105,17 @@ test('线路检测只接受POST且返回逐线路结果，id校验与其它路�
   assert.equal((await invoke(routes, '/diagnose', { body: { id: '../secret-token' } })).status, 400);
 });
 
-test('模式不再接受空的 direct 挡位', async () => {
-  const { routes } = setup();
-  const res = await invoke(routes, '/mode', { body: { id: 'A', mode: 'direct' } });
-  assert.equal(res.status, 400);
-  assert.equal(res.body.ok, false);
+test('挡位存在性由控制器校验：只有对方确实报来的通道可选，其余给具体提示', async () => {
+  const { routes, calls } = setup();
+  const bad = await invoke(routes, '/mode', { body: { id: 'A', mode: 'direct' } });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.ok, false);
+  assert.equal(bad.body.error.code, 'bad-mode');
+  assert.equal(bad.body.error.message, '线路挡位不正确，请重新选择');
+  const good = await invoke(routes, '/mode', { body: { id: 'A', mode: 'lan' } });
+  assert.equal(good.status, 200);
+  assert.equal(good.body.ok, true);
+  assert.deepEqual(calls, ['mode:A:direct', 'mode:A:lan']);
 });
 
 test('协议版本不兼容单独返回 REMOTE_VERSION 文案', async () => {

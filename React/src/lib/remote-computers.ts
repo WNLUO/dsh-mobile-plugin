@@ -1,4 +1,5 @@
 /** 远程电脑控制面契约、访问租期与打开方式。 */
+// 2026-11-19：回退浏览器时把「没装桌面端」和「壳没起来」分开标记，前者单独提示；新增错误码补上词条映射。
 import { ApiError, apiGet, apiPost } from './api.ts'
 import { t } from './i18n/index.ts'
 
@@ -42,7 +43,11 @@ export type RemoteComputerList = {
   serverNow: number
 }
 export type RemoteComputerInvite = { ok: boolean; invite: string; expiresAt: number }
-type RemoteComputerOpen = { ok: boolean; url: string; expiresAt: number; shellOpened?: boolean }
+/**
+ * 打开结果：`shellOpened:false` 表示桌面壳没起来（已退回浏览器），`shellMissing:true` 表示本机压根
+ * 没装桌面端（同样已退回浏览器）——两种情况界面提示不同，不能混成一种静默。
+ */
+type RemoteComputerOpen = { ok: boolean; url: string; expiresAt: number; shellOpened?: boolean; shellMissing?: boolean }
 
 /** 远程模块仅按错误码取词，不把服务端原始错误文本带进其他语言。 */
 export function remoteErrorText(error: unknown): string {
@@ -53,6 +58,8 @@ export function remoteErrorText(error: unknown): string {
     REMOTE_INVITATION: 'errorInvitation', REMOTE_OPEN_URL: 'invalidOpenUrl',
     REMOTE_POPUP: 'popupBlocked', REMOTE_EXTERNAL_OPEN: 'externalOpenFailed',
     REMOTE_VERSION: 'errorVersion', SHELL_UNAVAILABLE: 'shellUnavailable',
+    REMOTE_UNAVAILABLE: 'errorUnavailable', REMOTE_NOT_FOUND: 'errorNotFound',
+    'bad-invite': 'errorInvitation', 'bad-id': 'errorBadRequest', 'bad-mode': 'errorBadRequest',
   }
   return t(keys[code] ? `panel.remote.${keys[code]}` : 'panel.remote.failed')
 }
@@ -116,8 +123,10 @@ export async function openRemoteComputer(id: string): Promise<RemoteComputerOpen
     return result
   } catch (error) {
     if (!shellUnavailable(error)) throw error
+    // 本机没装桌面端（或宿主还没这条接口）：退回默认方式打开，单独标记，界面上要说清是没装、
+    // 而不是壳没起来——以前这条会被静默吞掉，用户永远看不到提示。
+    return { ...(await openInBrowser(id)), shellMissing: true }
   }
-  return openInBrowser(id)
 }
 
 /** 普通网页预开窗口；桌面壳通过同源顶层导航交系统浏览器。 */

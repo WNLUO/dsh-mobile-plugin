@@ -1,4 +1,6 @@
 /** 远程电脑：本机生成绑定信息、添加电脑、按设备打开与管理线路。 */
+// 2026-11-19：顶部渲染窗口自动续期 / 关掉后保留一小时的提示；页面连上之前禁用同一设备的打开按钮；
+// 线路检测每行带上 host:port 区分同通道的两条；窗口开着时改挡位单独说明重新打开后生效。
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
@@ -73,6 +75,16 @@ function channelText(channel: string | null): string {
   }
   if (!channel) return t('panel.common.none')
   return keys[channel] ? t(`panel.remote.channel.${keys[channel]}`) : channel
+}
+
+/** 线路地址的 host:port：同一条通道有两台/两条候选时，靠它分清一好一坏的是哪条。 */
+function endpointText(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return parsed.host
+  } catch {
+    return url
+  }
 }
 
 export function RemoteComputersCard() {
@@ -197,8 +209,9 @@ export function RemoteComputersCard() {
   function open(device: RemoteComputer) {
     void act(`open:${device.id}`, async () => {
       const result = await openRemoteComputer(device.id)
-      // 桌面端壳没起来（200 但 shellOpened=false）时已自动走浏览器，明确告诉用户不是出错。
-      if (result.shellOpened === false) notify('ok', t('panel.remote.shellFellBack'))
+      // 桌面端回退到浏览器有两种原因：本机没装桌面端、或壳没起来——分开说清，不是出错。
+      if (result.shellMissing) notify('ok', t('panel.remote.shellUnavailable'))
+      else if (result.shellOpened === false) notify('ok', t('panel.remote.shellFellBack'))
     })
   }
 
@@ -234,6 +247,7 @@ export function RemoteComputersCard() {
           ) : null}
         </CardTitle>
       </CardHeader>
+      {available ? <p className="mt-2 text-xs leading-5 text-foreground-muted">{t('panel.remote.hint')}</p> : null}
       {!settled ? (
         <div className="flex items-center gap-2 py-2 text-sm text-foreground-muted">
           <Spinner />{t('panel.shell.readingStatus')}
@@ -269,7 +283,7 @@ export function RemoteComputersCard() {
                           {device.latencyMs !== null && Number.isFinite(device.latencyMs) ? ` · ${Math.round(device.latencyMs)} ms` : ''}
                         </span>
                       ) : (
-                        <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.open')} disabled={rowBusy || device.state === 'revoked'} onClick={() => open(device)}>
+                        <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.open')} disabled={rowBusy || device.state === 'revoked' || device.state === 'connecting'} onClick={() => open(device)}>
                           <DesktopIcon />
                         </Button>
                       )}
@@ -351,6 +365,7 @@ export function RemoteComputersCard() {
           <DialogHeader><DialogTitle>{t('panel.remote.route')}</DialogTitle></DialogHeader>
           <DialogBody className="flex flex-col gap-3 text-sm">
             <p className="text-xs leading-5 text-foreground-muted">{t('panel.remote.routeHint')}</p>
+            {modeDevice?.attached ? <p className="text-xs leading-5 text-foreground-muted">{t('panel.remote.routeReopenNote')}</p> : null}
             <RadioGroup className="flex flex-col gap-2" value={mode} onValueChange={(next) => { if (typeof next === 'string') setMode(next) }}>
               {remoteModes(modeDevice?.routes ?? []).map((channel) => (
                 <label key={channel} className="flex cursor-pointer items-center gap-2"><Radio value={channel} /><span>{channelText(channel)}</span></label>
@@ -368,7 +383,7 @@ export function RemoteComputersCard() {
                 <ul className="mt-1 flex flex-col gap-1">
                   {diagnoseRoutes.map((route) => (
                     <li key={`${route.channel}:${route.url}`} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="truncate">{channelText(route.channel)}</span>
+                      <span className="truncate">{channelText(route.channel)} · {endpointText(route.url)}</span>
                       <span className="shrink-0 whitespace-nowrap text-foreground-muted">
                         {route.ok ? t('panel.remote.diagnoseOk') : t('panel.remote.diagnoseFail')}
                         {route.ok && route.latencyMs !== null ? ` · ${route.latencyMs} ms` : ''}
