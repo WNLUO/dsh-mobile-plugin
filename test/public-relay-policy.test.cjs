@@ -86,4 +86,9 @@ test('接线：配置写入点真调用了剔除，status 补了标志', () => {
   assert.match(cp, /status: rawStatus/, '宿主那份 status 另存');
   assert.match(cp, /publicRelayBlocked: core\.publicRelayBlocked\(state\)/, '面板 status 带标志');
   assert.match(cp, /const status = \(\) => \(\{ \.\.\.rawStatus\(\)/, '所有面板 status 回答都经这个包装');
+  // 手机走的 /api/mobile/v1/status 心跳也要带这一格：面板知道、手机不知道的话，网络页会
+  // 一直按「公用中转还开着」画 —— 选择线路 / 连接地址 / 线路检测 / 当前地址四处都收不掉。
+  const mobile = fs.readFileSync(path.join(__dirname, '..', 'lib', 'routes', 'mobile-api.js'), 'utf8');
+  assert.match(mobile, /publicRelayBlocked: publicRelayBlocked\(state\)/, '手机心跳也带标志');
+  assert.match(mobile, /const \{ relayAddressesOf, publicRelayBlocked \} = require\('\.\.\/relay\/core\.js'\)/, '判据仍只走 core 那一处');
 });
