@@ -7,9 +7,25 @@ const { once } = require('node:events');
 const { WebSocket } = require('ws');
 const { fixture, waitClose } = require('./remote-host-fixture.cjs');
 const { pairComputer, openRemoteStream, probeRemote, callRemoteControl } = require('../lib/remote/transport.cjs');
-const { INVITE_TTL } = require('../lib/remote/host.cjs');
+const { INVITE_TTL, createRemoteHost } = require('../lib/remote/host.cjs');
 
 const deadline = { timeout: 8000 };
+
+test('生成邀请前先请求打开局域网：onInvite 在算线路之前被调用', async () => {
+  const order = [];
+  const host = createRemoteHost({
+    state: { instanceId: 'A', name: 'A' }, credentials: {},
+    routesOf: async () => { order.push('routes'); return []; },
+    getUpstreamPort: async () => 1, getWebPort: () => 1, getLaunchToken: () => 'token',
+    getConnectionInfo: async () => undefined,
+    onInvite: async (ttl) => { order.push('invite:' + ttl); },
+  });
+  try {
+    const invite = await host.mintInvite();
+    assert.ok(invite.invite.startsWith('dshcomputer://v1?data='));
+    assert.deepEqual(order, ['invite:' + INVITE_TTL, 'routes']);
+  } finally { host.close(); }
+});
 
 test('邀请10分钟、单次有效；仅显式邀请签发remoteWeb且移动权限为空', deadline, async () => {
   const f = await fixture();
