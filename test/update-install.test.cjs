@@ -1,4 +1,5 @@
 /** 覆盖更新半途改盘、依赖缺失与旧版重新安装的恢复结果。 */
+/** 文件被占用那一条也要给出能照着做的提示，不只是一段原始日志。 */
 'use strict';
 
 /**
@@ -76,6 +77,7 @@ function makeFakePnpm(label) {
       `    printf '{"name":"dsh-mobile-tailcat-linux-x64","version":"1.0.0"}\\n' > node_modules/dsh-mobile-tailcat-linux-x64/package.json`,
       '    ;;',
       '  noop) : ;;',
+      '  eperm) echo "[ERR_PNPM_EPERM] EPERM: operation not permitted, rename tailcat_tmp -> tailcat" >&2; exit 1 ;;',
       '  fail) echo "boom: 装不了" >&2; exit 7 ;;',
       // pnpm 10.4 及以前在 workspace 根上跑 add 就是这么拒的（profile 自己带 pnpm-workspace.yaml）。
       '  rootfail)',
@@ -253,6 +255,20 @@ test('安装失败：如实带出退出码与输出，版本保持不变', async
   assert.match(result.failure.message, /7/, '退出码要说出来');
   assert.match(result.failure.message, /boom: 装不了/, '包管理器自己那句话要跟着结论一起出来：面板、手机与日志只显示这一句');
   assert.match(result.output, /boom/, '命令输出要能带出来给人看');
+});
+
+test('文件被占用：失败结论里带一句能照着做的，不只丢一段 EPERM 日志', async () => {
+  const profile = makeProfile('eperm', '0.1.60');
+  const fake = makeFakePnpm('eperm');
+  const result = await installLatest({
+    profileNodeModules: profile.nodeModules,
+    version: '0.2.0',
+    dirs: [fake.binDir],
+    env: isolatedEnv(fake.binDir, { FAKE_PNPM_MODE: 'eperm' }),
+  });
+  assert.equal(result.failure.code, 'INSTALL_FAILED');
+  assert.match(result.failure.message, /ERR_PNPM_EPERM/, '原始诊断仍在，排错的人要看得见');
+  assert.match(result.failure.message, /文件被占用.*退出 DSH 再更新一次/, '手机上只有这一句，得能照着做');
 });
 
 async function partialInstallProbe(label, mode, install = installLatest) {
