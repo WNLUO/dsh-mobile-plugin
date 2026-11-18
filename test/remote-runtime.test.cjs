@@ -57,7 +57,14 @@ test('远程电脑候选按 lanAvailable 谓词产出局域网/IPv6，与手机�
   // 手机开关关、也没有远程电脑绑定：行为与旧实现一致，只产出 relay。
   assert.deepEqual(routesOf({ state, lanPortInUse: () => 0 }).map((row) => row.channel), ['relay']);
   // 注入的 lanAvailable 为真（有远程电脑）：即便手机开关是关的，仍产出 lan/ipv6 候选。
-  const rows = routesOf({ state, lanPortInUse: () => 18787, lanAvailable: () => true });
+  // 网卡固定成一份（私网 IPv4 + 全球单播 IPv6），结果不随执行测试那台机器的真实网卡变化。
+  const interfaces = {
+    en0: [
+      { address: '192.168.1.5', family: 'IPv4', netmask: '255.255.255.0', internal: false },
+      { address: '240e:338::998', family: 'IPv6', netmask: 'ffff:ffff:ffff:ffff::', internal: false },
+    ],
+  };
+  const rows = routesOf({ state, lanPortInUse: () => 18787, lanAvailable: () => true, interfaces });
   assert.ok(rows.some((row) => row.channel === 'lan'));
   assert.ok(rows.some((row) => row.channel === 'ipv6'));
   assert.ok(rows.some((row) => row.channel === 'relay'));
