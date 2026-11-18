@@ -571,6 +571,9 @@ test('动作结果只认宿主那五个 application，别的按失败算', () =>
   const withError = operationView({ application: 'failed', error: { code: 'incompatible-version', diagnostic: '需要 0.3' } });
   assert.equal(withError.error.code, 'incompatible-version');
   assert.equal(withError.error.message, '需要 0.3');
+  // 兜底码 operation-error 更要把原文带出来：宿主也有把原因放 message 而不是 diagnostic 的情况。
+  const withMessage = operationView({ application: 'failed', error: { code: 'operation-error', message: '宿主说装不了' } });
+  assert.equal(withMessage.error.message, '宿主说装不了');
 });
 
 test('接线：该有的十条都挂在移动端路由表里', () => {
