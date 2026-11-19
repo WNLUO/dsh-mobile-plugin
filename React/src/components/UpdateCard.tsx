@@ -21,9 +21,8 @@
  * **某次动作的结果**一律走右上角的胶囊（`../lib/notify.ts`）；**一直如此的事实**（没有可
  * 换代的外壳、没有市场、`link:` 装的）留在卡片里。
  *
- * 与配对卡并排时用 `fill` 撑满整格：行高由同行高的那张决定，这张卡不反过来定行高。
- *
- * 卡里的动作按钮都是纯文字按钮：不加胶囊边框，颜色走主题 token，日夜间自动适配。
+ * 正文与标题外壳分开：控制台把它与配对卡合成一张无标题整卡时只取正文，标题外壳仍保留给
+ * 单独用的场合。卡里的动作按钮都是纯文字按钮，颜色走主题 token，日夜间自动适配。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
@@ -61,8 +60,8 @@ type Props = {
   version: string
   busy: string
   onRestartSidecar: () => void
-  /** 撑满所在网格单元格（与「配对与二维码」并排时等高，矮卡下面不留空）。 */
-  fill?: boolean
+  /** 只输出正文，外壳由控制台那张合并卡提供。 */
+  bare?: boolean
 }
 
 /** 这几个 code 不是「坏了」，是「这次没动、可以再试」——走琥珀提示而不是红框。 */
@@ -104,7 +103,7 @@ function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
   }
 }
 
-export function UpdateCard({ version, busy, onRestartSidecar, fill = false }: Props) {
+export function UpdateCard({ version, busy, onRestartSidecar, bare = false }: Props) {
   /** 宿主那四条接口的状态；null = 还没读到（或老宿主压根没有）。 */
   const [host, setHost] = useState<UpdateStatusView | null>(null)
   /** 第一次读宿主状态已经落地：这之前别显示降级那一半，否则会先闪一下再变。 */
@@ -329,15 +328,8 @@ export function UpdateCard({ version, busy, onRestartSidecar, fill = false }: Pr
   const diskVersion = host?.installedVersion ?? null
   const diskDisagree = hostMode && !!diskVersion && !!version && diskVersion !== version
 
-  return (
-    <Card frame="solid" className={fill ? 'flex h-full min-h-0 flex-col' : undefined}>
-      <CardHeader className="px-4 py-3">
-        <CardTitle className="flex items-center gap-2 text-base lg:text-lg">
-          <span>{t('panel.update.title')}</span>
-          <Badge variant="soft" size="sm">{version || t('panel.update.unknownVersion')}</Badge>
-        </CardTitle>
-      </CardHeader>
-
+  const body = (
+    <>
       {!settled ? (
         <div className="flex items-center gap-2 py-2 text-sm text-foreground-muted">
           <Spinner />
@@ -515,6 +507,19 @@ export function UpdateCard({ version, busy, onRestartSidecar, fill = false }: Pr
         </>
       ) : null}
 
+    </>
+  )
+
+  if (bare) return body
+  return (
+    <Card frame="solid">
+      <CardHeader className="px-4 py-3">
+        <CardTitle className="flex items-center gap-2 text-base lg:text-lg">
+          <span>{t('panel.update.title')}</span>
+          <Badge variant="soft" size="sm">{version || t('panel.update.unknownVersion')}</Badge>
+        </CardTitle>
+      </CardHeader>
+      {body}
     </Card>
   )
 }

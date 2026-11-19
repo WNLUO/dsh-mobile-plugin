@@ -8,7 +8,7 @@
  * 丢掉它、只剩局域网与中转 —— 手机不在同一网且中转不通时就是「扫不上但码看着正常」。
  * 所以面板要在临期前重取一次；但**不能退化成轮询**（每两分钟白开一个没人扫的窗口）。
  *
- * 主页那两栏的等高也钉在这里：同行由高的一方定行高，配对卡与更新卡都得撑满整格。
+ * 主页那两栏后来合成一张无标题整卡，这一条也钉在这里：两列 6:4，正文各自一份、bare 挂进去。
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -41,16 +41,19 @@ test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () =
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
 });
 
-test('配对卡与插件更新并排等高：两卡都撑满、内部铺开，比例 6:4', () => {
+test('配对与更新合成一张无标题整卡：两份正文以 bare 模式挂进去，比例 6:4', () => {
   const app = read('Console.tsx');
   const card = read('components/PairingCard.tsx');
   const update = read('components/UpdateCard.tsx');
-  assert.match(app, /md:grid-cols-5[^>]*>\s*<div className="md:col-span-3">\s*<PairingCard\s+fill/, '左栏 6 成且配对卡 fill 撑满');
-  assert.match(app, /md:col-span-2">\s*<UpdateCard\s+fill/, '右栏 4 成且更新卡 fill 撑满');
-  assert.match(app, /items-stretch/, '两卡等高');
-  assert.match(card, /fill \? 'flex h-full min-h-0 flex-col'/, 'fill 时卡片全高');
-  // 2026-11-20 用户确认：同行由高的一方定行高、矮的一方撑满，不再假设一定是更新卡更高。
-  assert.match(update, /fill \? 'flex h-full min-h-0 flex-col'/, '更新卡同样全高，配对卡更高时右侧不留空');
+  // 2026-11-20 用户要求合并为一个区域、不要标题：原先两卡等高那套随之撤掉。
+  assert.match(app, /<Card frame="solid">\s*<div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-5 md:gap-6">/, '顶栏是一张整卡');
+  assert.match(app, /md:col-span-3">\s*<PairingCard\s+bare/, '左栏 6 成取配对正文');
+  assert.match(app, /md:col-span-2">\s*<UpdateCard\s+bare/, '右栏 4 成取更新正文');
+  assert.doesNotMatch(app, /<PairingCard\s+fill|<UpdateCard\s+fill/, '等高开关已撤');
+  assert.match(card, /bare = false/, '配对卡有裸内容模式');
+  assert.match(update, /bare = false/, '更新卡有裸内容模式');
+  assert.doesNotMatch(card, /fill \? 'flex h-full min-h-0 flex-col'/, '不再有 fill 全高分支');
+  assert.doesNotMatch(update, /fill \? 'flex h-full min-h-0 flex-col'/, '不再有 fill 全高分支');
   // 三行地址顶部对齐、跟二维码齐平，多出的高度留在卡片下方；信息行这层不许再垂直居中。
   assert.match(card, /className="flex min-w-0 flex-1 flex-col"/, '信息行顶部对齐，不靠 justify 拉散');
   assert.doesNotMatch(card, /flex-1 flex-col justify-/, '信息行不许 justify-around/center 把行拉到中间');

@@ -11,12 +11,13 @@
  * **收起时不销毁**、下次直接亮回来 —— 所以这一页的轮询由 `pageVisible()` 统一判「现在该不该
  * 跑」（父窗口收起时会通知，见 `lib/embed-visibility.ts`），别写回裸的 `document.hidden`。
  *
- * 同一行里的卡片由高的一方定行高、矮的一方撑满；设备卡按连接卡高度封顶，多出来的在卡内滚动。
+ * 设备卡按连接卡高度封顶，多出来的在卡内滚动。
  */
 // 控制台按实际状态报告就绪，二维码失败可单独重试并清除旧错误。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
+import { Card } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@appica/ui-react/dialog'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -420,41 +421,42 @@ export function Console() {
 
       {/*
         内容区自上而下：
-        1. 顶栏两栏（2026-11-17 定）：左边 6 成「配对与二维码」（点开才弹窗，二维码在里面
-           放大好扫），右边 4 成「插件更新」。两卡都 `fill` 撑满整格：同行谁高谁定行高，
-           矮的那张跟着撑，不再假设一定是更新卡更高。窄屏收成单列。原先这一行的
-           「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
+        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 6 成配对（点开才放大二维码），
+           右边 4 成更新，两份正文各自只有一份实现、由 `bare` 模式挂进同一张卡。窄屏收成单列。
+           原先这一行的「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
         2. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
            设备再多也在卡内滚动。
         3. 其余维护类卡片按瀑布式几列铺开。
         整页滚动，不做单栏 sticky、也不套内滚动条。
       */}
       <div className="grid grid-cols-1 gap-3">
-        <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-5">
-          <div className="md:col-span-3">
-            <PairingCard
-              fill
-              status={status}
-              pairing={pairing}
-              addressBook={addresses}
-              busy={busy}
-              error={pairingError}
-              restartError={status.sidecar.restartError}
-              onOpenConfig={() => setConfigOpen(true)}
-              onChangePolicy={(policy) => void savePolicy(policy)}
-              onChangeTier={(tier) => void savePairingTier(tier)}
-              onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
-              onChangeControlReport={(enabled) => void saveControlReport(enabled)}
-              onOpenSelfCheck={() => setSelfCheckOpen(true)}
-              onRetryPairing={() => void loadPairing()}
-              onSavePreferred={(address) => void savePreferredLanAddress(address)}
-              onEditPort={() => setPortOpen(true)}
-            />
+        <Card frame="solid">
+          <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-5 md:gap-6">
+            <div className="md:col-span-3">
+              <PairingCard
+                bare
+                status={status}
+                pairing={pairing}
+                addressBook={addresses}
+                busy={busy}
+                error={pairingError}
+                restartError={status.sidecar.restartError}
+                onOpenConfig={() => setConfigOpen(true)}
+                onChangePolicy={(policy) => void savePolicy(policy)}
+                onChangeTier={(tier) => void savePairingTier(tier)}
+                onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
+                onChangeControlReport={(enabled) => void saveControlReport(enabled)}
+                onOpenSelfCheck={() => setSelfCheckOpen(true)}
+                onRetryPairing={() => void loadPairing()}
+                onSavePreferred={(address) => void savePreferredLanAddress(address)}
+                onEditPort={() => setPortOpen(true)}
+              />
+            </div>
+            <div className="md:col-span-2">
+              <UpdateCard bare version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
+            </div>
           </div>
-          <div className="md:col-span-2">
-            <UpdateCard fill version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
-          </div>
-        </div>
+        </Card>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div ref={connectionRef}>

@@ -57,9 +57,8 @@ type Props = {
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
   onEditPort: () => void
-  /** 撑满所在网格单元格（与「插件更新」并排时等高，矮卡下面不留空）。信息行顶部对齐、
-   *  跟二维码齐平，多出的高度留在卡片下方，不把三行地址拉散到中间。 */
-  fill?: boolean
+  /** 只输出正文与动作，外壳由控制台那张合并卡提供。 */
+  bare?: boolean
 }
 
 /**
@@ -115,7 +114,7 @@ export function PairingCard({
   onRetryPairing,
   onSavePreferred,
   onEditPort,
-  fill,
+  bare = false,
 }: Props) {
   const idle = busy !== ''
   const pairingAllowed = status.pairingPolicy === 'code'
@@ -146,35 +145,30 @@ export function PairingCard({
   const [controlReportInfoOpen, setControlReportInfoOpen] = React.useState(false)
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
-  return (
-    <Card frame="solid" className={fill ? 'flex h-full min-h-0 flex-col' : undefined}>
-      <CardHeader className="flex-none px-4 py-3">
-        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-base lg:text-lg">
-          <span>{t('panel.pairing.cardTitle')}</span>
-          {/* 维护动作都在标题右侧：网络配置 / 下载 APP；其余（配对策略、新设备档位、
-              自动审阅、检查网络）收进「其他」那颗。「重新连接」搬到了页面顶栏，紧挨「报错调试」。
-              宽度不够时整组按钮换到下一行，标题保持完整可读（不裁标题）。 */}
-          <span className="flex flex-wrap items-center gap-1.5">
-            <Button variant="ghost" size="sm" className="px-2" disabled={idle} onClick={onOpenConfig}>
-              {t('panel.pairing.openConfig')}
-            </Button>
-            <DownloadAppButton size="sm" variant="ghost" className="px-2" />
-            <Button variant="ghost" size="sm" className="px-2" onClick={() => setMoreOpen(true)}>
-              {t('panel.common.more')}
-            </Button>
-          </span>
-        </CardTitle>
-      </CardHeader>
+  /** 日常动作单独抽出来：合并卡没有标题行，两个外壳共用同一组按钮。 */
+  const actions = (
+    <>
+      <Button variant="ghost" size="sm" className="px-2" disabled={idle} onClick={onOpenConfig}>
+        {t('panel.pairing.openConfig')}
+      </Button>
+      <DownloadAppButton size="sm" variant="ghost" className="px-2" />
+      <Button variant="ghost" size="sm" className="px-2" onClick={() => setMoreOpen(true)}>
+        {t('panel.common.more')}
+      </Button>
+    </>
+  )
 
+  const body = (
+    <>
       {error ? (
-        <Alert variant="warning" className="mt-3">
+        <Alert variant="warning" className={bare ? undefined : 'mt-3'}>
           <AlertIcon />
           <AlertTitle>{t('panel.pairing.qrFailed')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
 
-      <div className={`mt-3 flex flex-col gap-4 sm:flex-row sm:items-stretch ${fill ? 'min-h-0 flex-1' : ''}`}>
+      <div className={`${bare ? '' : 'mt-3'} flex flex-col gap-4 sm:flex-row sm:items-stretch`}>
         {/* 二维码只用一块方形的入口：点它直接开放大弹窗——「显示」与「放大」合成一下，
             卡片里不再摆真正的码图（也更好防窥屏）。
             宽度固定 150（sm 起）、方形不拉伸：原先按大屏视口断点把宽度交给内容反推，
@@ -311,7 +305,7 @@ export function PairingCard({
       </div>
 
       {restartError ? (
-        <Alert variant="error" className="mt-3">
+        <Alert variant="error" className={bare ? undefined : 'mt-3'}>
           <AlertIcon />
           <AlertTitle>{t('panel.pairing.sidecarRestartFailed')}</AlertTitle>
           <AlertDescription>{restartError}</AlertDescription>
@@ -450,6 +444,26 @@ export function PairingCard({
           </DialogBody>
         </DialogContent>
       </Dialog>
+    </>
+  )
+
+  if (bare) {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
+        {body}
+      </div>
+    )
+  }
+  return (
+    <Card frame="solid">
+      <CardHeader className="flex-none px-4 py-3">
+        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-base lg:text-lg">
+          <span>{t('panel.pairing.cardTitle')}</span>
+          <span className="flex flex-wrap items-center gap-1.5">{actions}</span>
+        </CardTitle>
+      </CardHeader>
+      {body}
     </Card>
   )
 }
