@@ -441,9 +441,7 @@ export function Console() {
                 busy={busy}
                 error={pairingError}
                 restartError={status.sidecar.restartError}
-                onOpenConfig={() => setConfigOpen(true)}
                 onChangeControlReport={(enabled) => void saveControlReport(enabled)}
-                onOpenSelfCheck={() => setSelfCheckOpen(true)}
                 onRetryPairing={() => void loadPairing()}
                 onSavePreferred={(address) => void savePreferredLanAddress(address)}
                 onEditPort={() => setPortOpen(true)}
@@ -459,7 +457,22 @@ export function Console() {
                   onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
                 />
               </InfoList>
-              <UpdateCard bare version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
+              <UpdateCard
+                bare
+                version={status.appVersion || ''}
+                busy={busy}
+                onRestartSidecar={() => void restartSidecar()}
+                extraActions={
+                  <>
+                    <Button variant="ghost" size="md" onClick={() => setConfigOpen(true)}>
+                      {t('panel.pairing.openConfig')}
+                    </Button>
+                    <Button variant="ghost" size="md" onClick={() => setSelfCheckOpen(true)}>
+                      {t('panel.pairing.checkNetwork')}
+                    </Button>
+                  </>
+                }
+              />
             </div>
           </div>
         </Card>

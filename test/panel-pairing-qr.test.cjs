@@ -68,7 +68,7 @@ test('配对策略、权限档位、自动审阅直接落在整卡正文，不�
   for (const key of ['panel.pairing.policy', 'panel.pairing.tier', 'panel.pairing.autoReview']) {
     assert.ok(card.includes(key), `${key} 要留在整卡正文里`);
   }
-  assert.ok(card.indexOf('onOpenSelfCheck') > 0, '检查网络并进动作行，不藏在弹窗里');
+  assert.doesNotMatch(card, /onOpenSelfCheck|onOpenConfig|DownloadAppButton/, '网络配置、检查网络、下载 APP 都不在配对卡');
 });
 
 test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且不改默认隐藏', () => {

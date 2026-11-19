@@ -8,7 +8,10 @@
  * 原先是贴页面左下角的悬浮胶囊（`fixed start-5 bottom-4`）；2026-11-17 用户要求挪进
  * 控制台顶栏、挨着左侧那组设备信息，于是改成**横排的一组**：去掉 `fixed` 与悬浮阴影，
  * 由调用方把它放进顶栏的 flex 行里。`compact` 仍决定按钮尺寸（sm / lg）。
+ *
+ * 2026-11-20 用户要求：「下载 APP」挪到「加入交流群」右边，跟着这一组走。
  */
+import { DownloadAppButton } from './DownloadAppButton.tsx'
 import { JoinGroupButton } from './JoinGroupButton.tsx'
 import { SponsorButton } from './SponsorButton.tsx'
 import { StarButton } from './StarButton.tsx'
@@ -24,6 +27,7 @@ export function FloatingActions({ compact = false }: Props) {
       <StarButton compact={compact} />
       <SponsorButton compact={compact} />
       <JoinGroupButton compact={compact} />
+      <DownloadAppButton size="sm" variant="ghost" className="px-2" />
     </div>
   )
 }

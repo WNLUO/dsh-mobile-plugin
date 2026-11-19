@@ -9,7 +9,7 @@
  *
  * 标题栏那几颗是纯文字按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
  * 2026-11-20 用户要求：原「其他」弹窗里的策略、档位、自动审阅挂到整卡右列（PairingPolicyRows），
- * 检查网络并进动作行；左列只留连接信息，两列行数均衡。
+ * 网络配置与检查网络并到右下动作行，下载 APP 去顶栏；左列只留连接信息。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
@@ -30,7 +30,6 @@ import * as React from 'react'
 
 import type { AddressBook, PairingInfo, PairingPolicy, StatusView, Tier } from '../lib/api.ts'
 import { AddressPicker } from './AddressPicker.tsx'
-import { DownloadAppButton } from './DownloadAppButton.tsx'
 import { InfoList, InfoRow } from './InfoRow.tsx'
 import { InfoMark } from './InfoMark.tsx'
 import { RevealButton } from './RevealButton.tsx'
@@ -44,11 +43,8 @@ type Props = {
   error: string
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
   restartError: string | null
-  onOpenConfig: () => void
   /** 「自动上报网络地址」（`status.controlReportEnabled`，总控上报）：改的是同一个 `/api/relay/config`。 */
   onChangeControlReport: (enabled: boolean) => void
-  /** 「检查网络」：开的是「连接自检」那个弹窗（与卡片里那行「自检」是同一件事）。 */
-  onOpenSelfCheck: () => void
   onRetryPairing: () => void
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
@@ -101,9 +97,7 @@ export function PairingCard({
   busy,
   error,
   restartError,
-  onOpenConfig,
   onChangeControlReport,
-  onOpenSelfCheck,
   onRetryPairing,
   onSavePreferred,
   onEditPort,
@@ -130,19 +124,6 @@ export function PairingCard({
   // 「自动上报网络地址」那行的说明弹窗：讲清楚总控是什么、开了之后能干什么。
   const [controlReportInfoOpen, setControlReportInfoOpen] = React.useState(false)
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
-
-  /** 日常动作单独抽出来：合并卡没有标题行，两个外壳共用同一组按钮。 */
-  const actions = (
-    <>
-      <Button variant="ghost" size="sm" className="px-2" disabled={idle} onClick={onOpenConfig}>
-        {t('panel.pairing.openConfig')}
-      </Button>
-      <DownloadAppButton size="sm" variant="ghost" className="px-2" />
-      <Button variant="ghost" size="sm" className="px-2" onClick={onOpenSelfCheck}>
-        {t('panel.pairing.checkNetwork')}
-      </Button>
-    </>
-  )
 
   const body = (
     <>
@@ -371,21 +352,11 @@ export function PairingCard({
     </>
   )
 
-  if (bare) {
-    return (
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">{actions}</div>
-        {body}
-      </div>
-    )
-  }
+  if (bare) return body
   return (
     <Card frame="solid">
       <CardHeader className="flex-none px-4 py-3">
-        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-base lg:text-lg">
-          <span>{t('panel.pairing.cardTitle')}</span>
-          <span className="flex flex-wrap items-center gap-1.5">{actions}</span>
-        </CardTitle>
+        <CardTitle className="text-base lg:text-lg">{t('panel.pairing.cardTitle')}</CardTitle>
       </CardHeader>
       {body}
     </Card>
