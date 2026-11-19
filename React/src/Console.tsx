@@ -421,8 +421,8 @@ export function Console() {
 
       {/*
         内容区自上而下：
-        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 7 成放二维码与连接信息，
-           右边 3 成放配对设置与版本信息，两列行数大致均衡。窄屏收成单列。
+        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 6 成放二维码与连接信息、
+           右边 4 成放配对设置与版本信息，动作行不换行；窄屏整卡收成单列。
            原先这一行的「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
         2. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
            设备再多也在卡内滚动。
@@ -431,8 +431,8 @@ export function Console() {
       */}
       <div className="grid grid-cols-1 gap-3">
         <Card frame="solid">
-          <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-10 md:gap-6">
-            <div className="md:col-span-7">
+          <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">
+            <div className="lg:col-span-6 lg:self-center">
               <PairingCard
                 bare
                 status={status}
@@ -447,7 +447,7 @@ export function Console() {
                 onEditPort={() => setPortOpen(true)}
               />
             </div>
-            <div className="md:col-span-3">
+            <div className="lg:col-span-4">
               <InfoList>
                 <PairingPolicyRows
                   status={status}
@@ -464,10 +464,10 @@ export function Console() {
                 onRestartSidecar={() => void restartSidecar()}
                 extraActions={
                   <>
-                    <Button variant="ghost" size="md" onClick={() => setConfigOpen(true)}>
+                    <Button variant="ghost" size="sm" onClick={() => setConfigOpen(true)}>
                       {t('panel.pairing.openConfig')}
                     </Button>
-                    <Button variant="ghost" size="md" onClick={() => setSelfCheckOpen(true)}>
+                    <Button variant="ghost" size="sm" onClick={() => setSelfCheckOpen(true)}>
                       {t('panel.pairing.checkNetwork')}
                     </Button>
                   </>

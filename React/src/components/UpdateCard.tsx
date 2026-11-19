@@ -439,20 +439,20 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
             </p>
           ) : null}
 
-          <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <div className="mt-3 flex flex-wrap justify-end gap-1 lg:flex-nowrap">
             {extraActions}
             {/* 「重启 sidecar」和更新讲的是同一件事的另一半：让磁盘上的新代码在**子进程**层
                 立刻生效。它不重启宿主，所以留在这里。 */}
-            <Button variant="ghost" size="md" disabled={idle} onClick={onRestartSidecar}>
+            <Button variant="ghost" size="sm" disabled={idle} onClick={onRestartSidecar}>
               {t('panel.update.restartSidecar')}
             </Button>
-            <Button variant="ghost" size="md" disabled={idle} onClick={() => void check()}>
+            <Button variant="ghost" size="sm" disabled={idle} onClick={() => void check()}>
               {working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
             </Button>
             {/* 非 npm 来源不给这两颗：宿主那边同样会拒（`LOCAL_SOURCE`），按钮留着只会在点了
                 之后弹一句「这台不该这么装」。 */}
             {localSource ? null : (
-              <Button variant="primary" size="md" disabled={idle} onClick={() => void apply(false)}>
+              <Button variant="primary" size="sm" disabled={idle} onClick={() => void apply(false)}>
                 {working === 'apply' ? t('panel.update.updating') : t('panel.update.updateNow')}
               </Button>
             )}
@@ -493,17 +493,17 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
           </InfoList>
 
 
-          <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <div className="mt-3 flex flex-wrap justify-end gap-1 lg:flex-nowrap">
             {extraActions}
-            <Button variant="ghost" size="md" disabled={idle} onClick={onRestartSidecar}>
+            <Button variant="ghost" size="sm" disabled={idle} onClick={onRestartSidecar}>
               {t('panel.update.restartSidecar')}
             </Button>
-            <Button variant="ghost" size="md" disabled={idle} onClick={() => void marketOnlyCheck()}>
+            <Button variant="ghost" size="sm" disabled={idle} onClick={() => void marketOnlyCheck()}>
               {working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
             </Button>
             {/* 与宿主模式那一支同一条判据：非 npm 来源不给「立即更新」。 */}
             {host !== null && !localSource ? (
-              <Button variant="primary" size="md" disabled={idle} onClick={() => void apply(false)}>
+              <Button variant="primary" size="sm" disabled={idle} onClick={() => void apply(false)}>
                 {working === 'apply' ? t('panel.update.updating') : t('panel.update.updateNow')}
               </Button>
             ) : null}
