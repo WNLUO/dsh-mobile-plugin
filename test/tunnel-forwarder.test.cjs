@@ -24,7 +24,7 @@ const { createTunnelForwarder } = require('../lib/relay/tunnel-forwarder.cjs');
 const { mountP2P } = require('../lib/p2p/wiring.cjs');
 
 /** 假宿主：控制面那条挂真的 `localOnly`，移动 API 那条不挂（只认 token，测试里直接放行）。 */
-function startHost() {
+function startHost(bindHost = '127.0.0.1') {
   const seen = [];
   const server = http.createServer((req, res) => {
     seen.push({ url: req.url, method: req.method, via: req.headers['x-dsh-via'], host: req.headers.host });
@@ -37,8 +37,9 @@ function startHost() {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true, reached: 'mobile' }));
   });
-  return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve({ server, seen, port: server.address().port }));
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, bindHost, () => resolve({ server, seen, port: server.address().port }));
   });
 }
 
@@ -185,5 +186,39 @@ test('升级请求（预览）原样穿过落点代理，并带上转发标记',
     forwarder.close();
     for (const socket of hostSockets) socket.destroy();
     await new Promise((done) => host.close(done));
+  }
+});
+
+test('落点代理按宿主实际绑定地址转发：宿主绑在非 127.0.0.1 的地址也能通', async (t) => {
+  // 宿主 web 服务可以绑到一个具体的本机地址（比如局域网 IP 或 IPv6 回环），此时 127.0.0.1
+  // 上没人监听。落点代理必须拨宿主实际绑的那个地址，而不是写死 127.0.0.1；否则整条手机链路全断。
+  // 这里用 ::1 模拟「和 127.0.0.1 不同的本机地址」：把它改回写死 127.0.0.1 时，这条用例会
+  // 以 502 收场（127.0.0.1 上没人听），红给你看。
+  let host;
+  try {
+    host = await startHost('::1');
+  } catch {
+    t.skip('本机回环没有可用于绑定的 ::1');
+    return;
+  }
+  const forwarder = createTunnelForwarder({
+    upstreamPort: () => host.port,
+    upstreamHost: () => '::1',
+    log: () => {},
+  });
+  const port = await forwarder.start();
+  try {
+    const mobile = await request(port, {
+      method: 'GET',
+      path: '/api/mobile/v1/status',
+      headers: { host: '127.0.0.1:12345', authorization: 'Bearer demo' },
+    });
+    assert.equal(mobile.status, 200, '转发必须拨宿主实际绑定的地址，而不是回环');
+    assert.equal(JSON.parse(mobile.body).reached, 'mobile');
+    const hit = host.seen.find((entry) => entry.url === '/api/mobile/v1/status');
+    assert.equal(hit.via, 'tunnel', '到达宿主的请求仍要带落点代理的转发标记');
+  } finally {
+    forwarder.close();
+    await new Promise((done) => host.server.close(done));
   }
 });
