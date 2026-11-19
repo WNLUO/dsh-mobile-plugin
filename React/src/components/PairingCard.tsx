@@ -11,7 +11,6 @@
  * 2026-11-20 用户要求：整卡按「左显示、右控件」重排——左列放连接信息与运行中版本，
  * 右列放权限档位（三按钮切换）、配对策略、自动审阅、自动上报网络地址。
  */
-import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
@@ -43,7 +42,6 @@ type Props = {
   busy: string
   error: string
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
-  restartError: string | null
   onRetryPairing: () => void
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
@@ -96,7 +94,6 @@ export function PairingCard({
   version,
   busy,
   error,
-  restartError,
   onRetryPairing,
   onSavePreferred,
   onEditPort,
@@ -135,14 +132,6 @@ export function PairingCard({
 
   const body = (
     <>
-      {error ? (
-        <Alert variant="warning" className={bare ? undefined : 'mt-3'}>
-          <AlertIcon />
-          <AlertTitle>{t('panel.pairing.qrFailed')}</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-
       <div className={`${bare ? '' : 'mt-3'} flex flex-col gap-4 sm:flex-row sm:items-stretch`}>
         {/* 二维码只用一块方形的入口：点它直接开放大弹窗——「显示」与「放大」合成一下，
             卡片里不再摆真正的码图（也更好防窥屏）。
@@ -251,13 +240,7 @@ export function PairingCard({
         </div>
       </div>
 
-      {restartError ? (
-        <Alert variant="error" className={bare ? undefined : 'mt-3'}>
-          <AlertIcon />
-          <AlertTitle>{t('panel.pairing.sidecarRestartFailed')}</AlertTitle>
-          <AlertDescription>{restartError}</AlertDescription>
-        </Alert>
-      ) : null}
+      {/* 重启失败与取码失败都不在这里铺告警块：前者在连接卡「旁挂进程」行，后者就在二维码占位里。 */}
 
       {/* 「下载 APP」「网络配置」「重新连接」都搬到标题右侧了，这里不再摆一排动作。 */}
 

@@ -34,6 +34,16 @@ test('长动态文案不挤塌信息行标签，也不把行高撑爆', () => {
   assert.match(row, /title=\{detail\}/, '全文留在 title 里可看');
 });
 
+test('卡片内常驻报错不铺大块告警，只占一行状态', () => {
+  // 2026-11-20 现场：重启失败一块红框横在配对卡下面，把整卡撑高、排版全乱。
+  for (const file of ['PairingCard.tsx', 'ConnectionCard.tsx', 'InboxCard.tsx']) {
+    assert.doesNotMatch(read(`components/${file}`), /<Alert/, `${file} 不该再有铺开的大块告警`);
+  }
+  const connection = read('components/ConnectionCard.tsx');
+  assert.match(connection, /restartError/, '重启失败并入连接卡');
+  assert.match(connection, /panel\.pairing\.sidecarRestartFailed/, '失败文案跟在旁挂进程那行');
+});
+
 test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () => {
   const card = read('components/PairingCard.tsx');
   assert.match(card, /useState\(\{ relay: false \}\)/);

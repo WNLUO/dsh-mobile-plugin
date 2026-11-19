@@ -18,8 +18,8 @@
  *
  * 那一页清的是**手机本机**的缓存副本；这张卡清的是**电脑上**的盘。两者刻意不合并。
  */
-import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
+import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
@@ -153,11 +153,11 @@ export function InboxCard({ framed = true }: { framed?: boolean }) {
       ) : null}
 
       {settled && status === null ? (
-        <Alert variant="info" className="mt-2">
-          <AlertIcon />
-          <AlertTitle>{t('panel.inbox.unreadableTitle')}</AlertTitle>
-          <AlertDescription>{t('panel.inbox.unreadableBody')}</AlertDescription>
-        </Alert>
+        <InfoList>
+          <InfoRow label={t('panel.inbox.unreadableTitle')}>
+            <ToneValue tone="warn" text={t('panel.inbox.unreadableTitle')} detail={t('panel.inbox.unreadableBody')} />
+          </InfoRow>
+        </InfoList>
       ) : null}
 
       {status !== null ? (

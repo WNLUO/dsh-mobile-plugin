@@ -436,7 +436,6 @@ export function Console() {
                 version={status.appVersion || ''}
                 busy={busy}
                 error={pairingError}
-                restartError={status.sidecar.restartError}
                 onRetryPairing={() => void loadPairing()}
                 onSavePreferred={(address) => void savePreferredLanAddress(address)}
                 onEditPort={() => setPortOpen(true)}
@@ -479,6 +478,7 @@ export function Console() {
               onToggle={toggle}
               onManageTailcat={() => setTailcatOpen(true)}
               onManageP2P={() => setP2POpen(true)}
+              restartError={status.sidecar.restartError}
             />
           </div>
           <div className="min-h-0" style={connectionHeight > 0 ? { height: `${connectionHeight}px` } : undefined}>

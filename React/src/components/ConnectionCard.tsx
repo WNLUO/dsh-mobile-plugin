@@ -5,7 +5,6 @@
  * 这一页的所有数字都来自宿主（`/api/relay/*`），界面不改写；自检那一行刻意不跟 3 秒轮询，
  * 见文件末尾组件注释与 `lib/selfcheck.ts`。
  */
-import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
@@ -25,6 +24,8 @@ type Props = {
   onManageTailcat: () => void
   /** 「管理」那颗：打开 P2P 隧道的弹窗（只读现场）。 */
   onManageP2P: () => void
+  /** 上次重启 sidecar 的失败原因；并入「旁挂进程」那行显示，不单独铺一块告警。 */
+  restartError: string | null
 }
 
 /** 隧道此刻的状态 → 一行字的键。老宿主没有这一格时整行不画（见下面 `status.tailcat`）。 */
@@ -89,7 +90,7 @@ function tailcatTone(tailcat: TailcatStatus): Tone {
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTailcat, onManageP2P }: Props) {
+export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTailcat, onManageP2P, restartError }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
   const tailcat = status.tailcat ?? null
@@ -188,9 +189,9 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
         </InfoRow>
         <InfoRow label={t('panel.connection.sidecar')}>
           <ToneValue
-            tone={status.sidecar.state === 'healthy' ? 'ok' : 'warn'}
-            text={sidecarText(status.sidecar.state)}
-            {...(status.sidecar.restarts > 0 ? { detail: t('panel.connection.sidecarRestarts', { count: status.sidecar.restarts }) } : {})}
+            tone={restartError || status.sidecar.state !== 'healthy' ? 'error' : 'ok'}
+            text={restartError ? t('panel.pairing.sidecarRestartFailed') : sidecarText(status.sidecar.state)}
+            detail={restartError ?? (status.sidecar.restarts > 0 ? t('panel.connection.sidecarRestarts', { count: status.sidecar.restarts }) : undefined)}
           />
         </InfoRow>
         <InfoRow label={t('panel.connection.mirror')}>
@@ -208,11 +209,11 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
         <InfoList><InfoRow label={t('panel.connection.lan')}><ToneValue tone="ok" text={t('panel.connection.lanVerified')} /></InfoRow></InfoList>
       ) : null}
       {status.lan.enabled && (status.lan.error || status.lan.discovery?.error) ? (
-        <Alert variant="warning" className="mt-3">
-          <AlertIcon />
-          <AlertTitle>{t('panel.connection.lan')}</AlertTitle>
-          <AlertDescription>{status.lan.error || status.lan.discovery?.error}</AlertDescription>
-        </Alert>
+        <InfoList>
+          <InfoRow label={t('panel.connection.lan')}>
+            <ToneValue tone="warn" text={t('panel.lan.error')} detail={(status.lan.error || status.lan.discovery?.error) ?? undefined} />
+          </InfoRow>
+        </InfoList>
       ) : null}
       <AdmissionNotice status={status} />
     </Card>
@@ -230,23 +231,19 @@ function AdmissionNotice({ status }: { status: StatusView }) {
 
   if (hint === 'register-secret') {
     return (
-      <Alert variant="warning" className="mt-3">
-        <AlertIcon />
-        <AlertTitle>{t('panel.connection.relayNeedsSecret')}</AlertTitle>
-        <AlertDescription>
-          {t('panel.connection.relayNeedsSecretBody')}
-        </AlertDescription>
-      </Alert>
+      <InfoList>
+        <InfoRow label={t('panel.connection.relayNeedsSecret')}>
+          <ToneValue tone="warn" text={t('panel.connection.relayNeedsSecret')} detail={t('panel.connection.relayNeedsSecretBody')} />
+        </InfoRow>
+      </InfoList>
     )
   }
 
   return (
-    <Alert variant="warning" className="mt-3">
-      <AlertIcon />
-      <AlertTitle>{t('panel.connection.relayRejected')}</AlertTitle>
-      <AlertDescription>
-        {t('panel.connection.relayRejectedBody')}
-      </AlertDescription>
-    </Alert>
+    <InfoList>
+      <InfoRow label={t('panel.connection.relayRejected')}>
+        <ToneValue tone="warn" text={t('panel.connection.relayRejected')} detail={t('panel.connection.relayRejectedBody')} />
+      </InfoRow>
+    </InfoList>
   )
 }
