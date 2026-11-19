@@ -51,7 +51,7 @@ test('配对与更新合成一张无标题整卡：两份正文以 bare 模式�
   assert.ok(app.includes('EVEN_ROWS') && card.includes('EVEN_ROWS') && update.includes('EVEN_ROWS'), '两列信息行共用同一套行高');
   assert.match(app, /lg:col-span-4">\s*<InfoList className=\{EVEN_ROWS\}>\s*<PairingPolicyRows/, '右栏 4 成先放配对设置');
   assert.match(update, /flex flex-wrap justify-end gap-1 lg:flex-nowrap/, '宽屏动作行不换行，四颗按钮横着排；小屏才允许折行');
-  assert.match(app, /<PairingPolicyRows[\s\S]{0,400}<UpdateCard\s+bare/, '版本信息接在设置行下面');
+  assert.match(app, /<PairingPolicyRows[\s\S]{0,800}<UpdateCard\s+bare/, '更新卡接在设置行下面');
   assert.doesNotMatch(card, /hscroll|min-w-max/, '信息行自然换行，不再横向滚动截掉标签');
   assert.doesNotMatch(app, /<PairingCard\s+fill|<UpdateCard\s+fill/, '等高开关已撤');
   assert.match(card, /bare = false/, '配对卡有裸内容模式');
@@ -63,13 +63,16 @@ test('配对与更新合成一张无标题整卡：两份正文以 bare 模式�
   assert.doesNotMatch(card, /flex-1 flex-col justify-/, '信息行不许 justify-around/center 把行拉到中间');
 });
 
-test('配对策略、权限档位、自动审阅直接落在整卡正文，不再走「其他」弹窗', () => {
+test('整卡左显示右控件：运行中版本在左，自动上报在右，权限档位改按钮切换', () => {
+  const app = read('Console.tsx');
   const card = read('components/PairingCard.tsx');
-  // 2026-11-20 用户要求：这些设置连同「检查网络」一起搬到整卡里，少点一层。
+  // 2026-11-20 用户要求：左列只读、右列控件；权限档位三选一不用单选下拉。
   assert.doesNotMatch(card, /moreOpen|panel\.common\.more/, '「其他」弹窗入口已撤');
-  for (const key of ['panel.pairing.policy', 'panel.pairing.tier', 'panel.pairing.autoReview']) {
-    assert.ok(card.includes(key), `${key} 要留在整卡正文里`);
-  }
+  assert.match(card, /panel\.update\.runningVersion/, '运行中版本在左列');
+  assert.match(app, /<PairingCard[\s\S]{0,200}version=\{status\.appVersion \|\| ''\}/, '版本值传给左列');
+  assert.match(app, /<PairingPolicyRows[\s\S]{0,400}onChangeControlReport/, '自动上报回调交给右列控件');
+  assert.match(card, /aria-pressed=\{tier === pairingTier\}/, '权限档位用按钮组切换');
+  assert.doesNotMatch(card, /<Select\b|SelectTrigger/, '权限档位不再是单选下拉');
   assert.doesNotMatch(card, /onOpenSelfCheck|onOpenConfig|DownloadAppButton/, '网络配置、检查网络、下载 APP 都不在配对卡');
 });
 

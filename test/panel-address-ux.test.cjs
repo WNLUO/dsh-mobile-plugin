@@ -120,9 +120,8 @@ test('宿主说没法就地换代时，更新卡不许把用户往插件市场�
   // 文案进字典后断键：「点名无头 / 源码同步」那句话现在是 `panel.update.nothingToInstall`
   // （五门语言里都写着 headless / source-synced），这里钉的是「用的就是那条键」。
   assert.match(branch, /panel\.update\.nothingToInstall/, '那句话里必须点名无头 / 源码同步这条路（那台机器上没有市场）');
-  // 这一支要像正常卡片那样**报版本**，而不是铺一个警告框：把「没有故障」说成故障，
-  // 用户看到的就是一个没必要的大黄框。2026-11-20 用户要求撤掉「线上最新」，只留运行中版本。
-  assert.match(branch, /panel\.update\.runningVersion/, '要报「运行中版本」，别只剩一句警告');
+  // 版本展示已按用户要求挪到整卡左列（PairingCard），这一支只说不装、不铺警告框。
+  assert.doesNotMatch(branch, /panel\.update\.runningVersion/, '运行中版本不在更新卡里');
   assert.ok(!/Alert/.test(branch), '别把这一支铺成警告框');
   assert.ok(!/没有可换代的外壳/.test(branch), '那句「这一版没有可换代的外壳」的标题别再回来');
 });

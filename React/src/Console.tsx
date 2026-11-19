@@ -421,8 +421,8 @@ export function Console() {
 
       {/*
         内容区自上而下：
-        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 6 成放二维码与连接信息、
-           右边 4 成放配对设置与版本信息，动作行不换行；窄屏整卡收成单列。
+        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 6 成放二维码与只读信息
+           （含运行中版本），右边 4 成全放控件；窄屏整卡收成单列。
            原先这一行的「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
         2. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
            设备再多也在卡内滚动。
@@ -438,10 +438,10 @@ export function Console() {
                 status={status}
                 pairing={pairing}
                 addressBook={addresses}
+                version={status.appVersion || ''}
                 busy={busy}
                 error={pairingError}
                 restartError={status.sidecar.restartError}
-                onChangeControlReport={(enabled) => void saveControlReport(enabled)}
                 onRetryPairing={() => void loadPairing()}
                 onSavePreferred={(address) => void savePreferredLanAddress(address)}
                 onEditPort={() => setPortOpen(true)}
@@ -455,6 +455,7 @@ export function Console() {
                   onChangePolicy={(policy) => void savePolicy(policy)}
                   onChangeTier={(tier) => void savePairingTier(tier)}
                   onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
+                  onChangeControlReport={(enabled) => void saveControlReport(enabled)}
                 />
               </InfoList>
               <UpdateCard

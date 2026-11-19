@@ -8,8 +8,8 @@
  * （`rotatePairing`），二维码自己会变，不需要人来按。
  *
  * 标题栏那几颗是纯文字按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
- * 2026-11-20 用户要求：原「其他」弹窗里的策略、档位、自动审阅挂到整卡右列（PairingPolicyRows），
- * 网络配置与检查网络并到右下动作行，下载 APP 去顶栏；左列只留连接信息。
+ * 2026-11-20 用户要求：整卡按「左显示、右控件」重排——左列放连接信息与运行中版本，
+ * 右列放权限档位（三按钮切换）、配对策略、自动审阅、自动上报网络地址。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
@@ -24,7 +24,6 @@ import {
   DialogTitle,
 } from '@appica/ui-react/dialog'
 import { Spinner } from '@appica/ui-react/spinner'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@appica/ui-react/select'
 import { Switch } from '@appica/ui-react/switch'
 import * as React from 'react'
 
@@ -39,12 +38,12 @@ type Props = {
   pairing: PairingInfo | null
   /** 宿主枚举的地址库：地址那行靠它分「局域网 / 公网」并在原地选优先地址。 */
   addressBook: AddressBook | null
+  /** 运行中版本：左列最后一行的只读展示。 */
+  version: string
   busy: string
   error: string
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
   restartError: string | null
-  /** 「自动上报网络地址」（`status.controlReportEnabled`，总控上报）：改的是同一个 `/api/relay/config`。 */
-  onChangeControlReport: (enabled: boolean) => void
   onRetryPairing: () => void
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
@@ -94,18 +93,16 @@ export function PairingCard({
   status,
   pairing,
   addressBook,
+  version,
   busy,
   error,
   restartError,
-  onChangeControlReport,
   onRetryPairing,
   onSavePreferred,
   onEditPort,
   bare = false,
 }: Props) {
   const idle = busy !== ''
-  /** 「自动上报网络地址」（总控上报）：老宿主没这个字段时按开（与宿主历史行为一致）。 */
-  const controlReport = status.controlReportEnabled !== false
   /** 「中转地址」那行的明文：默认遮上。 */
   const relayUrl = pairing?.relayUrl || status.relayUrl || '—'
   /**
@@ -121,8 +118,6 @@ export function PairingCard({
   // 放大二维码：屏幕缩放、手机离得远时，卡片里那颗太小。它只是同一张码的另一个尺寸，
   // 揭开状态另算 —— 关掉弹窗回到卡片里的样子，不改变「默认遮着」那条。
   const [qrZoom, setQrZoom] = React.useState(false)
-  // 「自动上报网络地址」那行的说明弹窗：讲清楚总控是什么、开了之后能干什么。
-  const [controlReportInfoOpen, setControlReportInfoOpen] = React.useState(false)
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   const body = (
@@ -233,38 +228,10 @@ export function PairingCard({
                 />
               </span>
             </InfoRow>
-            {/*
-              「自动上报网络地址」（总控上报）：这功能一直都是开着的，这里把它摆成一颗默认开的
-              开关，让不想要的人能关。标题右边那颗感叹号点开是说明弹窗 —— 比悬浮提示能放下更多字，
-              也正好把「总控」这个东西讲给用户听。开关取值直接来自 `status.controlReportEnabled`，
-              写回走同一个 `/api/relay/config`，不另存一份状态。
-            */}
-            <InfoRow
-              label={t('panel.pairing.controlReport')}
-              nowrap
-              labelExtra={
-                <button
-                  type="button"
-                  aria-label={t('panel.pairing.controlReportInfo')}
-                  title={t('panel.pairing.controlReportInfo')}
-                  className="shrink-0 cursor-pointer rounded text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-                  onClick={() => setControlReportInfoOpen(true)}
-                >
-                  <InfoMark />
-                </button>
-              }
-            >
-              <Switch
-                size="md"
-                checked={controlReport}
-                disabled={idle}
-                aria-label={t('panel.pairing.controlReport')}
-                onCheckedChange={(next) => {
-                  if (next !== controlReport) onChangeControlReport(next)
-                }}
-              />
+            {/* 运行中版本：只读展示，控件都在右列。 */}
+            <InfoRow label={t('panel.update.runningVersion')} mono>
+              {version || t('panel.update.unknownVersion')}
             </InfoRow>
-            {/* 配对策略、权限档位、自动审阅在整卡右列（PairingPolicyRows），左列只留连接信息。 */}
           </InfoList>
         </div>
       </div>
@@ -329,26 +296,6 @@ export function PairingCard({
         </DialogContent>
       </Dialog>
 
-      {/*
-        「自动上报网络地址」说明弹窗：讲清楚「总控」是什么、这台电脑上报了什么、关掉会怎样。
-        用户点标题右边那颗感叹号才有，平时不占地方。
-      */}
-      <Dialog open={controlReportInfoOpen} onOpenChange={setControlReportInfoOpen}>
-        <DialogContent className="max-w-md" closeLabel={t('panel.common.close')}>
-          <DialogHeader>
-            <DialogTitle>{t('panel.pairing.controlReport')}</DialogTitle>
-          </DialogHeader>
-          <DialogBody className="whitespace-pre-line text-sm leading-6 text-foreground-muted">
-            {t('panel.pairing.controlReportDetail')}
-          </DialogBody>
-          <DialogFooter className="flex justify-end">
-            <Button variant="outline" onClick={() => setControlReportInfoOpen(false)}>
-              {t('panel.common.close')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
     </>
   )
 
@@ -364,8 +311,9 @@ export function PairingCard({
 }
 
 /**
- * 配对策略那组设置行：搬出「其他」弹窗后挂在整卡右列，与版本信息并排。
- * 取自同一份 status，改的仍是那三条 `/api/relay/config` 字段。
+ * 整卡右列的控件：按用户要求自上而下是权限档位、配对策略、自动审阅、自动上报网络地址。
+ * 权限档位三选一用按钮切换（不用单选下拉）；自动上报的说明弹窗也跟着搬到这里。
+ * 四项改的都是 `/api/relay/config` 上各自的字段。
  */
 export function PairingPolicyRows({
   status,
@@ -373,19 +321,43 @@ export function PairingPolicyRows({
   onChangePolicy,
   onChangeTier,
   onChangeAutoReview,
+  onChangeControlReport,
 }: {
   status: StatusView
   busy: string
   onChangePolicy: (policy: PairingPolicy) => void
   onChangeTier: (tier: Tier) => void
   onChangeAutoReview: (enabled: boolean) => void
+  onChangeControlReport: (enabled: boolean) => void
 }) {
   const idle = busy !== ''
   const pairingAllowed = status.pairingPolicy === 'code'
   const pairingTier: Tier = status.pairingTier ?? 'full'
   const autoReview = status.approvalAutoReview === true
+  // 老宿主没这个字段时按开（与宿主历史行为一致）。
+  const controlReport = status.controlReportEnabled !== false
+  const [controlReportInfoOpen, setControlReportInfoOpen] = React.useState(false)
   return (
     <>
+      <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
+        <div className="flex gap-1">
+          {TIER_OPTIONS.map((tier) => (
+            <Button
+              key={tier}
+              variant={tier === pairingTier ? 'soft' : 'ghost'}
+              size="sm"
+              className="px-2"
+              disabled={idle}
+              aria-pressed={tier === pairingTier}
+              onClick={() => {
+                if (tier !== pairingTier) onChangeTier(tier)
+              }}
+            >
+              {tierLabel(tier)}
+            </Button>
+          ))}
+        </div>
+      </InfoRow>
       <InfoRow label={t('panel.pairing.policy')}>
         <Switch
           size="md"
@@ -394,28 +366,6 @@ export function PairingPolicyRows({
           onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
           aria-label={t('panel.devices.allowTitle')}
         />
-      </InfoRow>
-      <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
-        <Select
-          size="sm"
-          value={pairingTier}
-          disabled={idle}
-          itemToStringLabel={(next) => tierLabel(next as Tier)}
-          onValueChange={(next) => {
-            if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
-          }}
-        >
-          <SelectTrigger className="w-24 min-w-0" aria-label={t('panel.pairing.tier')}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TIER_OPTIONS.map((tier) => (
-              <SelectItem key={tier} value={tier}>
-                {tierLabel(tier)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </InfoRow>
       <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
         <Switch
@@ -428,6 +378,47 @@ export function PairingPolicyRows({
           }}
         />
       </InfoRow>
+      <InfoRow
+        label={t('panel.pairing.controlReport')}
+        nowrap
+        labelExtra={
+          <button
+            type="button"
+            aria-label={t('panel.pairing.controlReportInfo')}
+            title={t('panel.pairing.controlReportInfo')}
+            className="shrink-0 cursor-pointer rounded text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            onClick={() => setControlReportInfoOpen(true)}
+          >
+            <InfoMark />
+          </button>
+        }
+      >
+        <Switch
+          size="md"
+          checked={controlReport}
+          disabled={idle}
+          aria-label={t('panel.pairing.controlReport')}
+          onCheckedChange={(next) => {
+            if (next !== controlReport) onChangeControlReport(next)
+          }}
+        />
+      </InfoRow>
+      {/* 「总控」说明：点标签旁那颗感叹号才开，平时不占地方。 */}
+      <Dialog open={controlReportInfoOpen} onOpenChange={setControlReportInfoOpen}>
+        <DialogContent className="max-w-md" closeLabel={t('panel.common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('panel.pairing.controlReport')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="whitespace-pre-line text-sm leading-6 text-foreground-muted">
+            {t('panel.pairing.controlReportDetail')}
+          </DialogBody>
+          <DialogFooter className="flex justify-end">
+            <Button variant="outline" onClick={() => setControlReportInfoOpen(false)}>
+              {t('panel.common.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

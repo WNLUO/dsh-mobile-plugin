@@ -23,7 +23,7 @@
  *
  * 正文与标题外壳分开：控制台把它与配对卡合成一张无标题整卡时只取正文，标题外壳仍保留给
  * 单独用的场合。卡里的动作按钮都是纯文字按钮，颜色走主题 token，日夜间自动适配。
- * 2026-11-20 用户要求：版本区只留「运行中版本」，「盘上版本」「线上最新」两行撤掉。
+ * 2026-11-20 用户要求：版本信息挪到整卡左列，这张卡只留更新动作与检查结果。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
@@ -319,7 +319,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
   const localSource = marketSource === 'linked' || marketSource === 'file' || marketSource === 'workspace'
   const hasUpdate = update?.updateAvailable ?? host?.marketResult?.updateAvailable ?? false
   const summary = host?.lastApply ? applyText(host.lastApply) : null
-  const panelVersion = version || '—'
   const shellVersion = host?.version ?? null
   // 面板报的是进程启动时读进内存的版本，外壳报的是它实际装载的那一代。
   const versionsDisagree = hostMode && !!shellVersion && !!version && shellVersion !== version
@@ -346,11 +345,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
       */}
       {noShell ? (
         <>
-          <InfoList className={EVEN_ROWS}>
-            <InfoRow label={t('panel.update.runningVersion')} mono>
-              {panelVersion}
-            </InfoRow>
-          </InfoList>
           <p className="mt-3 text-xs text-foreground-muted">
             {hasUpdate ? t('panel.update.hasNew') : ''}
             {t('panel.update.nothingToInstall')}
@@ -390,12 +384,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
               </span>
             </label>
           )}
-
-          <InfoList className={EVEN_ROWS}>
-            <InfoRow label={t('panel.update.runningVersion')} mono>
-              {panelVersion}
-            </InfoRow>
-          </InfoList>
 
           {/* 两处「运行中版本」对不上：面板那份是进程启动时读进内存的，外壳那份是实际装载的。 */}
           {versionsDisagree ? (
@@ -468,9 +456,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
       {settled && !hostMode && !noShell && caps?.available ? (
         <>
           <InfoList className={EVEN_ROWS}>
-            <InfoRow label={t('panel.update.runningVersion')} mono>
-              {panelVersion}
-            </InfoRow>
             <InfoRow label={t('panel.update.checkResult')}>
               {hasUpdate ? t('panel.update.resultHasNew') : t('panel.update.resultUpToDate')}
             </InfoRow>
