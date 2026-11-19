@@ -381,6 +381,7 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
             <label className="mt-1 flex items-start justify-between gap-4 border-b border-border-muted py-3">
               <span className="min-w-0">
                 <span className="block text-sm text-foreground">{t('panel.update.autoUpdate')}</span>
+                <span className="mt-1 block text-xs text-foreground-muted">{t('panel.update.autoDefaultHint')}</span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
                 {savingAuto ? <Spinner /> : null}

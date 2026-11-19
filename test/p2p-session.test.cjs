@@ -28,7 +28,9 @@ function fakeHost() {
 }
 
 function makeSession(state = {}, host = fakeHost()) {
-  const saved = { ...state };
+  // 原生助手现在默认关、用户显式开启才起；这些用例本来就是在验「开着时」的行为，
+  // 所以在辅助函数里显式置 true（要测关闭的用例自己传 false 覆盖）。
+  const saved = { [STATE.enabled]: true, ...state };
   const session = createP2PSession({
     readState: () => saved,
     writeState: (patch) => { Object.assign(saved, patch); },
@@ -223,7 +225,7 @@ test('被复用判据挡下的那一台不许改盘上的对端公钥（落盘�
   // 现在盘上只有一格，多台时它记的是「最后真正重开过隧道的那台」，重启后的兜底只对它有效；
   // 其余几台等下一轮会合（60 秒）自动补齐 —— 这是这一版接受的退化，写在这里免得下次当成回归。
   const patches = [];
-  const saved = { [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' };
+  const saved = { [STATE.enabled]: true, [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' };
   const host = fakeHost();
   const session = createP2PSession({
     readState: () => saved,
@@ -693,3 +695,10 @@ async function captureJson(run, res) {
     return {};
   }
 }
+
+test('原生助手默认不自动启动：没有显式开启时 enabled=false，start 不拉助手', () => {
+  const { session, host } = makeSession({ [STATE.enabled]: false });
+  assert.equal(session.status().enabled, false);
+  assert.equal(session.start(), null);
+  assert.equal(host.written.length, 0, '关着时不许给助手发任何命令');
+});

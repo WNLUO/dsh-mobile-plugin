@@ -70,6 +70,18 @@ When you would rather not carry your main computer around, you can drive its ful
 
 The window opens in the desktop display shell the plugin ships, laid out like the official desktop app on Mac; each visit lasts an hour and renews automatically. Details and how to revoke are in [docs/remote-computer.md](docs/remote-computer.md).
 
+## Security and privacy
+
+On mobile protocol v2, each session encrypts every request end to end with a session key derived from the device's master key (`deviceKey`): requests and replies are both ciphertext, and the signature covers the ciphertext too. Along this path the relay forwards only ciphertext and cannot see session content. The old protocol — and any client that has not upgraded to v2 — still travels in plaintext; that path is not encrypted, and only v2 closes it.
+
+The app ships with default relay addresses run by the project, so it connects out of the box, and you can also point it at a relay you host yourself. So that the phone's high-frequency reads (session lists, workspaces and the like) do not hit the main process on the computer every time, the session list and workspace mirror snapshots are pushed through the relay and cached at that layer for read isolation. In other words, those list snapshots do pass through the relay; the contents of v2-encrypted sessions are not on that shortcut and still travel as ciphertext.
+
+You pick the permission tier on the computer when pairing:
+
+- **Full**: can install plugins and any npm package, read and write registered workspace paths, and change models, channels and other configuration.
+- **Approve**: can view sessions and files and answer approvals and questions for you, but cannot write files or change configuration directly. One approval can let the model make write actions within that session.
+- **Read-only**: can only view session content and files — no sending, no approvals, no changes.
+
 ## Install and update
 
 Installing the phone app is only the first step; the plugin on this side is what connects it.
@@ -77,6 +89,12 @@ Installing the phone app is only the first step; the plugin on this side is what
 In DeepSeek Harness, open **Settings → Plugins**, search for and install `dsh-mobile-plugin`, then open **Settings → Mobile → Open configuration page** to pair. The pairing QR code, the current listening address and the relay status all live on that page, and everything the phone does starts there. The plugin updates automatically; an update usually does not need a DeepSeek Harness restart.
 
 To run on a server with no display, see [headless deployment and config endpoints](docs/headless-deploy.md) — local endpoints, the mobile API and session cleanup are documented there.
+
+### Automatic updates and update verification
+
+The plugin updates itself by default; to stop it updating on its own, turn it off in the plugin panel. It is on by default so the plugin keeps pace with the DSH version — when DSH makes a major upgrade, an outdated plugin is easy to leave behind and can simply stop working, and staying current avoids that trap.
+
+Before installing a desktop full-package OTA update, the client first verifies an Ed25519 signature: the publisher signs the version, platform, channel, the package's sha256 and the download URL with a private key, and the client checks it against a built-in public key — if the signature does not verify, the update is not installed. The signing private key is kept offline, never alongside the release server, and the relay never has it.
 
 ## Why I built this
 

@@ -12,6 +12,15 @@ function sha256(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex')
 }
 
+/** 给一条发布记录签名；返回带 signature 的记录与公钥 PEM（测试自造密钥，不碰生产私钥）。 */
+async function signedRelease(fields) {
+  const { otaSignaturePayload } = await import('../lib/shell/ota-signing.js')
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519')
+  const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' })
+  const signature = crypto.sign(null, Buffer.from(otaSignaturePayload(fields), 'utf8'), privateKey).toString('base64')
+  return { record: { ...fields, signature }, publicKeyPem }
+}
+
 function tarEntry(name, content) {
   const data = Buffer.from(content)
   const header = Buffer.alloc(512)
@@ -123,11 +132,12 @@ test('device OTA extracts into its release directory and activates through runti
   const calls = []
   let reloaded = null
   const runtime = { status: () => ({ version: '1.2.0' }), reload: async version => { reloaded = version; return { version } } }
+  const { record, publicKeyPem } = await signedRelease({ version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: sha256(archive('1.3.0')) })
   const ota = createDeviceOta({
-    platform: 'linux', channel: 'stable', installed: () => '1.2.0', runtime,
+    platform: 'linux', channel: 'stable', installed: () => '1.2.0', runtime, publicKeyPem,
     fetchImpl: async url => {
       calls.push(url)
-      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: { version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: sha256(archive('1.3.0')) } }) }
+      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: record }) }
       return { ok: true, arrayBuffer: async () => archive('1.3.0') }
     },
   })
@@ -157,11 +167,12 @@ function manifestArchive(version, { missing = [] } = {}) {
 test('下载内容的 sha256 与中转记录不一致：拒绝安装，不留半份包', async () => withHome(async home => {
   const { createDeviceOta } = await import('../lib/shell/device-ota.js')
   const packageUrl = 'https://dsh-hub.wnluo.com/api/desktop-plugins/ota/releases/1.3.0/package.tgz'
+  const { record, publicKeyPem } = await signedRelease({ version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: 'a'.repeat(64) })
   const ota = createDeviceOta({
-    platform: 'linux', channel: 'stable', installed: () => '1.2.0',
+    platform: 'linux', channel: 'stable', installed: () => '1.2.0', publicKeyPem,
     fetchImpl: async url => {
       if (url.includes('/latest?')) {
-        return { ok: true, json: async () => ({ ok: true, data: { version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: 'a'.repeat(64) } }) }
+        return { ok: true, json: async () => ({ ok: true, data: record }) }
       }
       return { ok: true, arrayBuffer: async () => archive('1.3.0') }
     },
@@ -192,10 +203,11 @@ test('包不完整（清单里有、实际缺）：激活前失败并点名缺�
   const packageUrl = 'https://dsh-hub.wnluo.com/api/desktop-plugins/ota/releases/1.3.0/package.tgz'
   let reloaded = false
   const runtime = { status: () => ({ version: '1.2.0', source: 'installed' }), reload: async () => { reloaded = true; return { version: '1.3.0' } } }
+  const { record, publicKeyPem } = await signedRelease({ version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: sha256(manifestArchive('1.3.0', { missing: ['lib/mobile/gone.js'] })) })
   const ota = createDeviceOta({
-    platform: 'linux', channel: 'stable', installed: () => '1.2.0', runtime,
+    platform: 'linux', channel: 'stable', installed: () => '1.2.0', runtime, publicKeyPem,
     fetchImpl: async url => {
-      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: { version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: sha256(manifestArchive('1.3.0', { missing: ['lib/mobile/gone.js'] })) } }) }
+      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: record }) }
       return { ok: true, arrayBuffer: async () => manifestArchive('1.3.0', { missing: ['lib/mobile/gone.js'] }) }
     },
   })
@@ -277,3 +289,43 @@ test('回退包回收：跑着的版本和盘上一致才清，换代失败时�
   await ota.reconcileOfficial()
   assert.equal(fs.existsSync(path.join(home, 'plugin-ota', '1.2.0')), false, '接管成功后回退包该回收，不然盘上会一直堆着旧包')
 }))
+
+// ── OTA 签名：没有签名 / 签名对不上都拒装 ──────────────────────────────────────
+
+test('OTA 发布记录没有签名：拒绝安装（没签名不等于不必校验）', async () => withHome(async () => {
+  const { createDeviceOta } = await import('../lib/shell/device-ota.js')
+  const packageUrl = 'https://dsh-hub.wnluo.com/releases/1.3.0/package.tgz'
+  const ota = createDeviceOta({
+    platform: 'linux', channel: 'stable', installed: () => '1.2.0',
+    fetchImpl: async url => {
+      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: { version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: sha256(archive('1.3.0')) } }) }
+      return { ok: true, arrayBuffer: async () => archive('1.3.0') }
+    },
+  })
+  await assert.rejects(() => ota.apply(), /缺少签名/)
+}))
+
+test('OTA 签名被篡改：拒绝安装', async () => withHome(async () => {
+  const { createDeviceOta } = await import('../lib/shell/device-ota.js')
+  const packageUrl = 'https://dsh-hub.wnluo.com/releases/1.3.0/package.tgz'
+  const { record, publicKeyPem } = await signedRelease({ version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl, sha256: sha256(archive('1.3.0')) })
+  const tampered = { ...record, version: '1.3.1' }
+  const ota = createDeviceOta({
+    platform: 'linux', channel: 'stable', installed: () => '1.2.0', publicKeyPem,
+    fetchImpl: async url => {
+      if (url.includes('/latest?')) return { ok: true, json: async () => ({ ok: true, data: tampered }) }
+      return { ok: true, arrayBuffer: async () => archive('1.3.0') }
+    },
+  })
+  await assert.rejects(() => ota.apply(), /签名校验失败/)
+}))
+
+test('OTA 签名工具：签出来能验过，改一个字节就验不过', async () => {
+  const { otaSignaturePayload, verifyOtaSignature } = await import('../lib/shell/ota-signing.js')
+  const { record, publicKeyPem } = await signedRelease({ version: '1.3.0', platform: 'linux', channel: 'stable', packageUrl: 'https://x/p.tgz', sha256: 'a'.repeat(64) })
+  assert.equal(verifyOtaSignature(record, publicKeyPem), true)
+  const bad = { ...record, sha256: 'b'.repeat(64) }
+  assert.throws(() => verifyOtaSignature(bad, publicKeyPem), /签名校验失败/)
+  assert.throws(() => verifyOtaSignature({ ...record, signature: '' }, publicKeyPem), /缺少签名/)
+  assert.equal(typeof otaSignaturePayload(record), 'string')
+})

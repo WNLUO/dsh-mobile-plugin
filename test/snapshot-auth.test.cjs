@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 
-const { snapshotAuthorized, credentialCandidates } = require('../lib/relay/snapshot-auth.js');
+const { snapshotAuthorized, snapshotAuthRecord, credentialCandidates } = require('../lib/relay/snapshot-auth.js');
 
 const ROOT = path.join(__dirname, '..');
 const readSource = (relative) => {
@@ -87,7 +87,21 @@ test('查不到记录、旧令牌也验不过 → 判否', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. 源码契约：快照读捷径必须接上这道鉴权
+// 4. 降级守卫：v2 绑定（deviceKey）的凭据即使缺协议版本头也不能回明文快照
+// ---------------------------------------------------------------------------
+
+test('snapshotAuthRecord 取回命中的本机记录（含 deviceKey），无记录回 null', () => {
+  const v2 = { hash: 'h1', deviceKey: 'dk-1', keyId: 'k1' };
+  const d = deps({ records: { tok: v2 } });
+  const rec = snapshotAuthRecord({ 'x-dsh-device-credential': 'tok' }, d);
+  assert.equal(rec, v2);
+  assert.equal(rec.deviceKey, 'dk-1');
+  assert.equal(snapshotAuthRecord({ 'x-dsh-device-credential': 'tok' }, deps({ hmac: ['tok'] })), null);
+  assert.equal(snapshotAuthRecord({ 'x-dsh-device-credential': 'tok' }, deps({ records: { tok: { revokedAt: 1 } } })), null);
+});
+
+// ---------------------------------------------------------------------------
+// 5. 源码契约：快照读捷径必须接上这道鉴权，并对 deviceKey 凭据回源
 // ---------------------------------------------------------------------------
 
 test('sidecar 快照读在回快照前调用 snapshotAuthorized，失败回源', () => {
@@ -96,4 +110,10 @@ test('sidecar 快照读在回快照前调用 snapshotAuthorized，失败回源',
   assert.match(worker, /if \(!snapshotAuthorized\(info && info\.headers,/, '快照前必须验凭据');
   assert.match(worker, /credentials\.lookup\(presented, config\.instanceId\)/, '按本机凭据库查，且限定实例号');
   assert.match(worker, /core\.verifyLanToken\(config\.lanSecret, presented, config\.instanceId\)/, '旧令牌兜底沿用同一套 lanSecret 校验');
+});
+
+test('sidecar 快照读对绑了 deviceKey 的凭据一律回源（不让缺协议头的 v2 设备拿明文）', () => {
+  const worker = readSource('lib/sidecar-facade-worker.cjs');
+  assert.match(worker, /snapshotAuthRecord\(info && info\.headers,/, '要在快捷径上认出设备密钥凭据');
+  assert.match(worker, /if \(boundRecord && boundRecord\.deviceKey\) return null/, 'deviceKey 凭据必须回源，不许回明文快照');
 });
