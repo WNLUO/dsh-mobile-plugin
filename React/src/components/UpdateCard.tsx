@@ -23,6 +23,7 @@
  *
  * 正文与标题外壳分开：控制台把它与配对卡合成一张无标题整卡时只取正文，标题外壳仍保留给
  * 单独用的场合。卡里的动作按钮都是纯文字按钮，颜色走主题 token，日夜间自动适配。
+ * 2026-11-20 用户要求：版本区只留「运行中版本」，「盘上版本」「线上最新」两行撤掉。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
@@ -306,9 +307,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
     }
   }, [host?.autoIntervalMs, loadHost])
 
-  // 「线上最新」优先用这一格自己查到的（插件问 npm）；外壳上次问市场的结果只当兜底，
-  // 免得刚好赶上静默那一次没查成时整行空着。
-  const latestOnline = update?.latestVersion ?? host?.marketResult?.latestVersion ?? null
   const marketSource = update?.source ?? host?.marketResult?.source ?? null
   /**
    * 这台是不是从注册表装的。
@@ -351,9 +349,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
           <InfoList>
             <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
-            </InfoRow>
-            <InfoRow label={t('panel.update.latestOnline')} mono>
-              {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
           </InfoList>
           <p className="mt-3 text-xs text-foreground-muted">
@@ -399,14 +394,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
           <InfoList>
             <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
-            </InfoRow>
-            {diskVersion ? (
-              <InfoRow label={t('panel.update.diskVersion')} mono>
-                {diskVersion}
-              </InfoRow>
-            ) : null}
-            <InfoRow label={t('panel.update.latestOnline')} mono>
-              {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
           </InfoList>
 
@@ -483,9 +470,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
           <InfoList>
             <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
-            </InfoRow>
-            <InfoRow label={t('panel.update.latestOnline')} mono>
-              {latestOnline ?? t('panel.update.notChecked')}
             </InfoRow>
             <InfoRow label={t('panel.update.checkResult')}>
               {hasUpdate ? t('panel.update.resultHasNew') : t('panel.update.resultUpToDate')}
