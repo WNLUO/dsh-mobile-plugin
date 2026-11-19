@@ -30,7 +30,7 @@ import { DevicesCard } from './components/DevicesCard.tsx'
 import { FloatingActions } from './components/FloatingActions.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
-import { PairingCard } from './components/PairingCard.tsx'
+import { PairingCard, PairingPolicyRows } from './components/PairingCard.tsx'
 import { P2PDialog } from './components/P2PDialog.tsx'
 import { PortDialog } from './components/PortDialog.tsx'
 import { PublicRelayNoticeDialog } from './components/PublicRelayNoticeDialog.tsx'
@@ -53,7 +53,7 @@ import {
   type Tier,
   type WebAccessState,
 } from './lib/api.ts'
-import { Dot } from './components/InfoRow.tsx'
+import { Dot, InfoList } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
 import { isPublicRelayUrl } from './lib/links.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
@@ -421,8 +421,8 @@ export function Console() {
 
       {/*
         内容区自上而下：
-        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 7 成配对（点开才放大二维码），
-           右边 3 成更新，两份正文各自只有一份实现、由 `bare` 模式挂进同一张卡。窄屏收成单列。
+        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 7 成放二维码与连接信息，
+           右边 3 成放配对设置与版本信息，两列行数大致均衡。窄屏收成单列。
            原先这一行的「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
         2. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
            设备再多也在卡内滚动。
@@ -442,9 +442,6 @@ export function Console() {
                 error={pairingError}
                 restartError={status.sidecar.restartError}
                 onOpenConfig={() => setConfigOpen(true)}
-                onChangePolicy={(policy) => void savePolicy(policy)}
-                onChangeTier={(tier) => void savePairingTier(tier)}
-                onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
                 onChangeControlReport={(enabled) => void saveControlReport(enabled)}
                 onOpenSelfCheck={() => setSelfCheckOpen(true)}
                 onRetryPairing={() => void loadPairing()}
@@ -453,6 +450,15 @@ export function Console() {
               />
             </div>
             <div className="md:col-span-3">
+              <InfoList>
+                <PairingPolicyRows
+                  status={status}
+                  busy={busy}
+                  onChangePolicy={(policy) => void savePolicy(policy)}
+                  onChangeTier={(tier) => void savePairingTier(tier)}
+                  onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
+                />
+              </InfoList>
               <UpdateCard bare version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
             </div>
           </div>

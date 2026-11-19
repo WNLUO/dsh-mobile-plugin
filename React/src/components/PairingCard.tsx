@@ -8,7 +8,8 @@
  * （`rotatePairing`），二维码自己会变，不需要人来按。
  *
  * 标题栏那几颗是纯文字按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
- * 2026-11-20 用户要求：原「其他」弹窗里的策略、档位、自动审阅挪进整卡正文，检查网络并进动作行。
+ * 2026-11-20 用户要求：原「其他」弹窗里的策略、档位、自动审阅挂到整卡右列（PairingPolicyRows），
+ * 检查网络并进动作行；左列只留连接信息，两列行数均衡。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
@@ -44,12 +45,6 @@ type Props = {
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
   restartError: string | null
   onOpenConfig: () => void
-  /** 准入总闸（`status.pairingPolicy`）：`'code'` 收新设备、`'deny'` 一律拒。 */
-  onChangePolicy: (policy: PairingPolicy) => void
-  /** 新配对设备的权限档位（`status.pairingTier`）：改的是 `/api/relay/config` 的 `pairingTier`。 */
-  onChangeTier: (tier: Tier) => void
-  /** 审批「自动审阅档」（`status.approvalAutoReview`）：改的是同一个 `/api/relay/config`。 */
-  onChangeAutoReview: (enabled: boolean) => void
   /** 「自动上报网络地址」（`status.controlReportEnabled`，总控上报）：改的是同一个 `/api/relay/config`。 */
   onChangeControlReport: (enabled: boolean) => void
   /** 「检查网络」：开的是「连接自检」那个弹窗（与卡片里那行「自检」是同一件事）。 */
@@ -107,9 +102,6 @@ export function PairingCard({
   error,
   restartError,
   onOpenConfig,
-  onChangePolicy,
-  onChangeTier,
-  onChangeAutoReview,
   onChangeControlReport,
   onOpenSelfCheck,
   onRetryPairing,
@@ -118,11 +110,6 @@ export function PairingCard({
   bare = false,
 }: Props) {
   const idle = busy !== ''
-  const pairingAllowed = status.pairingPolicy === 'code'
-  /** 新配对设备的档位：老宿主没这个字段时按全权（与宿主缺省一致）。 */
-  const pairingTier: Tier = status.pairingTier ?? 'full'
-  /** 审批自动审阅档：老宿主没这个字段时按关（与宿主缺省一致）。 */
-  const autoReview = status.approvalAutoReview === true
   /** 「自动上报网络地址」（总控上报）：老宿主没这个字段时按开（与宿主历史行为一致）。 */
   const controlReport = status.controlReportEnabled !== false
   /** 「中转地址」那行的明文：默认遮上。 */
@@ -296,49 +283,7 @@ export function PairingCard({
                 }}
               />
             </InfoRow>
-            {/* 2026-11-20 用户要求：原「其他」弹窗里的设置挪进整卡，不再点开一层。 */}
-            <InfoRow label={t('panel.pairing.policy')}>
-              <Switch
-                size="md"
-                checked={pairingAllowed}
-                disabled={idle}
-                onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
-                aria-label={t('panel.devices.allowTitle')}
-              />
-            </InfoRow>
-            <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
-              <Select
-                size="sm"
-                value={pairingTier}
-                disabled={idle}
-                itemToStringLabel={(next) => tierLabel(next as Tier)}
-                onValueChange={(next) => {
-                  if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
-                }}
-              >
-                <SelectTrigger className="min-w-0 max-w-full" aria-label={t('panel.pairing.tier')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIER_OPTIONS.map((tier) => (
-                    <SelectItem key={tier} value={tier}>
-                      {tierLabel(tier)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </InfoRow>
-            <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
-              <Switch
-                size="sm"
-                checked={autoReview}
-                disabled={idle}
-                aria-label={t('panel.pairing.autoReview')}
-                onCheckedChange={(next) => {
-                  if (next !== autoReview) onChangeAutoReview(next)
-                }}
-              />
-            </InfoRow>
+            {/* 配对策略、权限档位、自动审阅在整卡右列（PairingPolicyRows），左列只留连接信息。 */}
           </InfoList>
         </div>
       </div>
@@ -444,6 +389,75 @@ export function PairingCard({
       </CardHeader>
       {body}
     </Card>
+  )
+}
+
+/**
+ * 配对策略那组设置行：搬出「其他」弹窗后挂在整卡右列，与版本信息并排。
+ * 取自同一份 status，改的仍是那三条 `/api/relay/config` 字段。
+ */
+export function PairingPolicyRows({
+  status,
+  busy,
+  onChangePolicy,
+  onChangeTier,
+  onChangeAutoReview,
+}: {
+  status: StatusView
+  busy: string
+  onChangePolicy: (policy: PairingPolicy) => void
+  onChangeTier: (tier: Tier) => void
+  onChangeAutoReview: (enabled: boolean) => void
+}) {
+  const idle = busy !== ''
+  const pairingAllowed = status.pairingPolicy === 'code'
+  const pairingTier: Tier = status.pairingTier ?? 'full'
+  const autoReview = status.approvalAutoReview === true
+  return (
+    <>
+      <InfoRow label={t('panel.pairing.policy')}>
+        <Switch
+          size="md"
+          checked={pairingAllowed}
+          disabled={idle}
+          onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
+          aria-label={t('panel.devices.allowTitle')}
+        />
+      </InfoRow>
+      <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
+        <Select
+          size="sm"
+          value={pairingTier}
+          disabled={idle}
+          itemToStringLabel={(next) => tierLabel(next as Tier)}
+          onValueChange={(next) => {
+            if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
+          }}
+        >
+          <SelectTrigger className="min-w-0 max-w-full" aria-label={t('panel.pairing.tier')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TIER_OPTIONS.map((tier) => (
+              <SelectItem key={tier} value={tier}>
+                {tierLabel(tier)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </InfoRow>
+      <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
+        <Switch
+          size="sm"
+          checked={autoReview}
+          disabled={idle}
+          aria-label={t('panel.pairing.autoReview')}
+          onCheckedChange={(next) => {
+            if (next !== autoReview) onChangeAutoReview(next)
+          }}
+        />
+      </InfoRow>
+    </>
   )
 }
 

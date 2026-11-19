@@ -47,8 +47,9 @@ test('配对与更新合成一张无标题整卡：两份正文以 bare 模式�
   const update = read('components/UpdateCard.tsx');
   // 2026-11-20 用户要求合并为一个区域、不要标题：原先两卡等高那套随之撤掉。
   assert.match(app, /<Card frame="solid">\s*<div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-10 md:gap-6">/, '顶栏是一张整卡');
-  assert.match(app, /md:col-span-7">\s*<PairingCard\s+bare/, '左栏 7 成取配对正文');
-  assert.match(app, /md:col-span-3">\s*<UpdateCard\s+bare/, '右栏 3 成取更新正文');
+  assert.match(app, /md:col-span-7">\s*<PairingCard\s+bare/, '左栏 7 成取连接信息');
+  assert.match(app, /md:col-span-3">\s*<InfoList>\s*<PairingPolicyRows/, '右栏 3 成先放配对设置');
+  assert.match(app, /<PairingPolicyRows[\s\S]{0,400}<UpdateCard\s+bare/, '版本信息接在设置行下面');
   assert.doesNotMatch(card, /hscroll|min-w-max/, '信息行自然换行，不再横向滚动截掉标签');
   assert.doesNotMatch(app, /<PairingCard\s+fill|<UpdateCard\s+fill/, '等高开关已撤');
   assert.match(card, /bare = false/, '配对卡有裸内容模式');
