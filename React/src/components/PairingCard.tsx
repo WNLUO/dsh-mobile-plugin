@@ -133,9 +133,10 @@ export function PairingCard({
       <div className={`${bare ? '' : 'mt-3'} flex flex-col gap-4 sm:flex-row sm:items-stretch`}>
         {/* 二维码只用一块方形的入口：点它直接开放大弹窗——「显示」与「放大」合成一下，
             卡片里不再摆真正的码图（也更好防窥屏）。
-            宽屏由右邻信息行的高度定尺寸、自身保持正方形，占位下沿与最后一行齐平；
-            窄屏收成单列时不再有可参照的高度，退回限宽 200 的方块并居中。 */}
-        <div className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:w-auto sm:max-w-none sm:self-stretch">
+            宽屏保留固定宽度、由 flex 拉伸到与右邻信息行同高（下沿齐平）；这里不能靠
+            aspect-ratio 从高度反推宽度——容器高度由内容撑开时会反过来塌成竖条，把里面的
+            文字挤成竖排。窄屏单列没有可参照的高度，退回 aspect-square 的限宽方块并居中。 */}
+        <div className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:w-[150px] sm:max-w-none sm:aspect-auto sm:self-stretch">
           {!pairing?.svg ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle">
               {error ? (
