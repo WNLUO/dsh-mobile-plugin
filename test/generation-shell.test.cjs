@@ -840,6 +840,31 @@ test('传输归外壳：隧道助手服务存在、可惰性注入来源', async
   assert.ok(p2pHost && typeof p2pHost.ensure === 'function', '外壳应 provide dshMobileTransportP2P（惰性 ensure）');
 });
 
+test('蓝绿：新代不再注册的旧路由，提交后被摘掉（不留残影）', async t => {
+  await resetProfile();
+  const TWO = mark => `
+export const name = 'dsh-mobile-plugin'
+export const inject = ['webServer', 'sessions']
+export function apply(ctx) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/api/relay/gen', handler: async (req, res) => { res.end('${mark}') } }), 'gen')
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/api/relay/oldonly', handler: async (req, res) => { res.end('old') } }), 'oldonly')
+}
+`;
+  install(makeGeneration('bg-a', '0.9.20', TWO('a-0.9.20')));
+  const { server, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+  const before = await waitForStatus(runtime);
+  assert.equal(before.version, '0.9.20');
+  assert.ok(server.routes.has('/api/relay/oldonly'), '旧代的老路由先要在');
+
+  install(makeGeneration('bg-b', '0.9.21', goodGeneration('b-0.9.21')));
+  const after = await runtime.reload();
+  assert.equal(after.version, '0.9.21');
+  const implRoutes = [...server.routes.keys()].filter((p) => !p.startsWith('/api/relay/host-half'));
+  assert.deepEqual(implRoutes, ['/api/relay/gen'], '新代不注册的旧路由，提交后必须被摘掉');
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'b-0.9.21');
+});
+
 /** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */async function waitFor(probe, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
