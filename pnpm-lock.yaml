@@ -14,9 +14,6 @@ importers:
       '@deepseek-ai/dsh-client-locale':
         specifier: ^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1
         version: 0.1.1-rc.2(6fe73b811cb5ab687bfe8950ed04e26c)
-      '@deepseek-ai/dsh-client-runtime':
-        specifier: '>=0.1.1-rc.2'
-        version: 0.1.1-rc.2(292d90b73590022e9294d61bf674c885)
       '@deepseek-ai/dsh-settings':
         specifier: ^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1
         version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.4)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.4))(@deepseek-ai/schemastery@3.18.4)
