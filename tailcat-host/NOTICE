@@ -1,0 +1,12 @@
+这个程序（手机直连隧道的电脑端助手）是 DSH Mobile 的一部分，MIT 许可。
+
+它链接并使用了下列第三方库，各自的许可与版权声明如下：
+
+tailcat（https://github.com/tailscale/tailcat）
+BSD-3-Clause，Copyright (c) Tailscale Inc & contributors
+
+tailscale.com 及其依赖（WireGuard 实现、magicsock、gVisor netstack、DERP 等）
+BSD-3-Clause，Copyright (c) Tailscale Inc & contributors
+具体依赖清单见 go.sum；各依赖的许可随模块一同分发。
+
+构建时使用 tailcat 官方发布的 omit 编译标签，仅保留数据面所需的功能。
