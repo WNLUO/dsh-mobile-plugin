@@ -92,6 +92,9 @@ export function InfoRow({ label, hint, labelExtra, tone, mono, nowrap, children 
   )
 }
 
+/** 整卡两列对齐用：信息行统一最小高度，左右两列的行才能落在同一条水平线上。 */
+export const EVEN_ROWS = '[&>div]:min-h-9'
+
 export function InfoList({ children, className }: { children: ReactNode; className?: string }) {
   return <dl className={cn('mt-1', className)}>{children}</dl>
 }

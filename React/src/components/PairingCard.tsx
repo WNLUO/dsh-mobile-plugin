@@ -30,7 +30,7 @@ import * as React from 'react'
 
 import type { AddressBook, PairingInfo, PairingPolicy, StatusView, Tier } from '../lib/api.ts'
 import { AddressPicker } from './AddressPicker.tsx'
-import { InfoList, InfoRow } from './InfoRow.tsx'
+import { EVEN_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
 import { InfoMark } from './InfoMark.tsx'
 import { RevealButton } from './RevealButton.tsx'
 
@@ -173,7 +173,7 @@ export function PairingCard({
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <InfoList>
+          <InfoList className={EVEN_ROWS}>
             <InfoRow label={t('panel.connection.relayUrl')} nowrap>
               <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 {shown.relay ? (
@@ -255,7 +255,7 @@ export function PairingCard({
               }
             >
               <Switch
-                size="sm"
+                size="md"
                 checked={controlReport}
                 disabled={idle}
                 aria-label={t('panel.pairing.controlReport')}
@@ -405,7 +405,7 @@ export function PairingPolicyRows({
             if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
           }}
         >
-          <SelectTrigger className="min-w-0 max-w-full" aria-label={t('panel.pairing.tier')}>
+          <SelectTrigger className="w-24 min-w-0" aria-label={t('panel.pairing.tier')}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -419,7 +419,7 @@ export function PairingPolicyRows({
       </InfoRow>
       <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
         <Switch
-          size="sm"
+          size="md"
           checked={autoReview}
           disabled={idle}
           aria-label={t('panel.pairing.autoReview')}

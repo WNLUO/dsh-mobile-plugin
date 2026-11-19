@@ -47,8 +47,9 @@ test('配对与更新合成一张无标题整卡：两份正文以 bare 模式�
   const update = read('components/UpdateCard.tsx');
   // 2026-11-20 用户要求合并为一个区域、不要标题：原先两卡等高那套随之撤掉。
   assert.match(app, /<Card frame="solid">\s*<div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">/, '顶栏是一张整卡，窄屏单列');
-  assert.match(app, /lg:col-span-6 lg:self-center">\s*<PairingCard\s+bare/, '左栏 6 成取连接信息');
-  assert.match(app, /lg:col-span-4">\s*<InfoList>\s*<PairingPolicyRows/, '右栏 4 成先放配对设置');
+  assert.match(app, /lg:col-span-6">\s*<PairingCard\s+bare/, '左栏 6 成取连接信息，顶部与右栏齐平');
+  assert.ok(app.includes('EVEN_ROWS') && card.includes('EVEN_ROWS') && update.includes('EVEN_ROWS'), '两列信息行共用同一套行高');
+  assert.match(app, /lg:col-span-4">\s*<InfoList className=\{EVEN_ROWS\}>\s*<PairingPolicyRows/, '右栏 4 成先放配对设置');
   assert.match(update, /flex flex-wrap justify-end gap-1 lg:flex-nowrap/, '宽屏动作行不换行，四颗按钮横着排；小屏才允许折行');
   assert.match(app, /<PairingPolicyRows[\s\S]{0,400}<UpdateCard\s+bare/, '版本信息接在设置行下面');
   assert.doesNotMatch(card, /hscroll|min-w-max/, '信息行自然换行，不再横向滚动截掉标签');

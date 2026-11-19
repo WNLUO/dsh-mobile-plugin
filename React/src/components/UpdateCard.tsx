@@ -53,7 +53,7 @@ import {
   type ApplyOutcomeView,
   type UpdateStatusView,
 } from '../lib/relayUpdate.ts'
-import { InfoList, InfoRow } from './InfoRow.tsx'
+import { EVEN_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
 import { t } from '../lib/i18n/index.ts'
 
 type Props = {
@@ -346,7 +346,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
       */}
       {noShell ? (
         <>
-          <InfoList>
+          <InfoList className={EVEN_ROWS}>
             <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
             </InfoRow>
@@ -391,7 +391,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
             </label>
           )}
 
-          <InfoList>
+          <InfoList className={EVEN_ROWS}>
             <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
             </InfoRow>
@@ -467,7 +467,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
       */}
       {settled && !hostMode && !noShell && caps?.available ? (
         <>
-          <InfoList>
+          <InfoList className={EVEN_ROWS}>
             <InfoRow label={t('panel.update.runningVersion')} mono>
               {panelVersion}
             </InfoRow>

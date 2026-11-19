@@ -53,7 +53,7 @@ import {
   type Tier,
   type WebAccessState,
 } from './lib/api.ts'
-import { Dot, InfoList } from './components/InfoRow.tsx'
+import { Dot, EVEN_ROWS, InfoList } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
 import { isPublicRelayUrl } from './lib/links.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
@@ -432,7 +432,7 @@ export function Console() {
       <div className="grid grid-cols-1 gap-3">
         <Card frame="solid">
           <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">
-            <div className="lg:col-span-6 lg:self-center">
+            <div className="lg:col-span-6">
               <PairingCard
                 bare
                 status={status}
@@ -448,7 +448,7 @@ export function Console() {
               />
             </div>
             <div className="lg:col-span-4">
-              <InfoList>
+              <InfoList className={EVEN_ROWS}>
                 <PairingPolicyRows
                   status={status}
                   busy={busy}
