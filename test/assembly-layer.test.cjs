@@ -210,3 +210,17 @@ test('外壳包装宿主的路由注册时可叠加、撤离不摘别人的那�
   assert.match(shell, /const wrapper = function register\(route\)/, '包装要留一个可比较的引用');
   assert.match(shell, /if \(server\.register === wrapper\) server\.register = outer/, '只在「现在挂的是我们这层」时才还原，否则会摘掉别的插件叠在上面的包装');
 });
+
+test('传输与长连接由外壳持有，实现只通过服务取用', () => {
+  // 「更新不断」的根：传输/长连接不许再挂回一代实现。实现必须从外壳服务取它们。
+  const impl = read(INDEX);
+  for (const svc of [
+    'dshMobileSidecarHost', 'dshMobileTransportFrp', 'dshMobileTransportControl',
+    'dshMobileTransportMux', 'dshMobileTransportTailcat', 'dshMobileTransportP2P',
+  ]) {
+    assert.ok(impl.includes(svc), `lib/impl.js 应从外壳取 ${svc}（传输/长连接归外壳）`);
+  }
+  // mux 归外壳时，移动端路由表不能再重复注册它的升级路由（否则撞路径）。
+  const mobileApi = read(path.join(LIB, 'routes', 'mobile-api.js'));
+  assert.match(mobileApi, /if \(!deps\.muxOwnedByShell\)/, 'mux 归外壳时不应重复注册升级路由');
+});

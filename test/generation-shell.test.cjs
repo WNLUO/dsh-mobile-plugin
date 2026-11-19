@@ -840,6 +840,13 @@ test('传输归外壳：隧道助手服务存在、可惰性注入来源', async
   assert.ok(p2pHost && typeof p2pHost.ensure === 'function', '外壳应 provide dshMobileTransportP2P（惰性 ensure）');
   const muxHost = ctx.get('dshMobileTransportMux');
   assert.ok(muxHost && muxHost.service && typeof muxHost.setProviders === 'function', '外壳应 provide dshMobileTransportMux（长连接归外壳）');
+
+  // 传输进程管理器跨代必须是同一份（换代不重启、不重建）。
+  const sidecarBefore = ctx.get('dshMobileSidecarHost');
+  assert.ok(sidecarBefore, '外壳应 provide dshMobileSidecarHost');
+  install(makeGeneration('tc-svc2', '0.9.13', goodGeneration('b-0.9.13')));
+  await runtime.reload();
+  assert.equal(ctx.get('dshMobileSidecarHost'), sidecarBefore, 'sidecar 传输进程管理器跨代是同一份');
 });
 
 test('蓝绿：新代不再注册的旧路由，提交后被摘掉（不留残影）', async t => {
