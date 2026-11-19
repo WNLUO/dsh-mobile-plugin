@@ -1,5 +1,7 @@
 'use strict';
 
+// 2026-11-19：补一条断言——启动同步抛 UNKNOWN 时要翻译成能照着排查的提示，而不是原始 errno。
+
 /**
  * frpc 运行器：本地端口对齐、起停、状态、失败与自动重启判定。
  *
@@ -126,6 +128,24 @@ test('没有配置就启动：报「还没有导入」', async () => {
   const st = await runner.start();
   assert.equal(st.running, false);
   assert.match(st.error, /配置/);
+});
+
+test('spawn 同步抛 UNKNOWN：换成能照着排查的话，不把原始 errno 甩给用户', async () => {
+  const root = tempDir();
+  const err = new Error('spawn UNKNOWN');
+  err.code = 'UNKNOWN';
+  const runner = createFrpcRunner({
+    root,
+    portOf: () => 49906,
+    ensure: async () => ({ ok: true, path: 'C:\\Users\\x\\.dsh\\frpc\\frpc.exe' }),
+    spawnImpl: () => { throw err; },
+  });
+  runner.saveConfig(CONFIG);
+  const st = await runner.start();
+  assert.equal(st.running, false);
+  assert.match(st.error, /安全软件/, '要点明多半是安全软件拦截');
+  assert.match(st.error, /信任名单|放行|匹配/, '要给出接下来能做的动作');
+  assert.doesNotMatch(st.error, /^启动 frpc 失败：spawn UNKNOWN$/, '不该只剩原始报错');
 });
 
 test('withAdminPort 在 [[proxies]] 前补本机管理接口，已有就不动', () => {
