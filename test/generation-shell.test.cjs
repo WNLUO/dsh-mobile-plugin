@@ -810,6 +810,24 @@ test('传输归外壳：FRP 进程管理器跨代存活（换代不换一份）'
   assert.equal(hostAfter.runner, beforeRunner, 'frpc 进程管理器必须跨代是同一份（否则换代就重启了直连）');
 });
 
+test('传输归外壳：总控上报客户端跨代存活（换代不断开上报）', async t => {
+  await resetProfile();
+  install(makeGeneration('ctl-host-a', '0.9.10', goodGeneration('a-0.9.10')));
+  const { ctx, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+  await waitForStatus(runtime);
+
+  const host = ctx.get('dshMobileTransportControl');
+  assert.ok(host && host.client, '外壳应 provide dshMobileTransportControl 服务');
+  assert.equal(typeof host.setProviders, 'function', '来源要能被当前这一代注入');
+  assert.equal(typeof host.client.sync, 'function', '应拿到控制客户端');
+  const beforeClient = host.client;
+
+  install(makeGeneration('ctl-host-b', '0.9.11', goodGeneration('b-0.9.11')));
+  await runtime.reload();
+  assert.equal(ctx.get('dshMobileTransportControl').client, beforeClient, '换代不得重建总控上报客户端（否则上报连接要断一次）');
+});
+
 /** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */async function waitFor(probe, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
