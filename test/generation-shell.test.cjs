@@ -838,6 +838,8 @@ test('传输归外壳：隧道助手服务存在、可惰性注入来源', async
   assert.ok(host && typeof host.ensure === 'function', '外壳应 provide dshMobileTransportTailcat（惰性 ensure）');
   const p2pHost = ctx.get('dshMobileTransportP2P');
   assert.ok(p2pHost && typeof p2pHost.ensure === 'function', '外壳应 provide dshMobileTransportP2P（惰性 ensure）');
+  const muxHost = ctx.get('dshMobileTransportMux');
+  assert.ok(muxHost && muxHost.service && typeof muxHost.setProviders === 'function', '外壳应 provide dshMobileTransportMux（长连接归外壳）');
 });
 
 test('蓝绿：新代不再注册的旧路由，提交后被摘掉（不留残影）', async t => {
