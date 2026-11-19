@@ -35,7 +35,6 @@ import { P2PDialog } from './components/P2PDialog.tsx'
 import { PortDialog } from './components/PortDialog.tsx'
 import { PublicRelayNoticeDialog } from './components/PublicRelayNoticeDialog.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
-import { SelfCheckDialog } from './components/SelfCheckDialog.tsx'
 import { TailcatDialog } from './components/TailcatDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
 import { WebAccessCard } from './components/WebAccessCard.tsx'
@@ -60,7 +59,6 @@ import { pageVisible } from './lib/embed-visibility.ts'
 import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
 import { useNotify } from './lib/notify.ts'
-import { mobileLooksIdle, useSelfCheck } from './lib/selfcheck.ts'
 
 /**
  * 这一页轮询的相位偏移。
@@ -111,7 +109,6 @@ export function Console() {
   const [addresses, setAddresses] = useState<AddressBook | null>(null)
   const [configOpen, setConfigOpen] = useState(false)
   const [portOpen, setPortOpen] = useState(false)
-  const [selfCheckOpen, setSelfCheckOpen] = useState(false)
   const [tailcatOpen, setTailcatOpen] = useState(false)
   const [p2pOpen, setP2POpen] = useState(false)
   const [inboxOpen, setInboxOpen] = useState(false)
@@ -137,11 +134,6 @@ export function Console() {
     observer.observe(el)
     return () => observer.disconnect()
   }, [status])
-
-  const selfcheck = useSelfCheck(
-    mobileLooksIdle(status?.lastMobileAt),
-    status ? `${status.enabled ? 1 : 0}|${status.lan.enabled ? 1 : 0}|${status.lan.state}|${status.tunnel.state}|${(status.lastMobileAt ?? 0) > 0 ? 1 : 0}` : '',
-  )
 
   const loadStatus = useCallback(async () => {
     try {
@@ -471,9 +463,6 @@ export function Console() {
                     <Button variant="ghost" size="sm" onClick={() => setConfigOpen(true)}>
                       {t('panel.pairing.openConfig')}
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setSelfCheckOpen(true)}>
-                      {t('panel.pairing.checkNetwork')}
-                    </Button>
                   </>
                 }
               />
@@ -517,13 +506,6 @@ export function Console() {
         busy={busy}
         onSave={(patch) => void saveConfig(patch)}
         onSavePreferred={(address) => void savePreferredLanAddress(address)}
-      />
-
-      <SelfCheckDialog
-        open={selfCheckOpen}
-        onOpenChange={setSelfCheckOpen}
-        state={selfcheck}
-        lastMobileAt={status.lastMobileAt}
       />
 
       <TailcatDialog open={tailcatOpen} onOpenChange={setTailcatOpen} onChanged={() => void loadStatus()} />

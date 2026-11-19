@@ -133,15 +133,13 @@ const pairingProps = {
   status,
   pairing,
   addressBook,
+  version: '0.5.80',
   busy: '',
   error: '',
   restartError: null,
-  onOpenConfig: noop,
-  onChangePolicy: noop,
-  onReconnect: noop,
-  onRestartSidecar: noop,
-  onRevokeAll: noop,
+  onRetryPairing: noop,
   onSavePreferred: noop,
+  onEditPort: noop,
 }
 const cases = [
   ['ConnectionCard', h(Conn.ConnectionCard, { status, busy: '', onToggle: noop, onOpenLan: noop })],
@@ -173,10 +171,9 @@ const cases = [
   ['PairingCard（重启失败）', h(Pair.PairingCard, { ...pairingProps, busy: 'restart', restartError: 'spawn ENOENT' })],
   // 老宿主没有 `/api/relay/addresses`：退回配对接口给的那串 URL，只显示、不能选。
   ['PairingCard（老宿主没有地址库）', h(Pair.PairingCard, { ...pairingProps, addressBook: null }), 'aria-label="显示本地识别地址"'],
-  // 准入开关只留在配对卡的「配对策略」那行（2026-11-02 从连接状态与网络配置两处合并过来）：
-  // 这里钉住「它真的渲染出来了」，而且名字挂在开关自己身上。
-  ['PairingCard（维护按钮在标题栏）', h(Pair.PairingCard, pairingProps), '网络配置'],
-  ['PairingCard（其他入口在）', h(Pair.PairingCard, pairingProps), '其他'],
+  // 左列只读展示（含运行中版本），控件都在右列的 PairingPolicyRows。
+  ['PairingCard（运行中版本在左列）', h(Pair.PairingCard, pairingProps), '运行中版本'],
+  ['PairingPolicyRows（权限档位在右列）', h(Pair.PairingPolicyRows, { status, busy: '', onChangePolicy: noop, onChangeTier: noop, onChangeAutoReview: noop, onChangeControlReport: noop }), '权限档位'],
   // 更新卡片先问宿主那四条 `/api/relay/update/*`，拿不到才退化成市场老路。
   // SSR 里 effect 不跑，两条分支都不进：这一遍只冒烟「标题 + 正在读状态」那一屏。
   // 完整分支要用真浏览器看 —— 这里没有全局 fetch 打桩。
