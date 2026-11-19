@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@appica/ui-react/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@appica/ui-react/dropdown-menu'
 import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
 import { useEffect, useRef, useState } from 'react'
@@ -17,6 +18,65 @@ import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { FrpImportDialog } from './FrpImportDialog.tsx'
 import { PublicRelayPanelDialog } from './PublicRelayPanelDialog.tsx'
+
+type ComboOption = { value: string; label: string }
+
+/**
+ * 带候选下拉的地址输入框。
+ *
+ * 浏览器自带的 `datalist` 箭头要鼠标移上去才冒出来，看着像「这栏没有可选项」；这里改成
+ * 输入框右侧常驻一颗箭头，点它列出候选、点一条就填进去 —— 同时还能照常手敲。候选为空时
+ * 只显示一句说明，不致于开出一个空菜单。
+ */
+function AddressCombo({
+  id,
+  value,
+  placeholder,
+  ariaLabel,
+  options,
+  emptyText,
+  onChange,
+}: {
+  id: string
+  value: string
+  placeholder: string
+  ariaLabel: string
+  options: ComboOption[]
+  emptyText: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <Input
+      inputProps={{ id, className: 'font-mono' }}
+      value={value}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      endSlot={
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label={ariaLabel}
+            className="-mr-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-foreground-muted hover:text-foreground-strong focus-visible:outline-none"
+          >
+            <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" style={{ width: 'auto', minWidth: '18rem', maxWidth: '32rem' }}>
+            {options.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-foreground-muted">{emptyText}</div>
+            ) : (
+              options.map((item) => (
+                <DropdownMenuItem key={item.value} onClick={() => onChange(item.value)}>
+                  <span className="font-mono text-xs break-all">{item.label}</span>
+                </DropdownMenuItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      }
+    />
+  )
+}
 
 type Props = {
   open: boolean
@@ -41,7 +101,7 @@ type Props = {
  *   ② 局域网地址（`preferredLanAddress`）—— 网卡候选里「手机优先用哪条」，右上角一颗
  *      「选择地址」开选择弹窗（地址可能好几条，摊在本窗里会把版面撑变形）；
  *   ③ 直连地址（`manualLanUrl`）—— 自己把端口暴露到公网域名 / 公网 IP 时填的那一条；
- *   ④ IPv6 地址（`manualIpv6Url`）—— 手填的公网 IPv6 入口；
+ *   ④ IPv6 地址（`manualIpv6Url`）—— 手填 / 探测预填的公网 IPv6 入口；
  *   ⑤ TCP 直连地址（`manualTcpUrl`）—— 手机用裸 TCP 拨的 `主机:端口`（iOS 经本机回环、安卓直连）。
  *
  * 后四条都是「直连」的一套候选，彼此并存：拨不通的那条手机自己会换下一条，所以界面不强制
@@ -78,7 +138,7 @@ export function RelayConfigDialog({
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
   const [manualLanUrl, setManualLanUrl] = useState('')
-  /** IPv6 直连地址（`manualIpv6Url`）：用户手填的公网 IPv6 入口。 */
+  /** IPv6 直连地址（`manualIpv6Url`）：手填的公网 IPv6 入口；没填过时先显示探测到的那条。 */
   const [manualIpv6Url, setManualIpv6Url] = useState('')
   /** TCP 直连地址（`manualTcpUrl`）：用户手填的 `主机:端口`，手机用裸 TCP 拨它。 */
   const [manualTcpUrl, setManualTcpUrl] = useState('')
@@ -136,7 +196,11 @@ export function RelayConfigDialog({
       return
     }
     if (!editedLanRef.current) setManualLanUrl(addressBook?.manual ?? '')
-    if (!editedIpv6Ref.current) setManualIpv6Url(addressBook?.manualIpv6 ?? '')
+    // 探测到的 IPv6 全球单播先填进框里，别让这栏空着像没识别到；有手填过的以手填为准。
+    // 只是显示，`submit` 那边会把「还是这条探测地址」当成没改，不偷偷落成手填。
+    if (!editedIpv6Ref.current) {
+      setManualIpv6Url(addressBook?.manualIpv6 || addressBook?.ipv6?.[0]?.url || '')
+    }
     if (!editedTcpRef.current) setManualTcpUrl(addressBook?.manualTcp ?? '')
     if (!editedPreferredRef.current) {
       const candidates = addressBook ? (addressBook.lan.length > 0 ? addressBook.lan : addressBook.public) : []
@@ -173,7 +237,10 @@ export function RelayConfigDialog({
     const direct = trimUrl(manualLanUrl)
     if (direct !== trimUrl(addressBook?.manual ?? '')) patch.manualLanUrl = direct
     const ipv6 = trimUrl(manualIpv6Url)
-    if (ipv6 !== trimUrl(addressBook?.manualIpv6 ?? '')) patch.manualIpv6Url = ipv6
+    // 基线是「真落盘过的手填」或「探测到的那条」：用户没动过、框里还是探测地址时不算改，
+    // 免得保存一次就把当前探测结果钉成手填（IPv6 前缀会变，钉死了反而多一条陈旧候选）。
+    const ipv6Baseline = trimUrl(addressBook?.manualIpv6 || addressBook?.ipv6?.[0]?.url || '')
+    if (ipv6 !== ipv6Baseline) patch.manualIpv6Url = ipv6
     // TCP 直连目标是 `主机:端口`（可带 http:// 前缀），空串合法（= 清掉这一条）。格式由宿主的
     // `tcpDirectTarget` 判，这里只去尾部斜杠，免得同一条存成两种写法。
     const tcp = trimUrl(manualTcpUrl)
@@ -324,47 +391,42 @@ export function RelayConfigDialog({
                       {t('panel.onboarding.chooseAddress')}
                     </Button>
                   </div>
-                  <Input
-                    inputProps={{ id: 'relay-preferred-lan', className: 'font-mono', list: 'relay-lan-candidates' }}
+                  {/* 检测到的那几条挂成右侧常驻候选：想挑就点箭头挑，也可以直接手敲。 */}
+                  <AddressCombo
+                    id="relay-preferred-lan"
                     value={preferredLan}
                     placeholder={t('panel.address.lanPlaceholder')}
-                    onChange={(event) => {
+                    ariaLabel={t('panel.address.lan')}
+                    options={pickableAddresses.map((item) => ({ value: item.address, label: item.url }))}
+                    emptyText={t('panel.address.empty')}
+                    onChange={(value) => {
                       editedPreferredRef.current = true
                       setLanHint('')
-                      setPreferredLan(event.target.value)
+                      setPreferredLan(value)
                     }}
                   />
-                  {/* 检测到的那几条挂成候选：想挑就在这儿挑，不必再开一次弹窗。 */}
-                  <datalist id="relay-lan-candidates">
-                    {pickableAddresses.map((item) => (
-                      <option key={item.address} value={item.address}>
-                        {item.url}
-                      </option>
-                    ))}
-                  </datalist>
                   {lanHint ? <p className="text-xs text-error">{lanHint}</p> : null}
                 </Field>
 
                 <Field>
                   <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
-                  <Input
-                    inputProps={{ id: 'relay-manual-ipv6', className: 'font-mono', list: 'relay-manual-ipv6-candidates' }}
+                  {/* 探测到的 IPv6 挂成右侧常驻候选：点箭头挑一条填进来，也可以直接手敲。
+                      框里默认先填探测到的那条（见上面回显那段），不会再空着。 */}
+                  <AddressCombo
+                    id="relay-manual-ipv6"
                     value={manualIpv6Url}
                     placeholder={t('panel.address.ipv6Placeholder')}
-                    onChange={(event) => {
+                    ariaLabel={t('panel.address.ipv6Url')}
+                    options={(addressBook?.ipv6 ?? []).map((item) => ({
+                      value: item.url,
+                      label: item.interface ? `${item.url} · ${item.interface}` : item.url,
+                    }))}
+                    emptyText={t('panel.address.empty')}
+                    onChange={(value) => {
                       editedIpv6Ref.current = true
-                      setManualIpv6Url(event.target.value)
+                      setManualIpv6Url(value)
                     }}
                   />
-                  {/* 检测到的 IPv6 挂成候选：点一下就填进框里，地址变了清单跟着变；不自动覆盖手填的值。
-                      手填框本身保持「只有人填才有值」，自动发现的那几条只在这里当建议。 */}
-                  <datalist id="relay-manual-ipv6-candidates">
-                    {(addressBook?.ipv6 ?? []).map((item) => (
-                      <option key={item.address} value={item.url}>
-                        {item.interface ? `${item.address} · ${item.interface}` : item.address}
-                      </option>
-                    ))}
-                  </datalist>
                 </Field>
             </DialogBody>
           </div>
