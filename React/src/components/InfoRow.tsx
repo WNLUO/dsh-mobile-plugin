@@ -38,15 +38,15 @@ type InfoRowProps = {
  * 用 `<dl>` 的语义，但每一行自己成对，方便按接口字段拼装——
  * 原来的设置页签也是这么排的，所以字段顺序照抄，别按自己的喜好重排。
  *
- * **标签可以收缩、可以折行**：原先写的是 `shrink-0`，遇到德语 / 法语 / 葡语那种长标签
- * （"Berechtigungsstufe"、"Niveau de permissions"）时它会一点都不让，把右边的值挤到
- * 卡片外面被裁掉 —— 1024 两栏时那一栏只有 210px，现场是法语「权限档位」只露出「Com」。
- * 现在标签按比例分宽度、放不下就折行，值那边仍是 `break-all` 兜底，两边都留在卡里。
+ * **两侧都要能收缩，但不能让任一侧归零**：标签原先写 `shrink-0`，长德语标签会把右边的值
+ * 挤出卡片；后来改成 `min-w-0` 又反过来——宿主报一长串错误时值不缩，标签被挤成竖排单字。
+ * 现在标签给最小宽度、值限最大占比并允许折行，两边都留得住。长错误最多两行（见 ToneValue），
+ * 全文放 title 里，行高不会被任意长度的动态文案撑爆。
  */
 export function InfoRow({ label, hint, labelExtra, tone, mono, nowrap, children }: InfoRowProps) {
   return (
     <div className={cn('flex justify-between gap-4 border-b border-border-muted py-2 last:border-b-0', nowrap ? 'items-center whitespace-nowrap' : 'items-baseline')}>
-      <dt className={nowrap ? 'shrink-0 text-xs text-foreground-muted' : 'min-w-0 flex-1 text-sm text-foreground-muted'}>
+      <dt className={nowrap ? 'shrink-0 text-xs text-foreground-muted' : 'min-w-[5.5rem] flex-1 text-sm text-foreground-muted'}>
         {hint || labelExtra ? (
           <span className="inline-flex items-center gap-1">
             {label}
@@ -80,8 +80,8 @@ export function InfoRow({ label, hint, labelExtra, tone, mono, nowrap, children 
       </dt>
       <dd
         className={cn(
-          'shrink-0 text-right text-sm',
-          nowrap ? 'whitespace-nowrap text-xs' : 'min-w-0 break-all',
+          'text-right text-sm',
+          nowrap ? 'shrink-0 whitespace-nowrap text-xs' : 'min-w-0 max-w-[62%] break-words',
           mono ? 'font-mono text-xs text-foreground-strong' : 'text-foreground',
           tone && toneText[tone],
         )}
@@ -105,7 +105,11 @@ export function ToneValue({ tone, text, detail }: { tone: Tone; text: string; de
     <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
       <Dot tone={tone} />
       <span>{text}</span>
-      {detail ? <span className="text-xs text-foreground-muted">{detail}</span> : null}
+      {detail ? (
+        <span className="line-clamp-2 text-xs text-foreground-muted" title={detail}>
+          {detail}
+        </span>
+      ) : null}
     </span>
   )
 }

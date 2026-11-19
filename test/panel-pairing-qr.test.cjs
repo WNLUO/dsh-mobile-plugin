@@ -25,6 +25,15 @@ test('引导页二维码放大并保留白色边框', () => {
   assert.match(page, /dangerouslySetInnerHTML=\{\{ __html: qrSvg \}\}/);
 });
 
+test('长动态文案不挤塌信息行标签，也不把行高撑爆', () => {
+  const row = read('components/InfoRow.tsx');
+  // 2026-11-20 现场：宿主报一串 webServer 错误时，标签被挤成竖排单字、整卡行数乱掉。
+  assert.match(row, /min-w-\[5\.5rem\] flex-1/, '标签有最小宽度，不会被长值挤成竖排');
+  assert.match(row, /min-w-0 max-w-\[62%\] break-words/, '值可收缩并折行，不再 shrink-0 硬顶');
+  assert.match(row, /line-clamp-2/, '动态错误最多两行');
+  assert.match(row, /title=\{detail\}/, '全文留在 title 里可看');
+});
+
 test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () => {
   const card = read('components/PairingCard.tsx');
   assert.match(card, /useState\(\{ relay: false \}\)/);
