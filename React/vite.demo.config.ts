@@ -7,17 +7,21 @@
  * 连本机宿主都摸不到。
  *
  * 构建仍然只走 `vite.config.ts`（产物是 `lib/panel/index.html`），本文件只给 `pnpm demo` 用。
+ * 配置本体按环境解析，这里先取解析结果再拆代理。
  */
 import { defineConfig } from 'vite'
 
-import base from './vite.config.ts'
+import { createConfig } from './vite.config.ts'
 
-export default defineConfig({
-  ...base,
-  server: {
-    ...base.server,
-    port: 5274,
-    strictPort: true,
-    proxy: {},
-  },
+export default defineConfig(async () => {
+  const resolved = await createConfig()
+  return {
+    ...resolved,
+    server: {
+      ...resolved.server,
+      port: 5274,
+      strictPort: true,
+      proxy: {},
+    },
+  }
 })
