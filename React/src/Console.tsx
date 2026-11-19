@@ -29,6 +29,7 @@ import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
 import { FloatingActions } from './components/FloatingActions.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
+import { JoinGroupButton } from './components/JoinGroupButton.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PairingCard, PairingPolicyRows } from './components/PairingCard.tsx'
 import { P2PDialog } from './components/P2PDialog.tsx'
@@ -377,8 +378,8 @@ export function Console() {
           <Badge variant="soft" size="sm">
             {status.appVersion || t('panel.shell.unknownVersion')}
           </Badge>
-          {/* 2026-11-17 用户要求：Star / 赞助 / 交流群从页面悬浮挪进顶栏、挨着左侧设备名。 */}
-          <FloatingActions compact />
+          {/* 2026-11-17 从悬浮挪进顶栏；2026-11-20 用户要求交流群挪进整卡动作行，这里只留 Star 与赞助。 */}
+          <FloatingActions compact includeJoinGroup={false} />
         </div>
         {busy ? (
           <span className="inline-flex items-center gap-1.5 text-xs text-foreground-muted">
@@ -441,7 +442,6 @@ export function Console() {
                 busy={busy}
                 error={pairingError}
                 restartError={status.sidecar.restartError}
-                onOpenConfig={() => setConfigOpen(true)}
                 onChangeControlReport={(enabled) => void saveControlReport(enabled)}
                 onOpenSelfCheck={() => setSelfCheckOpen(true)}
                 onRetryPairing={() => void loadPairing()}
@@ -459,7 +459,20 @@ export function Console() {
                   onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
                 />
               </InfoList>
-              <UpdateCard bare version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
+              <UpdateCard
+                bare
+                version={status.appVersion || ''}
+                busy={busy}
+                onRestartSidecar={() => void restartSidecar()}
+                extraActions={
+                  <>
+                    <Button variant="ghost" size="md" onClick={() => setConfigOpen(true)}>
+                      {t('panel.pairing.openConfig')}
+                    </Button>
+                    <JoinGroupButton compact />
+                  </>
+                }
+              />
             </div>
           </div>
         </Card>

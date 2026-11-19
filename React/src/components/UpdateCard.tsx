@@ -30,7 +30,7 @@ import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
 import { Switch } from '@appica/ui-react/switch'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { errorText } from '../lib/api.ts'
 import { useNotify } from '../lib/notify.ts'
@@ -60,6 +60,8 @@ type Props = {
   version: string
   busy: string
   onRestartSidecar: () => void
+  /** 并到动作行里的额外按钮（控制台把网络配置、交流群放这儿）。 */
+  extraActions?: ReactNode
   /** 只输出正文，外壳由控制台那张合并卡提供。 */
   bare?: boolean
 }
@@ -103,7 +105,7 @@ function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
   }
 }
 
-export function UpdateCard({ version, busy, onRestartSidecar, bare = false }: Props) {
+export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare = false }: Props) {
   /** 宿主那四条接口的状态；null = 还没读到（或老宿主压根没有）。 */
   const [host, setHost] = useState<UpdateStatusView | null>(null)
   /** 第一次读宿主状态已经落地：这之前别显示降级那一半，否则会先闪一下再变。 */
@@ -438,6 +440,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, bare = false }: Pr
           ) : null}
 
           <div className="mt-3 flex flex-wrap justify-end gap-2">
+            {extraActions}
             {/* 「重启 sidecar」和更新讲的是同一件事的另一半：让磁盘上的新代码在**子进程**层
                 立刻生效。它不重启宿主，所以留在这里。 */}
             <Button variant="ghost" size="md" disabled={idle} onClick={onRestartSidecar}>
@@ -491,6 +494,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, bare = false }: Pr
 
 
           <div className="mt-3 flex flex-wrap justify-end gap-2">
+            {extraActions}
             <Button variant="ghost" size="md" disabled={idle} onClick={onRestartSidecar}>
               {t('panel.update.restartSidecar')}
             </Button>

@@ -303,7 +303,9 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
   assert.equal(/FloatingActions/.test(shell), false, '外壳不再挂那三颗，顶栏里有了');
   assert.equal(/<JoinGroupButton|<SponsorButton|<StarButton/.test(shell), false, '三颗不在外壳里摆坐标');
   const consoleSrc = read('Console.tsx');
-  assert.match(consoleSrc, /<FloatingActions compact \/>/, 'Console 顶栏要渲染那排按钮');
+  assert.match(consoleSrc, /<FloatingActions compact includeJoinGroup=\{false\} \/>/, 'Console 顶栏只留 Star 与赞助，交流群已挪进整卡动作行');
+  assert.match(consoleSrc, /extraActions=\{[\s\S]{0,200}panel\.pairing\.openConfig[\s\S]{0,200}JoinGroupButton/, '网络配置与交流群并进右下动作行');
+  assert.doesNotMatch(read('components', 'PairingCard.tsx'), /panel\.pairing\.openConfig/, '网络配置不再留在左上那排');
   assert.match(shell, /<TopRightActions \/>/, '外壳里要渲染右上角那组按钮');
   assert.match(shell, /usePanelLanguage\(\)/, '外壳必须订阅语言状态，否则切语言整页不重绘');
 
