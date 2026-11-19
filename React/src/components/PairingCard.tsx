@@ -118,6 +118,19 @@ export function PairingCard({
   // 放大二维码：屏幕缩放、手机离得远时，卡片里那颗太小。它只是同一张码的另一个尺寸，
   // 揭开状态另算 —— 关掉弹窗回到卡片里的样子，不改变「默认遮着」那条。
   const [qrZoom, setQrZoom] = React.useState(false)
+  // 二维码占位的尺寸跟随右邻信息行：量它的实际高度，宽高都取这个值才是正方形。
+  // 不靠 aspect-ratio 从高度反推宽度——高度由内容撑开时会塌成竖条，把文字挤成竖排。
+  const infoRef = React.useRef<HTMLDivElement | null>(null)
+  const [qrSize, setQrSize] = React.useState(0)
+  React.useEffect(() => {
+    const el = infoRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const measure = () => setQrSize(Math.round(el.getBoundingClientRect().height))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   const body = (
@@ -133,10 +146,12 @@ export function PairingCard({
       <div className={`${bare ? '' : 'mt-3'} flex flex-col gap-4 sm:flex-row sm:items-stretch`}>
         {/* 二维码只用一块方形的入口：点它直接开放大弹窗——「显示」与「放大」合成一下，
             卡片里不再摆真正的码图（也更好防窥屏）。
-            宽屏用固定 144×144：正好等于四行信息行（每行 min-h-9）的总高，方形且与最后一行齐平。
-            不能拉伸高度也不能靠 aspect-ratio 反推宽度——前者会变成长方形，后者会塌成竖条。
-            窄屏单列没有可参照高度，退回限宽 200 的正方形并居中。 */}
-        <div className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:h-36 sm:w-36 sm:max-w-none sm:self-start">
+            宽屏尺寸由右邻信息行的实测高度驱动：宽高都取这个值，既是正方形又与最后一行齐平。
+            窄屏单列没有可参照的高度，退回限宽 200 的正方形并居中。 */}
+        <div
+          className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:h-[var(--qr-size)] sm:w-[var(--qr-size)] sm:max-w-none sm:self-start"
+          style={qrSize > 0 ? { '--qr-size': `${qrSize}px` } as React.CSSProperties : undefined}
+        >
           {!pairing?.svg ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle">
               {error ? (
@@ -167,7 +182,7 @@ export function PairingCard({
           )}
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div ref={infoRef} className="flex min-w-0 flex-1 flex-col">
           <InfoList className={EVEN_ROWS}>
             <InfoRow label={t('panel.connection.relayUrl')} nowrap>
               <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
