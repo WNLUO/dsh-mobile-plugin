@@ -59,6 +59,16 @@ test('配对与更新合成一张无标题整卡：两份正文以 bare 模式�
   assert.doesNotMatch(card, /flex-1 flex-col justify-/, '信息行不许 justify-around/center 把行拉到中间');
 });
 
+test('配对策略、权限档位、自动审阅直接落在整卡正文，不再走「其他」弹窗', () => {
+  const card = read('components/PairingCard.tsx');
+  // 2026-11-20 用户要求：这些设置连同「检查网络」一起搬到整卡里，少点一层。
+  assert.doesNotMatch(card, /moreOpen|panel\.common\.more/, '「其他」弹窗入口已撤');
+  for (const key of ['panel.pairing.policy', 'panel.pairing.tier', 'panel.pairing.autoReview']) {
+    assert.ok(card.includes(key), `${key} 要留在整卡正文里`);
+  }
+  assert.ok(card.indexOf('onOpenSelfCheck') > 0, '检查网络并进动作行，不藏在弹窗里');
+});
+
 test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且不改默认隐藏', () => {
   const card = read('components/PairingCard.tsx');
   const page = read('Onboarding.tsx');

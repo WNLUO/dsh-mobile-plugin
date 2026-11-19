@@ -8,6 +8,7 @@
  * （`rotatePairing`），二维码自己会变，不需要人来按。
  *
  * 标题栏那几颗是纯文字按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
+ * 2026-11-20 用户要求：原「其他」弹窗里的策略、档位、自动审阅挪进整卡正文，检查网络并进动作行。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
@@ -139,8 +140,6 @@ export function PairingCard({
   // 放大二维码：屏幕缩放、手机离得远时，卡片里那颗太小。它只是同一张码的另一个尺寸，
   // 揭开状态另算 —— 关掉弹窗回到卡片里的样子，不改变「默认遮着」那条。
   const [qrZoom, setQrZoom] = React.useState(false)
-  // 「其他」弹窗：配对策略、新设备档位、自动审阅与「检查网络」这些不常用项都收在里面。
-  const [moreOpen, setMoreOpen] = React.useState(false)
   // 「自动上报网络地址」那行的说明弹窗：讲清楚总控是什么、开了之后能干什么。
   const [controlReportInfoOpen, setControlReportInfoOpen] = React.useState(false)
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
@@ -152,8 +151,8 @@ export function PairingCard({
         {t('panel.pairing.openConfig')}
       </Button>
       <DownloadAppButton size="sm" variant="ghost" className="px-2" />
-      <Button variant="ghost" size="sm" className="px-2" onClick={() => setMoreOpen(true)}>
-        {t('panel.common.more')}
+      <Button variant="ghost" size="sm" className="px-2" onClick={onOpenSelfCheck}>
+        {t('panel.pairing.checkNetwork')}
       </Button>
     </>
   )
@@ -298,6 +297,49 @@ export function PairingCard({
                 }}
               />
             </InfoRow>
+            {/* 2026-11-20 用户要求：原「其他」弹窗里的设置挪进整卡，不再点开一层。 */}
+            <InfoRow label={t('panel.pairing.policy')}>
+              <Switch
+                size="md"
+                checked={pairingAllowed}
+                disabled={idle}
+                onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
+                aria-label={t('panel.devices.allowTitle')}
+              />
+            </InfoRow>
+            <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
+              <Select
+                size="sm"
+                value={pairingTier}
+                disabled={idle}
+                itemToStringLabel={(next) => tierLabel(next as Tier)}
+                onValueChange={(next) => {
+                  if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
+                }}
+              >
+                <SelectTrigger className="min-w-0 max-w-full" aria-label={t('panel.pairing.tier')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIER_OPTIONS.map((tier) => (
+                    <SelectItem key={tier} value={tier}>
+                      {tierLabel(tier)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </InfoRow>
+            <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
+              <Switch
+                size="sm"
+                checked={autoReview}
+                disabled={idle}
+                aria-label={t('panel.pairing.autoReview')}
+                onCheckedChange={(next) => {
+                  if (next !== autoReview) onChangeAutoReview(next)
+                }}
+              />
+            </InfoRow>
           </InfoList>
           </div>
 
@@ -384,66 +426,6 @@ export function PairingCard({
         </DialogContent>
       </Dialog>
 
-      {/* 「其他」：不常用的设置——配对策略、新设备档位、自动审阅，以及「检查网络」——都收在这里，
-          标题那一行留给日常动作。 */}
-      <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
-        <DialogContent className="max-w-md" closeLabel={t('panel.common.close')}>
-          <DialogHeader>
-            <DialogTitle>{t('panel.common.more')}</DialogTitle>
-          </DialogHeader>
-          <DialogBody className="flex flex-col gap-3">
-            <InfoList>
-              <InfoRow label={t('panel.pairing.policy')}>
-                <Switch
-                  size="md"
-                  checked={pairingAllowed}
-                  disabled={idle}
-                  onCheckedChange={(next) => onChangePolicy(next ? 'code' : 'deny')}
-                  aria-label={t('panel.devices.allowTitle')}
-                />
-              </InfoRow>
-              <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
-                <Select
-                  size="sm"
-                  value={pairingTier}
-                  disabled={idle}
-                  itemToStringLabel={(next) => tierLabel(next as Tier)}
-                  onValueChange={(next) => {
-                    if (typeof next === 'string' && next !== pairingTier) onChangeTier(next as Tier)
-                  }}
-                >
-                  <SelectTrigger className="min-w-0 max-w-full" aria-label={t('panel.pairing.tier')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIER_OPTIONS.map((tier) => (
-                      <SelectItem key={tier} value={tier}>
-                        {tierLabel(tier)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </InfoRow>
-              <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
-                <Switch
-                  size="sm"
-                  checked={autoReview}
-                  disabled={idle}
-                  aria-label={t('panel.pairing.autoReview')}
-                  onCheckedChange={(next) => {
-                    if (next !== autoReview) onChangeAutoReview(next)
-                  }}
-                />
-              </InfoRow>
-            </InfoList>
-            <div className="flex justify-end">
-              <Button variant="outline" size="sm" onClick={onOpenSelfCheck}>
-                {t('panel.pairing.checkNetwork')}
-              </Button>
-            </div>
-          </DialogBody>
-        </DialogContent>
-      </Dialog>
     </>
   )
 
