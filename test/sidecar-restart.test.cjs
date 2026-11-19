@@ -49,6 +49,14 @@ test('sidecar 实例是 let，重启才换得掉', () => {
   )
 })
 
+test('自重启不读失效的 ctx.webServer，端口在构造时缓存', () => {
+  const src = read(LIFECYCLE)
+  // 换代后旧 context 已 inactive，重启时再读 ctx.webServer 会抛错，导致 TCP/P2P 都起不来。
+  assert.match(src, /const parentPort = ctx\.webServer\.port/, '父进程端口构造时取一次');
+  assert.doesNotMatch(src, /new (?:SidecarFacade|Fresh)\(\{ parentPort: ctx\.webServer\.port/, '重启不许再读 ctx.webServer');
+  assert.match(src, /new Fresh\(\{ parentPort,/, '重启用缓存的端口');
+})
+
 test('status 如实上报重启范围，不把宿主侧模块说成可重启', () => {
   // status 视图已挪到 lib/relay/status.js：重启范围是它如实上报的，别再盯 index.js。
   const src = read(path.join(__dirname, '..', 'lib', 'relay', 'status.js'))
@@ -182,6 +190,8 @@ const buildRestartHarness = (deps) => {
   const body = extractRestartBlock()
   const factory = new Function('deps', `
     const { require, ctx, sidecarToken, syncSidecar } = deps
+    // 生产代码在 createSidecarLifecycle 构造期缓存父端口，重启块直接用它；这里补上同一份。
+    const parentPort = ctx.webServer.port
     // 被抠出来的块产自 lib/sidecar-lifecycle.cjs，里面的 __dirname 指的是 lib/；
     // path 也来自那个模块顶部的 require('node:path')，块里要用 path.sep。
     const __dirname = deps.pluginLibDir

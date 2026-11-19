@@ -44,6 +44,12 @@ test('卡片内常驻报错不铺大块告警，只占一行状态', () => {
   assert.match(connection, /panel\.pairing\.sidecarRestartFailed/, '失败文案跟在旁挂进程那行');
 });
 
+test('P2P 弹窗对老宿主的缺字段兜底，不白屏', () => {
+  const dialog = read('components/P2PDialog.tsx');
+  assert.match(dialog, /Array\.isArray\(status\?\.candidates\)/, '候选地址缺失时按空数组渲染');
+  assert.doesNotMatch(dialog, /status\.candidates\.(?:length|map)/, '不许直接读可能不存在的字段');
+});
+
 test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () => {
   const card = read('components/PairingCard.tsx');
   assert.match(card, /useState\(\{ relay: false \}\)/);

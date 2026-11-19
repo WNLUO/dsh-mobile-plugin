@@ -114,6 +114,8 @@ export function P2PDialog({ open, onOpenChange, onChanged }: Props) {
 
   // 显式收窄：`view === null` 那一支已经画了「正在读取」，下面这一整块都按非空用。
   const status = view
+  // 老宿主回来的快照可能没有 candidates：渲染时直接读 .length 会抛错，整页白屏。
+  const candidates = Array.isArray(status?.candidates) ? status.candidates : []
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -162,13 +164,13 @@ export function P2PDialog({ open, onOpenChange, onChanged }: Props) {
 
               <div className="flex flex-col gap-1 border-b border-border-muted py-2">
                 <span className="text-sm text-foreground-muted">
-                  {t('panel.p2p.candidatesLabel')} ({status.candidates.length})
+                  {t('panel.p2p.candidatesLabel')} ({candidates.length})
                 </span>
-                {status.candidates.length === 0 ? (
+                {candidates.length === 0 ? (
                   <span className="text-xs text-foreground-muted">{t('panel.p2p.noCandidates')}</span>
                 ) : (
                   <ul className="flex flex-col gap-1">
-                    {status.candidates.map((candidate) => (
+                    {candidates.map((candidate) => (
                       <li key={candidate} className="font-mono text-xs break-all text-foreground-strong">
                         {candidate}
                       </li>
