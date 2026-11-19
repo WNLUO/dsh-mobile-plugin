@@ -28,6 +28,7 @@ import type { AddressBook, PairingInfo, PairingPolicy, StatusView, Tier } from '
 import { AddressPicker } from './AddressPicker.tsx'
 import { DownloadAppButton } from './DownloadAppButton.tsx'
 import { InfoList, InfoRow } from './InfoRow.tsx'
+import { InfoMark } from './InfoMark.tsx'
 import { RevealButton } from './RevealButton.tsx'
 
 type Props = {
@@ -46,6 +47,8 @@ type Props = {
   onChangeTier: (tier: Tier) => void
   /** 审批「自动审阅档」（`status.approvalAutoReview`）：改的是同一个 `/api/relay/config`。 */
   onChangeAutoReview: (enabled: boolean) => void
+  /** 「自动上报网络地址」（`status.controlReportEnabled`，总控上报）：改的是同一个 `/api/relay/config`。 */
+  onChangeControlReport: (enabled: boolean) => void
   /** 「检查网络」：开的是「连接自检」那个弹窗（与卡片里那行「自检」是同一件事）。 */
   onOpenSelfCheck: () => void
   onRetryPairing: () => void
@@ -105,6 +108,7 @@ export function PairingCard({
   onChangePolicy,
   onChangeTier,
   onChangeAutoReview,
+  onChangeControlReport,
   onOpenSelfCheck,
   onRetryPairing,
   onSavePreferred,
@@ -117,6 +121,8 @@ export function PairingCard({
   const pairingTier: Tier = status.pairingTier ?? 'full'
   /** 审批自动审阅档：老宿主没这个字段时按关（与宿主缺省一致）。 */
   const autoReview = status.approvalAutoReview === true
+  /** 「自动上报网络地址」（总控上报）：老宿主没这个字段时按开（与宿主历史行为一致）。 */
+  const controlReport = status.controlReportEnabled !== false
   /** 「中转地址」那行的明文：默认遮上。 */
   const relayUrl = pairing?.relayUrl || status.relayUrl || '—'
   /**
@@ -134,6 +140,8 @@ export function PairingCard({
   const [qrZoom, setQrZoom] = React.useState(false)
   // 「其他」弹窗：配对策略、新设备档位、自动审阅与「检查网络」这些不常用项都收在里面。
   const [moreOpen, setMoreOpen] = React.useState(false)
+  // 「自动上报网络地址」那行的说明弹窗：讲清楚总控是什么、开了之后能干什么。
+  const [controlReportInfoOpen, setControlReportInfoOpen] = React.useState(false)
   const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   return (
@@ -263,6 +271,37 @@ export function PairingCard({
                 />
               </span>
             </InfoRow>
+            {/*
+              「自动上报网络地址」（总控上报）：这功能一直都是开着的，这里把它摆成一颗默认开的
+              开关，让不想要的人能关。标题右边那颗感叹号点开是说明弹窗 —— 比悬浮提示能放下更多字，
+              也正好把「总控」这个东西讲给用户听。开关取值直接来自 `status.controlReportEnabled`，
+              写回走同一个 `/api/relay/config`，不另存一份状态。
+            */}
+            <InfoRow
+              label={t('panel.pairing.controlReport')}
+              nowrap
+              labelExtra={
+                <button
+                  type="button"
+                  aria-label={t('panel.pairing.controlReportInfo')}
+                  title={t('panel.pairing.controlReportInfo')}
+                  className="shrink-0 cursor-pointer rounded text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                  onClick={() => setControlReportInfoOpen(true)}
+                >
+                  <InfoMark />
+                </button>
+              }
+            >
+              <Switch
+                size="sm"
+                checked={controlReport}
+                disabled={idle}
+                aria-label={t('panel.pairing.controlReport')}
+                onCheckedChange={(next) => {
+                  if (next !== controlReport) onChangeControlReport(next)
+                }}
+              />
+            </InfoRow>
           </InfoList>
           </div>
 
@@ -323,6 +362,26 @@ export function PairingCard({
           </DialogBody>
           <DialogFooter className="flex justify-end">
             <Button variant="outline" onClick={() => setAddressOpen(false)}>
+              {t('panel.common.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/*
+        「自动上报网络地址」说明弹窗：讲清楚「总控」是什么、这台电脑上报了什么、关掉会怎样。
+        用户点标题右边那颗感叹号才有，平时不占地方。
+      */}
+      <Dialog open={controlReportInfoOpen} onOpenChange={setControlReportInfoOpen}>
+        <DialogContent className="max-w-md" closeLabel={t('panel.common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('panel.pairing.controlReport')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="whitespace-pre-line text-sm leading-6 text-foreground-muted">
+            {t('panel.pairing.controlReportDetail')}
+          </DialogBody>
+          <DialogFooter className="flex justify-end">
+            <Button variant="outline" onClick={() => setControlReportInfoOpen(false)}>
               {t('panel.common.close')}
             </Button>
           </DialogFooter>

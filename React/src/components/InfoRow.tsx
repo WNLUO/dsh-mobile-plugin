@@ -19,6 +19,11 @@ type InfoRowProps = {
    * 鼠标悬浮或键盘聚焦时出提示，说明长的行（比如权限档位、自动审阅）不再把卡片撑高。
    */
   hint?: string
+  /**
+   * 紧跟在标签右边的一枚自定义小控件（比如一颗点开弹窗的说明图标）。`hint` 走悬浮提示，
+   * 这个走调用方自己给的交互；两者可以同时给，会按「标签 · 说明图标 · 问号」的顺序排。
+   */
+  labelExtra?: ReactNode
   /** 行首那枚点；不传就不画。 */
   tone?: Tone
   mono?: boolean
@@ -38,33 +43,36 @@ type InfoRowProps = {
  * 卡片外面被裁掉 —— 1024 两栏时那一栏只有 210px，现场是法语「权限档位」只露出「Com」。
  * 现在标签按比例分宽度、放不下就折行，值那边仍是 `break-all` 兜底，两边都留在卡里。
  */
-export function InfoRow({ label, hint, tone, mono, nowrap, children }: InfoRowProps) {
+export function InfoRow({ label, hint, labelExtra, tone, mono, nowrap, children }: InfoRowProps) {
   return (
     <div className={cn('flex justify-between gap-4 border-b border-border-muted py-2 last:border-b-0', nowrap ? 'items-center whitespace-nowrap' : 'items-baseline')}>
       <dt className={nowrap ? 'shrink-0 text-xs text-foreground-muted' : 'min-w-0 flex-1 text-sm text-foreground-muted'}>
-        {hint ? (
+        {hint || labelExtra ? (
           <span className="inline-flex items-center gap-1">
             {label}
-            {/* 说明挂在标签旁边，不摊在行里：长的说明会把卡片撑高、把下面的行顶下去。
-                按钮本身是文字色的问号，悬浮与键盘聚焦都出提示，读屏读到的是 `title`。 */}
-            <Tooltip>
-              <TooltipTrigger
-                delay={250}
-                render={
-                  <button
-                    type="button"
-                    aria-label={hint}
-                    title={hint}
-                    className="shrink-0 cursor-pointer text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none motion-reduce:transition-none"
-                  >
-                    <QuestionMark />
-                  </button>
-                }
-              />
-              <TooltipContent className="max-w-72">
-                <p>{hint}</p>
-              </TooltipContent>
-            </Tooltip>
+            {labelExtra}
+            {hint ? (
+              /* 说明挂在标签旁边，不摊在行里：长的说明会把卡片撑高、把下面的行顶下去。
+                 按钮本身是文字色的问号，悬浮与键盘聚焦都出提示，读屏读到的是 `title`。 */
+              <Tooltip>
+                <TooltipTrigger
+                  delay={250}
+                  render={
+                    <button
+                      type="button"
+                      aria-label={hint}
+                      title={hint}
+                      className="shrink-0 cursor-pointer text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none motion-reduce:transition-none"
+                    >
+                      <QuestionMark />
+                    </button>
+                  }
+                />
+                <TooltipContent className="max-w-72">
+                  <p>{hint}</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </span>
         ) : (
           label

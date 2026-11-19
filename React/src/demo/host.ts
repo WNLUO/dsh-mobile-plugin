@@ -61,6 +61,8 @@ type DemoState = {
   manualLanUrl: string
   /** 手填的 IPv6 直连地址（`manualIpv6Url`），与宿主同名设置项。 */
   manualIpv6Url: string
+  /** 「自动上报网络地址」（总控上报）开关，与宿主同名设置项。 */
+  controlReportEnabled: boolean
   autoUpdate: boolean
   qrIndex: number
   /** 历史是否已被「清空历史」抹掉：只影响演示页自己，刷新即回到初始那份。 */
@@ -92,6 +94,7 @@ function initial(): DemoState {
     preferredLanAddress: '',
     manualLanUrl: '',
     manualIpv6Url: '',
+    controlReportEnabled: true,
     autoUpdate: false,
     qrIndex: 0,
     historyCleared: false,
@@ -233,6 +236,7 @@ function statusView(): StatusView {
     relayUrl: state.relayUrl,
     name: state.name,
     pairingPolicy: state.pairingPolicy,
+    controlReportEnabled: state.controlReportEnabled,
     os: 'macOS',
     platform: DEMO_PLATFORM,
     osVersion: DEMO_OS_VERSION,
@@ -377,6 +381,7 @@ function applyConfig(patch: ConfigPatch) {
   if (typeof patch.preferredLanAddress === 'string') state.preferredLanAddress = patch.preferredLanAddress.trim()
   if (typeof patch.manualLanUrl === 'string') state.manualLanUrl = patch.manualLanUrl.trim().replace(/\/+$/, '')
   if (typeof patch.manualIpv6Url === 'string') state.manualIpv6Url = patch.manualIpv6Url.trim().replace(/\/+$/, '')
+  if (typeof patch.controlReportEnabled === 'boolean') state.controlReportEnabled = patch.controlReportEnabled
   return statusView()
 }
 

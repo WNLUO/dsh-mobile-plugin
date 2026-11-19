@@ -318,6 +318,12 @@ export function Console() {
       notify('soft', t(enabled ? 'panel.shell.autoReviewOn' : 'panel.shell.autoReviewOff'))
     })
 
+  const saveControlReport = (enabled: boolean) =>
+    act('controlReport', async () => {
+      setStatus(await apiPost<StatusView>('/api/relay/config', { controlReportEnabled: enabled }))
+      notify('soft', t('panel.shell.configSaved'))
+    })
+
   const saveLanPort = (port: number) =>
     act('lan', async () => {
       setStatus(await apiPost<StatusView>('/api/relay/config', { lanPort: port }))
@@ -436,6 +442,7 @@ export function Console() {
               onChangePolicy={(policy) => void savePolicy(policy)}
               onChangeTier={(tier) => void savePairingTier(tier)}
               onChangeAutoReview={(enabled) => void saveAutoReview(enabled)}
+              onChangeControlReport={(enabled) => void saveControlReport(enabled)}
               onOpenSelfCheck={() => setSelfCheckOpen(true)}
               onRetryPairing={() => void loadPairing()}
               onSavePreferred={(address) => void savePreferredLanAddress(address)}

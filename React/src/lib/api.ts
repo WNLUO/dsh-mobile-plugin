@@ -139,6 +139,11 @@ export type StatusView = {
    * 老宿主不回这一格，读成 undefined 时按关处理 —— 那正是它的默认值。
    */
   approvalAutoReview?: boolean
+  /**
+   * 「自动上报网络地址」（总控上报）开着没有。默认开；老宿主不回这一格，读成 undefined 时
+   * 按开处理 —— 那正是它一直以来的行为。
+   */
+  controlReportEnabled?: boolean
   os: string
   platform: string
   osVersion: string
@@ -516,6 +521,11 @@ export type ConfigPatch = {
    * 界面上的开关就会原样弹回去，而不是假装开了。
    */
   approvalAutoReview?: boolean
+  /**
+   * 「自动上报网络地址」（总控上报）开关。只认布尔值；老宿主不认这一格，写进去也读不回来，
+   * 界面上的开关就会原样弹回去，而不是假装改了。
+   */
+  controlReportEnabled?: boolean
   /**
    * 手机优先用哪条地址（IPv4 字面量）。空串是合法值，表示「不指定，按宿主自己的排序」——
    * 所以它跟 `name` 不一样，不会被宿主当成「没填」丢掉。
