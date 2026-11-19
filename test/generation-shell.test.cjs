@@ -437,6 +437,36 @@ test('换代：装进来的新代可以顶上，不必重启进程，旧代的�
   assert.equal(await routeReply(server, '/api/relay/gen'), 'b-0.9.3', '换完跑的必须真是新代那一段代码');
 });
 
+test('换代：新代模块 import 就失败时，旧代毫发无损（预加载在卸载之前）', async t => {
+  await resetProfile();
+  install(makeGeneration('preimport-a', '0.9.6', goodGeneration('a-0.9.6')));
+  const { server, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+
+  const before = await waitForStatus(runtime);
+  assert.equal(before.version, '0.9.6');
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'a-0.9.6');
+
+  // 版本更高，但模块在 import 阶段就炸（缺文件）：预加载在卸载旧代之前，所以旧代不能被动到。
+  const BAD_IMPORT = `
+import './definitely-missing-module.js'
+export const name = 'dsh-mobile-plugin'
+export const inject = ['webServer', 'sessions']
+export function apply(ctx) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/api/relay/bad', handler: async (req, res) => { res.end('bad') } }), 'bad route')
+}
+`;
+  install(makeGeneration('preimport-b', '0.9.7', BAD_IMPORT));
+  await assert.rejects(() => runtime.reload());
+
+  const status = runtime.status();
+  assert.equal(status.version, '0.9.6', 'import 失败不得动旧代');
+  assert.equal(status.lastRollback ?? null, null, '预加载失败根本没进换代，不该留下回滚记录');
+  assert.ok(server.routes.has('/api/relay/gen'), '旧代路由必须还在（预加载失败没进换代）');
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'a-0.9.6', '旧代仍在正常服务');
+  assert.ok(!server.routes.has('/api/relay/bad'), '坏的那一代一条路由都不该挂上');
+});
+
 test('换代：新代装载失败时回滚到旧代，错误被记在状态里', async t => {
   await resetProfile();
   install(makeGeneration('rollback-a', '0.9.4', goodGeneration('a-0.9.4')));
