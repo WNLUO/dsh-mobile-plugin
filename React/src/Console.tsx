@@ -421,8 +421,8 @@ export function Console() {
 
       {/*
         内容区自上而下：
-        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 6 成配对（点开才放大二维码），
-           右边 4 成更新，两份正文各自只有一份实现、由 `bare` 模式挂进同一张卡。窄屏收成单列。
+        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 7 成配对（点开才放大二维码），
+           右边 3 成更新，两份正文各自只有一份实现、由 `bare` 模式挂进同一张卡。窄屏收成单列。
            原先这一行的「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
         2. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
            设备再多也在卡内滚动。
@@ -431,8 +431,8 @@ export function Console() {
       */}
       <div className="grid grid-cols-1 gap-3">
         <Card frame="solid">
-          <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-5 md:gap-6">
-            <div className="md:col-span-3">
+          <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-10 md:gap-6">
+            <div className="md:col-span-7">
               <PairingCard
                 bare
                 status={status}
@@ -452,7 +452,7 @@ export function Console() {
                 onEditPort={() => setPortOpen(true)}
               />
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <UpdateCard bare version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
             </div>
           </div>

@@ -205,8 +205,7 @@ export function PairingCard({
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="hscroll -mx-1 px-1">
-          <InfoList className="min-w-max">
+          <InfoList>
             <InfoRow label={t('panel.connection.relayUrl')} nowrap>
               <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 {shown.relay ? (
@@ -341,8 +340,6 @@ export function PairingCard({
               />
             </InfoRow>
           </InfoList>
-          </div>
-
         </div>
       </div>
 
