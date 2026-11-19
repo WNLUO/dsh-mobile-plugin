@@ -10,6 +10,8 @@
  * 这一页最常出现的地方是 DSH 里嵌的那一窗（`lib/client.js` 的 `openConsole`），而那一窗
  * **收起时不销毁**、下次直接亮回来 —— 所以这一页的轮询由 `pageVisible()` 统一判「现在该不该
  * 跑」（父窗口收起时会通知，见 `lib/embed-visibility.ts`），别写回裸的 `document.hidden`。
+ *
+ * 同一行里的卡片由高的一方定行高、矮的一方撑满；设备卡按连接卡高度封顶，多出来的在卡内滚动。
  */
 // 控制台按实际状态报告就绪，二维码失败可单独重试并清除旧错误。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
@@ -419,8 +421,8 @@ export function Console() {
       {/*
         内容区自上而下：
         1. 顶栏两栏（2026-11-17 定）：左边 6 成「配对与二维码」（点开才弹窗，二维码在里面
-           放大好扫），右边 4 成「插件更新」。两卡等高、跟着内容多的更新卡走，配对卡用
-           `fill` 撑满并把三行地址铺开，矮卡下面不留空。窄屏收成单列。原先这一行的
+           放大好扫），右边 4 成「插件更新」。两卡都 `fill` 撑满整格：同行谁高谁定行高，
+           矮的那张跟着撑，不再假设一定是更新卡更高。窄屏收成单列。原先这一行的
            「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
         2. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
            设备再多也在卡内滚动。
@@ -450,7 +452,7 @@ export function Console() {
             />
           </div>
           <div className="md:col-span-2">
-            <UpdateCard version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
+            <UpdateCard fill version={status.appVersion || ''} busy={busy} onRestartSidecar={() => void restartSidecar()} />
           </div>
         </div>
 

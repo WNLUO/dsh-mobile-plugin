@@ -20,6 +20,8 @@
  *
  * **某次动作的结果**一律走右上角的胶囊（`../lib/notify.ts`）；**一直如此的事实**（没有可
  * 换代的外壳、没有市场、`link:` 装的）留在卡片里。
+ *
+ * 与配对卡并排时用 `fill` 撑满整格：行高由同行高的那张决定，这张卡不反过来定行高。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
@@ -57,6 +59,8 @@ type Props = {
   version: string
   busy: string
   onRestartSidecar: () => void
+  /** 撑满所在网格单元格（与「配对与二维码」并排时等高，矮卡下面不留空）。 */
+  fill?: boolean
 }
 
 /** 这几个 code 不是「坏了」，是「这次没动、可以再试」——走琥珀提示而不是红框。 */
@@ -98,7 +102,7 @@ function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
   }
 }
 
-export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
+export function UpdateCard({ version, busy, onRestartSidecar, fill = false }: Props) {
   /** 宿主那四条接口的状态；null = 还没读到（或老宿主压根没有）。 */
   const [host, setHost] = useState<UpdateStatusView | null>(null)
   /** 第一次读宿主状态已经落地：这之前别显示降级那一半，否则会先闪一下再变。 */
@@ -324,7 +328,7 @@ export function UpdateCard({ version, busy, onRestartSidecar }: Props) {
   const diskDisagree = hostMode && !!diskVersion && !!version && diskVersion !== version
 
   return (
-    <Card frame="solid">
+    <Card frame="solid" className={fill ? 'flex h-full min-h-0 flex-col' : undefined}>
       <CardHeader className="px-4 py-3">
         <CardTitle className="flex items-center gap-2 text-base lg:text-lg">
           <span>{t('panel.update.title')}</span>
