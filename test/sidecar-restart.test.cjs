@@ -172,7 +172,7 @@ const waitUntil = async (fn, what) => {
 
 const extractRestartBlock = () => {
   const src = read(LIFECYCLE)
-  const from = src.indexOf('  const PLUGIN_LIB_DIR =')
+  const from = src.indexOf('  const pluginLibDirPrefix =')
   const to = src.indexOf('  // ── 健康轮询', from)
   assert.ok(from > 0 && to > from, '应能在 lib/sidecar-lifecycle.cjs 里定位到重启代码块')
   return src.slice(from, to)
@@ -186,6 +186,8 @@ const buildRestartHarness = (deps) => {
     // path 也来自那个模块顶部的 require('node:path')，块里要用 path.sep。
     const __dirname = deps.pluginLibDir
     const path = require('node:path')
+    // 阶段 A 起 pluginLibDir 走可变 providers（外壳持有时换代更新）；块里读它。
+    const providers = { pluginLibDir: deps.pluginLibDir }
     let sidecar = deps.sidecar
     let sidecarState = 'starting'
     let sidecarSnapshot = { tunnel: { state: 'off', error: null }, lan: { state: 'off', error: null } }
@@ -386,7 +388,7 @@ test('宿主把 onDown 接到了两处 facade 构造上，健康轮询失败也�
     assert.match(c, /onDown: markSidecarDown/, `构造时必须交 onDown：${c}`)
   }
   // 健康轮询的 catch 必须调 markSidecarDown，不能是空的。
-  const poll = src.slice(src.indexOf('const healthTimer = setInterval'))
+  const poll = src.slice(src.indexOf('healthTimer = setInterval'))
   assert.match(poll, /catch \(error\) \{[\s\S]*?markSidecarDown\(error\)/, '健康轮询失败必须把状态打回 off')
   assert.doesNotMatch(poll, /catch \{ \/\* ignore \*\/ \}/, '空的 catch 就是谎报的根源，不能再出现')
 })
@@ -396,7 +398,7 @@ test('轮询自己写上去的 error 必须自愈，配置/重启失败的 error
   const flat = (s) => s.replace(/\s+/g, ' ')
   // 一次回环 reset（worker 正在被换掉、socket 抖一下）只该红到下一次轮询为止。原来的
   // 写法只有失败分支会写状态、成功分支不回写，于是那行红字会一直挂到用户来点重启。
-  const poll = flat(src.slice(src.indexOf('const healthTimer = setInterval')))
+  const poll = flat(src.slice(src.indexOf('healthTimer = setInterval')))
   assert.match(
     poll,
     /if \(stateFromPoll\) \{ sidecarState = 'healthy'; stateFromPoll = false \}/,
