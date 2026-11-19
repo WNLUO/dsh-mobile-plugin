@@ -702,3 +702,15 @@ test('原生助手默认不自动启动：没有显式开启时 enabled=false，
   assert.equal(session.start(), null);
   assert.equal(host.written.length, 0, '关着时不许给助手发任何命令');
 });
+
+test('总开关：显式开启才拉起助手并落盘，关掉停进程且状态如实', () => {
+  const { session, host, saved } = makeSession({ [STATE.enabled]: false });
+  assert.equal(session.status().enabled, false);
+  assert.equal(session.setEnabled(true), true);
+  assert.equal(saved[STATE.enabled], true);
+  assert.equal(session.status().enabled, true);
+  assert.ok(host.written.some((item) => item.command === 'p2pKeys'), '打开后该拉起助手并催一次密钥');
+  assert.equal(session.setEnabled(false), true);
+  assert.equal(saved[STATE.enabled], false);
+  assert.equal(session.status().enabled, false);
+});

@@ -494,7 +494,7 @@ export function Console() {
 
       <TailcatDialog open={tailcatOpen} onOpenChange={setTailcatOpen} onChanged={() => void loadStatus()} />
 
-      <P2PDialog open={p2pOpen} onOpenChange={setP2POpen} />
+      <P2PDialog open={p2pOpen} onOpenChange={setP2POpen} onChanged={() => void loadStatus()} />
 
       <PortDialog
         open={portOpen}

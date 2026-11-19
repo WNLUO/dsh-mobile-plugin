@@ -1,14 +1,15 @@
 /**
  * 点对点隧道（P2P）的管理弹窗。
  *
- * 入口是「连接状态」卡里那行 P2P 隧道右侧的「管理」。与 Tailcat 那扇窗刻意不同 ——
- * 这条通道**没有白名单、也没有总开关**：能连上的前提就是两端私钥对得上，比白名单更直接；
- * 开关那件事交给手机侧的档位（`channelMode`），电脑这边不替人做决定。所以这扇窗只有
- * 四件只读事实，没有任何动作按钮：
+ * 入口是「连接状态」卡里那行 P2P 隧道右侧的「管理」。与 Tailcat 那扇窗不同 ——
+ * 这条通道**没有白名单**：能连上的前提就是两端私钥对得上，比白名单更直接。这扇窗摆出
+ * 四件只读事实，再加一颗总开关：
  *   1. 它起没起、**打通了没有**（`path` 只可能是 direct / failed / unknown）；
  *   2. 本机在隧道里的那个地址（手机进来的落点）；
  *   3. 电脑自己的打洞候选 —— 手机靠它知道往哪打，不通的时候第一眼就该看这一行；
- *   4. 电脑这把公钥（开码时给手机的就是它）。
+ *   4. 电脑这把公钥（开码时给手机的就是它）；
+ *   5. 总开关：助手默认不随插件加载启动，用户显式打开才起（与直连隧道同一口径）。关掉只是
+ *      停本机这半边，密钥与对端都留着。走不走这条通道仍由手机侧档位决定。
  *
  * 「打不通」绝不改口成「已连通」：这条没有中继可以退，说通了就是真的通了。
  */
@@ -22,15 +23,19 @@ import {
   DialogTitle,
 } from '@appica/ui-react/dialog'
 import { Spinner } from '@appica/ui-react/spinner'
+import { Switch } from '@appica/ui-react/switch'
 import { useCallback, useEffect, useState } from 'react'
 
-import { apiGet, errorText, type P2PStatus } from '../lib/api.ts'
+import { apiGet, apiPost, errorText, type P2PStatus } from '../lib/api.ts'
 import { pageVisible } from '../lib/embed-visibility.ts'
 import { t } from '../lib/i18n/index.ts'
+import { useNotify } from '../lib/notify.ts'
 
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** 动作之后通知外层刷新一次 `/api/relay/status`（连接状态卡那行 P2P 也跟着变）。 */
+  onChanged?: () => void
 }
 
 /**
@@ -60,9 +65,11 @@ function shortKey(key: string): string {
   return key.length > 16 ? `${key.slice(0, 12)}…${key.slice(-4)}` : key
 }
 
-export function P2PDialog({ open, onOpenChange }: Props) {
+export function P2PDialog({ open, onOpenChange, onChanged }: Props) {
+  const notify = useNotify()
   const [view, setView] = useState<P2PStatus | null>(null)
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -73,6 +80,21 @@ export function P2PDialog({ open, onOpenChange }: Props) {
       setError(errorText(err))
     }
   }, [])
+
+  /** 总开关：只拉起/停掉本机这半边；动作成功后立刻重拉一次现状。 */
+  const toggle = async (enabled: boolean) => {
+    setBusy('toggle')
+    try {
+      const reply = await apiPost<{ ok: boolean; status: P2PStatus | null }>('/api/relay/p2p/enabled', { enabled })
+      setView(reply.status ?? null)
+      notify('soft', t(enabled ? 'panel.p2p.enabledToast' : 'panel.p2p.disabledToast'))
+      onChanged?.()
+    } catch (err) {
+      notify('error', errorText(err))
+    } finally {
+      setBusy('')
+    }
+  }
 
   // 与 Tailcat 那扇窗同一个节奏（2 秒一轮）：打洞是异步的，不刷新就永远停在「正在打洞」。
   useEffect(() => {
@@ -127,6 +149,17 @@ export function P2PDialog({ open, onOpenChange }: Props) {
                 </span>
               </div>
 
+              <label className="flex items-center justify-between gap-4 border-b border-border-muted py-2">
+                <span className="text-sm text-foreground-muted">{t('panel.p2p.enableLabel')}</span>
+                <Switch
+                  size="md"
+                  checked={status.enabled}
+                  disabled={!status.available || busy !== ''}
+                  onCheckedChange={(next) => void toggle(next)}
+                  aria-label={t('panel.p2p.enableLabel')}
+                />
+              </label>
+
               <div className="flex flex-col gap-1 border-b border-border-muted py-2">
                 <span className="text-sm text-foreground-muted">
                   {t('panel.p2p.candidatesLabel')} ({status.candidates.length})
@@ -155,7 +188,7 @@ export function P2PDialog({ open, onOpenChange }: Props) {
         </DialogBody>
 
         <DialogFooter className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" disabled={busy !== ''} onClick={() => onOpenChange(false)}>
             {t('panel.common.close')}
           </Button>
         </DialogFooter>

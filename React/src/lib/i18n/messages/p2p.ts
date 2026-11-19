@@ -2,8 +2,8 @@
  * 面板文案：点对点隧道（P2P）那一格与它的管理弹窗。
  *
  * 与 `tailcat.ts` 分开：那是另一条通道（借公共中继会合、有白名单与总开关），这条两端
- * 直接打洞、没有中继可退、也没有开关。两块术语也不同 —— 这条说「打通 / 没打通」，
- * 那条说「就绪 / 经中继」。
+ * 直接打洞、没有中继可退、也没有白名单；走不走它由手机侧档位决定，本机这半边有一颗总开关
+ * （默认关）。两块术语也不同 —— 这条说「打通 / 没打通」，那条说「就绪 / 经中继」。
  *
  * 术语与 App 对齐：这条通道在手机与电脑上都叫「P2P 隧道」。
  */
@@ -29,6 +29,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': '我这边的公钥',
     'panel.p2p.noKey': '还没生成（开一次码就会生成）',
     'panel.p2p.noAddress': '尚未分配',
+    'panel.p2p.enableLabel': '启用这条隧道',
+    'panel.p2p.enabledToast': '已开启 P2P 隧道',
+    'panel.p2p.disabledToast': '已关闭 P2P 隧道',
   },
   'zh-Hant': {
     'panel.p2p.title': 'P2P 通道',
@@ -49,6 +52,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': '我這邊的公鑰',
     'panel.p2p.noKey': '還沒產生（開一次碼就會產生）',
     'panel.p2p.noAddress': '尚未分配',
+    'panel.p2p.enableLabel': '啟用這條通道',
+    'panel.p2p.enabledToast': '已開啟 P2P 通道',
+    'panel.p2p.disabledToast': '已關閉 P2P 通道',
   },
   en: {
     'panel.p2p.title': 'P2P tunnel',
@@ -69,6 +75,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': 'This side\'s public key',
     'panel.p2p.noKey': 'Not generated yet (it is created the first time you open a pairing code)',
     'panel.p2p.noAddress': 'Not assigned yet',
+    'panel.p2p.enableLabel': 'Enable this tunnel',
+    'panel.p2p.enabledToast': 'P2P tunnel enabled',
+    'panel.p2p.disabledToast': 'P2P tunnel disabled',
   },
   ja: {
     'panel.p2p.title': 'P2P トンネル',
@@ -89,6 +98,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': 'この側の公開鍵',
     'panel.p2p.noKey': 'まだ生成されていません（一度 QR コードを開けば生成されます）',
     'panel.p2p.noAddress': 'まだ割り当てられていません',
+    'panel.p2p.enableLabel': 'このトンネルを有効にする',
+    'panel.p2p.enabledToast': 'P2P トンネルを有効にしました',
+    'panel.p2p.disabledToast': 'P2P トンネルを無効にしました',
   },
   ko: {
     'panel.p2p.title': 'P2P 터널',
@@ -109,6 +121,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': '이쪽의 공개 키',
     'panel.p2p.noKey': '아직 생성되지 않음(QR 코드를 한 번 열면 생성됩니다)',
     'panel.p2p.noAddress': '아직 할당되지 않음',
+    'panel.p2p.enableLabel': '이 터널 사용',
+    'panel.p2p.enabledToast': 'P2P 터널을 켰습니다',
+    'panel.p2p.disabledToast': 'P2P 터널을 껐습니다',
   },
   de: {
     'panel.p2p.title': 'P2P-Tunnel',
@@ -129,6 +144,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': 'Öffentlicher Schlüssel dieser Seite',
     'panel.p2p.noKey': 'Noch nicht erzeugt (entsteht beim ersten Öffnen eines Kopplungscodes)',
     'panel.p2p.noAddress': 'Noch nicht zugewiesen',
+    'panel.p2p.enableLabel': 'Diesen Tunnel aktivieren',
+    'panel.p2p.enabledToast': 'P2P-Tunnel aktiviert',
+    'panel.p2p.disabledToast': 'P2P-Tunnel deaktiviert',
   },
   es: {
     'panel.p2p.title': 'Túnel P2P',
@@ -149,6 +167,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': 'Clave pública de este lado',
     'panel.p2p.noKey': 'Aún no generada (se crea la primera vez que abres un código de emparejamiento)',
     'panel.p2p.noAddress': 'Sin asignar todavía',
+    'panel.p2p.enableLabel': 'Activar este túnel',
+    'panel.p2p.enabledToast': 'Túnel P2P activado',
+    'panel.p2p.disabledToast': 'Túnel P2P desactivado',
   },
   fr: {
     'panel.p2p.title': 'Tunnel P2P',
@@ -169,6 +190,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': 'Clé publique de ce côté',
     'panel.p2p.noKey': 'Pas encore générée (elle est créée au premier affichage d’un code d’appairage)',
     'panel.p2p.noAddress': 'Pas encore attribuée',
+    'panel.p2p.enableLabel': 'Activer ce tunnel',
+    'panel.p2p.enabledToast': 'Tunnel P2P activé',
+    'panel.p2p.disabledToast': 'Tunnel P2P désactivé',
   },
   pt: {
     'panel.p2p.title': 'Túnel P2P',
@@ -189,6 +213,9 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': 'Chave pública deste lado',
     'panel.p2p.noKey': 'Ainda não gerada (é criada na primeira vez que abres um código de emparelhamento)',
     'panel.p2p.noAddress': 'Ainda não atribuído',
+    'panel.p2p.enableLabel': 'Ativar este túnel',
+    'panel.p2p.enabledToast': 'Túnel P2P ativado',
+    'panel.p2p.disabledToast': 'Túnel P2P desativado',
   },
   ru: {
     'panel.p2p.title': 'P2P-туннель',
@@ -209,5 +236,8 @@ export const P2P: PanelMessages = {
     'panel.p2p.keyLabel': 'Открытый ключ этой стороны',
     'panel.p2p.noKey': 'Ещё не создан (создаётся при первом открытии кода сопряжения)',
     'panel.p2p.noAddress': 'Ещё не назначен',
+    'panel.p2p.enableLabel': 'Включить этот туннель',
+    'panel.p2p.enabledToast': 'Туннель P2P включён',
+    'panel.p2p.disabledToast': 'Туннель P2P выключен',
   },
 }
