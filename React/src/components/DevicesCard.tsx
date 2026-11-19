@@ -31,6 +31,8 @@
  * 折叠行上的台数刷新掉。展开中的那份列表停在打开那一刻，用户收起再打开就自然更新。
  *
  * 整卡不消失的判据因此也跟着变了：踢掉最后一台手机之后，那条记录正是这一段要回答的事。
+ *
+ * 标题行那颗「吊销全部设备授权」是纯文字按钮：不加胶囊边框和底色，颜色走主题 token。
  */
 import {
   AlertDialog,
@@ -429,7 +431,7 @@ export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
               </Badge>
             ) : null}
           </span>
-          <Button variant="ghost" size="sm" className="shrink-0 px-2 xl:px-4 xl:before:border xl:before:border-border xl:before:bg-background" disabled={busy !== ''} onClick={onRevokeAll}>
+          <Button variant="ghost" size="sm" className="shrink-0 px-2" disabled={busy !== ''} onClick={onRevokeAll}>
             {t('panel.pairing.revokeAll')}
           </Button>
         </CardTitle>

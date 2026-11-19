@@ -6,6 +6,8 @@
  * 卡片上**不摆配对码**：普通用户拿 APP 扫一下码就配上了，码值在这儿只是多一处会被旁边的人
  * 看走眼的东西。「重新生成」那颗也一并去了 —— 宿主在配对成功那一刻就会换码换票据
  * （`rotatePairing`），二维码自己会变，不需要人来按。
+ *
+ * 标题栏那几颗是纯文字按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { t } from '../lib/i18n/index.ts'
@@ -153,10 +155,10 @@ export function PairingCard({
               自动审阅、检查网络）收进「其他」那颗。「重新连接」搬到了页面顶栏，紧挨「报错调试」。
               宽度不够时整组按钮换到下一行，标题保持完整可读（不裁标题）。 */}
           <span className="flex flex-wrap items-center gap-1.5">
-            <Button variant="ghost" size="sm" className="px-2 xl:px-4 xl:before:border xl:before:border-border xl:before:bg-background" disabled={idle} onClick={onOpenConfig}>
+            <Button variant="ghost" size="sm" className="px-2" disabled={idle} onClick={onOpenConfig}>
               {t('panel.pairing.openConfig')}
             </Button>
-            <DownloadAppButton size="sm" variant="ghost" className="px-2 xl:px-4 xl:before:border xl:before:border-border xl:before:bg-background" />
+            <DownloadAppButton size="sm" variant="ghost" className="px-2" />
             <Button variant="ghost" size="sm" className="px-2" onClick={() => setMoreOpen(true)}>
               {t('panel.common.more')}
             </Button>

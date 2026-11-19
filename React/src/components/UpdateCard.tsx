@@ -22,6 +22,8 @@
  * 换代的外壳、没有市场、`link:` 装的）留在卡片里。
  *
  * 与配对卡并排时用 `fill` 撑满整格：行高由同行高的那张决定，这张卡不反过来定行高。
+ *
+ * 卡里的动作按钮都是纯文字按钮：不加胶囊边框，颜色走主题 token，日夜间自动适配。
  */
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
@@ -446,10 +448,10 @@ export function UpdateCard({ version, busy, onRestartSidecar, fill = false }: Pr
           <div className="mt-3 flex flex-wrap justify-end gap-2">
             {/* 「重启 sidecar」和更新讲的是同一件事的另一半：让磁盘上的新代码在**子进程**层
                 立刻生效。它不重启宿主，所以留在这里。 */}
-            <Button variant="outline" size="md" disabled={idle} onClick={onRestartSidecar}>
+            <Button variant="ghost" size="md" disabled={idle} onClick={onRestartSidecar}>
               {t('panel.update.restartSidecar')}
             </Button>
-            <Button variant="outline" size="md" disabled={idle} onClick={() => void check()}>
+            <Button variant="ghost" size="md" disabled={idle} onClick={() => void check()}>
               {working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
             </Button>
             {/* 非 npm 来源不给这两颗：宿主那边同样会拒（`LOCAL_SOURCE`），按钮留着只会在点了
@@ -497,10 +499,10 @@ export function UpdateCard({ version, busy, onRestartSidecar, fill = false }: Pr
 
 
           <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <Button variant="outline" size="md" disabled={idle} onClick={onRestartSidecar}>
+            <Button variant="ghost" size="md" disabled={idle} onClick={onRestartSidecar}>
               {t('panel.update.restartSidecar')}
             </Button>
-            <Button variant="outline" size="md" disabled={idle} onClick={() => void marketOnlyCheck()}>
+            <Button variant="ghost" size="md" disabled={idle} onClick={() => void marketOnlyCheck()}>
               {working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
             </Button>
             {/* 与宿主模式那一支同一条判据：非 npm 来源不给「立即更新」。 */}
