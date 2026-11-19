@@ -828,6 +828,18 @@ test('传输归外壳：总控上报客户端跨代存活（换代不断开上�
   assert.equal(ctx.get('dshMobileTransportControl').client, beforeClient, '换代不得重建总控上报客户端（否则上报连接要断一次）');
 });
 
+test('传输归外壳：隧道助手服务存在、可惰性注入来源', async t => {
+  await resetProfile();
+  install(makeGeneration('tc-svc', '0.9.12', goodGeneration('a-0.9.12')));
+  const { ctx, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+  await waitForStatus(runtime);
+  const host = ctx.get('dshMobileTransportTailcat');
+  assert.ok(host && typeof host.ensure === 'function', '外壳应 provide dshMobileTransportTailcat（惰性 ensure）');
+  const p2pHost = ctx.get('dshMobileTransportP2P');
+  assert.ok(p2pHost && typeof p2pHost.ensure === 'function', '外壳应 provide dshMobileTransportP2P（惰性 ensure）');
+});
+
 /** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */async function waitFor(probe, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
