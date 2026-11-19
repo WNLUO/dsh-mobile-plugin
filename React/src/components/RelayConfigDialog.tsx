@@ -348,7 +348,7 @@ export function RelayConfigDialog({
                 <Field>
                   <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
                   <Input
-                    inputProps={{ id: 'relay-manual-ipv6', className: 'font-mono' }}
+                    inputProps={{ id: 'relay-manual-ipv6', className: 'font-mono', list: 'relay-manual-ipv6-candidates' }}
                     value={manualIpv6Url}
                     placeholder={t('panel.address.ipv6Placeholder')}
                     onChange={(event) => {
@@ -356,6 +356,15 @@ export function RelayConfigDialog({
                       setManualIpv6Url(event.target.value)
                     }}
                   />
+                  {/* 检测到的 IPv6 挂成候选：点一下就填进框里，地址变了清单跟着变；不自动覆盖手填的值。
+                      手填框本身保持「只有人填才有值」，自动发现的那几条只在这里当建议。 */}
+                  <datalist id="relay-manual-ipv6-candidates">
+                    {(addressBook?.ipv6 ?? []).map((item) => (
+                      <option key={item.address} value={item.url}>
+                        {item.interface ? `${item.address} · ${item.interface}` : item.address}
+                      </option>
+                    ))}
+                  </datalist>
                 </Field>
             </DialogBody>
           </div>
