@@ -867,6 +867,38 @@ export function apply(ctx) {
   assert.equal(await routeReply(server, '/api/relay/gen'), 'b-0.9.21');
 });
 
+test('蓝绿：新代装载期间（提交前）旧代仍在服务，没有空窗', async t => {
+  await resetProfile();
+  install(makeGeneration('bgprobe-a', '0.9.21', goodGeneration('a-0.9.21')));
+  const { server, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+  await waitForStatus(runtime);
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'a-0.9.21');
+
+  // B 在自己的 apply 里（已被装载、但还没提交 live）去调一次接口：此刻必须仍打到旧代。
+  const B_PROBE = `
+export const name = 'dsh-mobile-plugin'
+export const inject = ['webServer', 'sessions']
+export function apply(ctx) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/api/relay/gen', handler: async (req, res) => { res.end('b-0.9.22') } }), 'gen')
+  const route = globalThis.__bgServer && globalThis.__bgServer.routes.get('/api/relay/gen')
+  if (route) route.handler({}, { end: (v) => { globalThis.__bgSeen = v } })
+}
+`;
+  globalThis.__bgServer = server;
+  globalThis.__bgSeen = null;
+  try {
+    install(makeGeneration('bgprobe-b', '0.9.22', B_PROBE));
+    const after = await runtime.reload();
+    assert.equal(after.version, '0.9.22');
+    assert.equal(globalThis.__bgSeen, 'a-0.9.21', '新代 apply 期间（提交前）旧代必须仍在服务，不能空窗');
+    assert.equal(await routeReply(server, '/api/relay/gen'), 'b-0.9.22', '提交后新代接管');
+  } finally {
+    delete globalThis.__bgServer;
+    delete globalThis.__bgSeen;
+  }
+});
+
 /** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */async function waitFor(probe, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
