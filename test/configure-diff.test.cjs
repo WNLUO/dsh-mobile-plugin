@@ -238,7 +238,10 @@ test('契约面：configure 里不许再出现无条件 stopServices()', () => {
  */
 test('契约面：buildConfig 必须带上 worker 认识的每一个字段', () => {
   const implSource = readFileSync(join(__dirname, '..', 'lib', 'impl.js'), 'utf8')
-  const at = implSource.indexOf('buildConfig: (lanPort) => ({')
+  // 配置组装在装配层被抽成 `buildSidecarConfig`（传给出外壳/本地创建的 sidecar），
+  // 字段对账的对象仍是它：位置变了，判据（worker 认识的每个字段都得发下去）不变。
+  const marker = 'buildSidecarConfig = (lanPort) => ({'
+  const at = implSource.indexOf(marker)
   assert.ok(at > 0, '应能在 impl.js 的装配层里定位 buildConfig')
   // 对象字面量只占一行；多取一些余量，缩进与换行变了也不至于误判。
   const body = implSource.slice(at, at + 800)
