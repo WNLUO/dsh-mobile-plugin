@@ -30,12 +30,11 @@ test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () =
   assert.match(card, /useState\(\{ relay: false \}\)/);
   // 二维码整块是一个方形入口：点它直接开放大弹窗（「显示」与「放大」合并），
   // 卡片本体不再内嵌码图（防窥屏，也省高度）。
-  // 2026-11-20 需求变更：宽屏占位固定宽度、由 flex 拉伸到与右邻信息行同高；不能靠
-  // aspect-ratio 从高度反推宽度，否则容器被内容撑开时会塌成竖条、文字竖排压到信息行上。
+  // 2026-11-20 需求变更：宽屏占位固定 144×144 正方形（等于四行信息行的总高）。
+  // 不能拉伸高度（会变长方形），也不能靠 aspect-ratio 反推宽度（会塌成竖条）。
   // 窄屏单列没有可参照高度，退回限宽 200 的正方形。
   assert.match(card, /onClick=\{\(\) => setQrZoom\(true\)\}/);
-  assert.match(card, /sm:w-\[150px\]/, '宽屏保留固定宽度，占位不会塌成竖条');
-  assert.match(card, /sm:aspect-auto sm:self-stretch/, '高度拉伸到与信息行齐平');
+  assert.match(card, /sm:h-36 sm:w-36/, '宽屏占位是固定正方形');
   assert.match(card, /panel\.pairing\.qrHidden/);
   assert.equal((card.match(/dangerouslySetInnerHTML/g) ?? []).length, 1, '二维码 SVG 只在放大弹窗里渲染');
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
