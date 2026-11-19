@@ -128,3 +128,13 @@ test('手填的 IPv6 地址同样跟着局域网开关走：关掉直连就不�
   const body = await connectionInfo({ ...HOST, lanEnabled: false, manualIpv6Url: 'http://[2001:4860:4860::8888]:18787' });
   assert.deepEqual(body.ipv6Candidates, [], '直连监听没开，IPv6 那条通道也不存在');
 });
+
+test('TCP 直连目标始终回这一格：没配时是空串（手机据此把旧目标清掉）', async () => {
+  // 只在有值时才报的话，「电脑上把 TCP 目标删掉」永远传不到手机：手机分不清
+  // 「老宿主不认识这一格」与「宿主报了空」。两条一起钉住。
+  const none = await connectionInfo(HOST);
+  assert.equal(Object.prototype.hasOwnProperty.call(none, 'tcpUrl'), true, '没配也要带这一格');
+  assert.equal(none.tcpUrl, '');
+  const some = await connectionInfo({ ...HOST, manualTcpUrl: '[240e::1]:51543' });
+  assert.equal(some.tcpUrl, '[240e::1]:51543', '方括号 IPv6 原样回给手机（与 tcpDirectTarget 同口径）');
+});
