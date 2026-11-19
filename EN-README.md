@@ -108,7 +108,7 @@ Privacy policy: [PRIVACY.md](PRIVACY.md). Support and FAQ: [SUPPORT.md](SUPPORT.
 
 ## Sponsorship & partnership
 
-Companies or products that want to support the project's long-term maintenance can see the [sponsorship & partnership page](https://ai-hub.wnluo.com/sponsor) — or email <admin@wnluo.com> about working together. Sponsorship funds ongoing maintenance and releases; it buys acknowledgement and a channel to talk, not feature unlocks and not special privileges, and it does not imply any affiliation with, or endorsement by, DeepSeek. Individuals who want to help can star the repository or use the "Donate" entry in the app's settings.
+Companies or products that want to support the project's long-term maintenance can see the [sponsorship & partnership page](https://ai-hub.wnluo.com/sponsor) — or email <admin@wnluo.com> about working together. Sponsorship funds ongoing maintenance and releases; it buys acknowledgement and a channel to talk, not feature unlocks and not special privileges, and it does not imply any affiliation with, or endorsement by, DeepSeek. Individuals who want to help can star the repository, use the "Donate" entry in the app's settings, or support via [Afdian](https://ifdian.net/a/AI-HUB) (WeChat Pay / Alipay).
 
 ## Development
 
