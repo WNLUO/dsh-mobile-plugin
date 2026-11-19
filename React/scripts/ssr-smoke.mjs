@@ -342,13 +342,27 @@ const SAVE_FIELDS = [
 ]
 for (const [file, fields] of [['Console.tsx', SAVE_FIELDS], ['Onboarding.tsx', ['patch']]]) {
   const text = await readFile(new URL(`../src/${file}`, import.meta.url), 'utf8')
-  const lost = fields.filter((field) => !text.includes(`apiPost<StatusView>('/api/relay/config', ${field})`))
+  const lost = fields.filter((field) => {
+  const direct = `apiPost<StatusView>('/api/relay/config', ${field}`
+  const viaHelper = `postConfig(${field}`
+  return !text.includes(direct) && !text.includes(viaHelper)
+})
   if (lost.length > 0) {
     failed += 1
     console.log(`FAIL ${file} 这些保存不走 apiPost('/api/relay/config') 了：${lost.join(' / ')}`)
   } else {
     console.log(`ok   ${file} 的 ${fields.length} 个保存入口都还走 apiPost('/api/relay/config')`)
   }
+}
+
+// 统一入口本身仍必须认 applyError：失败要报原话，但状态照回填（开关点下即变）。
+const consoleSrc = await readFile(new URL('../src/Console.tsx', import.meta.url), 'utf8')
+if (!consoleSrc.includes("apiPost<StatusView & { applyError?: string }>('/api/relay/config', patch, { keepApplyError: true })")
+  || !consoleSrc.includes("setStatus(payload)")) {
+  failed += 1
+  console.log('FAIL 配置保存：下发失败时没回填宿主状态，开关要刷新才会变')
+} else {
+  console.log('ok   配置保存：下发失败仍报错，同时回填状态让开关即时生效')
 }
 
 await server.close()

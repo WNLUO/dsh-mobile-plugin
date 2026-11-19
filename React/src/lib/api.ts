@@ -668,7 +668,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   }
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+export async function apiPost<T>(path: string, body?: unknown, options?: { keepApplyError?: boolean }): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -676,7 +676,9 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   })
   if (!response.ok) throw await toApiError(response)
   const payload = await response.json()
-  throwIfApplyFailed(payload)
+  // 配置保存这一类调用要连回包里的新状态一起用（即使下发失败，配置也已落盘），
+  // 所以这里允许调用方自己读 applyError；默认仍当场抛，老口径不变。
+  if (!options?.keepApplyError) throwIfApplyFailed(payload)
   return payload as T
 }
 

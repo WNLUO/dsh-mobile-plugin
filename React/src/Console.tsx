@@ -303,29 +303,32 @@ export function Console() {
       notify('soft', t('panel.shell.configSaved'))
     })
 
-  const savePolicy = (pairingPolicy: PairingPolicy) =>
-    act('policy', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/config', { pairingPolicy }))
-      notify('soft', t(pairingPolicy === 'code' ? 'panel.shell.deviceAllowed' : 'panel.shell.deviceDenied'))
+  /**
+   * 改配置：宿主回包带 applyError 时配置也已经落盘。把新状态照常写回，开关当场生效；
+   * 下发失败仍按原口径报错，不说成「保存成功」。
+   */
+  const postConfig = (patch: ConfigPatch, okKey: string) =>
+    act('config', async () => {
+      const payload = await apiPost<StatusView & { applyError?: string }>('/api/relay/config', patch, { keepApplyError: true })
+      setStatus(payload)
+      if (payload.applyError) {
+        notify('error', t('panel.shell.applyFailed', { message: payload.applyError }))
+      } else {
+        notify('soft', t(okKey))
+      }
     })
+
+  const savePolicy = (pairingPolicy: PairingPolicy) =>
+    postConfig({ pairingPolicy }, pairingPolicy === 'code' ? 'panel.shell.deviceAllowed' : 'panel.shell.deviceDenied')
 
   const savePairingTier = (pairingTier: Tier) =>
-    act('tier', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/config', { pairingTier }))
-      notify('soft', t('panel.shell.configSaved'))
-    })
+    postConfig({ pairingTier }, 'panel.shell.configSaved')
 
   const saveAutoReview = (enabled: boolean) =>
-    act('autoReview', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/config', { approvalAutoReview: enabled }))
-      notify('soft', t(enabled ? 'panel.shell.autoReviewOn' : 'panel.shell.autoReviewOff'))
-    })
+    postConfig({ approvalAutoReview: enabled }, enabled ? 'panel.shell.autoReviewOn' : 'panel.shell.autoReviewOff')
 
   const saveControlReport = (enabled: boolean) =>
-    act('controlReport', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/config', { controlReportEnabled: enabled }))
-      notify('soft', t('panel.shell.configSaved'))
-    })
+    postConfig({ controlReportEnabled: enabled }, 'panel.shell.configSaved')
 
   const saveLanPort = (port: number) =>
     act('lan', async () => {

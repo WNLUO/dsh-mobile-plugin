@@ -141,10 +141,10 @@ test('「允许新设备绑定」开关：读 status.pairingPolicy，写 /api/re
   assert.ok(!/useState<boolean>\(/.test(policy), '开关里不许有 useState 副本：取值只有宿主那一份');
   assert.match(policy, /onChangePolicy\(next \? 'code' : 'deny'\)/, '勾选映射到 code / deny');
 
-  // 面板一侧：写的是同一份配置，回来的 status 顶掉旧的。
+  // 面板一侧：写的是同一份配置，回来的 status 顶掉旧的（四个保存点共用 postConfig 入口）。
   assert.match(app, /const savePolicy = \(pairingPolicy: PairingPolicy\)/, '面板要有写 pairingPolicy 的入口');
-  assert.match(app, /apiPost<StatusView>\('\/api\/relay\/config', \{ pairingPolicy \}\)/, '写回必须走 /api/relay/config');
-  assert.match(app, /setStatus\(await apiPost<StatusView>\('\/api\/relay\/config', \{ pairingPolicy \}\)\)/, '写回后要用宿主回的 status 顶掉旧的');
+  assert.match(app, /postConfig\(\{ pairingPolicy \}/, '写回走统一的 /api/relay/config 入口');
+  assert.match(app, /setStatus\(payload\)/, '写回后用宿主回的 status 顶掉旧的');
   // 不许再存一份「允许不允许」的状态：那会和轮询回来的 pairingPolicy 各说各的。
   assert.ok(!/useState<boolean>\(.*[Aa]llow/.test(app), '面板上不许再存一份「允许新设备绑定」');
 });

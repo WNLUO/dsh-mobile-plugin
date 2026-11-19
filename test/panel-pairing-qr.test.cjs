@@ -75,6 +75,8 @@ test('整卡左显示右控件：运行中版本在左，自动上报在右，�
   assert.match(card, /aria-pressed=\{tier === pairingTier\}/, '权限档位用按钮组切换');
   assert.doesNotMatch(card, /<Select\b|SelectTrigger/, '权限档位不再是单选下拉');
   assert.doesNotMatch(card, /onOpenSelfCheck|onOpenConfig|DownloadAppButton/, '网络配置、检查网络、下载 APP 都不在配对卡');
+  assert.match(app, /keepApplyError: true/, '配置保存回填宿主状态，开关点下即变');
+  assert.match(app, /if \(payload\.applyError\) \{[\s\S]{0,80}notify\('error'/, '下发失败仍按原口径报错，不说成已成功');
 });
 
 test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且不改默认隐藏', () => {
