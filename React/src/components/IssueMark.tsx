@@ -46,13 +46,13 @@ export function IssueMark({ issue }: { issue: Issue }) {
           <DialogFooter className="flex justify-end gap-2">
             <CopyButton
               value={issue.detail}
-              label={t('panel.notice.guideRelayCopy')}
+              label={t('panel.common.copy')}
               copiedLabel={t('panel.links.sponsorCopied')}
               size="sm"
               variant="outline"
               onCopyError={() => notify('error', t('panel.onboarding.copiedFailed'))}
             >
-              {t('panel.notice.guideRelayCopy')}
+              {t('panel.common.copy')}
             </CopyButton>
             <Button variant="ghost" onClick={() => setOpen(false)}>
               {t('panel.common.close')}

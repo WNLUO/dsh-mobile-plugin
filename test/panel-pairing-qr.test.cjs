@@ -63,8 +63,11 @@ test('异常走红色感叹号弹窗可复制，动作区独占一排', () => {
   assert.match(update, /onIssues\(issues\)/, '版本对不上交给上层');
   assert.match(consoleSrc, /versionIssues/, '控制台把详情挂到左列');
   // 动作区在整卡里独占一排，与上面三列之间有分隔，不受上面内容高度推动。
-  assert.match(consoleSrc, /<div className="mt-4 border-t border-border-muted pt-3">\s*<UpdateCard/, '动作区独占一排');
+  assert.match(consoleSrc, /<div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">\s*<UpdateCard/, '动作区独占一排且垂直居中');
   assert.match(connection, /labelExtra=\{[^}]*IssueMark/, '连接状态各行把感叹号挂在标签旁');
+  // 2026-11-20 用户要求：不可用的长说明不铺在正文，行里只报短状态词，长文进感叹号；复制文案就是「复制」。
+  assert.match(connection, /unavailableShort/, '不可用只显示短状态词');
+  assert.match(mark, /t\('panel\.common\.copy'\)/, '复制按钮用通用「复制」文案，不借用「发给 AI」');
 });
 
 test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () => {

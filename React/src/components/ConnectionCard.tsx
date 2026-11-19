@@ -31,7 +31,7 @@ type Props = {
 
 /** 隧道此刻的状态 → 一行字的键。老宿主没有这一格时整行不画（见下面 `status.tailcat`）。 */
 function tailcatTextKey(tailcat: TailcatStatus): string {
-  if (!tailcat.available) return 'panel.tailcat.unavailable'
+  if (!tailcat.available) return 'panel.tailcat.unavailableShort'
   if (!tailcat.enabled) return 'panel.tailcat.disabled'
   if (tailcat.error) return 'panel.tailcat.error'
   if (tailcat.ready) return 'panel.tailcat.ready'
@@ -45,7 +45,7 @@ function tailcatTextKey(tailcat: TailcatStatus): string {
  * 与上面 Tailcat 那条按 `ready` 说话的次序刻意不同 —— 那条起来了就基本等于能用。
  */
 function p2pTextKey(p2p: P2PStatus): string {
-  if (!p2p.available) return 'panel.p2p.unavailable'
+  if (!p2p.available) return 'panel.p2p.unavailableShort'
   if (!p2p.enabled) return 'panel.p2p.disabled'
   if (p2p.path === 'direct' && p2p.active) return 'panel.p2p.open'
   if (p2p.error) return 'panel.p2p.error'
@@ -157,7 +157,9 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
           <InfoRow
             label={t('panel.tailcat.title')}
             tone={tailcatTone(tailcat)}
-            labelExtra={tailcat.error ? <IssueMark issue={{ title: t('panel.tailcat.title'), detail: tailcat.error }} /> : undefined}
+            labelExtra={(!tailcat.available || tailcat.error)
+              ? <IssueMark issue={{ title: t('panel.tailcat.title'), detail: !tailcat.available ? t('panel.tailcat.unavailable') : (tailcat.error ?? '') }} />
+              : undefined}
           >
             <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
               <ToneValue tone={tailcatTone(tailcat)} text={t(tailcatTextKey(tailcat))} />
@@ -171,7 +173,9 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
           <InfoRow
             label={t('panel.p2p.title')}
             tone={p2pTone(p2p)}
-            labelExtra={p2p.error ? <IssueMark issue={{ title: t('panel.p2p.title'), detail: p2p.error }} /> : undefined}
+            labelExtra={(!p2p.available || p2p.error)
+              ? <IssueMark issue={{ title: t('panel.p2p.title'), detail: !p2p.available ? t('panel.p2p.unavailable') : (p2p.error ?? '') }} />
+              : undefined}
           >
             <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
               <ToneValue tone={p2pTone(p2p)} text={t(p2pTextKey(p2p))} />

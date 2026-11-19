@@ -424,7 +424,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
             </p>
           ) : null}
 
-          <div className="mt-3 flex flex-wrap justify-end gap-1 lg:flex-nowrap">
+          <div className="flex flex-wrap justify-end gap-1 lg:flex-nowrap">
             {extraActions}
             {/* 「重启 sidecar」和更新讲的是同一件事的另一半：让磁盘上的新代码在**子进程**层
                 立刻生效。它不重启宿主，所以留在这里。 */}
@@ -472,7 +472,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
           </InfoList>
 
 
-          <div className="mt-3 flex flex-wrap justify-end gap-1 lg:flex-nowrap">
+          <div className="flex flex-wrap justify-end gap-1 lg:flex-nowrap">
             {extraActions}
             <Button variant="ghost" size="sm" disabled={idle} onClick={onRestartSidecar}>
               {t('panel.update.restartSidecar')}

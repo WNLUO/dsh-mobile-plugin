@@ -461,7 +461,7 @@ export function Console() {
 
           {/* 更新区独占一排：上面三列内容再怎么变，都不推动这一排按钮。
               版本对不上的详情交给左列「运行中版本」那行的感叹号。 */}
-          <div className="mt-4 border-t border-border-muted pt-3">
+          <div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">
             <UpdateCard
               bare
               version={status.appVersion || ''}
