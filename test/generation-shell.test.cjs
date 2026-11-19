@@ -789,6 +789,27 @@ test('换代保险：把正在跑的那一代备份进回退目录，它是一�
   t.diagnostic(`回退副本：${result.dir}`);
 });
 
+test('传输归外壳：FRP 进程管理器跨代存活（换代不换一份）', async t => {
+  await resetProfile();
+  install(makeGeneration('frp-host-a', '0.9.8', goodGeneration('a-0.9.8')));
+  const { ctx, fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+  await waitForStatus(runtime);
+
+  const host = ctx.get('dshMobileTransportFrp');
+  assert.ok(host && host.runner, '外壳应 provide dshMobileTransportFrp 服务');
+  assert.equal(typeof host.setPortProvider, 'function', '端口来源要能被当前这一代注入');
+  assert.equal(typeof host.runner.status, 'function', 'runner 应是 frpc 进程管理器');
+  const beforeRunner = host.runner;
+
+  install(makeGeneration('frp-host-b', '0.9.9', goodGeneration('b-0.9.9')));
+  const after = await runtime.reload();
+  assert.equal(after.version, '0.9.9');
+
+  const hostAfter = ctx.get('dshMobileTransportFrp');
+  assert.equal(hostAfter.runner, beforeRunner, 'frpc 进程管理器必须跨代是同一份（否则换代就重启了直连）');
+});
+
 /** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */async function waitFor(probe, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
