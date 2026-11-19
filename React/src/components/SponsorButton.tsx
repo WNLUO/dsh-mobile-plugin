@@ -16,6 +16,8 @@
  * 版面按「一眼看完三步」排，而不是把每样东西都摊开：标题与一句说明在表头，中间是二维码
  * 与两枚币种 / 网络标签，下面一行地址自带复制钮（复制就地给回执，不再另起一颗大按钮），
  * 最底下一句「感谢！」垫住（2026-11-10 用户要求：提醒语整条删掉，收尾不说免责只说谢谢）。
+ *
+ * 触发件是图标加文字的 ghost 按钮：不带胶囊外形，文字与图标都走主题 token，日夜间自动跟着变。
  */
 
 import { Button } from '@appica/ui-react/button'
@@ -62,9 +64,9 @@ export function SponsorButton({ compact = false }: { compact?: boolean } = {}) {
     <>
       {/* 三颗的横排编排归 `FloatingActions`；这里只管自己那颗按钮。 */}
       <Button
-        variant="secondary"
+        variant="ghost"
         size={compact ? 'sm' : 'lg'}
-        className="pointer-events-auto rounded-full shadow-lg"
+        className="pointer-events-auto"
         onClick={() => {
           setCopyFailed(false)
           setOpen(true)

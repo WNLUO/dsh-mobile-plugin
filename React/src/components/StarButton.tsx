@@ -13,6 +13,8 @@
  * 路径，那边没导出，这里各存一份 —— 单文件内联产物引不到仓外，也不值得为一条路径加模块。
  * 实心标靠 `fill` 上色，所以要显式带 `stroke-0` 挡掉按钮基类给没带 `stroke-` 的 svg
  * 描的那一道边。
+ *
+ * 形态是图标加文字的 ghost 按钮：不带胶囊外形，文字与图标都走主题 token，日夜间自动跟着变。
  */
 
 import { buttonVariants } from '@appica/ui-react/button'
@@ -35,7 +37,7 @@ export function StarButton({ compact = false }: { compact?: boolean } = {}) {
       href={PLUGIN_REPO_URL}
       target="_blank"
       rel="noreferrer noopener"
-      className={`${buttonVariants({ variant: 'secondary', size: compact ? 'sm' : 'lg' })} pointer-events-auto rounded-full shadow-lg`}
+      className={`${buttonVariants({ variant: 'ghost', size: compact ? 'sm' : 'lg' })} pointer-events-auto`}
     >
       <GithubMark />
       {t('panel.links.star')}

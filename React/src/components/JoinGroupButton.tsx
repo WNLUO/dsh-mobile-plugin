@@ -13,6 +13,8 @@
  * 二维码图与官网「微信交流群」用的是同一张（`website/src/assets/wechat-group.png`，
  * 两边各存一份）：官网那边是独立站点、打不进插件产物，插件产物又是单文件内联，
  * 引不到仓外。换群时两个地方都要换。
+ *
+ * 触发件是图标加文字的 ghost 按钮：不带胶囊外形，文字与图标都走主题 token，日夜间自动跟着变。
  */
 
 import {
@@ -46,9 +48,9 @@ function WechatIcon() {
 }
 
 /**
- * `compact`：小一号的胶囊（控制台那一窗用）。
+ * `compact`：小一号的文字按钮（控制台那一窗用）。
  *
- * 那一窗比网页版窄，三颗 `size="lg"` 的胶囊并排在顶栏会挤到设备名，所以降成 `sm`。
+ * 那一窗比网页版窄，三颗 `size="lg"` 并排在顶栏会挤到设备名，所以降成 `sm`。
  * 与网页版那套是**同一份组件、同一个弹窗**，只是尺寸不同。
  */
 export function JoinGroupButton({ compact = false }: { compact?: boolean } = {}) {
@@ -62,9 +64,9 @@ export function JoinGroupButton({ compact = false }: { compact?: boolean } = {})
     <>
       {/* 三颗的横排编排归 `FloatingActions`；这里只管自己那颗按钮。 */}
       <Button
-        variant="primary"
+        variant="ghost"
         size={compact ? 'sm' : 'lg'}
-        className="pointer-events-auto rounded-full shadow-lg"
+        className="pointer-events-auto"
         onClick={() => setOpen(true)}
       >
         <WechatIcon />
