@@ -29,6 +29,7 @@ import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
 import { FloatingActions } from './components/FloatingActions.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
+import type { Issue } from './components/IssueMark.tsx'
 import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PairingCard, PairingPolicyRows } from './components/PairingCard.tsx'
 import { P2PDialog } from './components/P2PDialog.tsx'
@@ -107,6 +108,8 @@ export function Console() {
   const [pairing, setPairing] = useState<PairingInfo | null>(null)
   const [pairingError, setPairingError] = useState('')
   const [addresses, setAddresses] = useState<AddressBook | null>(null)
+  /** 更新卡报上来的版本对不上详情，挂到左列「运行中版本」那行。 */
+  const [versionIssues, setVersionIssues] = useState<Issue[]>([])
   const [configOpen, setConfigOpen] = useState(false)
   const [portOpen, setPortOpen] = useState(false)
   const [tailcatOpen, setTailcatOpen] = useState(false)
@@ -434,6 +437,7 @@ export function Console() {
                 pairing={pairing}
                 addressBook={addresses}
                 version={status.appVersion || ''}
+                versionIssues={versionIssues}
                 busy={busy}
                 error={pairingError}
                 onRetryPairing={() => void loadPairing()}
@@ -452,20 +456,26 @@ export function Console() {
                   onChangeControlReport={(enabled) => void saveControlReport(enabled)}
                 />
               </InfoList>
-              <UpdateCard
-                bare
-                version={status.appVersion || ''}
-                busy={busy}
-                onRestartSidecar={() => void restartSidecar()}
-                extraActions={
-                  <>
-                    <Button variant="ghost" size="sm" onClick={() => setConfigOpen(true)}>
-                      {t('panel.pairing.openConfig')}
-                    </Button>
-                  </>
-                }
-              />
             </div>
+          </div>
+
+          {/* 更新区独占一排：上面三列内容再怎么变，都不推动这一排按钮。
+              版本对不上的详情交给左列「运行中版本」那行的感叹号。 */}
+          <div className="mt-4 border-t border-border-muted pt-3">
+            <UpdateCard
+              bare
+              version={status.appVersion || ''}
+              busy={busy}
+              onRestartSidecar={() => void restartSidecar()}
+              onIssues={setVersionIssues}
+              extraActions={
+                <>
+                  <Button variant="ghost" size="sm" onClick={() => setConfigOpen(true)}>
+                    {t('panel.pairing.openConfig')}
+                  </Button>
+                </>
+              }
+            />
           </div>
         </Card>
 

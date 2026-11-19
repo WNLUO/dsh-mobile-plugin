@@ -29,6 +29,7 @@ import * as React from 'react'
 import type { AddressBook, PairingInfo, PairingPolicy, StatusView, Tier } from '../lib/api.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { EVEN_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
+import { IssueMark, type Issue } from './IssueMark.tsx'
 import { InfoMark } from './InfoMark.tsx'
 import { RevealButton } from './RevealButton.tsx'
 
@@ -39,6 +40,8 @@ type Props = {
   addressBook: AddressBook | null
   /** 运行中版本：左列最后一行的只读展示。 */
   version: string
+  /** 版本对不上的详情，挂在版本号那行的感叹号上。 */
+  versionIssues?: Issue[]
   busy: string
   error: string
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
@@ -92,6 +95,7 @@ export function PairingCard({
   pairing,
   addressBook,
   version,
+  versionIssues = [],
   busy,
   error,
   onRetryPairing,
@@ -233,7 +237,11 @@ export function PairingCard({
               </span>
             </InfoRow>
             {/* 运行中版本：只读展示，控件都在右列。 */}
-            <InfoRow label={t('panel.update.runningVersion')} mono>
+            <InfoRow
+              label={t('panel.update.runningVersion')}
+              mono
+              labelExtra={versionIssues.length > 0 ? <IssueMark issue={versionIssues[0]} /> : undefined}
+            >
               {version || t('panel.update.unknownVersion')}
             </InfoRow>
           </InfoList>

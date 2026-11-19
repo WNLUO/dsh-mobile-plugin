@@ -54,6 +54,7 @@ import {
   type UpdateStatusView,
 } from '../lib/relayUpdate.ts'
 import { EVEN_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
+import type { Issue } from './IssueMark.tsx'
 import { t } from '../lib/i18n/index.ts'
 
 type Props = {
@@ -63,6 +64,8 @@ type Props = {
   onRestartSidecar: () => void
   /** 并到动作行里的额外按钮（控制台把网络配置、检查网络放这儿）。 */
   extraActions?: ReactNode
+  /** 版本对不上的详情交给上层，挂到「运行中版本」那行的感叹号上。 */
+  onIssues?: (issues: Issue[]) => void
   /** 只输出正文，外壳由控制台那张合并卡提供。 */
   bare?: boolean
 }
@@ -106,7 +109,7 @@ function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
   }
 }
 
-export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare = false }: Props) {
+export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIssues, bare = false }: Props) {
   /** 宿主那四条接口的状态；null = 还没读到（或老宿主压根没有）。 */
   const [host, setHost] = useState<UpdateStatusView | null>(null)
   /** 第一次读宿主状态已经落地：这之前别显示降级那一半，否则会先闪一下再变。 */
@@ -327,6 +330,25 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
   const diskVersion = host?.installedVersion ?? null
   const diskDisagree = hostMode && !!diskVersion && !!version && diskVersion !== version
 
+  // 版本对不上不在正文里铺段落：报给上层，挂到「运行中版本」那行的感叹号上。
+  useEffect(() => {
+    if (!onIssues) return
+    const issues: Issue[] = []
+    if (versionsDisagree) {
+      issues.push({
+        title: t('panel.update.runningVersion'),
+        detail: t('panel.update.versionDrift', { version: version ?? '', shell: shellVersion ?? '' }),
+      })
+    }
+    if (diskDisagree) {
+      issues.push({
+        title: t('panel.update.diskVersion'),
+        detail: t('panel.update.diskDrift', { disk: diskVersion ?? '', running: version ?? '' }),
+      })
+    }
+    onIssues(issues)
+  }, [onIssues, versionsDisagree, diskDisagree, version, shellVersion, diskVersion])
+
   const body = (
     <>
       {!settled ? (
@@ -385,19 +407,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, bare
             </label>
           )}
 
-          {/* 两处「运行中版本」对不上：面板那份是进程启动时读进内存的，外壳那份是实际装载的。 */}
-          {versionsDisagree ? (
-            <p className="mt-2 text-xs text-foreground-muted">
-              {t('panel.update.versionDrift', { version: version ?? '', shell: shellVersion ?? '' })}
-            </p>
-          ) : null}
-
-          {/* 盘上装了新版、跑的还是旧版（或反过来）：自动更新装到一半没切干净的混态。 */}
-          {diskDisagree ? (
-            <p className="mt-2 text-xs text-foreground-muted">
-              {t('panel.update.diskDrift', { disk: diskVersion ?? '', running: version ?? '' })}
-            </p>
-          ) : null}
+          {/* 版本对不上已收进「运行中版本」那行的感叹号，这里不再铺段落。 */}
 
           {/*
             「上一次更新的结果」不在这里铺一条长条（原先是绿/红 `Alert`）：宿主记得的

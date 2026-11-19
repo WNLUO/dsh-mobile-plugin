@@ -50,6 +50,23 @@ test('P2P 弹窗对老宿主的缺字段兜底，不白屏', () => {
   assert.doesNotMatch(dialog, /status\.candidates\.(?:length|map)/, '不许直接读可能不存在的字段');
 });
 
+test('异常走红色感叹号弹窗可复制，动作区独占一排', () => {
+  const mark = read('components/IssueMark.tsx');
+  const consoleSrc = read('Console.tsx');
+  const update = read('components/UpdateCard.tsx');
+  const connection = read('components/ConnectionCard.tsx');
+  // 2026-11-20 用户要求：报错不铺正文，统一收进标签旁的感叹号；点开有全文与复制按钮。
+  assert.match(mark, /text-error/, '感叹号是红色');
+  assert.match(mark, /<CopyButton/, '弹窗里能一键复制报错');
+  assert.match(mark, /issue\.detail/, '复制的是原文');
+  assert.doesNotMatch(update, /<p className="mt-2 text-xs text-foreground-muted">\s*\{t\('panel\.update\.(?:versionDrift|diskDrift)'/, '版本对不上的两段话不再铺正文');
+  assert.match(update, /onIssues\(issues\)/, '版本对不上交给上层');
+  assert.match(consoleSrc, /versionIssues/, '控制台把详情挂到左列');
+  // 动作区在整卡里独占一排，与上面三列之间有分隔，不受上面内容高度推动。
+  assert.match(consoleSrc, /<div className="mt-4 border-t border-border-muted pt-3">\s*<UpdateCard/, '动作区独占一排');
+  assert.match(connection, /labelExtra=\{[^}]*IssueMark/, '连接状态各行把感叹号挂在标签旁');
+});
+
 test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () => {
   const card = read('components/PairingCard.tsx');
   assert.match(card, /useState\(\{ relay: false \}\)/);

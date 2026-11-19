@@ -13,6 +13,7 @@ import { Switch } from '@appica/ui-react/switch'
 import type { AddressBook, P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone, type Tone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
+import { IssueMark } from './IssueMark.tsx'
 
 type Props = {
   status: StatusView
@@ -148,22 +149,18 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
         <InfoRow
           label={t('panel.connection.tunnel')}
           tone={tunnelTone(tunnel.state)}
-          {...(tunnel.state === 'error' && tunnel.error ? { 'data-error': tunnel.error } : {})}
+          labelExtra={tunnel.error ? <IssueMark issue={{ title: t('panel.connection.tunnel'), detail: tunnel.error }} /> : undefined}
         >
-          <ToneValue
-            tone={tunnelTone(tunnel.state)}
-            text={tunnelText(tunnel.state)}
-            {...(tunnel.error ? { detail: tunnel.error } : {})}
-          />
+          <ToneValue tone={tunnelTone(tunnel.state)} text={tunnelText(tunnel.state)} />
         </InfoRow>
         {tailcat ? (
-          <InfoRow label={t('panel.tailcat.title')} tone={tailcatTone(tailcat)}>
+          <InfoRow
+            label={t('panel.tailcat.title')}
+            tone={tailcatTone(tailcat)}
+            labelExtra={tailcat.error ? <IssueMark issue={{ title: t('panel.tailcat.title'), detail: tailcat.error }} /> : undefined}
+          >
             <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
-              <ToneValue
-                tone={tailcatTone(tailcat)}
-                text={t(tailcatTextKey(tailcat))}
-                {...(tailcat.error ? { detail: tailcat.error } : {})}
-              />
+              <ToneValue tone={tailcatTone(tailcat)} text={t(tailcatTextKey(tailcat))} />
               <Button variant="ghost" size="sm" onClick={onManageTailcat}>
                 {t('panel.tailcat.manage')}
               </Button>
@@ -171,30 +168,40 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
           </InfoRow>
         ) : null}
         {p2p ? (
-          <InfoRow label={t('panel.p2p.title')} tone={p2pTone(p2p)}>
+          <InfoRow
+            label={t('panel.p2p.title')}
+            tone={p2pTone(p2p)}
+            labelExtra={p2p.error ? <IssueMark issue={{ title: t('panel.p2p.title'), detail: p2p.error }} /> : undefined}
+          >
             <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
-              <ToneValue
-                tone={p2pTone(p2p)}
-                text={t(p2pTextKey(p2p))}
-                {...(p2p.error ? { detail: p2p.error } : {})}
-              />
+              <ToneValue tone={p2pTone(p2p)} text={t(p2pTextKey(p2p))} />
               <Button variant="ghost" size="sm" onClick={onManageP2P}>
                 {t('panel.p2p.manage')}
               </Button>
             </span>
           </InfoRow>
         ) : null}
-        <InfoRow label={t('panel.connection.tcp')} tone={tcpTone}>
-          <ToneValue tone={tcpTone} text={tcpText} {...(tcpDetail ? { detail: tcpDetail } : {})} />
+        <InfoRow
+          label={t('panel.connection.tcp')}
+          tone={tcpTone}
+          labelExtra={frp?.error ? <IssueMark issue={{ title: t('panel.connection.tcp'), detail: frp.error }} /> : undefined}
+        >
+          <ToneValue tone={tcpTone} text={tcpText} {...(frp?.error ? {} : tcpDetail ? { detail: tcpDetail } : {})} />
         </InfoRow>
-        <InfoRow label={t('panel.connection.sidecar')}>
+        <InfoRow
+          label={t('panel.connection.sidecar')}
+          labelExtra={restartError ? <IssueMark issue={{ title: t('panel.connection.sidecar'), detail: restartError }} /> : undefined}
+        >
           <ToneValue
             tone={restartError || status.sidecar.state !== 'healthy' ? 'error' : 'ok'}
             text={restartError ? t('panel.pairing.sidecarRestartFailed') : sidecarText(status.sidecar.state)}
-            detail={restartError ?? (status.sidecar.restarts > 0 ? t('panel.connection.sidecarRestarts', { count: status.sidecar.restarts }) : undefined)}
+            {...(!restartError && status.sidecar.restarts > 0 ? { detail: t('panel.connection.sidecarRestarts', { count: status.sidecar.restarts }) } : {})}
           />
         </InfoRow>
-        <InfoRow label={t('panel.connection.mirror')}>
+        <InfoRow
+          label={t('panel.connection.mirror')}
+          labelExtra={status.mirror.error ? <IssueMark issue={{ title: t('panel.connection.mirror'), detail: status.mirror.error }} /> : undefined}
+        >
           <ToneValue
             tone={status.mirror.ok ? 'ok' : status.mirror.error ? 'error' : 'warn'}
             text={status.mirror.ok ? t('panel.connection.mirrorOk') : t('panel.connection.mirrorOff')}
@@ -210,8 +217,11 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
       ) : null}
       {status.lan.enabled && (status.lan.error || status.lan.discovery?.error) ? (
         <InfoList>
-          <InfoRow label={t('panel.connection.lan')}>
-            <ToneValue tone="warn" text={t('panel.lan.error')} detail={(status.lan.error || status.lan.discovery?.error) ?? undefined} />
+          <InfoRow
+            label={t('panel.connection.lan')}
+            labelExtra={<IssueMark issue={{ title: t('panel.connection.lan'), detail: (status.lan.error || status.lan.discovery?.error) ?? '' }} />}
+          >
+            <ToneValue tone="warn" text={t('panel.lan.error')} />
           </InfoRow>
         </InfoList>
       ) : null}
