@@ -90,6 +90,12 @@ test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => 
   }
 });
 
+test('下发配置的闭包不读失效的 ctx.webServer，父端口在挂载时缓存', () => {
+  const src = read(INDEX);
+  assert.match(src, /const webPortForSidecar = ctx\.webServer\.port/, '挂载时取一次父端口');
+  assert.doesNotMatch(src, /upstreamPort: ctx\.webServer\.port/, '下发时读失效 context 会让重启与 TCP 直连全失败');
+});
+
 test('装配层不再自己开定时器（健康轮询与后台补推各自归属明确）', () => {
   const src = read(INDEX);
   assert.ok(!/setInterval\(/.test(src), 'impl.js 又开始开定时器了：健康轮询归 lifecycle，后台补推归 pusher');
