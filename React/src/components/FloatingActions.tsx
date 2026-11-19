@@ -8,9 +8,6 @@
  * 原先是贴页面左下角的悬浮胶囊（`fixed start-5 bottom-4`）；2026-11-17 用户要求挪进
  * 控制台顶栏、挨着左侧那组设备信息，于是改成**横排的一组**：去掉 `fixed` 与悬浮阴影，
  * 由调用方把它放进顶栏的 flex 行里。`compact` 仍决定按钮尺寸（sm / lg）。
- *
- * 控制台那一页把交流群挪进整卡的动作行，传 `includeJoinGroup={false}` 关掉这里的那颗；
- * 其他页面照旧三颗横排。组件仍只有一份，不在两处各摆一个坐标。
  */
 import { JoinGroupButton } from './JoinGroupButton.tsx'
 import { SponsorButton } from './SponsorButton.tsx'
@@ -19,16 +16,14 @@ import { StarButton } from './StarButton.tsx'
 type Props = {
   /** 小一号（控制台那一窗）。 */
   compact?: boolean
-  /** 控制台把交流群挪进整卡的动作行时关掉这里的那颗，其他页面照旧。 */
-  includeJoinGroup?: boolean
 }
 
-export function FloatingActions({ compact = false, includeJoinGroup = true }: Props) {
+export function FloatingActions({ compact = false }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <StarButton compact={compact} />
       <SponsorButton compact={compact} />
-      {includeJoinGroup ? <JoinGroupButton compact={compact} /> : null}
+      <JoinGroupButton compact={compact} />
     </div>
   )
 }

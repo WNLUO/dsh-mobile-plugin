@@ -44,6 +44,7 @@ type Props = {
   error: string
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
   restartError: string | null
+  onOpenConfig: () => void
   /** 「自动上报网络地址」（`status.controlReportEnabled`，总控上报）：改的是同一个 `/api/relay/config`。 */
   onChangeControlReport: (enabled: boolean) => void
   /** 「检查网络」：开的是「连接自检」那个弹窗（与卡片里那行「自检」是同一件事）。 */
@@ -100,6 +101,7 @@ export function PairingCard({
   busy,
   error,
   restartError,
+  onOpenConfig,
   onChangeControlReport,
   onOpenSelfCheck,
   onRetryPairing,
@@ -132,6 +134,9 @@ export function PairingCard({
   /** 日常动作单独抽出来：合并卡没有标题行，两个外壳共用同一组按钮。 */
   const actions = (
     <>
+      <Button variant="ghost" size="sm" className="px-2" disabled={idle} onClick={onOpenConfig}>
+        {t('panel.pairing.openConfig')}
+      </Button>
       <DownloadAppButton size="sm" variant="ghost" className="px-2" />
       <Button variant="ghost" size="sm" className="px-2" onClick={onOpenSelfCheck}>
         {t('panel.pairing.checkNetwork')}
