@@ -1,4 +1,5 @@
 'use strict';
+// AI 代提反馈的回执照实说：回复在维护者队列跟进，不进 App 反馈列表（2026-11-20）。
 
 /**
  * `dsh_feedback` 工具：AI 查清问题后把反馈提交到分发平台。
@@ -80,6 +81,10 @@ test('channels：两条途径都在，GitHub 那条标明要登录', () => {
   assert.ok(distribution, '缺少分发平台那条');
   assert.equal(distribution.endpoint, `${PLATFORM_ORIGIN}${FEEDBACK_PATH}`);
   assert.equal(distribution.requiresLogin, false);
+  assert.match(distribution.description, /维护者反馈队列/);
+  assert.match(distribution.description, /npm run feedback/);
+  assert.match(distribution.description, /不会出现在 App 的反馈列表里/);
+  assert.doesNotMatch(distribution.description, /收到官方回复/);
   const github = channels.find((channel) => channel.kind === 'github');
   assert.ok(github, '缺少 GitHub 那条');
   assert.equal(github.repo, GITHUB_REPO);
@@ -120,6 +125,9 @@ test('submitFeedback：提交到固定基址，带回线程 key', async () => {
     const result = await submitFeedback(depsFor(), '发现一个真问题', undefined, undefined);
     assert.equal(result.threadKey, 'tk-abc');
     assert.match(result.message, /tk-abc/);
+    assert.match(result.message, /维护者反馈队列/);
+    assert.match(result.message, /不会出现在 App 的反馈列表里/);
+    assert.doesNotMatch(result.message, /收到官方回复/);
   });
   assert.equal(fake.calls.length, 1);
   assert.equal(fake.calls[0].url, `${PLATFORM_ORIGIN}${FEEDBACK_PATH}`);
@@ -143,6 +151,9 @@ test('工具：动作清单、说明里有两条途径、缺 content 与超长�
   assert.deepEqual([...registered.parameters.properties.action.enum].sort(), ['channels', 'submit']);
   assert.match(registered.description, /distribution platform/);
   assert.match(registered.description, new RegExp(GITHUB_REPO));
+  assert.match(registered.description, /maintainer feedback queue/);
+  assert.match(registered.description, /will not appear in the in-app feedback list/);
+  assert.doesNotMatch(registered.description, /official replies in the app/);
 
   const channels = await registered.execute({ action: 'channels' });
   assert.equal(channels.action, 'channels');
