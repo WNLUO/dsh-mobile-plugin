@@ -1,3 +1,4 @@
+// 验证投递回查结果及客户端断开后的历史扫描取消。
 'use strict';
 
 /**
@@ -34,9 +35,9 @@ async function serve(historyImpl) {
   const ctx = {
     apiProxy: {
       sessions: {
-        history: async (request) => {
+        history: async (request, signal) => {
           calls.push(request);
-          return historyImpl(request);
+          return historyImpl(request, signal);
         },
       },
     },
@@ -147,4 +148,25 @@ test('其余宿主错误 → 502，原话带回来（别把「读不到」说成
   } finally {
     await host.close();
   }
+});
+
+
+test('客户端断开后，正在回查的history收到取消信号', async () => {
+  let started;
+  let aborted;
+  const ready = new Promise((resolve) => { started = resolve; });
+  const stopped = new Promise((resolve) => { aborted = resolve; });
+  const host = await serve((_request, signal) => {
+    assert.ok(signal instanceof AbortSignal);
+    started();
+    return new Promise((resolve) => signal.addEventListener('abort', () => { aborted(); resolve(okValue({ events: [] })); }, { once: true }));
+  });
+  const ac = new AbortController();
+  try {
+    const response = fetch(`${host.base}?sessionId=s1&clientMessageId=c1`, { signal: ac.signal }).catch(() => null);
+    await ready;
+    ac.abort();
+    await stopped;
+    await response;
+  } finally { await host.close(); }
 });

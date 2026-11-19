@@ -1,3 +1,4 @@
+// 验证隧道落点的可信来源标记与 P2P 独立归属。
 'use strict';
 
 /**
@@ -222,3 +223,24 @@ test('落点代理按宿主实际绑定地址转发：宿主绑在非 127.0.0.1 
     await new Promise((done) => host.server.close(done));
   }
 });
+
+
+for (const lanEnabled of [false, true]) {
+  test(`P2P在LAN=${lanEnabled}时固定经可信p2p落点，覆盖客户端标记`, async () => {
+    const host = await startHost();
+    const cleanups = [];
+    const door = mountP2P({
+      mount: (_label, fn) => fn(), warn: () => {}, state: {}, saveState: () => {},
+      localPort: () => 18787, lanEnabled: () => lanEnabled, lanPort: () => 18787,
+      webPort: () => host.port, ctx: { effect: (fn) => { const off = fn(); if (typeof off === 'function') cleanups.push(off); } },
+      name: 'test', resolveBinary: () => null,
+    });
+    try {
+      await new Promise((done) => setTimeout(done, 50));
+      const port = door.targetPort();
+      assert.ok(port > 0 && port !== 18787 && port !== host.port);
+      await request(port, { path: '/api/mobile/v1/status', headers: { 'X-Dsh-Via': 'lan' } });
+      assert.equal(host.seen.at(-1).via, 'p2p');
+    } finally { for (const off of cleanups) await off(); await new Promise((done) => host.server.close(done)); }
+  });
+}

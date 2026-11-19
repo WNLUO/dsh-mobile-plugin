@@ -1,3 +1,4 @@
+// 验证移动中转配置及响应结束后吊销凭据和连接。
 'use strict';
 
 /**
@@ -261,7 +262,7 @@ test('吊销全部：要带 confirm，且三处都吊销', async () => {
   await handlers.handleRelayRevokeAll({}, reqWith({ confirm: true }), ok);
   assert.equal(ok.status, 200);
   assert.equal(ok.body.started, true);
-  assert.equal(calls.revokeLocal, 0, '响应返回时还没吊销 —— 否则这一发自己的凭据也可能被先收走');
+  assert.equal(calls.revokeLocal, 1, '凭据及时失效，回执承载连接由mux有界排空后关闭');
   await wait(AFTER_RESPONSE_MS + 120);
   assert.equal(calls.revokeLocal, 1, '本机凭据要吊销');
   assert.notEqual(state.lanSecret, 'old-secret', 'lanSecret 必须轮换，否则旧的局域网凭据还能用');
@@ -515,4 +516,32 @@ test('装配没接上时统一回 503，不是 500 代码错误', async () => {
   const port = fakeRes();
   await handlers.handleRelayCheckPort({}, reqWith({ port: 10 }), port);
   assert.equal(port.body.reason, 'out-of-range');
+});
+
+
+test('凭据及时失效，回执承载连接有界排空后才重配sidecar', async () => {
+  const { EventEmitter } = require('node:events');
+  const order = [];
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { deps } = makeDeps({ deps: {
+    credentials: {
+      listDevices: () => { order.push('list'); return [{ deviceId: 'phone' }]; },
+      revokeAllByInstance: () => { order.push('revoke'); return 1; },
+    },
+    dropDeviceStreams: (deviceId, res) => { order.push(`drop:${deviceId}`); res.__dshMuxDrained = gate; return 2; },
+    dropAllDeviceStreams: () => { order.push('drop-all'); return 1; },
+    getSidecar: () => ({ request: async () => { order.push('relay'); return { revoked: 1 }; } }),
+  } });
+  const handlers = createRelayControlHandlers(deps);
+  const res = Object.assign(new EventEmitter(), fakeRes());
+  await handlers.handleRelayRevokeAll({}, reqWith({ confirm: true }), res);
+  assert.equal(res.body.started, true);
+  assert.deepEqual(order, ['list', 'revoke', 'drop:phone', 'drop-all']);
+  res.emit('finish');
+  await Promise.resolve();
+  assert.equal(order.includes('relay'), false, '本地finish不等于mux回执已排空');
+  release();
+  await wait(10);
+  assert.equal(order.at(-1), 'relay');
 });

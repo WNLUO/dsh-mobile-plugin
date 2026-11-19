@@ -1,3 +1,4 @@
+// 验证配对凭据与独立 IPv6 候选契约。
 'use strict'
 
 /**
@@ -118,15 +119,16 @@ test('配对响应带回宿主的直连候选（手输公网地址时手机靠�
   assert.deepEqual(res.body.ipv6Candidates, ['http://[240e::1]:18787'])
 })
 
-test('关掉局域网直连时配对响应不带候选', async () => {
+// PLUG-12：关闭 LAN 只隐藏 IPv4，IPv6 由独立监听继续服务。
+test('关掉局域网直连时配对响应保留IPv6候选', async () => {
   resetPairLocks()
-  const { handler } = makeHandler({ lanEnabled: false, lan: [{ url: 'http://192.168.31.5:18787' }] })
+  const { handler } = makeHandler({ lanEnabled: false, lan: [{ url: 'http://192.168.31.5:18787' }], v6: [{ url: 'http://[240e::1]:18787' }] })
   const res = fakeRes()
   await handler(fakeReq({ code: CODE, device: { deviceId: 'dev-1' } }), res)
 
   assert.equal(res.status, 200)
   assert.equal(res.body.lanUrls, undefined)
-  assert.equal(res.body.ipv6Candidates, undefined)
+  assert.deepEqual(res.body.ipv6Candidates, ['http://[240e::1]:18787'])
 })
 
 test('配对码错误被拒，且不签发凭据', async () => {

@@ -1,3 +1,4 @@
+// 验证直连双栈与关闭 IPv4 后独立保留 IPv6 的真实监听。
 'use strict'
 // 监听关闭必须完成，端口冲突不在代理层自行迁移。
 
@@ -320,3 +321,16 @@ test('ipv6Only 走 options 位置才生效（旧写法会被当 backlog 丢掉�
  * IPv4 一起拖走（代理转而去走「端口被占」那条自愈路径）。挡 IPv6 的机器上，那条监听会
  * 留一行 `IPv6 监听未建立（…）`，IPv4 照旧可用；分支见 lan-proxy.js 的 startV6。
  */
+
+
+// PLUG-12：关LAN仅关IPv4，不得顺带关闭公网IPv6，也不得误开IPv4。
+test('IPv6-only：LAN关闭仍能访问IPv6，同端口IPv4不监听', async (t) => {
+  if (!(await hasIpv6Loopback())) { t.skip('本机没有IPv6环回'); return; }
+  const upstream = await startUpstream();
+  const { proxy, port } = await startProxy(upstream.port, { ipv4Enabled: false });
+  try {
+    const health = await request(port, { host: '::1', family: 6, path: '/healthz' });
+    assert.equal(health.status, 200);
+    await assert.rejects(request(port, { host: '127.0.0.1', family: 4, path: '/healthz' }), { code: 'ECONNREFUSED' });
+  } finally { await proxy.stop(); await new Promise((resolve) => upstream.server.close(resolve)); }
+});

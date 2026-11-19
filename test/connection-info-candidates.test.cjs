@@ -1,3 +1,4 @@
+// 验证关闭局域网后 IPv6 候选保留，且中转只发布当前注册线路。
 'use strict';
 
 /**
@@ -9,8 +10,8 @@
  * 就静悄悄地退化成全程走中转。
  *
  * 这里钉三件事：局域网与 IPv6 两份候选都照实回；IPv6 那份不掺进局域网那份的顺序里
- * （手机要拿它单独和中转比快慢，两份混起来就没有比较对象了）；关掉局域网直连时两份都
- * 为空（IPv6 那条监听挂在同一个代理上，没开就是没有这条通道）。
+ * （手机要拿它单独和中转比快慢，两份混起来就没有比较对象了）。
+ * PLUG-12 已确认独立保留 IPv6；关闭 LAN 只隐藏 IPv4 候选。
  */
 
 const test = require('node:test');
@@ -50,7 +51,7 @@ function mountRoute(state) {
     guarded: (handler) => handler,
     state,
     hostMetadata: () => ({}),
-    getSidecarSnapshot: () => ({}),
+    getSidecarSnapshot: () => ({ tunnel: state.tunnel || { state: 'connected', relayUrl: state.relayUrl } }),
     safeLanCandidates: () => [LAN],
     safeIpv6Candidates: () => [IPV6],
     lanPortInUse: () => 18787,
@@ -90,10 +91,10 @@ test('两份候选各回各的，IPv6 不掺进局域网那份的顺序', async 
   assert.equal(body.ipv6Candidates.some((item) => item.family === 'IPv4'), false);
 });
 
-test('关掉局域网直连时两份都为空（IPv6 那条监听挂在同一个代理上）', async () => {
+test('关掉局域网只清IPv4候选，IPv6仍可用', async () => {
   const body = await connectionInfo({ ...HOST, lanEnabled: false });
   assert.deepEqual(body.lanCandidates, []);
-  assert.deepEqual(body.ipv6Candidates, []);
+  assert.deepEqual(body.ipv6Candidates, [IPV6]);
   assert.equal(body.relayUrl, 'https://relay.example.com', '中转地址与这个开关无关');
 });
 
@@ -124,9 +125,9 @@ test('手填的 IPv6 直连地址缀在 IPv6 候选最后，网卡那几条一�
   assert.deepEqual(body.lanCandidates, [LAN]);
 });
 
-test('手填的 IPv6 地址同样跟着局域网开关走：关掉直连就不报它', async () => {
+test('手填IPv6在关闭局域网后仍作为独立候选', async () => {
   const body = await connectionInfo({ ...HOST, lanEnabled: false, manualIpv6Url: 'http://[2001:4860:4860::8888]:18787' });
-  assert.deepEqual(body.ipv6Candidates, [], '直连监听没开，IPv6 那条通道也不存在');
+  assert.deepEqual(body.ipv6Candidates.map((item) => item.url), [IPV6.url, 'http://[2001:4860:4860::8888]:18787']);
 });
 
 test('TCP 直连目标始终回这一格：没配时是空串（手机据此把旧目标清掉）', async () => {
@@ -137,4 +138,15 @@ test('TCP 直连目标始终回这一格：没配时是空串（手机据此把�
   assert.equal(none.tcpUrl, '');
   const some = await connectionInfo({ ...HOST, manualTcpUrl: '[240e::1]:51543' });
   assert.equal(some.tcpUrl, '[240e::1]:51543', '方括号 IPv6 原样回给手机（与 tcpDirectTarget 同口径）');
+});
+
+
+test('当前线路取注册snapshot，配置首项和未注册备用不能冒充可连地址', async () => {
+  const state = { ...HOST, relayUrls: ['https://relay.example.com', 'https://backup.example.com'], tunnel: { state: 'connected', relayUrl: 'https://backup.example.com' } };
+  const live = await connectionInfo(state);
+  assert.equal(live.relayUrl, 'https://backup.example.com');
+  assert.deepEqual(live.relayUrls, ['https://backup.example.com']);
+  const offline = await connectionInfo({ ...state, tunnel: { state: 'error', relayUrl: 'https://backup.example.com' } });
+  assert.equal(offline.relayUrl, null);
+  assert.deepEqual(offline.relayUrls, []);
 });

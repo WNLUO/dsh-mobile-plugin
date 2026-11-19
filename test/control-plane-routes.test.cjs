@@ -1,3 +1,4 @@
+// 验证本机控制面边界、设备吊销回执与连接关闭计数。
 'use strict';
 
 /**
@@ -199,7 +200,7 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  * 落点 —— 这样才谈得上「写进去能读回」，只对着源码正则断言字段名是钉不住的。
  */
 function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
-  localOnly = (_method, handler) => handler, trustedLocalUi = () => true } = {}) {
+  localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0 } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
   const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
@@ -220,6 +221,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     settings,
     state,
     credentials,
+    dropDeviceStreams,
     status: () => ({}),
     syncSidecar: async () => {},
     lanPortInUse: () => 18787,
@@ -754,3 +756,13 @@ test('行为：设备清单带「历史有几条」，同一个 handler 按 ?his
   await table.get('/api/relay/devices')({ method: 'GET', url: '/api/relay/devices?history=0' }, other);
   assert.deepEqual(other.body.devices.map((row) => row.deviceId), ['live-1']);
 })
+
+
+test('单台吊销响应保留数字closed', async () => {
+  const store = { revokeDevice: () => 1, listDevices: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
+  const table = controlRoutes({ state: { instanceId: 'closed-instance' }, credentials: store, dropDeviceStreams: (id) => { assert.equal(id, 'phone'); return 3; } });
+  const res = {};
+  await table.get('/api/relay/devices/revoke')({ method: 'POST', body: { deviceId: 'phone' }, headers: {} }, res);
+  assert.equal(res.body.closed, 3);
+  assert.equal(typeof res.body.closed, 'number');
+});

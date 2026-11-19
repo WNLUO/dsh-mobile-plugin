@@ -1,3 +1,4 @@
+// 验证容灾配置完整保留，而移动端只获得当前注册线路。
 'use strict';
 
 /**
@@ -186,7 +187,7 @@ test('status() 在 relayUrl 旁边报 relayUrls，两者恒一致', () => {
   const view = (state) => createStatusView({
     state,
     webServerPort: 3080,
-    getSidecarSnapshot: () => ({}),
+    getSidecarSnapshot: () => ({ tunnel: { state: state.connected === false ? 'error' : 'connected', relayUrl: state.activeRelay || state.relayUrl } }),
     lanPortInUse: () => 18787,
     getLanPortAdjusted: () => false,
     getSidecarState: () => 'healthy',
@@ -236,7 +237,7 @@ test('配对二维码 payload 两格都在：老手机读 relayUrl，新手机�
 });
 
 /** 装一次移动端路由表，取出指定的那一条。 */
-function mobileRoute(state, routePath) {
+function mobileRoute(state, routePath, snapshot = { tunnel: { state: 'connected', relayUrl: A } }) {
   const routes = [];
   registerMobileRoutes({
     registerRoute: (route) => routes.push(route),
@@ -244,7 +245,7 @@ function mobileRoute(state, routePath) {
     guarded: (handler) => handler,
     state,
     hostMetadata: () => ({}),
-    getSidecarSnapshot: () => ({}),
+    getSidecarSnapshot: () => snapshot,
     safeLanCandidates: () => [],
     safeIpv6Candidates: () => [],
     lanPortInUse: () => 18787,
@@ -264,7 +265,7 @@ test('心跳与 /connection-info 都带 relayUrls；关掉中转时两格都为�
     await mobileRoute({ enabled: true, relayUrl: A, relayUrls: [A, B] }, routePath).handler({}, req, res);
     const body = JSON.parse(res.raw);
     assert.equal(body.relayUrl, A, `${routePath} 的 relayUrl 语义没变`);
-    assert.deepEqual(body.relayUrls, [A, B], `${routePath} 要报整组`);
+    assert.deepEqual(body.relayUrls, [A], `${routePath} 只报当前已注册线路`);
 
     const off = fakeRes();
     await mobileRoute({ enabled: false, relayUrl: A, relayUrls: [A, B] }, routePath).handler({}, req, off);
@@ -278,7 +279,8 @@ test('心跳里的列表是现算的：改完地址不用重挂路由就能读�
   // `state` 是就地改的（见 A3-20 的坑「内存 state 是本进程唯一真值」）。把收敛提到注册那一刻
   // 算一份，表现是「面板改完地址、手机轮询到的还是旧的那组」，一个错都不报。
   const state = { enabled: true, relayUrl: A, relayUrls: [A] };
-  const route = mobileRoute(state, '/api/mobile/v1/status');
+  const snapshot = { tunnel: { state: 'connected', relayUrl: A } };
+  const route = mobileRoute(state, '/api/mobile/v1/status', snapshot);
   const read = async () => {
     const res = fakeRes();
     await route.handler({}, { url: '/api/mobile/v1/status', method: 'GET', headers: {}, socket: { remoteAddress: '127.0.0.1' } }, res);
@@ -287,7 +289,9 @@ test('心跳里的列表是现算的：改完地址不用重挂路由就能读�
   assert.deepEqual((await read()).relayUrls, [A]);
   state.relayUrls = [B, A];
   state.relayUrl = B;
-  assert.deepEqual((await read()).relayUrls, [B, A], '改完立刻读到新的一组，列表首项与 relayUrl 一致');
+  assert.deepEqual((await read()).relayUrls, [A], '只改配置不能冒充线路已注册');
+  snapshot.tunnel = { state: 'connected', relayUrl: B };
+  assert.deepEqual((await read()).relayUrls, [B], 'PLUG-13：移动端只跟随宿主当前注册线路，配置仍保留整组');
   assert.equal((await read()).relayUrl, B);
 });
 
@@ -393,4 +397,26 @@ test('中转地址列表按安全上限封顶（防有人塞进成千上万条�
   assert.equal(out.length, core.MAX_RELAY_ADDRESSES, '超过上限按原顺序截断');
   assert.equal(out[0], many[0]);
   assert.equal(out[core.MAX_RELAY_ADDRESSES - 1], many[core.MAX_RELAY_ADDRESSES - 1]);
+});
+
+
+test('移动端不发布未注册容灾节点，配置列表完整保留', async () => {
+  const state = { enabled: true, relayUrl: A, relayUrls: [A, B] };
+  const snapshot = { tunnel: { state: 'connected', relayUrl: B } };
+  const route = mobileRoute(state, '/api/mobile/v1/status', snapshot);
+  const read = async () => { const res = fakeRes(); await route.handler({}, { url: '/api/mobile/v1/status', headers: {} }, res); return JSON.parse(res.raw); };
+  assert.deepEqual((await read()).relayUrls, [B]);
+  assert.deepEqual(state.relayUrls, [A, B]);
+  snapshot.tunnel = { state: 'error', relayUrl: B };
+  assert.equal((await read()).relayUrl, null);
+  assert.deepEqual((await read()).relayUrls, []);
+  snapshot.tunnel = { state: 'connected', relayUrl: A };
+  assert.deepEqual((await read()).relayUrls, [A]);
+  assert.deepEqual(state.relayUrls, [A, B], '离线和恢复都不能丢掉容灾配置');
+});
+
+test('配对邀请在LAN关闭时保留手填IPv6候选', () => {
+  const payload = pairingPayload({ lanEnabled: false, lanPort: 18787, manualIpv6Url: 'http://[2001:4860::1]:18787', relayUrls: [] }, 18787).payload;
+  assert.deepEqual(payload.lanUrls, []);
+  assert.ok(payload.ipv6Candidates.includes('http://[2001:4860::1]:18787'));
 });

@@ -1,3 +1,4 @@
+// 展示已绑定设备与服务端记下的真实传输通道。
 /**
  * 「已绑定的设备」卡片：谁被这台机器放进来过、最近一次什么时候来的、走哪条路、能不能踢。
  *
@@ -136,10 +137,16 @@ export function platformText(platform: string): string {
   return map[platform] ?? (platform || t('panel.devices.unknownPlatform'))
 }
 
-/** 通道码 → 「经中转 / 局域网」。空串是宿主没记，给一个破折号而不是编一条路。 */
+/** 通道码映射到现有设备信息行，未知来源保留破折号。 */
 function channelText(channel: string): string {
   if (channel === 'relay') return t('panel.devices.channelRelay')
   if (channel === 'lan') return t('panel.devices.channelLan')
+  if (channel === 'tunnel') return t('panel.devices.channelTunnel')
+  if (channel === 'p2p') return t('panel.devices.channelP2p')
+  if (channel === 'direct') return t('panel.devices.channelDirect')
+  if (channel === 'ipv6') return t('panel.devices.channelIpv6')
+  if (channel === 'tcp') return t('panel.devices.channelTcp')
+  if (channel === 'mux') return t('panel.devices.channelMux')
   return t('panel.devices.channelUnknown')
 }
 
