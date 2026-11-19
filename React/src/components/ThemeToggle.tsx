@@ -11,6 +11,8 @@
  *
  * **坐标不归这里管**：这颗与语言按钮共用 `components/TopRightActions.tsx` 那个落脚点，
  * 别在这里再套 `fixed`，否则两颗按钮各算各的边距。
+ *
+ * 形态是纯图标的 ghost 按钮：不带浅灰底、圆角片与阴影，颜色走主题 token，日夜间自动跟着变。
  */
 
 import { Button } from '@appica/ui-react/button'
@@ -58,9 +60,9 @@ export function ThemeToggle() {
 
   return (
     <Button
-      variant="soft"
+      variant="ghost"
       size="icon-md"
-      className="pointer-events-auto rounded-full shadow-sm"
+      className="pointer-events-auto"
       aria-label={label}
       title={label}
       onClick={() => setTheme(dark ? 'light' : 'dark')}
@@ -87,9 +89,9 @@ export function ConsoleThemeToggle() {
 
   return (
     <Button
-      variant="soft"
+      variant="ghost"
       size="icon-md"
-      className="pointer-events-auto rounded-full shadow-sm"
+      className="pointer-events-auto"
       aria-label={label}
       title={label}
       onClick={() => setShellThemeOverride(dark ? 'light' : 'dark')}

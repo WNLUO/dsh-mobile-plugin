@@ -18,6 +18,8 @@
  * 图标手画（一颗地球）：库里只有组件、没有图标集，这一页既有的几颗图标也都是手写 SVG。
  * 描边宽度不用自己写 —— `Button` 基类那条 `[&_svg:not([class*='stroke-'])]:stroke-[1.85]`
  * 会补上。语言名一律用**该语言自己的写法**（简体中文 / English / 日本語…），那层不翻。
+ *
+ * 触发件是纯图标的 ghost 按钮：不带浅灰底、圆角片与阴影，颜色走主题 token，日夜间自动跟着变。
  */
 import { useEffect, useState } from 'react'
 
@@ -112,9 +114,9 @@ export function LanguageMenu() {
 
   const trigger = (
     <Button
-      variant="soft"
+      variant="ghost"
       size="icon-md"
-      className="pointer-events-auto rounded-full shadow-sm"
+      className="pointer-events-auto"
       aria-label={label}
       title={`${label} · ${LANGUAGE_LABELS[language]}`}
     >
