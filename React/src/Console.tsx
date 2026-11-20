@@ -1,3 +1,4 @@
+// 网络配置与立即更新共用主按钮样式。
 // 固定端口与端口号通过同一次配置保存。
 /**
  * 面板控制台（`/api/relay/panel/console`，也是面板主页）：桌面端那颗手机图标点开的那一窗。
@@ -480,7 +481,7 @@ export function Console() {
               onIssues={setVersionIssues}
               extraActions={
                 <>
-                  <Button variant="ghost" size="sm" onClick={() => setConfigOpen(true)}>
+                  <Button variant="primary" size="sm" onClick={() => setConfigOpen(true)}>
                     {t('panel.pairing.openConfig')}
                   </Button>
                 </>
