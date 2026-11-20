@@ -95,6 +95,15 @@ export function InfoRow({ label, hint, labelExtra, tone, mono, nowrap, children 
 /** 整卡两列对齐用：信息行统一最小高度，左右两列的行才能落在同一条水平线上。 */
 export const EVEN_ROWS = '[&>div]:min-h-9'
 
+/**
+ * 同一张卡里左右两列**逐行对齐**用（2026-11-20 用户指出顶卡右列行高不齐）。
+ *
+ * `EVEN_ROWS` 只给 36px 下限，行里塞了按钮的那几行会被内容撑到 44-49px，开关行却停在
+ * 36-40px —— 一列里高低不一，两列之间越往下错得越多。这里把内边距让给行高自己分配：
+ * 行统一 48px 且垂直居中，内容再多也只长它自己那一行（多行文案不会因此被裁）。
+ */
+export const ALIGNED_ROWS = '[&>div]:min-h-12 [&>div]:py-0 [&>div]:items-center'
+
 export function InfoList({ children, className }: { children: ReactNode; className?: string }) {
   return <dl className={cn('mt-1', className)}>{children}</dl>
 }

@@ -58,7 +58,7 @@ import {
   type Tier,
   type WebAccessState,
 } from './lib/api.ts'
-import { Dot, EVEN_ROWS, InfoList } from './components/InfoRow.tsx'
+import { Dot, ALIGNED_ROWS, InfoList } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
 import { isPublicRelayUrl } from './lib/links.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
@@ -485,7 +485,7 @@ export function Console() {
               />
             </div>
             <div className="lg:col-span-4">
-              <InfoList className={EVEN_ROWS}>
+              <InfoList className={ALIGNED_ROWS}>
                 <PairingPolicyRows
                   status={status}
                   busy={busy}

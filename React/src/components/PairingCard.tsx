@@ -30,7 +30,7 @@ import * as React from 'react'
 import type { AddressBook, PairingInfo, PairingPolicy, StatusView, Tier } from '../lib/api.ts'
 import { isPublicRelayUrl } from '../lib/links.ts'
 import { AddressPicker } from './AddressPicker.tsx'
-import { EVEN_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
+import { ALIGNED_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
 import { IssueMark, type Issue } from './IssueMark.tsx'
 import { InfoMark } from './InfoMark.tsx'
 import { RevealButton } from './RevealButton.tsx'
@@ -182,7 +182,7 @@ export function PairingCard({
         </div>
 
         <div ref={infoRef} className="flex min-w-0 flex-1 flex-col">
-          <InfoList className={EVEN_ROWS}>
+          <InfoList className={ALIGNED_ROWS}>
             <InfoRow label={t('panel.connection.relayUrl')} nowrap>
               <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 {shown.relay ? (
