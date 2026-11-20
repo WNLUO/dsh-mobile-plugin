@@ -1,3 +1,4 @@
+// 覆盖 Host-wide Schedule v2 的目标、投递记录、精确状态和 CAS 契约。
 'use strict';
 
 /**
@@ -27,6 +28,7 @@ const http = require('node:http');
 const {
   handleScheduleCatalog,
   handleScheduleList,
+  handleScheduleView,
   handleScheduleHistory,
   handleScheduleDelete,
 } = require('../lib/mobile/schedule.js');
@@ -37,6 +39,7 @@ const BASE = '/api/mobile/v1/schedule';
 const HANDLERS = {
   [`${BASE}/catalog`]: handleScheduleCatalog,
   [`${BASE}/list`]: handleScheduleList,
+  [`${BASE}/view`]: handleScheduleView,
   [`${BASE}/history`]: handleScheduleHistory,
   [`${BASE}/delete`]: handleScheduleDelete,
 };
@@ -57,13 +60,17 @@ const emptyHistory = (id) => ({
  * 调 `options.*` 的实现，缺省给合法空值。所有调用参数都记在 `calls` 里。
  */
 async function serve(options = {}) {
-  const calls = { catalog: 0, list: [], history: [], delete: [], edit: [] };
+  const calls = { catalog: 0, list: [], view: [], history: [], delete: [], edit: [] };
   let service;
   if (!options.missing) {
     service = {
       catalog: async () => {
         calls.catalog += 1;
         return options.catalog ? options.catalog() : [];
+      },
+      view: async (payload) => {
+        calls.view.push(payload);
+        return options.view ? options.view(payload) : { id: payload.id, code: 'schedule_not_found' };
       },
       list: async (payload) => {
         calls.list.push(payload);
@@ -176,7 +183,7 @@ test('catalog：手机形状（state 由 status 收敛），并带 serverNow', a
     // 精确键集合：多一个 status / 少一个 prompt 都算契约破了。
     assert.deepEqual(
       Object.keys(first).sort(),
-      ['id', 'kind', 'lastDelivery', 'prompt', 'scheduledAt', 'sessionId', 'state', 'time', 'timeZone', 'title', 'weekdays'],
+      ['id', 'involvedSessionIds', 'kind', 'lastDelivery', 'prompt', 'scheduledAt', 'sessionId', 'state', 'status', 'target', 'targetSessionId', 'time', 'timeZone', 'title', 'weekdays'],
     );
     assert.equal(first.id, 'schedule-weekly');
     assert.equal(first.sessionId, 'session-a');
@@ -192,7 +199,7 @@ test('catalog：手机形状（state 由 status 收敛），并带 serverNow', a
       scheduledAt: '2026-10-19T01:00:00.000Z',
       deliveredAt: '2026-10-19T01:00:03.000Z',
     });
-    assert.equal('status' in first, false, '宿主的 status 不该原样漏给手机');
+    assert.equal(first.status, 'active', 'status 保留宿主精确状态，旧 state 不变');
 
     assert.equal(second.state, 'inactive');
     assert.equal(second.expression, '0 9 * * *');
@@ -243,7 +250,7 @@ test('list：从目录里筛出该会话的全部任务（active + inactive 都�
     assert.equal(byId['schedule-every'].state, 'active');
     assert.equal(byId['schedule-once'].state, 'inactive', '已结束的必须如实标成 inactive');
     assert.equal(byId['schedule-every'].everySeconds, 3600);
-    assert.equal('status' in byId['schedule-every'], false, 'status 不往手机端透');
+    assert.equal(byId['schedule-every'].status, 'active');
     assert.equal(typeof res.body.serverNow, 'number', '按会话看也要带宿主的钟');
   });
 });
@@ -380,7 +387,6 @@ test('缺参数与 limit 越界：400，且压根不往宿主发请求', async (
   await withHost({}, async (host) => {
     for (const [path, query] of [
       [`${BASE}/list`, ''],
-      [`${BASE}/history`, '?id=schedule-weekly'],
       [`${BASE}/history`, '?sessionId=session-a'],
     ]) {
       const res = await host.get(path, query);
@@ -486,7 +492,7 @@ test('收敛：可选字段坏了只丢字段，超长截断不丢整条', async
     assert.equal(after.kind, 'after');
     assert.deepEqual(
       Object.keys(at).sort(),
-      ['id', 'kind', 'prompt', 'sessionId', 'state', 'title'],
+      ['id', 'involvedSessionIds', 'kind', 'prompt', 'sessionId', 'state', 'status', 'target', 'targetSessionId', 'title'],
       'at 只该有基础字段',
     );
   });
@@ -553,6 +559,34 @@ test('v2 行：会话归属从 target 里取，不再要求行上有 sessionId',
     assert.equal(res.body.records.length, 1, 'v2 行不能被当成缺 sessionId 丢掉');
     assert.equal(res.body.records[0].sessionId, 'session-v2');
     assert.equal(res.body.records[0].state, 'active');
+  });
+});
+
+test('v2 目录保留无会话 new 任务，list 按参与会话与实际投递会话筛选', async () => {
+  const row = weekly({ id: 'global-new', sessionId: undefined, target: { kind: 'new', create: { cwd: '/project', agentPreset: 'default' } }, involvedSessionIds: [], status: 'paused' });
+  await withHost({ catalog: () => [row, { ...row, id: 'delivered', involvedSessionIds: ['creator', 'editor'], lastDelivery: { scheduledAt: '2026-11-01T00:00:00Z', deliveredAt: '2026-11-01T00:00:01Z', messageId: 'm-1', targetSessionId: 'recipient' } }] }, async (host) => {
+    const catalog = await host.get(`${BASE}/catalog`);
+    assert.equal(catalog.body.records[0].sessionId, '');
+    assert.deepEqual(catalog.body.records[0].target, row.target);
+    assert.equal(catalog.body.records[0].status, 'paused');
+    assert.equal(catalog.body.records[0].state, 'inactive');
+    for (const session of ['editor', 'recipient']) {
+      const list = await host.get(`${BASE}/list`, `?sessionId=${session}`);
+      assert.deepEqual(list.body.records.map((r) => r.id), ['delivered']);
+      assert.equal(list.body.records[0].lastDelivery.targetSessionId, 'recipient');
+    }
+  });
+});
+
+test('view 按 id 调宿主，history 不要求目标会话并保留 targetSessionId', async () => {
+  const row = weekly({ target: { kind: 'new_once', sessionId: 'reserved', create: {} }, sessionId: undefined, status: 'ended' });
+  await withHost({ view: () => row, history: () => ({ ...emptyHistory(row.id), records: [{ messageId: 'm-1', targetSessionId: 'reserved' }] }) }, async (host) => {
+    const viewed = await host.get(`${BASE}/view`, `?id=${row.id}`);
+    assert.deepEqual(host.calls.view, [{ id: row.id }]);
+    assert.equal(viewed.body.record.target.sessionId, 'reserved');
+    assert.equal(viewed.body.record.status, 'ended');
+    const history = await host.get(`${BASE}/history`, `?id=${row.id}`);
+    assert.equal(history.body.records[0].targetSessionId, 'reserved');
   });
 });
 

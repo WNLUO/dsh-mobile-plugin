@@ -1,4 +1,5 @@
 // 手机模型选择改走会话能力，与桌面默认保存解耦。
+// rc.5 子代理 wire、根可用性与显式 follow 激活兼容用例。
 'use strict';
 
 /**
@@ -22,7 +23,8 @@ const assert = require('node:assert/strict');
 const { Readable } = require('node:stream');
 
 const { createApiProxy } = require('../lib/mobile/host-bridge.js');
-const { ENDPOINTS } = require('../lib/mobile/host-bridge/endpoints.js');
+const { ENDPOINTS, subagentPromptCapabilities } = require('../lib/mobile/host-bridge/endpoints.js');
+const { muxFrames } = require('../lib/mobile/host-bridge/event-synthesis.js');
 
 /**
  * 旧 apiProxy 键 → [宿主 namespace, 宿主 method, args 顶层键]。
@@ -410,4 +412,146 @@ test('子代理目录：会话列表与投影基线并发出去，不排队', as
   assert.deepEqual(envelope.result.value.entries.map((e) => e.id), ['child-1']);
   assert.deepEqual(calls, ['session/list', 'session/control'], '两发的顺序固定：list 先发、基线随后；关键在它们同时在路上');
   assert.equal(streamStarted, true, '必须真的去开了投影基线那条流');
+});
+
+function promptDescriptorCtx(generation = 'modern', invokeImpl) {
+  const calls = [];
+  const parse = value => {
+    if (generation === 'legacy') {
+      if (!value.parentSessionId || value.mode !== 'continuable') throw new Error('parentSessionId required');
+      return { ...value };
+    }
+    assert.ok(value.requestId && value.childSessionId);
+    assert.ok(value.delivery === 'queue' || value.delivery === 'steer');
+    assert.ok(Array.isArray(value.content));
+    return { ...value };
+  };
+  return {
+    calls,
+    typert: generation === 'unknown' ? undefined : { local: { get: endpoint => endpoint === 'subagents/prompt' ? { parameters: [{ wire: 'request', codec: { mode: 'strict', create: () => ({ parse }) } }] } : undefined } },
+    get: key => key === 'typertGateway' ? { invoke: async call => { calls.push(call); return invokeImpl ? invokeImpl(call) : { messageId: 'm-1' }; } } : undefined,
+    logger: { warn() {} },
+  };
+}
+
+test('子代理 prompt：strict codec 确认新版 child-only、Queue/Steer 和图片批次', async () => {
+  const ctx = promptDescriptorCtx();
+  assert.deepEqual(subagentPromptCapabilities(ctx), { images: true, delivery: true, queue: true, steer: true });
+  const content = [{ type: 'text', text: '看图' }, { type: 'image', mediaType: 'image/png', data: 'AAAA' }];
+  const response = await createApiProxy(ctx).subagents.prompt({ payload: { parentSessionId: 'p', childSessionId: 'c', mode: 'continuable', requestId: 'r-1', delivery: 'steer', content, clientTimeZone: 'Asia/Shanghai' } });
+  assert.equal(response.result.ok, true);
+  assert.deepEqual(ctx.calls[0].args, { request: { requestId: 'r-1', childSessionId: 'c', delivery: 'steer', content, clientTimeZone: 'Asia/Shanghai' } });
+});
+
+test('子代理 prompt：旧 descriptor 使用旧形状，图片和 Steer 不静默降为文本 Queue', async () => {
+  const ctx = promptDescriptorCtx('legacy');
+  assert.deepEqual(subagentPromptCapabilities(ctx), { images: false, delivery: false, queue: true, steer: false });
+  const api = createApiProxy(ctx);
+  const base = { parentSessionId: 'p', childSessionId: 'c', requestId: 'r', content: [{ type: 'text', text: 'old' }] };
+  assert.equal((await api.subagents.prompt({ payload: base })).result.ok, true);
+  assert.equal(ctx.calls[0].args.request.parentSessionId, 'p');
+  assert.equal(ctx.calls[0].args.request.mode, 'continuable');
+  assert.equal((await api.subagents.prompt({ payload: { ...base, delivery: 'steer' } })).result.error.code, 'subagent-prompt-unsupported');
+  assert.equal((await api.subagents.prompt({ payload: { ...base, content: [{ type: 'image', mediaType: 'image/png', data: 'AAAA' }] } })).result.error.code, 'subagent-prompt-unsupported');
+  assert.equal(ctx.calls.length, 1);
+  assert.deepEqual(subagentPromptCapabilities(promptDescriptorCtx('unknown')), { images: null, delivery: null, queue: true, steer: null });
+});
+
+function catalogCtx(items, projections) {
+  return { get: key => key === 'typertGateway' ? {
+    invoke: async () => ({ items }),
+    stream: async () => Readable.from([{ type: 'baseline', value: { projections: Object.fromEntries(Object.entries(projections).map(([id, values]) => [id, { values }])) } }]),
+  } : undefined, logger: { warn() {} } };
+}
+
+test('子代理目录：直接父离线但真实根在线，冷目标仍可继续且名字路径完整', async () => {
+  const ctx = catalogCtx([
+    { sessionId: 'root', agentAvailable: true },
+    { sessionId: 'parent', origin: 'subagent', parentSessionId: 'root', agentAvailable: false },
+  ], {
+    root: { subagentCatalog: [{ id: 'parent', name: 'reviewer', label: '审阅', mode: 'continuable' }] },
+    parent: { subagentCatalog: [{ id: 'cold', name: 'checker', label: '检查', mode: 'continuable' }, { id: 'ext', name: 'outside', mode: 'external' }, { id: 'diag', kind: 'diagnostic', reason: 'corrupt' }] },
+  });
+  const { value } = (await createApiProxy(ctx).subagents.list({ payload: { parentSessionId: 'parent' } })).result;
+  assert.equal(value.rootSessionId, 'root');
+  assert.equal(value.rootAvailable, true);
+  assert.equal(value.parentAvailable, true);
+  assert.deepEqual(value.entries[0], { kind: 'child', id: 'cold', mode: 'continuable', activity: 'inactive', hasChildren: false, name: 'checker', label: '检查', description: '检查', parentId: 'parent', parentSessionId: 'parent', depth: 2, path: 'reviewer/checker', targetAvailable: true });
+  assert.equal(value.entries[1].mode, 'external');
+  assert.equal(value.entries[1].targetAvailable, false);
+  assert.equal(value.entries[1].hasChildren, false);
+  assert.equal(value.entries[2].reason, 'corrupt');
+});
+
+test('子代理目录：根离线与关系无法证明分别回 false 和 null', async () => {
+  for (const [items, expected] of [[[{ sessionId: 'p', agentAvailable: false }], false], [[{ sessionId: 'p', origin: 'subagent', agentAvailable: true }], null]]) {
+    const ctx = catalogCtx(items, { p: { subagentCatalog: [{ id: 'c', name: 'child', mode: 'continuable' }] } });
+    const { value } = (await createApiProxy(ctx).subagents.list({ payload: { parentSessionId: 'p' } })).result;
+    assert.equal(value.rootAvailable, expected);
+    assert.equal(value.entries[0].targetAvailable, expected);
+    assert.equal(value.parentAvailable, false);
+  }
+});
+
+test('follow：只有明确 activate:true 的普通活跃订阅才恢复 Agent，历史读游标不激活', async () => {
+  for (const activate of [undefined, false, true]) {
+    const calls = [];
+    const ctx = { get: key => key === 'typertGateway' ? { stream: async call => { calls.push(call); return Readable.from([]); } } : undefined };
+    for await (const _ of muxFrames(ctx, { payload: { sessionId: 's', ...(activate === undefined ? {} : { activate }) } })) {}
+    assert.equal(calls.find(call => call.method === 'follow').args.request.activate, activate === true ? true : undefined);
+  }
+  const calls = [];
+  const ctx = { get: key => key === 'typertGateway' ? {
+    stream: async call => { calls.push(call); return Readable.from([{ type: 'snapshot', cursor: 4 }]); },
+    invoke: async () => ({ records: [], hasMore: false }),
+  } : undefined };
+  await createApiProxy(ctx).sessions.history({ payload: { sessionId: 's', activate: true } });
+  assert.equal(calls[0].args.request.activate, undefined);
+});
+
+test('external：没有本地 Session，不会打开历史与 follow 流', async () => {
+  const calls = [];
+  const ctx = { get: key => key === 'typertGateway' ? { stream: async call => { calls.push(call); return Readable.from([]); } } : undefined };
+  const result = await createApiProxy(ctx).sessions.history({ payload: { sessionId: 'external', parentSessionId: 'p', mode: 'external' } });
+  assert.equal(result.result.error.code, 'subagent/not-resumable');
+  await assert.rejects(async () => { for await (const _ of muxFrames(ctx, { payload: { sessionId: 'external', parentSessionId: 'p', mode: 'external' } })) {} }, { code: 'subagent/not-resumable' });
+  assert.deepEqual(calls, []);
+});
+
+function mutatedBridge(fileName, before, after) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const Module = require('node:module');
+  const file = require.resolve(`../lib/mobile/host-bridge/${fileName}`);
+  const source = fs.readFileSync(file, 'utf8');
+  const changed = source.replace(before, after);
+  assert.notEqual(changed, source, '变异必须命中真实实现');
+  const instance = new Module(file, module);
+  instance.filename = file;
+  instance.paths = Module._nodeModulePaths(path.dirname(file));
+  instance._compile(changed, file);
+  return instance.exports;
+}
+
+test('变异证明：把 target 改成依赖驻留会被冷目标断言抓住', async () => {
+  const broken = mutatedBridge('shims.js', "targetAvailable: item.mode === 'continuable' ? rootAvailable : false", "targetAvailable: item.mode === 'continuable' && child && child.agentAvailable === true ? rootAvailable : false");
+  const ctx = catalogCtx([{ sessionId: 'root', agentAvailable: true }], { root: { subagentCatalog: [{ id: 'cold', mode: 'continuable' }] } });
+  const output = await broken.subagentCatalog(ctx, { parentSessionId: 'root' });
+  assert.throws(() => assert.equal(output.result.value.entries[0].targetAvailable, true));
+});
+
+test('变异证明：去掉能力门禁会让旧宿主 Steer 错发', async () => {
+  const broken = mutatedBridge('endpoints.js', "(request.delivery === 'steer' && caps.steer !== true)", 'false');
+  const ctx = promptDescriptorCtx('legacy');
+  const output = await broken.ENDPOINTS['subagents.prompt'](ctx, { childSessionId: 'c', parentSessionId: 'p', content: [{ type: 'text', text: 'x' }], delivery: 'steer' });
+  assert.throws(() => assert.equal(output.result.error?.code, 'subagent-prompt-unsupported'));
+  assert.equal(ctx.calls.length, 1);
+});
+
+test('变异证明：移除显式 activate 条件会被被动流断言抓住', async () => {
+  const broken = mutatedBridge('event-synthesis.js', "payload && payload.activate === true && address.kind === 'session'", "address.kind === 'session'");
+  const calls = [];
+  const ctx = { get: key => key === 'typertGateway' ? { stream: async call => { calls.push(call); return Readable.from([]); } } : undefined };
+  for await (const _ of broken.muxFrames(ctx, { payload: { sessionId: 's' } })) {}
+  assert.throws(() => assert.equal(calls.find(call => call.method === 'follow').args.request.activate, undefined));
 });

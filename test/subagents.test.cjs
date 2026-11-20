@@ -1,3 +1,4 @@
+// rc.5 目录关系、能力识别、图片批次与 Queue/Steer 的 HTTP 契约。
 'use strict';
 
 /**
@@ -25,7 +26,8 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { handleSubagents, normalizeSubagentList } = require('../lib/mobile/subagents.js');
+const { handleSubagents, handleSubagentPrompt, normalizeSubagentList, subagentCapabilities } = require('../lib/mobile/subagents.js');
+const { createApiProxy } = require('../lib/mobile/host-bridge.js');
 const { readWiring } = require('./lib/wiring.cjs')
 
 const ROUTE = '/subagents';
@@ -434,4 +436,72 @@ test('子代理：插件把 handler 挂到 /api/mobile/v1/subagents 并导出', 
     index.includes("route('/api/mobile/v1/subagents', subagents.handleSubagents)"),
     'index.js 应注册 /api/mobile/v1/subagents 路由',
   );
+});
+
+test('子代理：新版名字、关系、根状态保留，external 不会被标成可续话', () => {
+  const out = normalizeSubagentList({
+    parentAvailable: true, rootSessionId: 'root', rootAvailable: true,
+    entries: [child({ name: 'checker', description: '完整任务描述', parentId: 'parent', path: 'reviewer/checker', depth: 2, targetAvailable: true }), child({ id: 'ext', mode: 'external', hasChildren: true, targetAvailable: true }), { kind: 'diagnostic', id: 'bad', reason: 'unavailable', parentId: 'parent', path: 'reviewer/bad', depth: 2 }],
+  });
+  assert.equal(out.rootSessionId, 'root');
+  assert.equal(out.rootAvailable, true);
+  assert.equal(out.entries[0].path, 'reviewer/checker');
+  assert.equal(out.entries[0].parentSessionId, 'parent');
+  assert.equal(out.entries[0].description, '完整任务描述');
+  assert.equal(out.entries[0].targetAvailable, true);
+  assert.equal(out.entries[1].mode, 'external');
+  assert.equal(out.entries[1].targetAvailable, false);
+  assert.equal(out.entries[1].hasChildren, false);
+  assert.equal(out.entries[2].path, 'reviewer/bad');
+});
+
+function modernPromptCtx() {
+  const calls = [];
+  const ctx = {
+    calls,
+    typert: { local: { get: () => ({ parameters: [{ wire: 'request', codec: { mode: 'strict', create: () => ({ parse(value) {
+      if (!value.requestId || !value.childSessionId || !['queue', 'steer'].includes(value.delivery) || !Array.isArray(value.content)) throw new Error('invalid');
+      return { ...value };
+    } }) } }] }) } },
+    get: key => key === 'typertGateway' ? { invoke: async call => { calls.push(call); return { messageId: 'accepted' }; } } : undefined,
+  };
+  ctx.apiProxy = createApiProxy(ctx);
+  return ctx;
+}
+
+async function promptThroughHandler(ctx, body) {
+  const result = {};
+  const req = { body, headers: {} };
+  const res = { req, writeHead: status => { result.status = status; }, end: bytes => { result.body = JSON.parse(String(bytes)); } };
+  await handleSubagentPrompt(ctx, req, res);
+  return result;
+}
+
+test('子代理：HTTP prompt 保留 Steer、请求身份及多图批次，宿主只收字节不收伪造引用', async () => {
+  const ctx = modernPromptCtx();
+  assert.deepEqual(subagentCapabilities(ctx), { images: true, delivery: true, queue: true, steer: true });
+  const result = await promptThroughHandler(ctx, { parentSessionId: 'p', childSessionId: 'c', clientMessageId: 'client-1', delivery: 'steer', content: [{ type: 'text', text: '看图' }, { type: 'image', mediaType: 'image/png', data: 'AAAA', attachmentId: 'fake' }, { type: 'image', mediaType: 'image/jpeg', data: 'BBBB' }] });
+  assert.equal(result.status, 200);
+  const request = ctx.calls[0].args.request;
+  assert.equal(request.requestId, 'client-1');
+  assert.equal(request.delivery, 'steer');
+  assert.equal(request.parentSessionId, undefined);
+  assert.equal(request.content.length, 3);
+  assert.deepEqual(request.content[1], { type: 'image', mediaType: 'image/png', data: 'AAAA' });
+  assert.deepEqual(result.body, { ok: true, accepted: true });
+  const expired = await promptThroughHandler(ctx, { parentSessionId: 'p', childSessionId: 'c', content: [{ type: 'image', mediaType: 'image/png', uploadId: 'missing-upload' }] });
+  assert.equal(expired.body.error.code, 'upload-not-found');
+  assert.equal(ctx.calls.length, 1);
+});
+
+test('子代理：未知或旧能力不开放图片/Steer，普通文本 Queue 继续可用', async () => {
+  const calls = [];
+  const ctx = { apiProxy: { subagents: { prompt: async request => { calls.push(request); return okValue({}); } } } };
+  const base = { parentSessionId: 'p', childSessionId: 'c' };
+  const image = await promptThroughHandler(ctx, { ...base, content: [{ type: 'image', mediaType: 'image/png', data: 'AAAA' }] });
+  assert.equal(image.body.error.details.reason, 'SUBAGENT_IMAGE_UNSUPPORTED');
+  const steer = await promptThroughHandler(ctx, { ...base, text: 'x', delivery: 'steer' });
+  assert.equal(steer.body.error.details.reason, 'SUBAGENT_STEER_UNSUPPORTED');
+  assert.equal((await promptThroughHandler(ctx, { ...base, text: 'queue' })).status, 200);
+  assert.equal(calls.length, 1);
 });

@@ -1,3 +1,4 @@
+// 覆盖宿主安全更新、版本列表和恢复结果；更新不得退回裸卸载再安装。
 'use strict';
 
 /**
@@ -12,8 +13,8 @@
  *     （2026-11-11 用户要求加卸载，判据仍以宿主清单为准，插件侧不另立白名单）；
  *  3. 装 / 升都是**异步任务**：立即回 202 + requestId，进度另开一条轮询；失败要落进
  *     那条记录里，不能吞掉；
- *  4. 升级的语义是「卸载再装」（DSH 自己的规矩），官方按需插件用宿主给的确切目标版本，
- *     本地目录 / 压缩包来源没有「最新版」可言，如实拒绝；
+ *  4. 用户明确要求更新交给宿主 updateBundle；版本、兼容性与失败恢复均由宿主负责，
+ *     缺少安全更新能力时拒绝，不能自行退回卸载再装；
  *  5. 安装时可以指定 npm 源：源清单三格都清洗，`registry` 只有真给了才放进
  *     `options`（不传 = 跟随宿主自己配置的那个，空串不能代替）。
  *
@@ -29,6 +30,7 @@ const { Readable } = require('node:stream');
 const {
   handlePluginMarket,
   handlePluginMarketRegistries,
+  handlePluginMarketVersions,
   handlePluginMarketInspect,
   handlePluginMarketInstall,
   handlePluginMarketUpdate,
@@ -234,6 +236,25 @@ test('registries：备用源最多留 20 条', async () => {
   assert.equal(res.body.fallbackRegistries[19], many[19], '按顺序留前 20 条');
 });
 
+test('versions：listed/refused 结果与兼容性信息原样收敛', async () => {
+  const gateway = makeGateway({
+    'pluginManager/listVersions': (request) => {
+      assert.deepEqual(request.args, { name: 'dsh-foo', options: { registry: 'https://registry.npmjs.org/' } });
+      return { status: 'listed', installed: '1.2.3', registry: 'https://registry.npmjs.org/', omitted: 2,
+        attempts: [{ registry: 'https://registry.npmjs.org/' }],
+        versions: [{ version: '1.3.0', tags: ['latest'], prerelease: false, bundle: true, publishedAt: '2026-11-20T00:00:00.000Z', incompatible: { name: 'dsh-foo', version: '1.3.0', runtimeVersion: '0.2.2-rc.5', requirements: { 'engines.dsh': '>=0.3.0' } } }] };
+    },
+  });
+  const res = makeRes();
+  await handlePluginMarketVersions(makeCtx(gateway), makeReq(undefined, '/api/mobile/v1/plugin/market/versions?name=dsh-foo&registry=https%3A%2F%2Fregistry.npmjs.org%2F'), res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, 'listed');
+  assert.equal(res.body.versions[0].incompatible.requirements['engines.dsh'], '>=0.3.0');
+  const refused = makeRes();
+  await handlePluginMarketVersions(makeCtx(makeGateway({ 'pluginManager/listVersions': () => ({ status: 'refused', problem: 'not-updatable', reason: 'git', attempts: [] }) })), makeReq(undefined, '/api/mobile/v1/plugin/market/versions?name=dsh-foo'), refused);
+  assert.deepEqual(refused.body, { ok: true, name: 'dsh-foo', status: 'refused', problem: 'not-updatable', reason: 'git', attempts: [] });
+});
+
 test('registries：宿主没有插件管理器时与别的 handler 同一个码', async () => {
   const res = makeRes();
   await handlePluginMarketRegistries({ get: () => null }, makeReq(undefined), res);
@@ -395,62 +416,96 @@ test('取消：转成 cancelInstall，状态原样回来（too-late 也有）', 
 });
 
 // ---------------------------------------------------------------------------
-// 升级：卸载再装
+// 升级：由宿主安全替换并恢复
 // ---------------------------------------------------------------------------
 
-test('升级目标：官方按需插件用宿主给的确切版本，npm 来源用裸包名，本地来源如实拒绝', () => {
-  assert.deepEqual(
-    updateTargetOf(normalizeBundle(bundle({ name: 'official-x', official: true, installTarget: { spec: 'official-x@0.9.0', version: '0.9.0' } }))),
-    { spec: 'official-x@0.9.0' },
-  );
-  assert.deepEqual(updateTargetOf(normalizeBundle(bundle({ name: 'dsh-foo', source: '^1.2.0' }))), { spec: 'dsh-foo' });
-  assert.deepEqual(updateTargetOf(normalizeBundle(bundle({ name: '@scope/dsh-foo', source: '@scope/dsh-foo@~2.0.0' }))), { spec: '@scope/dsh-foo' });
-  assert.ok(updateTargetOf(normalizeBundle(bundle({ name: 'local-x', source: 'file:local-x.tgz' }))).problem);
-  assert.ok(updateTargetOf(normalizeBundle(bundle({ name: 'linked-x', source: 'link:/tmp/x' }))).problem);
-  assert.ok(updateTargetOf(normalizeBundle(bundle({ name: SELF_NAME, source: '^0.3.0' }))).problem, '自己要走那条有自检与回滚的更新路');
-  assert.ok(updateTargetOf(null).problem);
+test('升级资格只听宿主 update/updatable，自己和无安全更新能力的包拒绝', () => {
+  assert.equal(normalizeBundle(bundle({ update: 'registry' })).safeUpdate, true);
+  assert.equal(normalizeBundle(bundle({ updatable: true })).update, 'registry');
+  assert.deepEqual(updateTargetOf(normalizeBundle(bundle({ update: 'registry' })), '1.3.0'), { version: '1.3.0', registry: null });
+  assert.ok(updateTargetOf(normalizeBundle(bundle()), '1.3.0').problem);
+  assert.ok(updateTargetOf(normalizeBundle(bundle({ name: SELF_NAME, update: 'registry' })), '1.3.0').problem);
 });
 
-test('升级：先卸载再装，两步都走宿主；装那一步带同一个 requestId', async () => {
-  const order = [];
+test('升级只调用 updateBundle，保留宿主结果和恢复旧版回执', async () => {
   const gateway = makeGateway({
-    'pluginManager/listBundles': () => [bundle({ name: 'dsh-foo', source: '^1.2.0' })],
-    'pluginManager/removeBundle': (request) => {
-      order.push(['remove', request.args]);
-      return { changed: true, application: 'applied', stage: 'remove', target: 'dsh-foo' };
-    },
-    'pluginManager/installBundle': (request) => {
-      order.push(['install', request.args]);
-      return { changed: true, application: 'applied', stage: 'install', target: 'dsh-foo', version: '1.3.0' };
+    'pluginManager/listBundles': () => [bundle({ name: 'dsh-foo', update: 'registry' })],
+    'pluginManager/updateBundle': (request) => {
+      assert.deepEqual(request.args, { name: 'dsh-foo', version: '1.3.0', options: { requestId: 'up-1', registry: 'https://registry.npmjs.org/' } });
+      return { from: '1.2.3', to: '1.3.0', step: 'install',
+        result: { changed: true, application: 'failed', stage: 'install', target: 'dsh-foo', error: { code: 'unexpected-package', diagnostic: 'wrong package' } },
+        restore: { changed: true, application: 'applied', stage: 'install', target: 'dsh-foo', version: '1.2.3' } };
     },
   });
   const res = makeRes();
-  await handlePluginMarketUpdate(makeCtx(gateway), makeReq({ name: 'dsh-foo', requestId: 'up-1' }), res);
+  await handlePluginMarketUpdate(makeCtx(gateway), makeReq({ name: 'dsh-foo', version: '1.3.0', registry: 'https://registry.npmjs.org/', requestId: 'up-1' }), res);
   assert.equal(res.status, 202);
-  assert.equal(res.body.spec, 'dsh-foo');
   const task = await settle(require('../lib/mobile/plugin-market.js').tasks.get('up-1'));
-  assert.deepEqual(order.map(([step]) => step), ['remove', 'install']);
-  assert.deepEqual(order[1][1], { spec: 'dsh-foo', options: { requestId: 'up-1', enabled: true } });
-  assert.equal(task.result.operation.version, '1.3.0');
+  assert.equal(task.result.operation.error.code, 'unexpected-package');
+  assert.equal(task.result.update.restore.version, '1.2.3');
+  assert.equal(task.result.update.restore.application, 'applied');
+  assert.deepEqual(gateway.calls.map((call) => call.method), ['listBundles', 'updateBundle']);
 });
 
-test('升级：卸载那步就失败时不再往下装（不能把插件换成半截）', async () => {
+test('升级进度使用宿主 update-state.step，恢复失败与未知结果都不伪装成功', async () => {
+  let emit, finish, disposed = false;
   const gateway = makeGateway({
-    'pluginManager/listBundles': () => [bundle({ name: 'dsh-foo' })],
-    'pluginManager/removeBundle': () => ({ changed: false, application: 'failed', stage: 'remove', target: 'dsh-foo', error: { code: 'bundle-in-use' } }),
-    'pluginManager/installBundle': () => { throw new Error('不该走到这里'); },
+    'pluginManager/listBundles': () => [bundle({ update: 'registry' })],
+    'pluginManager/updateBundle': () => new Promise((resolve) => { finish = resolve; }),
+  });
+  const ctx = makeCtx(gateway);
+  ctx.on = (event, callback) => { assert.equal(event, 'plugin-manager/update-state'); emit = callback; return () => { disposed = true; }; };
+  const res = makeRes();
+  await handlePluginMarketUpdate(ctx, makeReq({ name: 'some-plugin', version: '1.3.0', requestId: 'up-progress' }), res);
+  for (const step of ['checking', 'removing', 'installing', 'restoring']) {
+    emit({ requestId: 'unrelated', step: 'checking' });
+    emit({ requestId: 'up-progress', step });
+    const progress = makeRes();
+    await handlePluginMarketProgress(ctx, makeReq(undefined, '/api/mobile/v1/plugin/market/progress?requestId=up-progress'), progress);
+    assert.equal(progress.body.phase, step);
+  }
+  finish({ from: '1.2.3', to: '1.3.0', step: 'install', result: { application: 'cancelled' }, restore: { application: 'failed', error: { code: 'operation-error', diagnostic: 'restore failed' } } });
+  const task = await settle(require('../lib/mobile/plugin-market.js').tasks.get('up-progress'));
+  assert.equal(task.result.operation.application, 'cancelled');
+  assert.equal(task.result.update.restore.error.message, 'restore failed');
+  assert.equal(disposed, true);
+});
+
+test('变异证明：移除恢复回执后同一行为断言会失败', async () => {
+  const source = readSource('lib/mobile/plugin-market.js');
+  const changed = source.replace('const restore = operationView(value.restore);', 'const restore = null;');
+  assert.notEqual(changed, source);
+  const mod = { exports: {} };
+  const localRequire = require('node:module').createRequire(path.join(ROOT, 'lib/mobile/plugin-market.js'));
+  new Function('require', 'module', 'exports', changed)(localRequire, mod, mod.exports);
+  const gateway = makeGateway({
+    'pluginManager/listBundles': () => [bundle({ update: 'registry' })],
+    'pluginManager/updateBundle': () => ({ from: '1.2.3', to: '1.3.0', step: 'install', result: { application: 'failed' }, restore: { application: 'applied' } }),
+  });
+  await mod.exports.handlePluginMarketUpdate(makeCtx(gateway), makeReq({ name: 'some-plugin', version: '1.3.0', requestId: 'mutant-restore' }), makeRes());
+  const task = await settle(mod.exports.tasks.get('mutant-restore'));
+  assert.throws(() => assert.equal(task.result.update.restore?.application, 'applied'));
+});
+
+test('升级：宿主缺安全更新接口不退回卸载安装，Git spec 原样交宿主校验', async () => {
+  const gateway = makeGateway({
+    'pluginManager/listBundles': () => [bundle({ name: 'dsh-foo', update: 'git' })],
+    'pluginManager/updateBundle': (request) => {
+      assert.equal(request.args.options.spec, 'github:owner/repo#0123456789012345678901234567890123456789');
+      throw Object.assign(new Error('missing'), { code: 'gateway/invocation-unavailable' });
+    },
   });
   const res = makeRes();
-  await handlePluginMarketUpdate(makeCtx(gateway), makeReq({ name: 'dsh-foo', requestId: 'up-2' }), res);
+  await handlePluginMarketUpdate(makeCtx(gateway), makeReq({ name: 'dsh-foo', version: '1.3.0', spec: 'github:owner/repo#0123456789012345678901234567890123456789', requestId: 'up-2' }), res);
   const task = await settle(require('../lib/mobile/plugin-market.js').tasks.get('up-2'));
-  assert.equal(task.result.operation.error.code, 'bundle-in-use');
-  assert.equal(gateway.calls.filter((call) => call.method === 'installBundle').length, 0);
+  assert.equal(task.result.error.code, 'plugin-market-unavailable');
+  assert.equal(gateway.calls.filter((call) => ['removeBundle', 'installBundle'].includes(call.method)).length, 0);
 });
 
 test('升级一个本地来源的插件：明确回 no-update-target，不打网关', async () => {
   const gateway = makeGateway({ 'pluginManager/listBundles': () => [bundle({ name: 'local-x', source: 'file:local-x.tgz' })] });
   const res = makeRes();
-  await handlePluginMarketUpdate(makeCtx(gateway), makeReq({ name: 'local-x' }), res);
+  await handlePluginMarketUpdate(makeCtx(gateway), makeReq({ name: 'local-x', version: '1.3.0' }), res);
   assert.equal(res.status, 400);
   assert.equal(res.body.error.code, 'no-update-target');
   assert.equal(gateway.calls.filter((call) => call.method !== 'listBundles').length, 0);
@@ -563,10 +618,10 @@ test('说明文档：缺 name 就是 400，不打网关', async () => {
 // 结果投影与接线
 // ---------------------------------------------------------------------------
 
-test('动作结果只认宿主那五个 application，别的按失败算', () => {
+test('动作结果保留已知 application，未知状态明确返回 unknown', () => {
   assert.equal(operationView({ application: 'applied' }).application, 'applied');
   assert.equal(operationView({ application: 'restart-required' }).application, 'restart-required');
-  assert.equal(operationView({ application: 'something-new' }).application, 'failed');
+  assert.equal(operationView({ application: 'something-new' }).application, 'unknown');
   assert.equal(operationView(null), null);
   const withError = operationView({ application: 'failed', error: { code: 'incompatible-version', diagnostic: '需要 0.3' } });
   assert.equal(withError.error.code, 'incompatible-version');
