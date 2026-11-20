@@ -1,4 +1,4 @@
-// Regression guards for the relay protocol wire format and its synchronized copies.
+// Regression guards cover the complete relay type table, wire format and synchronized copies.
 'use strict'
 const assert = require('node:assert/strict')
 const path = require('node:path')
@@ -15,7 +15,7 @@ const EXPECTED_TYPES = {
   ping: 0x10, pong: 0x11, pairRequest: 0x12, pairConfirm: 0x13,
   httpCancel: 0x14, httpPause: 0x15, httpResume: 0x16, sync: 0x17,
   revokeAll: 0x18, revokeAllAck: 0x19,
-  pushRegister: 0x1a, pushSend: 0x1b, migrate: 0x1c, blobPut: 0x1d,
+  pushRegister: 0x1a, pushSend: 0x1b, migrate: 0x1c, blobPut: 0x1d, blobDelete: 0x1e,
 }
 const SHARED = {
   T: EXPECTED_TYPES,
