@@ -172,6 +172,52 @@ test('装上了但换不过来：账要落、也要抛给路由（不许静默�
   assert.ok(updateState.appliedAt, 'appliedAt 不动的话，手机那边只能等到超时才说得出「没成」');
 });
 
+/** 把一代的外壳文件补齐，让 `shellFingerprint` 算得出指纹（真实包里必然有这些文件）。 */
+function addShellFiles(pkgDir) {
+  fs.mkdirSync(path.join(pkgDir, 'lib', 'shell'), { recursive: true });
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'index.js'), '// shell entry\n');
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'shell', 'runtime.js'), '// shell runtime\n');
+}
+
+test('更新连外壳一起改了：如实报 restartRequired，不再谎称「无需重启」（反馈 #24）', async t => {
+  install('0.9.0');
+  const market = await startMarket(() => {
+    addShellFiles(install('0.10.0'));
+    return { state: 'succeeded', beforeVersion: '0.9.0', installedVersion: '0.10.0' };
+  }, { installedVersion: '0.9.0', latestVersion: '0.10.0', updateAvailable: true, source: 'npm' });
+  t.after(() => market.server.close());
+  const updater = await loadUpdater();
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  const runtime = { status: () => ({ version: '0.9.0', source: 'installed' }), reload: async () => ({ version: '0.10.0' }) };
+  // 跑着的外壳指纹与盘上那份不同 —— 就是「这次更新连外壳一起改了」。
+  const result = await updater.performUpdate({ runtime, base: updater.marketBase(market.port), updateState, runningShellHash: 'ffffffffffffffff' });
+  assert.equal(result.swapped, true);
+  assert.equal(updateState.lastApply.restartRequired, true, '外壳变了就必须报要重启一次，不能让用户不重启就停在半套');
+  assert.equal(updateState.lastApply.shellChanged, true);
+});
+
+test('更新没动外壳：外壳指纹一致时仍按「无需重启」上报', async t => {
+  // 先造一份与将要安装的那代外壳文件逐字节相同的探针目录，拿它的指纹当「跑着的外壳」。
+  const probe = path.join(TMP, 'shell-probe');
+  addShellFiles(probe);
+  const updater = await loadUpdater();
+  const sameShellHash = updater.shellFingerprint(probe);
+  assert.match(sameShellHash, /^[a-f0-9]{16}$/);
+
+  install('0.11.0');
+  const market = await startMarket(() => {
+    addShellFiles(install('0.12.0'));
+    return { state: 'succeeded', beforeVersion: '0.11.0', installedVersion: '0.12.0' };
+  }, { installedVersion: '0.11.0', latestVersion: '0.12.0', updateAvailable: true, source: 'npm' });
+  t.after(() => market.server.close());
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  const runtime = { status: () => ({ version: '0.11.0', source: 'installed' }), reload: async () => ({ version: '0.12.0' }) };
+  const result = await updater.performUpdate({ runtime, base: updater.marketBase(market.port), updateState, runningShellHash: sameShellHash });
+  assert.equal(result.swapped, true);
+  assert.equal(updateState.lastApply.restartRequired, false, '外壳没变就不该劝人重启');
+  assert.equal(updateState.lastApply.shellChanged, false);
+});
+
 test('换不过来之后：自动不再反复抖同一个版本，手按一次才重试', async t => {
   // 盘上已经装着 0.8.0（上次装上了没换过来），跑着的还是 0.7.0。
   install('0.8.0');
