@@ -4,7 +4,6 @@ import type { PanelMessages } from './shell.ts'
 export const REMOTE_COMPUTERS: PanelMessages = {
   'zh-Hans': {
     'panel.remote.title': '远程电脑',
-    'panel.remote.backConsole': '返回控制台',
     'panel.remote.hint': '绑定另一台电脑后，在本机的桌面端窗口中打开它的 DSH。窗口开着时会自动续期，关掉窗口后最多再保留一小时。',
     'panel.remote.localOnly': '请从这台电脑的本机面板打开远程电脑管理。',
     'panel.remote.failed': '操作失败，请在本机插件中检查后重试。',
@@ -72,7 +71,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   'zh-Hant': {
     'panel.remote.title': '遠端電腦',
-    'panel.remote.backConsole': '返回主控台',
     'panel.remote.hint': '綁定另一台電腦後，在本機的桌面端視窗中開啟它的 DSH。視窗開著時會自動續期，關掉視窗後最多再保留一小時。',
     'panel.remote.localOnly': '請從這台電腦的本機面板開啟遠端電腦管理。',
     'panel.remote.failed': '操作失敗，請在本機外掛中檢查後重試。',
@@ -140,7 +138,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   en: {
     'panel.remote.title': 'Remote computers',
-    'panel.remote.backConsole': 'Back to console',
     'panel.remote.hint': 'Pair another computer to open its DSH in a desktop window on this computer. While the window stays open it renews automatically; after you close it, access is kept for up to one more hour.',
     'panel.remote.localOnly': 'Open this computer’s local panel to manage remote computers.',
     'panel.remote.failed': 'Action failed. Check the local plugin and try again.',
@@ -208,7 +205,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   ja: {
     'panel.remote.title': 'リモートパソコン',
-    'panel.remote.backConsole': 'コンソールに戻る',
     'panel.remote.hint': '別のパソコンを登録すると、このパソコンのデスクトップウィンドウで DSH を開けます。ウィンドウを開いている間は自動で延長され、閉じた後も最大 1 時間は保持されます。',
     'panel.remote.localOnly': 'このパソコンのローカルパネルからリモートパソコンを管理してください。',
     'panel.remote.failed': '操作に失敗しました。ローカルのプラグインで確認して再試行してください。',
@@ -276,7 +272,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   ko: {
     'panel.remote.title': '원격 컴퓨터',
-    'panel.remote.backConsole': '콘솔로 돌아가기',
     'panel.remote.hint': '다른 컴퓨터를 연결하면 이 컴퓨터의 데스크톱 창에서 DSH를 열 수 있습니다. 창을 열어 두는 동안 자동으로 연장되며, 닫은 뒤에도 최대 1시간 유지됩니다.',
     'panel.remote.localOnly': '이 컴퓨터의 로컬 패널에서 원격 컴퓨터를 관리해 주세요.',
     'panel.remote.failed': '작업에 실패했습니다. 로컬 플러그인을 확인하고 다시 시도하세요.',
@@ -344,7 +339,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   de: {
     'panel.remote.title': 'Entfernte Computer',
-    'panel.remote.backConsole': 'Zurück zur Konsole',
     'panel.remote.hint': 'Kopple einen anderen Computer, um dessen DSH in einem Desktop-Fenster auf diesem Computer zu öffnen. Solange das Fenster offen ist, wird der Zugriff automatisch verlängert; nach dem Schließen bleibt er bis zu einer weiteren Stunde bestehen.',
     'panel.remote.localOnly': 'Öffne das lokale Panel dieses Computers, um entfernte Computer zu verwalten.',
     'panel.remote.failed': 'Aktion fehlgeschlagen. Prüfe das lokale Plugin und versuche es erneut.',
@@ -412,7 +406,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   es: {
     'panel.remote.title': 'Ordenadores remotos',
-    'panel.remote.backConsole': 'Volver a la consola',
     'panel.remote.hint': 'Vincula otro ordenador para abrir su DSH en una ventana de escritorio de este ordenador. Mientras la ventana siga abierta se renueva automáticamente; tras cerrarla, el acceso se conserva hasta una hora más.',
     'panel.remote.localOnly': 'Abre el panel local de este ordenador para gestionar los ordenadores remotos.',
     'panel.remote.failed': 'Error en la operación. Revisa el complemento local e inténtalo de nuevo.',
@@ -480,7 +473,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   fr: {
     'panel.remote.title': 'Ordinateurs distants',
-    'panel.remote.backConsole': 'Retour à la console',
     'panel.remote.hint': 'Associez un autre ordinateur pour ouvrir son DSH dans une fenêtre de bureau sur cet ordinateur. Tant que la fenêtre reste ouverte, l’accès est renouvelé automatiquement ; après sa fermeture, il est conservé jusqu’à une heure de plus.',
     'panel.remote.localOnly': 'Ouvrez le panneau local de cet ordinateur pour gérer les ordinateurs distants.',
     'panel.remote.failed': 'Échec de l’opération. Vérifiez le plugin local et réessayez.',
@@ -548,7 +540,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   pt: {
     'panel.remote.title': 'Computadores remotos',
-    'panel.remote.backConsole': 'Voltar ao console',
     'panel.remote.hint': 'Vincule outro computador para abrir o DSH dele em uma janela de desktop deste computador. Enquanto a janela estiver aberta, o acesso é renovado automaticamente; ao fechá-la, ele é mantido por até mais uma hora.',
     'panel.remote.localOnly': 'Abra o painel local deste computador para gerenciar computadores remotos.',
     'panel.remote.failed': 'Falha na operação. Confira o plugin local e tente novamente.',
@@ -616,7 +607,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
   },
   ru: {
     'panel.remote.title': 'Удалённые компьютеры',
-    'panel.remote.backConsole': 'Вернуться в консоль',
     'panel.remote.hint': 'Подключите другой компьютер, чтобы открыть его DSH в окне рабочего стола на этом компьютере. Пока окно открыто, доступ продлевается автоматически; после закрытия он сохраняется ещё до одного часа.',
     'panel.remote.localOnly': 'Откройте локальную панель этого компьютера для управления удалёнными компьютерами.',
     'panel.remote.failed': 'Ошибка операции. Проверьте локальный плагин и повторите попытку.',
