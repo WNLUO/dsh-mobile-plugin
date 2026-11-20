@@ -1,3 +1,4 @@
+// 启动失败沿用带退出确认的停止流程，不能跳过旧进程回收。
 // 重启测试假体提供即时状态回写，覆盖重启后的 LAN 入口公布。
 'use strict'
 
@@ -441,5 +442,5 @@ test('启动超时给足冷启动预算，且超时要收掉子进程（不留�
   assert.ok(m, '启动超时要是一个具名常量，别再写死 5000 —— 那对 Windows 冷启动太紧')
   const ms = Number(m[1].replace(/_/g, ''))
   assert.ok(ms >= 15000, `启动预算要留够 Windows 冷启动，当前只有 ${ms}ms`)
-  assert.match(src, /child\.kill\('SIGKILL'\)/, '启动失败必须杀掉子进程，否则超时留下一个占着端口的孤儿')
+  assert.match(src, /if \(this\.child === child\) await this\.stop\(\)/, '启动失败必须等停止流程回收子进程，不能边重启边留下旧监听')
 })

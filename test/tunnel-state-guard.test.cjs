@@ -1,3 +1,4 @@
+// 断线关闭码、对端原因和本机心跳超时都必须进入当前连接状态。
 // 并发注册仍须保留实例与世代守卫，主动取消不能污染当前状态。
 'use strict'
 // 「状态不许由过期的隧道实例改写」。
@@ -36,7 +37,7 @@ assert.ok(START_TUNNEL_BODY.length > 0, '应能在 worker 源码里定位 openTu
 // 把真源码连同它依赖的模块级状态一起装进一个闭包：tunnel / tunnelState /
 // tunnelError 和 stopTunnel() 都按 worker 里的写法原样重建，这样 eval 出来的
 // startTunnel 跑的就是生产逻辑。
-function bootWorker() {
+function bootWorker(body = START_TUNNEL_BODY) {
   const instances = []
   const log = { reconnects: 0, stopped: [], publishes: 0, resets: 0 }
   class StubRelayTunnel {
@@ -84,7 +85,7 @@ function bootWorker() {
       tunnel = null; tunnelState = 'off'; tunnelError = null;
     };
     const scheduleReconnect = () => { log.reconnects++ };
-    ${START_TUNNEL_BODY}
+    ${body}
     return {
       startTunnel,
       snapshot: () => ({ state: tunnelState, error: tunnelError }),
@@ -189,8 +190,8 @@ async function behaviorStaleRegistered() {
 }
 
 // ── 行为面 2：断线必须由「当前」实例记账并安排重连 ──────────────────────────
-async function behaviorDisconnect() {
-  const w = bootWorker()
+async function behaviorDisconnect(body) {
+  const w = bootWorker(body)
   w.startTunnel()
   await flush()
   const first = w.instances[0]
@@ -209,8 +210,11 @@ async function behaviorDisconnect() {
   // 当前实例真的断了：必须记账并安排重连
   second.opts.onClose(1006, 'gone')
   assert.equal(w.snapshot().state, 'error')
-  assert.equal(w.snapshot().error, '连接断开')
+  assert.equal(w.snapshot().error, '连接断开 (1006)：gone')
   assert.equal(w.log.reconnects, 1)
+  second.lastCloseReason = '心跳超时，未收到中转回应'
+  second.opts.onClose(1006, Buffer.alloc(0))
+  assert.equal(w.snapshot().error, '连接断开 (1006)：心跳超时，未收到中转回应')
 }
 
 // ── 契约面 2 + 行为面 3：状态跳变必须立刻上报，不等 10s 健康轮询 ──────────────
@@ -260,6 +264,9 @@ async function behaviorPublishOnTransition() {
 ;(async () => {
   await behaviorStaleRegistered()
   await behaviorDisconnect()
+  const before = 'relayFailureMessage(closed)'
+  assert.ok(START_TUNNEL_BODY.includes(before))
+  await assert.rejects(behaviorDisconnect(START_TUNNEL_BODY.replace(before, "relayFailureMessage('连接断开')")), { name: 'AssertionError' })
   await behaviorPublishOnTransition()
   console.log('tunnel state guard tests passed')
 })()

@@ -1,3 +1,4 @@
+// 超时后保留本机关闭原因，正常重连不沿用上次原因。
 // 隧道心跳只跟经过时间；墙钟变化不改变既有阈值、pong刷新与停止清理。
 'use strict'
 
@@ -66,6 +67,7 @@ function exercise(text) {
     assert.equal(silent.terminated(), 0, '维持既有大于45秒阈值，墙钟变化不提前断开')
     silent.advance(15000)
     assert.equal(silent.terminated(), 1, '真实无pong超过45秒后下一拍必须断开，回拨不能延长')
+    assert.equal(silent.tunnel.lastCloseReason, '心跳超时，未收到中转回应', '超时原因不能只留在日志里')
     silent.tunnel.stop()
     assert.equal(silent.timerCount(), 0)
 
