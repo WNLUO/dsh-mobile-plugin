@@ -1,4 +1,4 @@
-// 自动线路使用真实身份探测，独立记账且冷隧道不阻塞业务。
+// 自动线路按scope区分探测身份与真实业务，常态拨钟且保留隧道失效清理。
 'use strict';
 
 const test = require('node:test');
@@ -7,6 +7,31 @@ const { PassThrough } = require('node:stream');
 const { createRemoteRouter } = require('../lib/remote/router.cjs');
 const { createNetworkMonitor, interfacesOf } = require('../lib/remote/network.cjs');
 const { safeRoutes } = require('../lib/remote/local-headers.cjs');
+
+function tracedRouter(binding, transport) {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const { createRequire } = require('node:module');
+  const file = require.resolve('../lib/remote/router.cjs');
+  const requireReal = createRequire(file);
+  const { createRoutePolicy } = requireReal('../shared/route-order.cjs');
+  const trace = [];
+  let policy;
+  const loaded = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
+    module: loaded, exports: loaded.exports, AbortController, URL, setTimeout, clearTimeout,
+    require: name => name === '../shared/route-order.cjs' ? {
+      createRoutePolicy() {
+        policy = createRoutePolicy();
+        return new Proxy(policy, { get(target, name) {
+          if (typeof target[name] !== 'function') return target[name];
+          return (...args) => { trace.push({ name, args }); return target[name](...args); };
+        } });
+      },
+    } : requireReal(name),
+  });
+  return { router: loaded.exports.createRemoteRouter({ binding, transport }), trace, policy: () => policy };
+}
 
 const routes = [
   { url: 'http://lan.invalid', channel: 'lan' },
@@ -66,7 +91,8 @@ test('实测排序和滞回逐设备隔离，每轮最多当前加3个轮转挑�
   a.close(); b.close();
 });
 
-test('错误身份线路被排除，换网取消旧探测并清事实，当前租期不被修改', async () => {
+// T01不再把模糊REMOTE_AUTH当作外来实例；失败仍参与退避，身份只由已认证的应答解除排除。
+test('认证失败线路退避，换网取消旧探测并清事实，当前租期不被修改', async () => {
   let staleResolve;
   let hanging = true;
   const dials = [];
@@ -200,4 +226,130 @@ test('认证后的最新地址持久回调，拒绝秘密线路且无新地址�
   const connected = await router.open();
   assert.deepEqual(router.snapshot().routes, fresh);
   connected.stream.destroy(); router.close();
+});
+
+test('真实消费者每个常态轮只advance一次，诊断和业务不拨钟，所有调用显式传同scope', async () => {
+  for (const binding of [
+    { instanceId: 'expected-instance', id: 'binding-id', routes: routes.slice(0, 1) },
+    { id: 'binding-id', routes: routes.slice(0, 1) },
+    { routes: routes.slice(0, 1) },
+  ]) {
+    const h = tracedRouter(binding, { probeRemote: async () => 20, openRemoteStream: async () => result() });
+    const scope = binding.instanceId || binding.id || '';
+    await Promise.all([h.router.probe(), h.router.probe()]);
+    const rounds = () => h.trace.filter(row => row.name === 'advanceRouteEvidenceRound');
+    assert.equal(rounds().length, 1, '合并的同轮probe只推进一次');
+    assert.deepEqual(rounds()[0].args, [1, 1, scope]);
+    await h.router.diagnose(); await h.router.diagnose();
+    const connected = await h.router.open();
+    assert.equal(rounds().length, 1, '诊断密采与真实open不拨轮次');
+    assert.equal(h.trace.filter(row => row.name === 'noteRouteProven').length, 1);
+    await h.router.probe();
+    assert.equal(rounds().length, 2);
+    for (const { name, args } of h.trace) {
+      const scopeAt = name === 'noteRouteLatency' || name === 'orderRouteCandidates' ? 3
+        : name === 'advanceRouteEvidenceRound' ? 2 : name === 'forgetRouteFacts' ? 0 : 1;
+      assert.equal(args[scopeAt], scope, `${name}必须显式传设备scope`);
+    }
+    connected.stream.destroy(); h.router.close();
+  }
+});
+
+test('认证probe只Verified不清业务失败，真实open成功才Proven清账', async () => {
+  const scope = 'expected-instance';
+  const h = tracedRouter({ instanceId: scope, routes: routes.slice(0, 1) }, {
+    probeRemote: async () => 100, openRemoteStream: async () => result(),
+  });
+  await h.router.probe();
+  assert.equal(h.trace.filter(row => row.name === 'noteRouteVerified').length, 1);
+  assert.equal(h.trace.filter(row => row.name === 'noteRouteProven').length, 0, '认证探测不冒充真实业务成功');
+  h.router.failure(error());
+  assert.equal(h.policy().routeCostOf(routes[0].url, scope), 150);
+  await h.router.probe();
+  assert.equal(h.policy().routeCostOf(routes[0].url, scope), 150, '健康重采不能洗掉真实失败');
+  const connected = await h.router.open();
+  assert.equal(h.policy().routeCostOf(routes[0].url, scope), 100);
+  assert.equal(h.trace.filter(row => row.name === 'noteRouteProven').length, 1);
+  connected.stream.destroy(); h.router.close();
+});
+
+test('模糊REMOTE_AUTH不永久标foreign，后续同地址通过绑定身份仍可恢复', async () => {
+  let rejected = true;
+  const h = tracedRouter({ instanceId: 'instance', routes: routes.slice(0, 1) }, {
+    async probeRemote() { if (rejected) throw error('REMOTE_AUTH'); return 30; },
+    openRemoteStream: async () => result(),
+  });
+  await assert.rejects(h.router.probe(), value => value.code === 'REMOTE_AUTH');
+  assert.equal(h.trace.filter(row => row.name === 'noteRouteForeign').length, 0);
+  rejected = false;
+  await h.router.probe();
+  assert.equal(h.router.snapshot().latencyMs, 30);
+  assert.equal(h.trace.filter(row => row.name === 'noteRouteVerified').length, 1);
+  h.router.close();
+});
+
+test('首连赛跑的认证探测不记Proven，迟到旧代结果不写新代账', async () => {
+  const pending = [];
+  const h = tracedRouter({ instanceId: 'instance', routes: routes.slice(0, 2) }, {
+    probeRemote: async (_binding, route) => new Promise(resolve => pending.push({ route, resolve })),
+    openRemoteStream: async () => result(),
+  });
+  const opening = h.router.open();
+  await new Promise(setImmediate);
+  pending[0].resolve(20);
+  const connected = await opening;
+  assert.equal(h.trace.filter(row => row.name === 'noteRouteVerified').length, 1);
+  assert.equal(h.trace.filter(row => row.name === 'noteRouteProven').length, 1, '唯一真实open才算业务成功');
+  h.router.close();
+  const writes = h.trace.filter(row => ['noteRouteLatency', 'noteRouteVerified', 'noteRouteProven', 'noteRouteFailure'].includes(row.name)).length;
+  pending[1].resolve(1);
+  await new Promise(setImmediate);
+  assert.equal(h.trace.filter(row => ['noteRouteLatency', 'noteRouteVerified', 'noteRouteProven', 'noteRouteFailure'].includes(row.name)).length, writes);
+  assert.equal(h.trace.filter(row => row.name === 'advanceRouteEvidenceRound').length, 0, '首连赛跑不拨常态轮次');
+  connected.stream.destroy(); h.router.close();
+});
+
+
+test('助手失效不取消基础线路在飞请求，并撤销旧隧道候选', async () => {
+  const base = { url: 'https://relay.invalid', channel: 'relay' };
+  const tunnel = { url: 'http://127.0.0.1:41001', channel: 'tunnel' };
+  let finish; let signal;
+  const router = createRemoteRouter({ binding: { routes: [base], mode: 'relay' },
+    tunnels: { routesFor: async () => [tunnel] }, transport: {
+      probeRemote: async () => 5,
+      openRemoteStream(_binding, _route, options) {
+        signal = options.signal;
+        return new Promise(resolve => { finish = () => resolve(result()); });
+      },
+    } });
+  const pending = router.open();
+  await new Promise(setImmediate);
+  router.invalidateTunnels();
+  assert.equal(signal.aborted, false);
+  finish(); const opened = await pending;
+  assert.equal(opened.route.channel, 'relay');
+  opened.stream.destroy(); router.close();
+});
+
+test('助手失效取消旧隧道连接，真实代理证据不会被最后一个泛错盖掉', async () => {
+  const base = { url: 'https://relay.invalid', channel: 'relay' };
+  const tunnel = { url: 'http://127.0.0.1:41001', channel: 'tunnel' };
+  let signal;
+  const router = createRemoteRouter({ binding: { routes: [base], mode: 'tunnel' },
+    tunnels: { routesFor: async () => [tunnel] }, transport: {
+      probeRemote: async () => 5,
+      openRemoteStream(_binding, _route, options) { signal = options.signal; return new Promise(() => {}); },
+    } });
+  await router.refresh();
+  const opening = router.open(); await new Promise(setImmediate);
+  router.invalidateTunnels();
+  assert.equal(signal.aborted, true);
+  await assert.rejects(opening, { code: 'REMOTE_HELPER_RESTARTING' });
+  assert.ok(router.snapshot().routes.every(route => route.channel !== 'tunnel'));
+  router.close();
+  const failing = createRemoteRouter({ binding: { routes: [base, routes[0]] }, transport: {
+    async probeRemote(_binding, route) { throw error(route.channel === 'relay' ? 'REMOTE_PROXY' : 'REMOTE_CONNECT'); },
+  } });
+  await assert.rejects(failing.open(), { code: 'REMOTE_PROXY' });
+  failing.close();
 });
