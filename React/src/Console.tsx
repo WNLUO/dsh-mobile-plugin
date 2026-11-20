@@ -24,6 +24,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@appica/ui-react/dialog'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { AutoUpdateSection } from './components/AutoUpdateSection.tsx'
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
 import { PanelWindowActions } from './components/PanelWindowActions.tsx'
@@ -494,6 +495,9 @@ export function Console() {
                   onChangeControlReport={(enabled) => void saveControlReport(enabled)}
                 />
               </InfoList>
+              {/* 右列最后一段：自动更新（2026-11-20 从「插件更新」卡挪来），与上面那几行
+                  同列、自带一段标题与问号说明。 */}
+              <AutoUpdateSection />
             </div>
           </div>
 

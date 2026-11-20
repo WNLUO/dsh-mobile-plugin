@@ -1,5 +1,6 @@
 /**
- * 「插件更新」卡片：正式 npm 更新状态、自动更新开关、手动更新。
+ * 「插件更新」卡片：正式 npm 更新状态与手动更新。**自动更新开关不在这张卡里**：2026-11-20
+ * 起它挪到顶卡右列（`AutoUpdateSection`），与「自动上报网络地址」同列。
  *
  * **查**归插件自己（直接问 npm 注册表，见 `lib/update-registry.cjs`），**装**走
  * `/update/apply`，**换代码**由外壳就地换代（见 `lib/shell/runtime.js`）。对应四条接口是
@@ -31,7 +32,6 @@ import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
-import { Switch } from '@appica/ui-react/switch'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
 import { errorText } from '../lib/api.ts'
@@ -44,9 +44,7 @@ import {
   type MarketUpdate,
 } from '../lib/market.ts'
 import {
-  DEFAULT_AUTO_INTERVAL_MS,
   updateApply,
-  updateAuto,
   updateCheck,
   updateEndpointMissing,
   updateStatus,
@@ -126,8 +124,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
    * 外壳 / 没有市场 / `link:` 装的）仍旧写在卡片里——弹一次就消失等于让人再也看不到。
    */
   const notify = useNotify()
-  /** 开关正在提交：提交期间把它按住，免得连点出两个相反的请求。 */
-  const [savingAuto, setSavingAuto] = useState(false)
 
   /**
    * 把宿主给的 status 并进当前状态。
@@ -293,24 +289,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
     }
   }, [reportMarketError])
 
-  /** 自动更新开关：失败必须把开关拨回去，并且说清为什么。 */
-  const flipAuto = useCallback(async (next: boolean) => {
-    setSavingAuto(true)
-    try {
-      const result = await updateAuto(next)
-      if (result.status) mergeHost(result.status)
-      const minutes = Math.round((result.status?.autoIntervalMs ?? host?.autoIntervalMs ?? DEFAULT_AUTO_INTERVAL_MS) / 60000)
-      notify('soft', result.enabled
-          ? t('panel.update.autoOn', { minutes })
-          : t('panel.update.autoOff'))
-    } catch (err) {
-      notify('error', t('panel.update.autoToggleFailed', { message: errorText(err) }))
-      await loadHost() // 拨回宿主那边的真实值
-    } finally {
-      setSavingAuto(false)
-    }
-  }, [host?.autoIntervalMs, loadHost])
-
   const marketSource = update?.source ?? host?.marketResult?.source ?? null
   /**
    * 这台是不是从注册表装的。
@@ -386,31 +364,10 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
 
       {hostMode && host ? (
         <>
-          {/* 开关。放在信息行上面：它是这张卡唯一会被改的东西，先说清楚它在干什么。
-              本地来源（link: / file: / workspace:）时**照样摆**（2026-11-20 用户要求）：
-              开发台上也得看得见、调得了这颗开关，不然没法验证这块的手感。自动更新在那种
-              机器上装不动（市场只认注册表来源），所以本行下面补一句实情，而不是让开关
-              看起来像能用。 */}
-          <label className="mt-1 flex items-start justify-between gap-4 border-b border-border-muted py-3">
-            <span className="min-w-0">
-              <span className="block text-sm text-foreground">{t('panel.update.autoUpdate')}</span>
-              <span className="mt-1 block text-xs text-foreground-muted">{t('panel.update.autoDefaultHint')}</span>
-              {localSource ? (
-                <span className="mt-1 block text-xs text-foreground-muted">{t('panel.update.autoLocalSource')}</span>
-              ) : null}
-            </span>
-            <span className="flex shrink-0 items-center gap-2">
-              {savingAuto ? <Spinner /> : null}
-              <Switch
-                size="md"
-                checked={host.autoUpdate}
-                disabled={idle || savingAuto}
-                onCheckedChange={(next) => void flipAuto(next)}
-                aria-label={t('panel.update.autoUpdate')}
-              />
-            </span>
-          </label>
-
+          {/*
+            自动更新那颗开关 2026-11-20 挪到顶卡右列（`AutoUpdateSection`）：它跟「自动上报
+            网络地址」同列，说明与关闭确认都在那边。这里不再摆开关，只剩版本与动作。
+          */}
           {/* 版本对不上已收进「运行中版本」那行的感叹号，这里不再铺段落。 */}
 
           {/*
