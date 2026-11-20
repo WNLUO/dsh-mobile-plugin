@@ -33,7 +33,6 @@ import { DevicesCard } from './components/DevicesCard.tsx'
 import { FloatingActions } from './components/FloatingActions.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import type { Issue } from './components/IssueMark.tsx'
-import { NoticeBoard } from './components/NoticeBoard.tsx'
 import { PairingCard, PairingPolicyRows } from './components/PairingCard.tsx'
 import { P2PDialog } from './components/P2PDialog.tsx'
 import { PortDialog } from './components/PortDialog.tsx'
@@ -411,10 +410,9 @@ export function Console() {
           </span>
         ) : null}
         <div className="flex flex-wrap items-center gap-1">
-          {/* 公告：长期不变的低频信息，做成顶栏一颗小按钮，点开看。
-              2026-11-17：原先这里还有「报错调试」与「重新连接」两颗——调试页整体删掉；
-              重新连接与「插件更新」卡的重启是同一件事，只留卡里那颗，不重复摆。 */}
-          <NoticeBoard lanPort={status.lan.port} />
+          {/* 2026-11-17：原先这里有「报错调试」与「重新连接」两颗——调试页整体删掉；
+              重新连接与「插件更新」卡的重启是同一件事，只留卡里那颗，不重复摆。
+              2026-11-20 用户要求：公告按钮与它的弹窗一并删掉。 */}
           {/* 2026-11-17 用户要求：语言、日夜、收件三颗与窗口操作排在顶栏最右，成整齐一排。
               语言与日夜是「这一页怎么显示」；昼夜拧的是这一窗的主题（默认跟随 DSH，按下
               之后改手动，见 `lib/shell-theme.ts`）。收件文件是弹窗入口（中性色垃圾桶，不
