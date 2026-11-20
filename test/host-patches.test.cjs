@@ -1,4 +1,4 @@
-// 使用真实上下文验证兼容桥在新旧代交接和宿主服务延迟就绪时的可用性。
+// 使用真实上下文验证兼容桥交接、宿主服务延迟就绪与卸载时取消延迟装配。
 'use strict';
 
 /**
@@ -168,7 +168,7 @@ function compatAssembly({ hasHostPackage = false, mutate = source => source } = 
   assert.ok(start >= 0 && end > start, '应能定位兼容桥装配段');
   const timers = [];
   const factory = new Function('deps', `
-    const { runtimeProvidesApiProxy, createApiProxy, installApprovalBridge, installQuestionBridge, setApprovalPushNotifier, setQuestionPushNotifier, setTimeout, name, API_PROXY_GRACE_MS } = deps;
+    const { runtimeProvidesApiProxy, createApiProxy, installApprovalBridge, installQuestionBridge, setApprovalPushNotifier, setQuestionPushNotifier, setTimeout, clearTimeout, name, API_PROXY_GRACE_MS } = deps;
     ${mutate(IMPL.slice(start, end))}
       return ctx;
     }
@@ -179,7 +179,12 @@ function compatAssembly({ hasHostPackage = false, mutate = source => source } = 
     createApiProxy: ctx => ({ ctx }),
     installApprovalBridge: () => {}, installQuestionBridge: () => {},
     setApprovalPushNotifier: () => {}, setQuestionPushNotifier: () => {},
-    setTimeout: callback => { timers.push(callback); return { unref() {} }; },
+    setTimeout: callback => {
+      const timer = { cleared: false, unref() {} };
+      timers.push(() => { if (!timer.cleared) callback(); });
+      return timer;
+    },
+    clearTimeout: timer => { timer.cleared = true; },
     name: 'compat-test', API_PROXY_GRACE_MS: 3000,
   });
   return {
@@ -241,6 +246,30 @@ test('旧宿主服务延迟出现：宽限期后本代使用宿主服务', async
   root.provide('apiProxy', { who: 'host' });
   assembly.timers.forEach(callback => callback());
   assert.equal(generation.ctx.apiProxy.who, 'host');
+});
+
+test('旧宿主宽限期内卸载：取消延迟装配，不再向失效上下文注册服务', async () => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const root = new Context();
+  root.provide('apiProxy', { who: 'host' });
+  const assembly = compatAssembly({ hasHostPackage: true });
+  const generation = await assembly.mount(root);
+  assert.equal(assembly.timers.length, 1, '装配应安排一次宽限期检查');
+  await generation.fiber.dispose();
+  assert.doesNotThrow(() => assembly.timers.forEach(callback => callback()));
+  assert.equal(root.get('apiProxy').who, 'host', '卸载本代不应影响宿主服务');
+});
+
+test('宽限期清理变异：移除取消定时器后能抓住卸载后的服务注册', async () => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const marker = 'ctx.effect(() => () => clearTimeout(timer), `${name}: host apiProxy grace timer`)';
+  assert.ok(IMPL.includes(marker), '宽限期定时器应随本代卸载清理');
+  const assembly = compatAssembly({ hasHostPackage: true, mutate: source => source.replace(marker, '') });
+  const root = new Context();
+  root.provide('apiProxy', { who: 'host' });
+  const generation = await assembly.mount(root);
+  await generation.fiber.dispose();
+  assert.throws(() => assembly.timers.forEach(callback => callback()), /cannot create effect on inactive context/);
 });
 
 test('解析不动就是「没有」：不能把插件带崩', () => {
