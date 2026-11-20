@@ -1,3 +1,4 @@
+// 装配缺少端口时结束等待并报告实际不可用原因。
 // 需求已确认：P2P 入口始终独立于局域网监听。
 'use strict';
 
@@ -374,7 +375,7 @@ test('关掉开关就不起助手（setEnabled 之后 start 直接回 null）', 
   assert.equal(session.start(), null);
 });
 
-test('挂载层：没端口时不建会话，但门面照样能问（回 starting）', async () => {
+test('挂载层：没端口时不建会话，门面等待结束后报告具体原因', async () => {
   let effectFn = null;
   const door = mountP2P({
     mount: (_label, fn) => { effectFn = fn; return fn(); },
@@ -389,6 +390,10 @@ test('挂载层：没端口时不建会话，但门面照样能问（回 startin
   assert.equal(door.exchange('x').ok, false);
   assert.equal(await door.open({}), null);
   assert.equal(await door.refresh(), null);
+  await new Promise(setImmediate);
+  assert.equal(door.status().error, 'local-port-unavailable');
+  assert.equal(door.status().ready, false);
+  assert.equal(door.exchange('x').error, 'local-port-unavailable');
 });
 
 test('挂载层：有端口就建会话，状态门面接得上', () => {
