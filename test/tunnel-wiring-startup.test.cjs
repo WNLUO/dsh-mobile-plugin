@@ -1,3 +1,4 @@
+// 真实监听错误必须结束启动等待，让装配清理能关闭入口和代理。
 // 验证两类隧道装配门面的启用意图、就绪与启动失败，并用同一行为断言拒绝变异。
 'use strict';
 
@@ -6,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { createRequire } = require('node:module');
+const { EventEmitter } = require('node:events');
 
 const TYPES = ['tailcat', 'p2p'];
 const flush = () => new Promise(setImmediate);
@@ -42,10 +44,12 @@ function fixture(type, options = {}, mutate = source => source) {
     module: loaded, exports: loaded.exports,
     require: name => {
       if (name === '../relay/tunnel-forwarder.cjs') return { createTunnelForwarder(config) {
+        if (options.createForwarder) return options.createForwarder(config);
         if (options.forwarderError) throw options.forwarderError;
         seen.forwarderConfig = config; return forwarder;
       } };
       if (name === './ingress.cjs') return { createLoopbackIngress(config) {
+        if (options.createIngress) return options.createIngress(config);
         if (options.ingressError) throw options.ingressError;
         seen.ingressConfig = config; return ingress;
       } };
@@ -225,3 +229,78 @@ test('p2p：缺少本机端口时保留开启意图，操作返回具体不可�
   assert.equal(f.seen.sessions.length, 0);
   assert.equal(f.door.exchange('x').error, 'local-port-unavailable');
 });
+
+// 通过监听器 error 事件驱动真实组件，覆盖启动结果与装配清理。
+function listenerFixture(kind, failure = 'async', mutate = source => source) {
+  const file = require.resolve(kind === 'ingress' ? '../lib/tailcat/ingress.cjs' : '../lib/relay/tunnel-forwarder.cjs');
+  const anchored = createRequire(file);
+  const loaded = { exports: {} };
+  const servers = [];
+  class FakeServer extends EventEmitter {
+    constructor() { super(); this.closed = 0; servers.push(this); }
+    listen(_port, _host, ready) {
+      if (failure === 'throw') throw new Error(`${kind} EACCES`);
+      setImmediate(() => {
+        if (failure === 'async') this.emit('error', new Error(`${kind} EACCES`));
+        else ready();
+      });
+    }
+    address() { return { port: kind === 'ingress' ? 40912 : 40911 }; }
+    close() { this.closed += 1; }
+    unref() {}
+  }
+  vm.runInNewContext(mutate(fs.readFileSync(file, 'utf8')), {
+    module: loaded, exports: loaded.exports,
+    require: name => name === (kind === 'ingress' ? 'node:net' : 'node:http')
+      ? { createServer: () => new FakeServer() } : anchored(name),
+  }, { filename: file });
+  return { servers, create: kind === 'ingress' ? loaded.exports.createLoopbackIngress : loaded.exports.createTunnelForwarder };
+}
+
+async function assertListenerFailure(kind, failure = 'async', mutate) {
+  const listener = listenerFixture(kind, failure, mutate);
+  const logs = [];
+  const component = listener.create({ targetPort: () => 40911, upstreamPort: () => 61494, log: message => logs.push(message) });
+  try {
+    const pending = component.start();
+    assert.equal(component.start(), pending, '并发启动仍复用同一结果');
+    let result = 'pending';
+    pending.then(value => { result = value; });
+    await flush();
+    assert.equal(result, 0, '真实监听失败必须结束启动并返回 0');
+    assert.equal(component.port(), 0);
+    assert.ok(logs.some(message => message.includes(`${kind} EACCES`)), '真实监听错误必须保留到日志');
+  } finally { component.close(); }
+  assert.equal(listener.servers[0].closed, 1);
+}
+
+async function assertFailedWiringCloses(kind, mutate) {
+  const ingress = listenerFixture('ingress', kind === 'ingress' ? 'async' : '', kind === 'ingress' ? mutate : undefined);
+  const forwarder = listenerFixture('forwarder', kind === 'forwarder' ? 'async' : '', kind === 'forwarder' ? mutate : undefined);
+  const f = fixture('tailcat', { createIngress: ingress.create, createForwarder: forwarder.create });
+  await flush();
+  await flush();
+  assert.equal(f.seen.sessions.length, 0);
+  assert.match(f.door.status().error, new RegExp(`${kind} EACCES`));
+  f.close();
+  await flush();
+  assert.equal(ingress.servers[0].closed, 1, '监听失败后直连装配必须关闭入口');
+  assert.equal(forwarder.servers[0].closed, 1, '监听失败后直连装配必须关闭落点代理');
+}
+
+for (const kind of ['ingress', 'forwarder']) {
+  test(`${kind}：真实组件的异步监听错误和同步异常都结束启动并回 0`, async () => {
+    await assertListenerFailure(kind);
+    await assertListenerFailure(kind, 'throw');
+  });
+
+  test(`${kind}：真实组件监听失败后直连装配清理不再悬空`, async () => {
+    await assertFailedWiringCloses(kind);
+  });
+
+  test(`${kind}：变异移除异步错误收口，同一返回值和装配清理断言必须失败`, async () => {
+    const mutate = source => replaceMutation(source, '          resolve(0);\n        });', '        });');
+    await assert.rejects(() => assertListenerFailure(kind, 'async', mutate), { code: 'ERR_ASSERTION' });
+    await assert.rejects(() => assertFailedWiringCloses(kind, mutate), { code: 'ERR_ASSERTION' });
+  });
+}
