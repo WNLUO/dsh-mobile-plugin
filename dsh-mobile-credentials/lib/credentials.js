@@ -97,6 +97,11 @@ function readFromDisk() {
   } catch {
     records = [];
   }
+  // 权限档位已移除：所有设备一律全权。老记录若还带 `permissions` 子集，读到就抹掉
+  //（缺 `permissions` = 全权，与权限判定口径一致），下一次写盘即成全权。
+  for (const record of records) {
+    if (Object.prototype.hasOwnProperty.call(record, 'permissions')) delete record.permissions;
+  }
   stamp = statOf();
   rebuildIndex();
 }

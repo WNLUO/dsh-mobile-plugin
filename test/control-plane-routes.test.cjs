@@ -265,30 +265,6 @@ test('行为：手填的 IPv6 地址坏形状不写进去，也不连累同一�
   }
 });
 
-test('行为：审批自动审阅档只认布尔值，写进同一份配置（默认关）', async () => {
-  // 这个开关决定「要不要替人放行」，所以形状必须严：`'false'` / 0 / 1 都不能被静默解释成
-  // 一个档位，否则用户以为关掉了、实际读到的却是别的东西。缺省（relay.json 里没这一格）
-  // 由 schema 的 `.default(false)` 兜住，面板看到的是关 —— 那是它的默认值。
-  const state = { approvalAutoReview: false };
-  const calls = [];
-  const table = controlRoutes({ state, settingsCalls: calls });
-  const saved = {};
-  await table.get('/api/relay/config')({ method: 'POST', body: { approvalAutoReview: true } }, saved);
-  assert.equal(saved.status, 200);
-  assert.equal(calls[0].approvalAutoReview, true, '布尔值要原样写进 settings');
-
-  for (const bad of ['true', 'false', 0, 1, null, {}]) {
-    const calls2 = [];
-    const table2 = controlRoutes({ state: { approvalAutoReview: true }, settingsCalls: calls2 });
-    const res = {};
-    await table2.get('/api/relay/config')({ method: 'POST', body: { approvalAutoReview: bad, name: 'ok' } }, res);
-    assert.equal(res.status, 200);
-    assert.equal(Object.prototype.hasOwnProperty.call(calls2[0], 'approvalAutoReview'), false,
-      `${JSON.stringify(bad)} 不该被当成布尔值写进去`);
-    assert.equal(calls2[0].name, 'ok', '其余合法字段照旧写入');
-  }
-});
-
 test('行为：侧边栏图标开关只认布尔值，与其余配置写进同一份', async () => {
   const calls = [];
   const notifies = [];

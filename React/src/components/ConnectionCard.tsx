@@ -1,16 +1,13 @@
 // 复用现有状态行和按钮展示 FRP 运行、恢复与主动停用入口。
-// 2026-11-20：连接自检以一行短结论回到这张卡（由控制台按 status 指纹重查后传入）。
 // 2026-11-20 用户要求：去掉「设备名」「实例 ID」两行与 TCP 直连的地址。
 /**
- * 主页右栏「连接状态」卡：远程控制一颗开关 + 只读事实。
+ * 主页右栏「连接状态」卡：只读事实。
  *
- * 这一页的所有数字都来自宿主（`/api/relay/*`），界面不改写；自检那一行刻意不跟 3 秒轮询，
- * 见文件末尾组件注释与 `lib/selfcheck.ts`。
+ * 这一页的所有数字都来自宿主（`/api/relay/*`），界面不改写。
  */
 import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
-import { Switch } from '@appica/ui-react/switch'
 
 import type { AddressBook, P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone, type Tone } from '../lib/format.ts'
@@ -22,7 +19,6 @@ type Props = {
   /** 地址库：TCP 直连这条要从里面读配置的 `manualTcp`（状态接口不带它）。 */
   addressBook: AddressBook | null
   busy: string
-  onToggle: (enabled: boolean) => void
   onStopFrp: () => void
   /** 「管理」那颗：打开 Tailcat 隧道的弹窗（查看 / 开关 / 移除手机）。 */
   onManageTailcat: () => void
@@ -30,8 +26,6 @@ type Props = {
   onManageP2P: () => void
   /** 上次重启 sidecar 的失败原因；并入「旁挂进程」那行显示，不单独铺一块告警。 */
   restartError: string | null
-  /** 连接自检的短结论（`selfCheckRow` 的结果）：只报一句，给不给都不影响其它行。 */
-  selfcheck?: { tone: Tone; text: string }
 }
 
 /** 隧道此刻的状态 → 一行字的键。老宿主没有这一格时整行不画（见下面 `status.tailcat`）。 */
@@ -75,38 +69,33 @@ function tailcatTone(tailcat: TailcatStatus): Tone {
 }
 
 /**
- * 连接状态：把「远程控制」「概览」「连接状态」合成一张卡。
+ * 连接状态：把「概览」「连接状态」合成一张卡。
  *
- * 最上面那颗是**远程控制**（这段隧道开不开）：一行标签 + 一颗开关，不带状态徽标、不带说明句。
- * 「允许新设备绑定」（`status.pairingPolicy`）不在这儿 —— 它现在只留在「配对与二维码」的
- * 「配对策略」那行，同一件事一屏两颗开关只会让人猜该按哪颗。
- *
- * 后面全是此刻的只读事实（宿主给的字段，界面不改写）。隧道被中转拒绝时，把「为什么被拒、
+ * 「远程控制」那颗开关（这段隧道开不开）与「允许配对」都已搬到「配对与二维码」的右列，
+ * 这里只剩此刻的只读事实（宿主给的字段，界面不改写）。隧道被中转拒绝时，把「为什么被拒、
  * 下一步做什么」摆在同一张卡里 —— 那句英文原文（`1008 bad registration secret`）不指向
  * 任何可执行动作。
  *
  * 「插件版本」与「局域网直连」两行**不在这张卡里**（2026-11-02 用户要求删）：版本号在上面的
  * 「插件更新」卡里已经有，「局域网直连」那行原本只是开弹窗的按钮，端口现在直接在「配对与
- * 二维码」里改（见 components/PortDialog.tsx），状态想看得去「连接自检」。
- *
- * 连接自检在这张卡里只占**一行短结论**（2026-11-20）：入口与详细结论仍在自检弹窗，
- * 这里只说「正常 / 直连没在监听 / 防火墙挡住了」，不再铺开一段说明。
+ * 二维码」里改（见 components/PortDialog.tsx），状态想看得去「网络配置」。
  *
  * **中转地址不在这张卡里**（2026-10-26 用户要求删）：域名长的时候那一行会把「隐藏」那颗
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp, onManageTailcat, onManageP2P, restartError, selfcheck }: Props) {
+export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageTailcat, onManageP2P, restartError }: Props) {
   const tunnel = status.tunnel
-  const enabled = status.enabled
   const tailcat = status.tailcat ?? null
   const p2p = status.p2p ?? null
   /** TCP 直连配没配、配的哪条：宿主把它放在地址库的 `manualTcp`（状态接口里没有这一格）。 */
   const tcpTarget = (addressBook?.manualTcp ?? '').trim()
   // 本地 frpc 进程跑没跑（宿主 status.frp）。配了地址不等于通了——只有进程真在跑才算这条活了。
   const frp = status.frp ?? null
-  // 这一行只说这条通道活没活，**不摆地址**（2026-11-20 用户要求删）：公网 IP 与端口在
-  // 面板上念一遍没有用途，要查去网络配置里看。
+  // FRP 的三种「有东西」：已启用（老宿主缺 enabled 时按 configPresent 认）、正在动、仅导入了配置。
+  const frpEnabled = frp?.enabled === true || (frp?.enabled === undefined && frp?.configPresent === true)
+  const frpConfigured = frp?.configPresent === true || frpEnabled || Boolean(frp?.running || frp?.starting || frp?.retrying)
+  // 这一行不摆地址（2026-11-20 用户要求删）：公网 IP 与端口在面板上念一遍没有用途，要查去网络配置里看。
   let tcpTone: Tone
   let tcpText: string
   if (frp?.running) {
@@ -118,9 +107,18 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp,
   } else if (frp?.error) {
     tcpTone = 'error'
     tcpText = t('panel.connection.tcpFailed')
-  } else if (tcpTarget) {
+  } else if (frpEnabled) {
+    // 有 FRP、已启用，但这一刻没跑起来（既不在启动中也没报错）。
     tcpTone = 'warn'
+    tcpText = t('panel.connection.tcpEnabledNotRunning')
+  } else if (frpConfigured) {
+    // 只导入了 FRP 配置、还没启用：它没在跑，也没有「停止」可点。
+    tcpTone = 'off'
     tcpText = t('panel.connection.tcpSet')
+  } else if (tcpTarget) {
+    // 手填的外部 TCP 目标：手机直接拨它，本机不跑 frpc，所以这里只说「用了手填地址」。
+    tcpTone = 'ok'
+    tcpText = t('panel.connection.tcpManual')
   } else {
     tcpTone = 'off'
     tcpText = t('panel.connection.tcpOff')
@@ -128,17 +126,6 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp,
 
   return (
     <Card frame="solid">
-      <label className="flex items-center justify-between gap-4 border-b border-border-muted py-3">
-        <span className="text-sm text-foreground-muted">{t('panel.connection.remoteControl')}</span>
-        <Switch
-          size="md"
-          checked={enabled}
-          disabled={busy !== ''}
-          onCheckedChange={(next) => onToggle(next)}
-          aria-label={t('panel.connection.remoteControl')}
-        />
-      </label>
-
       <InfoList>
         <InfoRow label={t('panel.connection.platform')}>
           {status.platform} {status.osVersion} · {status.arch}
@@ -214,11 +201,6 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp,
             detail={timeText(status.mirror.pushedAt)}
           />
         </InfoRow>
-        {selfcheck ? (
-          <InfoRow label={t('panel.selfcheck.title')} tone={selfcheck.tone}>
-            <ToneValue tone={selfcheck.tone} text={selfcheck.text} />
-          </InfoRow>
-        ) : null}
       </InfoList>
 
       {status.lan.recovery?.state === 'awaiting-device' ? (

@@ -47,8 +47,6 @@ import {
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
-import { Radio } from '@appica/ui-react/radio'
-import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -56,42 +54,17 @@ import {
   apiGet,
   apiPost,
   errorText,
-  tierOfPermissions,
-  updateDevicePermission,
   type DeviceHistoryList,
   type DeviceList,
   type DeviceRevokeResult,
   type HistoryClearResult,
   type RelayDevice,
   type RelayHistoryDevice,
-  type Tier,
-  type TierView,
 } from '../lib/api.ts'
 import { pageVisible } from '../lib/embed-visibility.ts'
 import { t } from '../lib/i18n/index.ts'
 import { Dot } from './InfoRow.tsx'
-import { tierLabel, TIER_OPTIONS } from './PairingCard.tsx'
 import { useNotify } from '../lib/notify.ts'
-
-/**
- * 档位（或展示态）→ 这一行上摆的文案。
- *
- * `'none'` 是这台设备拿到的是**显式空数组**（连 view 都没有），跟「只读」不是一回事，
- * 所以说「什么都不允许」而不是「只读」。它只出现在显示处：改档对话框永远只列三档。
- */
-function tierViewLabel(tier: TierView): string {
-  return tier === 'none' ? t('panel.devices.tierNone') : tierLabel(tier)
-}
-
-/**
- * 改档对话框里预选哪一档。
- *
- * 对话框只有三档（服务端也只认三档）：设备现在是「什么都不允许」时预选最窄的那一档，
- * 别预选全权 —— 那样一按「应用」就等于凭空提权。
- */
-function tierForDialog(tier: TierView): Tier {
-  return tier === 'none' ? 'readonly' : tier
-}
 
 /** 多久没连过就不算在线了。 */
 export const ONLINE_WINDOW_MS = 5 * 60 * 1000
@@ -191,26 +164,6 @@ type Props = {
   fill?: boolean
 }
 
-/** 权限：盾牌图标（改的是这台设备的权限档位）。 */
-function ShieldIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      className="size-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  )
-}
-
 /** 解除绑定：断开链条的图标。 */
 function UnlinkIcon() {
   return (
@@ -238,11 +191,6 @@ export function DevicesCard({ busy, fill = false }: Props) {
   /** 正在等确认的那台设备：null = 确认框关着。 */
   const [pending, setPending] = useState<RelayDevice | null>(null)
   const [revoking, setRevoking] = useState(false)
-  /** 正在调权限的那台设备：null = 权限框关着。 */
-  const [permPending, setPermPending] = useState<RelayDevice | null>(null)
-  /** 权限框里临时选中的档位（还没提交）。 */
-  const [permTier, setPermTier] = useState<Tier>('full')
-  const [savingPerm, setSavingPerm] = useState(false)
 
   /**
    * 展开态与上一次看到的台数。
@@ -398,21 +346,6 @@ export function DevicesCard({ busy, fill = false }: Props) {
     }
   }
 
-  /** 提交权限档位：成功后立刻重拉（别等下一轮 3 秒），并把结果说清楚。 */
-  async function savePermissions(device: RelayDevice, tier: Tier) {
-    setSavingPerm(true)
-    try {
-      await updateDevicePermission(device.deviceId, tier)
-      setPermPending(null)
-      await load()
-      notify('soft', t('panel.devices.permissionsDone', { name: nameOf(device), tier: tierLabel(tier) }))
-    } catch (error) {
-      notify('error', t('panel.devices.permissionsFailed', { message: errorText(error) }))
-    } finally {
-      setSavingPerm(false)
-    }
-  }
-
   // 一台活设备都没有、历史里也空着（或还没读到）：整卡不摆。见文件头「为什么整卡会消失」。
   // 只要历史里有记录就得摆：踢掉最后一台手机之后，那条记录正是这一段要回答的事。
   if (devices.length === 0 && revokedCount === 0) return null
@@ -431,9 +364,6 @@ export function DevicesCard({ busy, fill = false }: Props) {
               {/* 一行说完：名字 + 档位 + 平台 / 通道 / 最近连接；旧绑定、系统版本、加密这些不摆。 */}
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="text-sm text-foreground-strong">{nameOf(device)}</span>
-                <Badge variant="secondary" size="xs">
-                  {tierViewLabel(tierOfPermissions(device.permissions))}
-                </Badge>
                 <span className="flex min-w-0 items-center gap-1 whitespace-nowrap text-xs text-foreground-muted">
                   <span>{platformText(device.platform)}</span>
                   <span aria-hidden>·</span>
@@ -445,18 +375,6 @@ export function DevicesCard({ busy, fill = false }: Props) {
               </div>
 
               <div className="flex shrink-0 items-center gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon-md"
-                  aria-label={t('panel.devices.permissions')}
-                  title={t('panel.devices.permissions')}
-                  onClick={() => {
-                    setPermTier(tierForDialog(tierOfPermissions(device.permissions)))
-                    setPermPending(device)
-                  }}
-                >
-                  <ShieldIcon />
-                </Button>
                 <Button
                   variant="ghost"
                   size="icon-md"
@@ -593,59 +511,6 @@ export function DevicesCard({ busy, fill = false }: Props) {
                 </span>
               ) : (
                 t('panel.devices.unbind')
-              )}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* 调权限：电脑侧给这台设备换档位（授予 / 提权 / 降权）。选中后按「应用」才提交，
-          不会点一下就地改 —— 权限收放都留一次确认。 */}
-      <AlertDialog
-        open={permPending !== null}
-        onOpenChange={(open) => {
-          if (!open && !savingPerm) setPermPending(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('panel.devices.permissionsTitle')}</AlertDialogTitle>
-          </AlertDialogHeader>
-          <AlertDialogBody className="flex flex-col gap-3 text-sm">
-            <AlertDialogDescription>{t('panel.devices.permissionsHint')}</AlertDialogDescription>
-            <RadioGroup
-              className="flex flex-col gap-2"
-              value={permTier}
-              onValueChange={(next) => {
-                if (typeof next === 'string') setPermTier(next as Tier)
-              }}
-            >
-              {TIER_OPTIONS.map((tier) => (
-                <label key={tier} className="flex cursor-pointer items-center gap-2">
-                  <Radio value={tier} />
-                  <span>{tierLabel(tier)}</span>
-                </label>
-              ))}
-            </RadioGroup>
-          </AlertDialogBody>
-          <AlertDialogFooter className="flex justify-end gap-2">
-            <Button variant="outline" disabled={savingPerm} onClick={() => setPermPending(null)}>
-              {t('panel.devices.cancel')}
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={savingPerm}
-              onClick={() => {
-                if (permPending) void savePermissions(permPending, permTier)
-              }}
-            >
-              {savingPerm ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Spinner />
-                  {t('panel.devices.permissionsApply')}
-                </span>
-              ) : (
-                t('panel.devices.permissionsApply')
               )}
             </Button>
           </AlertDialogFooter>

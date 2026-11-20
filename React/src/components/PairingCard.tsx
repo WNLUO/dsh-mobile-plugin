@@ -10,7 +10,7 @@
  *
  * 地址行操作是小号图标按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
  * 2026-11-20 用户要求：整卡按「左显示、右控件」重排——左列放连接信息与运行中版本，
- * 右列放权限档位（三按钮切换）、配对策略、自动审阅、自动上报网络地址。
+ * 右列放权限档位（三按钮切换）、配对策略、自动上报网络地址。
  */
 import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
@@ -27,7 +27,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { Switch } from '@appica/ui-react/switch'
 import * as React from 'react'
 
-import type { AddressBook, PairingInfo, PairingPolicy, StatusView, Tier } from '../lib/api.ts'
+import type { AddressBook, PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
 import { isPublicRelayUrl } from '../lib/links.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { ALIGNED_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
@@ -334,53 +334,29 @@ export function PairingCard({
 }
 
 /**
- * 整卡右列的控件：按用户要求自上而下是权限档位、配对策略、自动审阅、自动上报网络地址。
- * 权限档位三选一用按钮切换（不用单选下拉）；自动上报的说明弹窗也跟着搬到这里。
- * 四项改的都是 `/api/relay/config` 上各自的字段。
+ * 整卡右列的控件：按用户要求自上而下是配对策略、自动上报网络地址。
+ * 自动上报的说明弹窗也跟着搬到这里，两项改的都是 `/api/relay/config` 上各自的字段。
  */
 export function PairingPolicyRows({
   status,
   busy,
   onChangePolicy,
-  onChangeTier,
-  onChangeAutoReview,
+  onToggleRemote,
   onChangeControlReport,
 }: {
   status: StatusView
   busy: string
   onChangePolicy: (policy: PairingPolicy) => void
-  onChangeTier: (tier: Tier) => void
-  onChangeAutoReview: (enabled: boolean) => void
+  onToggleRemote: (enabled: boolean) => void
   onChangeControlReport: (enabled: boolean) => void
 }) {
   const idle = busy !== ''
   const pairingAllowed = status.pairingPolicy === 'code'
-  const pairingTier: Tier = status.pairingTier ?? 'full'
-  const autoReview = status.approvalAutoReview === true
   // 老宿主没这个字段时按开（与宿主历史行为一致）。
   const controlReport = status.controlReportEnabled !== false
   const [controlReportInfoOpen, setControlReportInfoOpen] = React.useState(false)
   return (
     <>
-      <InfoRow label={t('panel.pairing.tier')} hint={t('panel.pairing.tierHint')}>
-        <div className="flex gap-1">
-          {TIER_OPTIONS.map((tier) => (
-            <Button
-              key={tier}
-              variant={tier === pairingTier ? 'soft' : 'ghost'}
-              size="sm"
-              className="px-2"
-              disabled={idle}
-              aria-pressed={tier === pairingTier}
-              onClick={() => {
-                if (tier !== pairingTier) onChangeTier(tier)
-              }}
-            >
-              {tierLabel(tier)}
-            </Button>
-          ))}
-        </div>
-      </InfoRow>
       <InfoRow label={t('panel.pairing.policy')}>
         <Switch
           size="md"
@@ -390,15 +366,13 @@ export function PairingPolicyRows({
           aria-label={t('panel.devices.allowTitle')}
         />
       </InfoRow>
-      <InfoRow label={t('panel.pairing.autoReview')} hint={t('panel.pairing.autoReviewHint')}>
+      <InfoRow label={t('panel.connection.remoteControl')}>
         <Switch
           size="md"
-          checked={autoReview}
+          checked={status.enabled}
           disabled={idle}
-          aria-label={t('panel.pairing.autoReview')}
-          onCheckedChange={(next) => {
-            if (next !== autoReview) onChangeAutoReview(next)
-          }}
+          onCheckedChange={(next) => onToggleRemote(next)}
+          aria-label={t('panel.connection.remoteControl')}
         />
       </InfoRow>
       <InfoRow
@@ -452,14 +426,4 @@ export function PairingPolicyRows({
 function phoneHintAddress(book: AddressBook | null, pairing: PairingInfo | null): string {
   if (book && book.lan.length + book.public.length > 0) return 'book'
   return pairing?.lanUrls?.[0] ?? ''
-}
-
-/** 三档的显示顺序：从最窄到最宽，与「收紧往左、放开往右」的直觉一致。 */
-export const TIER_OPTIONS: readonly Tier[] = ['readonly', 'approve', 'full']
-
-/** 档位 → 人说得出名字的那一档（走字典）。 */
-export function tierLabel(tier: Tier): string {
-  if (tier === 'readonly') return t('panel.pairing.tierReadonly')
-  if (tier === 'approve') return t('panel.pairing.tierApprove')
-  return t('panel.pairing.tierFull')
 }

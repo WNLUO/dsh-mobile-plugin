@@ -160,12 +160,13 @@ test('准入开关只留在配对卡的「配对策略」那行，一行标签 +
   assert.ok(/columns-1[^"]*md:columns-2/.test(app), '卡片走瀑布式几列自己铺开，整页滚动');
   assert.ok(!/PairingPolicyCard/.test(app), '那张独立的准入卡已经删了，别再加回来');
 
-  // 连接状态卡里只剩「远程控制」一颗：准入开关别在两处各摆一份。
+  // 「远程控制」已搬到配对卡右列（允许配对下面）；连接状态卡里不再有开关。
   const connection = read('components', 'ConnectionCard.tsx');
-  assert.match(connection, /panel\.connection\.remoteControl/, '远程控制那颗还在连接状态卡里');
+  assert.ok(!connection.includes('panel.connection.remoteControl'), '远程控制已搬去配对卡右列，连接状态卡里不再有');
   assert.ok(!connection.includes('panel.devices.allowTitle'), '连接状态卡里不许再摆准入开关：它只在配对卡那一处');
-  // 配对卡里：它挂在「配对策略」那一行的值上。
-  assert.match(policy, /label=\{t\('panel\.pairing\.policy'\)\}/, '准入开关要挂在「配对策略」这一行');
+  // 配对卡里：准入开关挂在「允许配对」这一行，远程控制紧跟其后。
+  assert.match(policy, /label=\{t\('panel\.pairing\.policy'\)\}/, '准入开关要挂在「允许配对」这一行');
+  assert.match(policy, /panel\.connection\.remoteControl/, '远程控制要搬到允许配对下面');
 
   // 形态只有「一行标签 + 一颗开关」：不许状态徽标、不许说明句。
   for (const gone of [
@@ -327,7 +328,7 @@ test('历史行没有动作按钮，也不跟主列表抢注意力', () => {
 
 test('清空历史：只走专用路由、二次确认、清完重拉，文案十门齐全', () => {
   // 清空是整段的破坏性操作，判据按「怎么发、怎么确认、清完怎么收尾」钉住。
-  const clearFn = devices.slice(devices.indexOf('async function clearHistory'), devices.indexOf('async function savePermissions'));
+  const clearFn = devices.slice(devices.indexOf('async function clearHistory'), devices.indexOf('// 一台活设备都没有、历史里也空着'));
   assert.match(clearFn, /apiPost<HistoryClearResult>\('\/api\/relay\/devices\/history\/clear', \{\}\)/, '清空走专用路由');
   assert.ok(!/setPending\(|revoke\(/.test(clearFn), '清空不许复用单台解绑那条路');
   assert.match(clearFn, /await load\(\)/, '清完立刻重拉设备清单（台数要跟着变）');
