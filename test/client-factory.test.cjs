@@ -1062,7 +1062,8 @@ test('字典覆盖两张界面，中英一一对应', () => {
     'footerPending', 'footerPublicConfirm', 'footerRemoteOpen', 'footerSidecarBad', 'footerTunnelBad',
     'heading', 'iconComputer', 'iconHidden', 'iconKeepOne', 'iconPhone', 'iconSaveFailed',
     'iconShown', 'iconsHint', 'iconsTitle', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
-    'pluginPageMissing', 'pluginPages', 'pluginPagesEmpty', 'pluginPagesHint', 'remoteConsoleTitle'
+    'pluginPageMissing', 'pluginPages', 'pluginPagesEmpty', 'pluginPagesHint', 'remoteConsoleTitle',
+    'restartNoticeBody', 'restartNoticeButton', 'restartNoticeClose', 'restartNoticeHint', 'restartNoticeTitle'
   ]);
   assert.equal(env.effects.some((e) => String(e.label).includes('dictionaries')), true);
 });
@@ -1601,7 +1602,8 @@ test('切语言之后标题跟着换（插进那一行的按钮不吃旧文案�
   assert.equal(node.attrs['aria-label'], '打开手机网页', '切语言后插进去的那颗要换标题');
   // 依赖数组里必须是**文案本身**：`t` 是 bind 出来的稳定函数，只依赖它 effect 不会重跑。
   // 2026-11-17 起还要带上 visible：用户收起这颗图标时，effect 必须重跑把插进去的节点摘掉。
-  assert.match(SOURCE, /\}, \[wide, visible, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess, hint, fault\]\);/);
+  // 2026-11-20 起带上 restartPending / restartLabel：需要重启 DSH 时这颗要当场变成提醒按钮。
+  assert.match(SOURCE, /\}, \[wide, visible, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess, hint, fault, restartPending, restartLabel\]\);/);
 });
 
 test('地址问不到时会自己再问，问到了就停（不再打宿主）', async () => {
@@ -2837,4 +2839,51 @@ test('聊天嵌入页：没有目标或服务没就位时安静跳过，不回�
   noClient.sandbox.__DSH_CHAT_EMBED_TARGET__ = { sessionId: 'orphan' };
   noClient.run();
   assert.equal(noClient.registrations.length, 3);
+});
+
+test('需要重启 DSH 时：那颗入口变成提醒，点开弹说明窗；没改外壳时仍是正常入口', async () => {
+  const sidebar = fakeSidebarRow();
+  const env = materialize({
+    sidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status') ? readyStatus({ shellChanged: true }) : { ok: true }),
+    }),
+  });
+  env.renderFooter();
+  await env.hooks.flush();
+  env.renderFooter();
+  await env.hooks.flush();
+  const node = footerDomNode(sidebar);
+  assert.ok(node, '重启提醒期间那颗按钮要在方框里');
+  assert.equal(node.attrs['aria-label'], '有新版本，需要重启 DSH 生效');
+  assert.notEqual(node.attrs['data-dshm-restart-icon'], undefined, '图形换成循环箭头那一颗');
+  assert.equal(node.attrs['href'], undefined, '提醒不是链接，点它不跳走');
+  const group = footerGroupNode(sidebar);
+  assert.notEqual(group.attrs['data-dshm-restart'], undefined, '方框打上重启记号，旁边那颗电脑图标才被藏起');
+
+  node.onclick({ preventDefault() {} });
+  const body = env.sandbox.document.body;
+  const dialog = [...body.children].find((child) => child.attrs && child.attrs['data-dshm-restart-notice'] !== undefined);
+  assert.ok(dialog, '点一下要弹一扇说明窗');
+  assert.ok(texts(dialog).join(' ').includes('重启'), '说明窗要说清需要重启一次 DSH');
+
+  // 没改外壳时：仍是普通入口、不挂重启记号。
+  const plainSidebar = fakeSidebarRow();
+  const plain = materialize({
+    sidebar: plainSidebar,
+    fetch: async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).endsWith('/status') ? readyStatus() : { ok: true }),
+    }),
+  });
+  plain.renderFooter();
+  await plain.hooks.flush();
+  plain.renderFooter();
+  await plain.hooks.flush();
+  const plainNode = footerDomNode(plainSidebar);
+  assert.equal(plainNode.attrs['data-dshm-restart-icon'], undefined, '没改外壳就不该变成提醒');
+  assert.notEqual(plainNode.attrs['href'], undefined, '正常态仍是能点开的入口');
 });

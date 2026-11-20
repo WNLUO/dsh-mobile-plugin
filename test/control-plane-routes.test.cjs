@@ -200,7 +200,7 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  * 落点 —— 这样才谈得上「写进去能读回」，只对着源码正则断言字段名是钉不住的。
  */
 function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
-  localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0 } = {}) {
+  localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0, getPluginRuntime = () => null } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
   const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
@@ -222,6 +222,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     state,
     credentials,
     dropDeviceStreams,
+    getPluginRuntime,
     status: () => ({}),
     syncSidecar: async () => {},
     lanPortInUse: () => 18787,
@@ -765,4 +766,19 @@ test('单台吊销响应保留数字closed', async () => {
   await table.get('/api/relay/devices/revoke')({ method: 'POST', body: { deviceId: 'phone' }, headers: {} }, res);
   assert.equal(res.body.closed, 3);
   assert.equal(typeof res.body.closed, 'number');
+});
+
+test('行为：/status 如实报「外壳改过、要重启」，供侧边栏那颗入口变成提醒', async () => {
+  // 外壳改过 = 盘上那份和跑着的不一样 = 这次更新要重启一次 DSH 才把外壳部分用上。
+  const changed = controlRoutes({ state: {}, getPluginRuntime: () => ({ status: () => ({ shellChanged: true }) }) });
+  const res = {};
+  await changed.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.shellChanged, true);
+
+  // 没有外壳 / 没改 / 量不到：一律 false，绝不假报重启。
+  const plain = controlRoutes({ state: {} });
+  const res2 = {};
+  await plain.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res2);
+  assert.equal(res2.body.shellChanged, false);
 });
