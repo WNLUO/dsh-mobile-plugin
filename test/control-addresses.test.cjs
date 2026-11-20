@@ -56,6 +56,15 @@ test('TCP 目标不合法时不上报（别把一句不能用的值塞给总控�
 });
 
 
+test('用户手填的直连地址标成 direct，绝不并进 lan（否则手机把它当局域网串栏）', () => {
+  const state = { lanEnabled: true, relayUrls: [], manualLanUrl: 'https://home.example.com:8443/' };
+  const addresses = controlAddresses(state, 19999);
+  const direct = addresses.filter((item) => item.kind === 'direct');
+  assert.deepEqual(direct, [{ kind: 'direct', url: 'https://home.example.com:8443' }]);
+  // 同一条地址绝不能再以 lan 的身份出现。
+  assert.equal(addresses.some((item) => item.kind === 'lan' && item.url === 'https://home.example.com:8443'), false);
+});
+
 test('wss 地址由 http/https 推出来', () => {
   assert.equal(controlWsUrl('https://x.example/findme'), 'wss://x.example/findme');
   assert.equal(controlWsUrl('http://127.0.0.1:8787/findme'), 'ws://127.0.0.1:8787/findme');

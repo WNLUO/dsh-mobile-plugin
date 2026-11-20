@@ -112,6 +112,15 @@ test('手填的地址跟着局域网开关走：关掉直连就不报它', async
   assert.deepEqual(body.lanCandidates, [], '直连监听没开，报一条拨不通的地址只会让手机白试');
 });
 
+test('手填的直连地址单独报 directUrl，供手机落到「直连」栏（不再只靠局域网候选里猜）', async () => {
+  // 与局域网是两种地址：主机把它标成独立的 directUrl。lanUrls 里仍带着它只为老手机兼容，
+  // 新手机读到 directUrl 就把那条从局域网候选里剔掉 —— 否则它会显示成「局域网地址」。
+  const body = await connectionInfo({ ...HOST, manualLanUrl: 'https://home.example.com:8443/' });
+  assert.equal(body.directUrl, 'https://home.example.com:8443');
+  const none = await connectionInfo(HOST);
+  assert.equal(none.directUrl, '', '没填也要带这一格（空串），手机据此知道电脑上没有直连地址');
+});
+
 test('手填的 IPv6 直连地址缀在 IPv6 候选最后，网卡那几条一条不少', async () => {
   // 与直连那条同一个取舍：手填的是兜底，同一个 Wi-Fi 下网卡地址快一个数量级，排前面
   // 就会按「先回话的赢」永远选中它。它也必须每轮跟着回来，否则手机重启一次就丢了。
