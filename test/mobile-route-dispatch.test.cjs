@@ -1,3 +1,4 @@
+// 公开健康响应保留同次目标身份与 API 代号，不附精确插件版本。
 'use strict';
 
 /**
@@ -52,7 +53,7 @@ function mountRoutes() {
     registerUpgradeRoute: () => {},
     preview: { handleUpgrade() {} },
     guarded: createGuarded(null, () => false, null),
-    state: {},
+    state: { instanceId: 'health-instance' },
     hostMetadata: () => ({}),
     getSidecarSnapshot: () => null,
     safeLanCandidates: () => [],
@@ -92,6 +93,9 @@ test('公开豁免的体检路由回 200 + 服务名，其余无凭据一律 401
       assert.equal(res.status, 200);
       assert.equal(res.body.ok, true);
       assert.equal(res.body.service, 'dsh-mobile-plugin', 'App 靠这个字段分辨宿主与中转');
+      assert.equal(res.body.instanceId, 'health-instance', '公开实例号与服务名必须来自同次健康响应');
+      assert.equal(res.body.apiVersion, '1');
+      assert.equal(Object.hasOwn(res.body, 'version'), false, '健康探活不公开精确插件版本');
       continue;
     }
     if (route.path === PAIR) {
