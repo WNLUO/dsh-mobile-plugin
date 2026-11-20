@@ -1,5 +1,6 @@
 // 假响应改用 this 写入，覆盖 EventEmitter 包裹后断言读不到响应体的情况。
 // 验证移动中转配置、有界身份代测与代理诊断，并保留吊销响应收尾。
+// 2026-11-21：「立即同步」只上报、不等查询 —— 查询归手机，这里钉住催发、回执与有界等待。
 'use strict';
 
 /**
@@ -42,6 +43,7 @@ const {
   configView,
   configPatch,
   AFTER_RESPONSE_MS,
+  CONTROL_SYNC_WAIT_MS,
 } = require('../lib/mobile/relay-control.js');
 
 /** 假响应：收下 sendJson 写出来的东西（一个对象既是 res 也是断言入口）。 */
@@ -541,12 +543,72 @@ test('诊断：插件版本 / 后台服务 / 镜像推送都报得出来，而�
   }
 });
 
+test('立即同步：催一发上报，回总控的回执与此刻要报的地址清单', async () => {
+  const synced = [];
+  const { deps } = makeDeps({ deps: {
+    syncControl: () => { synced.push('sync'); },
+    getControl: () => ({ url: 'https://ai-hub.example.com/findme', connected: true, published: true, token: 't' }),
+    controlAddresses: () => [
+      { kind: 'relay', url: 'https://relay.example.com' },
+      { kind: 'lan', url: 'http://192.168.1.5:18787' },
+    ],
+  } });
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleControlSync({}, {}, res);
+  assert.deepEqual(synced, ['sync'], '点一下就得真的催一发上报');
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.control.url, 'https://ai-hub.example.com/findme');
+  assert.equal(res.body.control.connected, true);
+  assert.equal(res.body.control.published, true, '总控认了这一发');
+  // 明文清单要原样带出去：手机拿它与总控里那份逐条比，比的是内容不是时间戳。
+  assert.deepEqual(res.body.addresses, [
+    { kind: 'relay', url: 'https://relay.example.com' },
+    { kind: 'lan', url: 'http://192.168.1.5:18787' },
+  ]);
+  assert.equal(typeof res.body.at, 'number', '采样时刻要回一格');
+});
+
+test('立即同步：上报关着时不催，当场回「没确认」', async () => {
+  const synced = [];
+  const { deps } = makeDeps({
+    state: baseState({ controlReportEnabled: false }),
+    deps: {
+      syncControl: () => { synced.push('sync'); },
+      getControl: () => ({ url: 'u', connected: false, published: false }),
+      controlAddresses: () => [],
+    },
+  });
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  await handlers.handleControlSync({}, {}, res);
+  assert.deepEqual(synced, [], '上报关着时本来就不连总控，不该去催');
+  assert.equal(res.body.control.published, false);
+  assert.equal(res.body.control.connected, false);
+});
+
+test('立即同步：总控没回执时等有界一段，然后如实回「没确认」', async () => {
+  const { deps } = makeDeps({ deps: {
+    syncControl: () => {},
+    getControl: () => ({ url: 'u', connected: true, published: false }),
+    controlAddresses: () => [],
+  } });
+  const handlers = createRelayControlHandlers(deps);
+  const res = fakeRes();
+  const started = Date.now();
+  await handlers.handleControlSync({}, {}, res);
+  const waited = Date.now() - started;
+  assert.equal(res.body.control.published, false, '等不到回执就如实说没确认，不假装成功');
+  assert.ok(waited >= CONTROL_SYNC_WAIT_MS - 100, `等回执要等满窗口（实际 ${waited}ms）`);
+  assert.ok(waited < CONTROL_SYNC_WAIT_MS + 500, `等回执不该超出窗口太多（实际 ${waited}ms）`);
+});
+
 test('装配没接上时统一回 503，不是 500 代码错误', async () => {
   // 需要 relay.json 真值的那八条：没接线时回「这台没这个能力」，而不是让 handler 去读
   // undefined 被守卫兜成 500 internal（那种错在手机上跟「代码坏了」长得一样）。
   const needWiring = [
     'handleRelayConfig', 'handleRelayConfigSave', 'handleRelayToggle', 'handleRelayRegenerate',
-    'handleRelayRevokeAll', 'handleRelayReconnect', 'handleRelayRestartSidecar', 'handleRelayDiagnostics',
+    'handleRelayRevokeAll', 'handleRelayReconnect', 'handleControlSync', 'handleRelayRestartSidecar', 'handleRelayDiagnostics',
   ];
   const handlers = createRelayControlHandlers({});
   for (const name of needWiring) {
