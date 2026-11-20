@@ -1,13 +1,4 @@
-/**
- * 「FRP 导入」弹窗：把一段 frpc 配置粘进来，认出公网入口填回地址栏，并让宿主真正把 frpc 跑起来。
- *
- * 两件事一起做，因为光填地址而不启动隧道，APP 拨过去只会是空门：
- *   · 解析（纯函数 `lib/frp-config.ts`）：认出 tcp 转发（进「TCP 直连地址」）或 https 域名（进「直连地址」）；
- *   · 启动：把配置原文交给宿主（`/api/relay/frp/import`），宿主把 `localPort` 对齐到插件实际端口后
- *     起 `frpc -c 配置`。起不来就把原因摆在这儿，不无脑说「已导入」。
- *
- * 只粘了一段 `主机:端口` 时只填地址、不启动（那不是 frpc 配置，起也会失败）。
- */
+/** FRP 子窗只解析并暂存；父窗保存配置时才启动隧道，取消不会产生宿主副作用。 */
 import { Button } from '@appica/ui-react/button'
 import {
   Dialog,
@@ -21,7 +12,6 @@ import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Textarea } from '@appica/ui-react/textarea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { errorText, importFrp } from '../lib/api.ts'
 import { parseFrpConfig } from '../lib/frp-config.ts'
 import { t } from '../lib/i18n/index.ts'
 
@@ -29,7 +19,7 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** 解析成功后把「填哪个栏、填什么」交给调用方。 */
-  onImport: (result: { field: 'tcp' | 'direct'; value: string }) => void
+  onImport: (result: { field: 'tcp' | 'direct'; value: string; config?: string }) => void
 }
 
 /** 这段文本像不像一份 frpc 配置（而不是只有一行地址）。只有配置才值得交给宿主去起 frpc。 */
@@ -39,7 +29,6 @@ function looksLikeConfig(text: string): boolean {
 
 export function FrpImportDialog({ open, onOpenChange, onImport }: Props) {
   const [text, setText] = useState('')
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const parsed = useMemo(() => parseFrpConfig(text), [text])
 
@@ -48,30 +37,14 @@ export function FrpImportDialog({ open, onOpenChange, onImport }: Props) {
     if (open) setError('')
   }, [open])
 
-  async function submit() {
-    if (!parsed.ok || busy) return
-    setError('')
-    let remoteAddress = ''
-    if (looksLikeConfig(text)) {
-      setBusy(true)
-      try {
-        const result = await importFrp(text)
-        if (result?.status && result.status.error) {
-          setError(result.status.error)
-          setBusy(false)
-          return
-        }
-        remoteAddress = result?.status?.remoteAddress || ''
-      } catch (err) {
-        setError(errorText(err))
-        setBusy(false)
-        return
-      }
-      setBusy(false)
+  function submit() {
+    if (!parsed.ok) return
+    if (/^\s*\[common\]\s*$/im.test(text) || /^\s*server_addr\s*=/im.test(text)) {
+      setError(t('panel.frp.iniUnsupported'))
+      return
     }
-    // frpc 读到了服务端实际分配的公网地址，就用它；否则退回解析出来的（可能只是本机端口推断）。
-    const value = parsed.field === 'tcp' && remoteAddress ? remoteAddress : parsed.value
-    onImport({ field: parsed.field, value })
+    const value = parsed.value
+    onImport({ field: parsed.field, value, ...(looksLikeConfig(text) ? { config: text } : {}) })
     onOpenChange(false)
   }
 
@@ -111,10 +84,10 @@ export function FrpImportDialog({ open, onOpenChange, onImport }: Props) {
           {error ? <p className="text-xs text-error">{error}</p> : null}
         </DialogBody>
         <DialogFooter className="flex justify-end gap-2">
-          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('panel.common.cancel')}
           </Button>
-          <Button variant="primary" disabled={!parsed.ok || busy} onClick={submit}>
+          <Button variant="primary" disabled={!parsed.ok} onClick={submit}>
             {t('panel.frp.fill')}
           </Button>
         </DialogFooter>

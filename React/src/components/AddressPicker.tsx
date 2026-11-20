@@ -1,3 +1,4 @@
+// 地址读取失败与成功空清单分开，私网候选只提示可能的 NAT 限制。
 /**
  * 「手机该填哪个地址」的选择器。
  *
@@ -16,6 +17,7 @@
  * 「局域网地址」正是用户 2026-10-11 截图报的那个错。网卡名也带上，好几条同类的地址光看 IP
  * 分不出哪条对着手机。
  */
+import { Button } from '@appica/ui-react/button'
 import { Radio } from '@appica/ui-react/radio'
 import { t } from '../lib/i18n/index.ts'
 import { RadioGroup } from '@appica/ui-react/radio-group'
@@ -58,6 +60,8 @@ function urlOf(address: string, port: number | string): string {
 
 type Props = {
   book: AddressBook | null
+  error?: string
+  onRetry?: (() => void) | undefined
   /** 拼 URL 用的端口：界面上正在显示的那个（不是地址库里那份，两者一般同值）。 */
   port: number | string
   /** 宿主记着的选择（`book.preferred`）。它不在清单里时（换网段了）自动退回第一条。 */
@@ -73,7 +77,7 @@ type Props = {
   align?: 'start' | 'end'
 }
 
-export function AddressPicker({ book, port, value, busy = false, onChange, fallbackUrls = [], align = 'end' }: Props) {
+export function AddressPicker({ book, error = '', onRetry, port, value, busy = false, onChange, fallbackUrls = [], align = 'end' }: Props) {
   const side = align === 'start' ? 'items-start' : 'items-end'
   const justify = align === 'start' ? 'justify-start' : 'justify-end'
   const textSide = align === 'start' ? 'text-start' : 'text-end'
@@ -86,6 +90,13 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
   // 两边显示的才是同一个顺序。
   const chosen = pickable.some((item) => item.address === value) ? value : (pickable[0]?.address ?? '')
 
+  if (error) return (
+    <span className={`flex flex-col gap-0.5 ${side}`}>
+      <span className="font-sans text-foreground-muted">{t('panel.address.loadFailed')}</span>
+      {onRetry ? <Button variant="ghost" size="sm" onClick={onRetry}>{t('panel.address.retry')}</Button> : null}
+    </span>
+  )
+
   if (pickable.length === 0) {
     // 只有 IPv6 的机器：一条可选的都没有，但那个地址正是这台机器在公网上的唯一入口，
     // 不能退成一句「还没取到地址」。
@@ -95,10 +106,16 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
           {fallbackUrls.map((item) => (
             <span key={item}>{item}</span>
           ))}
+          {book ? <span className="font-sans text-xs text-foreground-muted">{t('panel.address.natHint')}</span> : null}
         </span>
       )
     }
-    if (ipv6.length === 0) return <span className="font-sans text-foreground-muted">{t('panel.address.empty')}</span>
+    if (ipv6.length === 0) return (
+      <span className={`flex flex-col gap-0.5 ${side}`}>
+        <span className="font-sans text-foreground-muted">{t(book ? 'panel.address.none' : 'panel.address.empty')}</span>
+        {book ? <span className="font-sans text-xs text-foreground-muted">{t('panel.address.natHint')}</span> : null}
+      </span>
+    )
     return (
       <span className={`flex w-full flex-col gap-1 ${side}`}>
         {ipv6.map((item) => (
@@ -165,6 +182,9 @@ export function AddressPicker({ book, port, value, busy = false, onChange, fallb
         </span>
       ))}
 
+      {book && book.lan.length > 0 && book.public.length === 0 && ipv6.length === 0 ? (
+        <span className={`font-sans text-xs text-foreground-muted ${textSide}`}>{t('panel.address.natHint')}</span>
+      ) : null}
       {pickable.length > 1 ? (
         <span className={`font-sans text-xs text-foreground-muted ${textSide}`}>
           {t('panel.address.hint')}

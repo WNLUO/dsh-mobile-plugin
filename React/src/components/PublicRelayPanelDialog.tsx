@@ -1,3 +1,4 @@
+// 健康采样在飞互斥，关窗结果作废，并纳入当前自建中转。
 /**
  * 「公用中转面板」弹窗：列出当前所有内置公用中转地址，每条一带当前延迟和一条最近十几次
  * 采样的心电图（2026-11-19 用户要求）。
@@ -29,7 +30,7 @@ import { latencyLevel, latencySparklinePath } from '../lib/latency-sparkline.ts'
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** 当前正在用的那条内置公用地址（命中清单的那条，没用就是空）；用它标「使用中」。 */
+  /** 当前已配置的中转地址，包含自建；未保存的输入不会发起探测。 */
   activeUrl: string
 }
 
@@ -66,29 +67,31 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
   const [history, setHistory] = useState<Record<string, (number | null)[]>>({})
   const [error, setError] = useState('')
   /** 开窗期间在飞的一轮用 ref 串起来，关窗时把定时器清掉、让在飞的那一轮作废。 */
-  const aliveRef = useRef(false)
+  const inFlightRef = useRef(false)
+  const currentUrl = activeUrl.trim().replace(/\/+$/, '')
+  const targets = [...new Set([...PUBLIC_RELAYS.map((item) => item.url), ...(/^https?:\/\//i.test(currentUrl) ? [currentUrl] : [])])]
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     if (!open) {
-      aliveRef.current = false
       if (timerRef.current !== null) {
         clearInterval(timerRef.current)
         timerRef.current = null
       }
       return
     }
-    aliveRef.current = true
+    let alive = true
     setError('')
-    const urls = PUBLIC_RELAYS.map((item) => item.url)
+    const urls = [...new Set([...PUBLIC_RELAYS.map((item) => item.url), ...(/^https?:\/\//i.test(currentUrl) ? [currentUrl] : [])])]
     // 开窗先画一条空基线（每个地址一个 null 占位），探测回来再填。
     setHistory(Object.fromEntries(urls.map((url) => [url, [null]])))
 
     async function probe() {
-      if (!aliveRef.current) return
+      if (!alive || inFlightRef.current) return
+      inFlightRef.current = true
       try {
         const res = await apiPost<{ ok: boolean; results: ProbeResult[] }>('/api/relay/probe-relays', { urls })
-        if (!aliveRef.current) return
+        if (!alive) return
         const byUrl = new Map((res.results || []).map((item) => [item.url, item.ms]))
         setHistory((previous) => {
           const next: Record<string, (number | null)[]> = {}
@@ -100,20 +103,25 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
         })
         setError('')
       } catch (err) {
-        if (aliveRef.current) setError(errorText(err))
+        if (alive) {
+          setHistory((previous) => Object.fromEntries(urls.map((url) => [url, [...(previous[url] || []), null].slice(-HISTORY_POINTS)])))
+          setError(errorText(err))
+        }
+      } finally {
+        inFlightRef.current = false
       }
     }
 
     void probe()
     timerRef.current = setInterval(() => { void probe() }, PROBE_INTERVAL_MS)
     return () => {
-      aliveRef.current = false
+      alive = false
       if (timerRef.current !== null) {
         clearInterval(timerRef.current)
         timerRef.current = null
       }
     }
-  }, [open])
+  }, [open, currentUrl])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -124,9 +132,10 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
         {/* 高度封顶、列表内滚动：公用中转会越来越多，别让条目把弹窗撑到屏幕外。 */}
         <DialogBody className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
           <p className="mb-2 text-xs text-foreground-muted">{t('panel.relay.panelHint')}</p>
-          {PUBLIC_RELAYS.map((item) => {
+          {targets.map((url) => {
+            const item = { url }
             const series = history[item.url] || [null]
-            const latest = [...series].reverse().find((v): v is number => typeof v === 'number') ?? null
+            const latest = series[series.length - 1] ?? null
             const level = latencyLevel(latest)
             const path = latencySparklinePath(series, SPARK_WIDTH, SPARK_HEIGHT)
             const inUse = item.url === activeUrl

@@ -1,3 +1,4 @@
+// FRP 导入仅暂存，父窗保存应用；取消零副作用是 PLUG-30 的明确契约。
 'use strict';
 
 /**
@@ -64,8 +65,15 @@ test('TCP 栏右侧有「FRP 导入」按钮，能开导入弹窗并回填地址
 test('导入弹窗用纯解析函数，并把结果交回调用方', () => {
   const component = read('React', 'src', 'components', 'FrpImportDialog.tsx');
   assert.match(component, /parseFrpConfig/, '解析走纯函数，不在这里手搓');
-  assert.match(component, /importFrp\(/, '粘了配置要交给宿主机起 frpc');
-  assert.match(component, /onImport\(\{ field: parsed\.field, value \}\)/, '识别成功后把栏位与值交回去');
+  // PLUG-30 要求父窗取消可撤销：子窗不能再立即启动，启动只在父保存链路。
+  assert.doesNotMatch(component, /importFrp\(/, '子窗解析不得产生宿主副作用');
+  assert.match(component, /onImport\(\{ field: parsed\.field, value,/, '识别成功后把栏位、值及配置交回去');
+  assert.match(component, /panel\.frp\.iniUnsupported/, 'INI 明确提示不能运行');
+  const parent = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(parent, /setPendingFrp\(undefined\)/, '父窗关闭清除暂存');
+  assert.match(parent, /onSave\(patch, pendingFrp\)/, '只有保存才交付暂存配置');
+  const consoleSrc = read('React', 'src', 'Console.tsx');
+  assert.match(consoleSrc, /if \(frpConfig\) \{[\s\S]*?await importFrp\(frpConfig\.config\)/, '父保存才调用启动');
 });
 
 test('连接状态卡里也有「TCP 直连」一行：配了显示已配置+地址，没配显示未配置', () => {

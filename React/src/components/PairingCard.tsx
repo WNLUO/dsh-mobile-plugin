@@ -1,3 +1,4 @@
+// 配对地址错误可重取，上报说明展示真实目录目的地且不改变默认开关。
 /**
  * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
  *
@@ -27,6 +28,7 @@ import { Switch } from '@appica/ui-react/switch'
 import * as React from 'react'
 
 import type { AddressBook, PairingInfo, PairingPolicy, StatusView, Tier } from '../lib/api.ts'
+import { isPublicRelayUrl } from '../lib/links.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { EVEN_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
 import { IssueMark, type Issue } from './IssueMark.tsx'
@@ -38,6 +40,8 @@ type Props = {
   pairing: PairingInfo | null
   /** 宿主枚举的地址库：地址那行靠它分「局域网 / 公网」并在原地选优先地址。 */
   addressBook: AddressBook | null
+  addressError?: string
+  onRetryAddresses?: () => void
   /** 运行中版本：左列最后一行的只读展示。 */
   version: string
   /** 版本对不上的详情，挂在版本号那行的感叹号上。 */
@@ -94,6 +98,8 @@ export function PairingCard({
   status,
   pairing,
   addressBook,
+  addressError = '',
+  onRetryAddresses,
   version,
   versionIssues = [],
   busy,
@@ -110,7 +116,7 @@ export function PairingCard({
    * 「手机该填的地址」那行的明文：默认遮上。它是这台机器**此刻真的在用的网卡地址**
    * （设备名与内网网段都写在里面），比中转地址更值得别摆着。
    */
-  const phoneAddress = phoneHintAddress(addressBook, pairing)
+  const phoneAddress = addressError ? 'error' : phoneHintAddress(addressBook, pairing)
   // 「中转地址」这一行明文摆着、可当场遮上：只当页面里的一次开关，不落盘 ——
   // 默认值才是那个谨慎的选项，记住了反而把「默认隐藏」抵消掉。
   // 二维码不在这里：它整块就是个入口，点一下直接开放大弹窗（见下面的二维码格）。
@@ -287,6 +293,8 @@ export function PairingCard({
           <DialogBody>
             <AddressPicker
               book={addressBook}
+              error={addressError}
+              onRetry={onRetryAddresses}
               port={pairing?.lanPort ?? status.lan.port}
               value={addressBook?.preferred ?? ''}
               busy={idle}
@@ -417,6 +425,8 @@ export function PairingPolicyRows({
           </DialogHeader>
           <DialogBody className="whitespace-pre-line text-sm leading-6 text-foreground-muted">
             {t('panel.pairing.controlReportDetail')}
+            {'\n\n'}{t('panel.pairing.controlReportTarget', { target: status.controlReportTargetUrl || t('panel.pairing.controlReportUnknown') })}
+            {status.relayUrl && !isPublicRelayUrl(status.relayUrl) ? `\n\n${t('panel.pairing.controlReportSelfHosted')}` : ''}
           </DialogBody>
           <DialogFooter className="flex justify-end">
             <Button variant="outline" onClick={() => setControlReportInfoOpen(false)}>

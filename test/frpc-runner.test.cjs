@@ -1,3 +1,4 @@
+// FRP 生命周期、JSON 运行配置与停止后的待启动取消回归。
 'use strict';
 
 // 2026-11-19：补一条断言——启动同步抛 UNKNOWN 时要翻译成能照着排查的提示，而不是原始 errno。
@@ -166,4 +167,145 @@ test('discoverRemoteAddress 从管理接口读出服务端分配的公网地址'
   const addr = await runner.discoverRemoteAddress(2000);
   assert.equal(addr, '103.40.14.14:51543');
   assert.equal(runner.status().remoteAddress, '103.40.14.14:51543');
+});
+
+function retryClock() {
+  const timers = new Map();
+  let id = 0;
+  return {
+    timers,
+    setTimeoutImpl(fn, ms) { timers.set(++id, { fn, ms }); return id; },
+    clearTimeoutImpl(key) { timers.delete(key); },
+    async tick() {
+      const entry = timers.entries().next().value;
+      if (!entry) return;
+      timers.delete(entry[0]);
+      entry[1].fn();
+      await new Promise((resolve) => setImmediate(resolve));
+    },
+  };
+}
+
+test('异常退出按退避有限重启，主动停用取消待重试且清错误', async () => {
+  const clock = retryClock();
+  const children = [];
+  const runner = createFrpcRunner({ root: tempDir(), ...clock,
+    ensure: async () => ({ ok: true, path: '/fake/frpc' }),
+    spawnImpl: () => { const child = fakeChild(); children.push(child); return child; },
+  });
+  runner.saveConfig(CONFIG);
+  await runner.start();
+  for (const delay of [1000, 2000, 4000, 8000, 16000]) {
+    children.at(-1).emit('close', 1, null);
+    assert.equal(runner.status().retrying, true);
+    assert.equal([...clock.timers.values()][0].ms, delay);
+    await clock.tick();
+    assert.equal(runner.status().running, true);
+  }
+  children.at(-1).emit('close', 1, null);
+  assert.equal(clock.timers.size, 0, '重试必须封顶');
+  assert.equal(children.length, 6);
+  await runner.clear();
+  assert.equal(runner.shouldAutoStart(), false);
+  assert.equal(runner.status().error, '');
+  assert.equal(runner.status().retrying, false);
+});
+
+test('等待重试时 clear/dispose 均取消，clear 后宿主不再自动启动', async () => {
+  for (const action of ['clear', 'dispose']) {
+    const clock = retryClock();
+    const child = fakeChild();
+    const runner = createFrpcRunner({ root: tempDir(), ...clock,
+      ensure: async () => ({ ok: true, path: '/fake/frpc' }), spawnImpl: () => child });
+    runner.saveConfig(CONFIG);
+    await runner.start();
+    child.emit('close', 1, null);
+    assert.equal(clock.timers.size, 1);
+    await runner[action]();
+    assert.equal(clock.timers.size, 0);
+    assert.equal(runner.status().running, false);
+    if (action === 'clear') assert.equal(runner.shouldAutoStart(), false);
+  }
+});
+
+test('二进制仍在获取时停止，稍后完成也不能重新拉起；并发 start 只起一份', async () => {
+  let release;
+  let spawns = 0;
+  const runner = createFrpcRunner({ root: tempDir(),
+    ensure: () => new Promise((resolve) => { release = resolve; }),
+    spawnImpl: () => { spawns += 1; return fakeChild(); },
+  });
+  runner.saveConfig(CONFIG);
+  const first = runner.start();
+  const second = runner.start();
+  await runner.clear();
+  release({ ok: true, path: '/fake/frpc' });
+  await Promise.all([first, second]);
+  assert.equal(spawns, 0);
+  assert.equal(runner.status().running, false);
+  assert.equal(runner.status().starting, false);
+});
+
+test('INI 不落运行配置和启用标记，JSON 保持格式、端口对齐及管理接口', async () => {
+  const root = tempDir();
+  const calls = [];
+  const runner = createFrpcRunner({ root, portOf: () => 49906,
+    ensure: async () => ({ ok: true, path: '/fake/frpc' }),
+    spawnImpl: (_bin, args) => { calls.push(args); return fakeChild(); },
+  });
+  assert.throws(() => runner.saveConfig('[common]\nserver_addr = example.com\n[ssh]\nlocal_port = 22'), /INI.*TOML.*JSON/);
+  assert.equal(runner.shouldAutoStart(), false);
+  const file = runner.saveConfig(JSON.stringify({ serverAddr: 'example.com', proxies: [{ type: 'tcp', localPort: 22 }] }));
+  assert.match(file, /frpc\.json$/);
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(saved.proxies[0].localPort, 49906);
+  assert.deepEqual(saved.webServer, { addr: '127.0.0.1', port: 17401 });
+  await runner.start();
+  assert.equal(calls[0][1], file);
+  await runner.clear();
+});
+
+for (const [kind, config] of [
+  ['TOML 点键', 'webServer.port = 9000\n' + CONFIG],
+  ['TOML 管理表', 'serverAddr = "example.com"\n[webServer]\naddr = "127.0.0.1"\nport = 9000\n[[proxies]]\nlocalPort = 22'],
+  ['JSON', JSON.stringify({ serverAddr: 'example.com', webServer: { addr: '127.0.0.1', port: 9000 }, proxies: [{ localPort: 22 }] })],
+]) {
+  test(`${kind} 已有管理端口9000用于真实发现，不覆盖用户配置`, async () => {
+    const urls = [];
+    const runner = createFrpcRunner({ root: tempDir(), ensure: async () => ({ ok: true, path: '/fake/frpc' }),
+      spawnImpl: () => fakeChild(), fetchImpl: async (url) => { urls.push(url); return { ok: true, json: async () => ({ tcp: [{ remote_addr: 'example.com:6000' }] }) }; },
+    });
+    const file = runner.saveConfig(config);
+    await runner.start();
+    assert.equal(await runner.discoverRemoteAddress(), 'example.com:6000');
+    assert.deepEqual(urls, ['http://127.0.0.1:9000/api/status']);
+    assert.match(fs.readFileSync(file, 'utf8'), /9000/);
+    await runner.clear();
+  });
+}
+
+test('每代异常重启重新发现动态地址并同步，停止后迟到的发现不得回写', async () => {
+  const clock = retryClock();
+  const children = [], published = [], responses = [];
+  let address = 'example.com:6000';
+  const runner = createFrpcRunner({ root: tempDir(), ...clock,
+    ensure: async () => ({ ok: true, path: '/fake/frpc' }),
+    spawnImpl: () => { const child = fakeChild(); children.push(child); return child; },
+    fetchImpl: async () => new Promise((resolve) => responses.push(() => resolve({ ok: true, json: async () => ({ tcp: [{ remote_addr: address }] }) }))),
+    onRemoteAddress: async (value, isCurrent) => { if (isCurrent()) published.push(value); },
+  });
+  runner.saveConfig(CONFIG);
+  await runner.start(); responses.shift()(); await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(published, ['example.com:6000']);
+  children[0].emit('close', 1, null);
+  address = 'example.com:7000';
+  await clock.tick(); responses.shift()(); await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(published, ['example.com:6000', 'example.com:7000']);
+  assert.equal(runner.status().remoteAddress, 'example.com:7000');
+  children[1].emit('close', 1, null);
+  await clock.tick();
+  await runner.clear();
+  address = 'example.com:8000'; responses.shift()(); await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(published, ['example.com:6000', 'example.com:7000']);
+  assert.equal(runner.status().remoteAddress, '');
 });

@@ -1,3 +1,4 @@
+// 健康面板保留公用入口布局，同时覆盖当前自建和慢请求互斥。
 'use strict';
 
 /**
@@ -166,6 +167,9 @@ test('网络配置：公用栏「查看面板」在标题右侧、启用/停用�
   // 走宿主代测接口（浏览器直连会被 CORS 挡）：POST /api/relay/probe-relays，带全部内置地址。
   assert.match(panel, /apiPost<\{ ok: boolean; results: ProbeResult\[\] \}>\('\/api\/relay\/probe-relays'/, '探测走宿主接口');
   assert.match(panel, /PUBLIC_RELAYS\.map\(\(item\) => item\.url\)/, '一次把所有内置地址送测');
+  assert.match(config, /activeUrl=\{status\.relayUrl\}/, '只探测当前已配置地址，不探测未保存输入');
+  assert.match(panel, /currentUrl\) \? \[currentUrl\]/, '当前自建加入同一批健康探测');
+  assert.match(panel, /if \(!alive \|\| inFlightRef\.current\) return/, '慢轮次不叠加');
   // 定时重测：开窗一轮、之后按间隔再跑；关窗停掉（不常驻打外网）。
   assert.match(panel, /setInterval\(/, '按间隔重复测');
   assert.match(panel, /clearInterval\(/, '关窗停掉定时器');

@@ -1,4 +1,4 @@
-// 入口启用与手机验证恢复是两个独立状态。
+// 本机面板读取真实上报去向，并区分入口恢复与 FRP 启用、启动、待重试状态。
 /**
  * 控制面客户端：只碰 `/api/relay/*` 这一组本机接口。
  *
@@ -114,6 +114,9 @@ export type TunnelSnapshot = {
  */
 export type FrpStatus = {
   available: boolean
+  enabled?: boolean
+  starting?: boolean
+  retrying?: boolean
   running: boolean
   pid: number | null
   error: string
@@ -144,6 +147,8 @@ export type StatusView = {
    * 按开处理 —— 那正是它一直以来的行为。
    */
   controlReportEnabled?: boolean
+  /** 本机控制面提供的实际地址目录目的地，不含设备令牌。 */
+  controlReportTargetUrl?: string
   os: string
   platform: string
   osVersion: string

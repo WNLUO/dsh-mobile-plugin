@@ -1,4 +1,4 @@
-// 复用现有状态行和提示框展示本地入口故障与恢复事实。
+// 复用现有状态行和按钮展示 FRP 运行、恢复与主动停用入口。
 /**
  * 主页右栏「连接状态」卡：远程控制一颗开关 + 只读事实。
  *
@@ -21,6 +21,7 @@ type Props = {
   addressBook: AddressBook | null
   busy: string
   onToggle: (enabled: boolean) => void
+  onStopFrp: () => void
   /** 「管理」那颗：打开 Tailcat 隧道的弹窗（查看 / 开关 / 移除手机）。 */
   onManageTailcat: () => void
   /** 「管理」那颗：打开 P2P 隧道的弹窗（只读现场）。 */
@@ -91,7 +92,7 @@ function tailcatTone(tailcat: TailcatStatus): Tone {
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTailcat, onManageP2P, restartError }: Props) {
+export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp, onManageTailcat, onManageP2P, restartError }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
   const tailcat = status.tailcat ?? null
@@ -107,6 +108,10 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
     tcpTone = 'ok'
     tcpText = t('panel.connection.tcpRunning')
     tcpDetail = frp.remoteAddress || tcpTarget || undefined
+  } else if (frp?.starting || frp?.retrying) {
+    tcpTone = 'warn'
+    tcpText = t('panel.frp.retrying')
+    tcpDetail = frp.error || undefined
   } else if (frp?.error) {
     tcpTone = 'error'
     tcpText = t('panel.connection.tcpFailed')
@@ -190,7 +195,12 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onManageTa
           tone={tcpTone}
           labelExtra={frp?.error ? <IssueMark issue={{ title: t('panel.connection.tcp'), detail: frp.error }} /> : undefined}
         >
-          <ToneValue tone={tcpTone} text={tcpText} {...(frp?.error ? {} : tcpDetail ? { detail: tcpDetail } : {})} />
+          <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
+            <ToneValue tone={tcpTone} text={tcpText} {...(frp?.error ? {} : tcpDetail ? { detail: tcpDetail } : {})} />
+            {frp && (frp.enabled || frp.running || frp.starting || frp.retrying || (frp.enabled === undefined && frp.configPresent)) ? (
+              <Button variant="ghost" size="sm" disabled={busy !== ''} onClick={onStopFrp}>{t('panel.frp.stop')}</Button>
+            ) : null}
+          </span>
         </InfoRow>
         <InfoRow
           label={t('panel.connection.sidecar')}

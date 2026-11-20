@@ -1,3 +1,4 @@
+// FRP 子窗结果暂存到父窗保存，地址错误可重取，健康探测包含当前自建中转。
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import {
   Dialog,
@@ -84,10 +85,12 @@ type Props = {
   status: StatusView
   /** 宿主枚举的地址库（`/api/relay/addresses`）：局域网选择与手填那两条都从它预填。 */
   addressBook: AddressBook | null
+  addressError?: string
+  onRetryAddresses?: (() => void) | undefined
   /** 宿主在二维码里给的那串地址：拿不到地址库（老宿主）时退回它，只显示不能选。 */
   lanUrls: string[]
   busy: string
-  onSave: (patch: ConfigPatch) => void
+  onSave: (patch: ConfigPatch, frpConfig?: { config: string; field: 'tcp' | 'direct'; value: string }) => void
   /** 「手机优先用这条」：点了就存、不关窗，所以和上面那个带保存按钮的 `onSave` 分开。 */
   onSavePreferred: (address: string) => void
 }
@@ -130,6 +133,8 @@ export function RelayConfigDialog({
   onOpenChange,
   status,
   addressBook,
+  addressError = '',
+  onRetryAddresses,
   lanUrls,
   busy,
   onSave,
@@ -153,6 +158,7 @@ export function RelayConfigDialog({
   const [lanPickerOpen, setLanPickerOpen] = useState(false)
   /** 「FRP 导入」弹窗开着没有。 */
   const [frpImportOpen, setFrpImportOpen] = useState(false)
+  const [pendingFrp, setPendingFrp] = useState<{ config: string; field: 'tcp' | 'direct'; value: string } | undefined>()
   /** 「公用中转面板」弹窗开着没有：查看各条入口的延迟与心电图。 */
   const [publicPanelOpen, setPublicPanelOpen] = useState(false)
   /** 子弹窗的落焦目标：清单让焦点落在容器上，别一开窗就圈住第一行。 */
@@ -181,6 +187,7 @@ export function RelayConfigDialog({
     if (open) return
     setLanPickerOpen(false)
     setFrpImportOpen(false)
+    setPendingFrp(undefined)
   }, [open])
 
   // 地址库是开窗之后才取回来的（App 那边是异步的），所以手填的两条单独跟它走：
@@ -255,12 +262,12 @@ export function RelayConfigDialog({
       }
       patch.preferredLanAddress = wantedLan
     }
-    onSave(patch)
+    onSave(patch, pendingFrp)
   }
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={(next) => { if (busy !== 'config') onOpenChange(next) }}>
         {/* `initialFocus` 指向弹窗容器本身：Base UI 默认会把焦点放到第一个可聚焦元素上，
             这里就是「设备名」那个输入框——一打开就选中了、光标在闪，用户想先点别的地方
             还得先把它点掉。焦点仍旧进到弹窗里（读屏与 Esc 都靠它），只是不落在输入框。 */}
@@ -406,6 +413,12 @@ export function RelayConfigDialog({
                     }}
                   />
                   {lanHint ? <p className="text-xs text-error">{lanHint}</p> : null}
+                  {addressError ? (
+                    <p className="text-xs text-error">
+                      {t('panel.address.loadFailed')}
+                      <Button variant="ghost" size="sm" onClick={onRetryAddresses}>{t('panel.address.retry')}</Button>
+                    </p>
+                  ) : null}
                 </Field>
 
                 <Field>
@@ -453,6 +466,8 @@ export function RelayConfigDialog({
               <AddressPicker
                 align="start"
                 book={addressBook}
+                error={addressError}
+                onRetry={onRetryAddresses}
                 port={status.lan.port}
                 value={addressBook?.preferred ?? ''}
                 busy={busy !== ''}
@@ -477,6 +492,7 @@ export function RelayConfigDialog({
         open={frpImportOpen}
         onOpenChange={setFrpImportOpen}
         onImport={(result) => {
+          setPendingFrp(result.config ? { config: result.config, field: result.field, value: result.value } : undefined)
           if (result.field === 'tcp') {
             editedTcpRef.current = true
             setManualTcpUrl(result.value)
@@ -490,7 +506,7 @@ export function RelayConfigDialog({
       <PublicRelayPanelDialog
         open={publicPanelOpen}
         onOpenChange={setPublicPanelOpen}
-        activeUrl={activePublicRelay?.url ?? ''}
+        activeUrl={status.relayUrl}
       />
     </>
   )

@@ -1,3 +1,4 @@
+// FRP 镜像坏响应逐源隔离，首源与响应体超时不能吃掉后源预算。
 'use strict';
 
 /**
@@ -340,7 +341,8 @@ test('所有源都不通：原因列出每条源的底层真话，不是一句 f
   assert.doesNotMatch(r.message, /^下载 frpc 失败：fetch failed$/);
 });
 
-test('镜像给的字节校验不符：当场拒掉，不再拿剩下的源假装在尽力', async () => {
+// PLUG-27 明确改变失败范围：坏字节仍拒绝，但不能替其它源下结论。
+test('所有镜像字节校验不符：每源均尝试，坏字节绝不落盘', async () => {
   const root = tempDir();
   const archive = makeTarGz([{ name: 'frp/frpc', content: 'BAD' }]);
   const asset = { file: 'x.tar.gz', archive: 'tar.gz', bin: 'frpc', sha256: 'f'.repeat(64) };
@@ -348,7 +350,42 @@ test('镜像给的字节校验不符：当场拒掉，不再拿剩下的源假�
   const fetchImpl = async () => { calls += 1; return { ok: true, status: 200, arrayBuffer: async () => archive }; };
   const r = await ensureFrpc({ platformId: 'linux-x64', env: noPath, cacheRoot: root, asset, fetchImpl });
   assert.equal(r.ok, false);
-  assert.equal(r.reason, 'checksum');
-  assert.equal(calls, 1, '校验不符是内容问题，换源救不了，别继续');
+  assert.equal(r.reason, 'download-failed');
+  assert.equal(calls, baseUrlsOf().length, '每源都必须独立校验');
+  assert.match(r.message, /校验失败/);
   assert.equal(fs.existsSync(path.join(root, FRP_VERSION, 'linux-x64', 'frpc')), false);
 });
+
+test('首源门户坏校验后，镜像好字节仍可安装且只安装好内容', async () => {
+  const root = tempDir();
+  const archive = makeTarGz([{ name: 'frp/frpc', content: 'VERIFIED' }]);
+  const asset = { file: 'x.tar.gz', archive: 'tar.gz', bin: 'frpc', sha256: sha256(archive) };
+  let calls = 0;
+  const r = await ensureFrpc({ platformId: 'linux-x64', env: noPath, cacheRoot: root, asset,
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => ++calls === 1 ? Buffer.from('<html>login</html>') : archive }),
+  });
+  assert.equal(r.ok, true);
+  assert.equal(calls, 2);
+  assert.equal(fs.readFileSync(r.path, 'utf8'), 'VERIFIED');
+});
+
+for (const phase of ['headers', 'body']) {
+  test(`首源 ${phase} 挂起被本源时限中止，后源仍拿到预算并安装`, async () => {
+    const root = tempDir();
+    const archive = makeTarGz([{ name: 'frp/frpc', content: 'AFTER-TIMEOUT' }]);
+    const asset = { file: 'x.tar.gz', archive: 'tar.gz', bin: 'frpc', sha256: sha256(archive) };
+    let calls = 0;
+    let aborted = false;
+    const r = await ensureFrpc({ platformId: 'linux-x64', env: noPath, cacheRoot: root, asset, timeoutMs: 800,
+      fetchImpl: async (_url, { signal }) => {
+        if (++calls > 1) return { ok: true, arrayBuffer: async () => archive };
+        const hang = () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => { aborted = true; reject(new Error('source timeout')); }, { once: true }));
+        return phase === 'headers' ? hang() : { ok: true, arrayBuffer: hang };
+      },
+    });
+    assert.equal(aborted, true);
+    assert.equal(calls, 2, '首源不能独占整轮预算');
+    assert.equal(r.ok, true, r.message);
+    assert.equal(fs.readFileSync(r.path, 'utf8'), 'AFTER-TIMEOUT');
+  });
+}

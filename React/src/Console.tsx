@@ -13,7 +13,7 @@
  *
  * 设备卡按连接卡高度封顶，多出来的在卡内滚动。
  */
-// 控制台按实际状态报告就绪，二维码失败可单独重试并清除旧错误。
+// 控制台按实际状态报告就绪，FRP 随父窗保存，地址读取错误可独立重试。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -43,6 +43,8 @@ import {
   apiGet,
   apiPost,
   errorText,
+  importFrp,
+  stopFrp,
   pairingRenewIn,
   type AddressBook,
   type ConfigPatch,
@@ -108,6 +110,7 @@ export function Console() {
   const [pairing, setPairing] = useState<PairingInfo | null>(null)
   const [pairingError, setPairingError] = useState('')
   const [addresses, setAddresses] = useState<AddressBook | null>(null)
+  const [addressError, setAddressError] = useState('')
   /** 更新卡报上来的版本对不上详情，挂到左列「运行中版本」那行。 */
   const [versionIssues, setVersionIssues] = useState<Issue[]>([])
   const [configOpen, setConfigOpen] = useState(false)
@@ -161,8 +164,10 @@ export function Console() {
   const loadAddresses = useCallback(async () => {
     try {
       setAddresses(await apiGet<AddressBook>('/api/relay/addresses'))
-    } catch {
+      setAddressError('')
+    } catch (err) {
       setAddresses(null)
+      setAddressError(errorText(err))
     }
   }, [])
 
@@ -290,13 +295,33 @@ export function Console() {
       notify('soft', t(enabled ? 'panel.webAccess.opened' : 'panel.webAccess.closedNotice'))
     })
 
-  const saveConfig = (patch: ConfigPatch) =>
+  const saveConfig = (patch: ConfigPatch, frpConfig?: { config: string; field: 'tcp' | 'direct'; value: string }) =>
     act('config', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/config', patch))
+      const nextPatch = { ...patch }
+      if (frpConfig) {
+        const imported = await importFrp(frpConfig.config)
+        if (!imported.ok || !imported.status?.running || imported.status.error) {
+          await loadStatus()
+          throw new Error(imported.status?.error || t('panel.connection.tcpFailed'))
+        }
+        // 只有该栏仍是导入结果时才更新服务端实际端口，保留导入后用户手动修改。
+        if (frpConfig.field === 'tcp' && (nextPatch.manualTcpUrl === undefined || nextPatch.manualTcpUrl === frpConfig.value)) {
+          nextPatch.manualTcpUrl = imported.status.remoteAddress || frpConfig.value
+        }
+      }
+      setStatus(await apiPost<StatusView>('/api/relay/config', nextPatch))
       setConfigOpen(false)
-      await loadPairing()
+      await Promise.all([loadPairing(), loadAddresses()])
       notify('soft', t('panel.shell.configSaved'))
     })
+
+  const stopFrpTunnel = () => {
+    if (!window.confirm(t('panel.frp.stopConfirm'))) return
+    void act('frp', async () => {
+      await stopFrp()
+      await Promise.all([loadStatus(), loadAddresses(), loadPairing()])
+    })
+  }
 
   /**
    * 改配置：宿主回包带 applyError 时配置也已经落盘。把新状态照常写回，开关当场生效；
@@ -436,6 +461,8 @@ export function Console() {
                 status={status}
                 pairing={pairing}
                 addressBook={addresses}
+                addressError={addressError}
+                onRetryAddresses={() => void loadAddresses()}
                 version={status.appVersion || ''}
                 versionIssues={versionIssues}
                 busy={busy}
@@ -486,6 +513,7 @@ export function Console() {
               addressBook={addresses}
               busy={busy}
               onToggle={toggle}
+              onStopFrp={stopFrpTunnel}
               onManageTailcat={() => setTailcatOpen(true)}
               onManageP2P={() => setP2POpen(true)}
               restartError={status.sidecar.restartError}
@@ -512,9 +540,11 @@ export function Console() {
         onOpenChange={setConfigOpen}
         status={status}
         addressBook={addresses}
+        addressError={addressError}
+        onRetryAddresses={() => void loadAddresses()}
         lanUrls={pairing?.lanUrls ?? []}
         busy={busy}
-        onSave={(patch) => void saveConfig(patch)}
+        onSave={(patch, frpConfig) => void saveConfig(patch, frpConfig)}
         onSavePreferred={(address) => void savePreferredLanAddress(address)}
       />
 
