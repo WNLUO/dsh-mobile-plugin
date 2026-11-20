@@ -1,3 +1,4 @@
+// 演示宿主保留固定端口设置与穿透自动锁定状态。
 /**
  * 演示宿主的版本坐标由统一发版脚本更新。
  * 演示宿主版本与正式发布的插件包保持同步。
@@ -56,6 +57,7 @@ type DemoState = {
   pairingPolicy: 'code' | 'deny'
   lanEnabled: boolean
   lanPort: number
+  lanPortFixed: boolean
   preferredLanAddress: string
   /** 手填的直连地址（`manualLanUrl`），与宿主同名设置项。 */
   manualLanUrl: string
@@ -91,6 +93,7 @@ function initial(): DemoState {
     // 直连一开始就开着（真机默认也是开着的），但隧道 / 监听要按「启用」之后才算起来。
     lanEnabled: true,
     lanPort: DEMO_LAN_PORT,
+    lanPortFixed: false,
     preferredLanAddress: '',
     manualLanUrl: '',
     manualIpv6Url: '',
@@ -237,6 +240,8 @@ function statusView(): StatusView {
     name: state.name,
     pairingPolicy: state.pairingPolicy,
     controlReportEnabled: state.controlReportEnabled,
+    lanPortFixed: state.lanPortFixed,
+    lanPortLockReason: state.lanPortFixed ? 'fixed' : state.manualLanUrl || state.manualIpv6Url ? 'forwarding' : '',
     os: 'macOS',
     platform: DEMO_PLATFORM,
     osVersion: DEMO_OS_VERSION,
@@ -373,6 +378,7 @@ function updateStatus() {
 function applyConfig(patch: ConfigPatch) {
   if (typeof patch.relayUrl === 'string') state.relayUrl = patch.relayUrl.trim()
   if (typeof patch.lanEnabled === 'boolean') state.lanEnabled = patch.lanEnabled
+  if (typeof patch.lanPortFixed === 'boolean') state.lanPortFixed = patch.lanPortFixed
   if (Number.isInteger(patch.lanPort) && (patch.lanPort ?? 0) >= 1024 && (patch.lanPort ?? 0) <= 65535) {
     state.lanPort = patch.lanPort as number
   }

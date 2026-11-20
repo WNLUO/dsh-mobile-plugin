@@ -1,4 +1,4 @@
-// 验证总控加密信封只报告真实已注册线路。
+// 验证真实线路清空和恢复，假总控按线上协议确认每次更新。
 'use strict';
 
 const { test } = require('node:test');
@@ -107,6 +107,7 @@ test('真实地址getter非空→空→恢复，在原WS清空并重新发布；
       const frame = JSON.parse(raw.toString());
       messages.push({ type: frame.type, ...openHistoryBlob(HK, 'control', 'empty-route', frame.payload) });
       if (frame.type === 'register') ws.send(JSON.stringify({ type: 'registered', token: 'empty-token' }));
+      else if (frame.type === 'update') ws.send(JSON.stringify({ type: 'updated' }));
     });
   });
   let current = '';

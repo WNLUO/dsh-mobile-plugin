@@ -1,4 +1,4 @@
-// T14：运行真实配置与组件回调，覆盖取消、目的地、探测、地址状态及对应变异。
+// T14：用真实监听端口驱动配置与组件回调，覆盖取消、探测、地址状态及对应变异。
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -323,7 +323,7 @@ async function recoveryAddressContract(mutate = (source) => source) {
   const { createFrpcRunner } = runnerModule(mutate);
   const timers = new Map(), pending = [], published = [], children = [];
   let id = 0;
-  const runner = createFrpcRunner({ root: fs.mkdtempSync(path.join(os.tmpdir(), 'frpc-address-t14-')),
+  const runner = createFrpcRunner({ portOf: () => 18787, root: fs.mkdtempSync(path.join(os.tmpdir(), 'frpc-address-t14-')),
     setTimeoutImpl: (fn) => { timers.set(++id, fn); return id; }, clearTimeoutImpl: (key) => timers.delete(key),
     ensure: async () => ({ ok: true, path: '/fake/frpc' }),
     spawnImpl: () => { const events = {}; const child = { pid: children.length + 1, kill() {}, on(event, fn) { events[event] = fn; }, close() { events.close(1, null); } }; children.push(child); return child; },
@@ -359,7 +359,7 @@ test('变异：重启不主动发现会被动态TCP同步契约拒绝', async ()
 async function managementPortContract(mutate = (source) => source) {
   const { createFrpcRunner } = runnerModule(mutate);
   const urls = [];
-  const runner = createFrpcRunner({ root: fs.mkdtempSync(path.join(os.tmpdir(), 'frpc-port-t14-')),
+  const runner = createFrpcRunner({ portOf: () => 18787, root: fs.mkdtempSync(path.join(os.tmpdir(), 'frpc-port-t14-')),
     ensure: async () => ({ ok: true, path: '/fake/frpc' }), spawnImpl: () => ({ pid: 1, kill() {} }),
     fetchImpl: async (url) => { urls.push(url); return { ok: true, json: async () => ({ tcp: [{ remote_addr: 'example.com:9001' }] }) }; },
   });
@@ -378,7 +378,7 @@ async function stoppedDownloadContract(mutate = (source) => source) {
   const { createFrpcRunner } = runnerModule(mutate);
   let release;
   let spawns = 0;
-  const runner = createFrpcRunner({ root: fs.mkdtempSync(path.join(os.tmpdir(), 'frpc-t14-')),
+  const runner = createFrpcRunner({ portOf: () => 18787, root: fs.mkdtempSync(path.join(os.tmpdir(), 'frpc-t14-')),
     ensure: () => new Promise((resolve) => { release = resolve; }), spawnImpl: () => { spawns++; return { pid: 1 }; } });
   runner.saveConfig('serverAddr = "example.com"\n[[proxies]]\nlocalPort = 22');
   const pending = runner.start();
@@ -397,7 +397,7 @@ async function restartContract(mutate = (source) => source) {
   const { createFrpcRunner } = runnerModule(mutate);
   const timers = new Map();
   let id = 0, closes, spawns = 0;
-  const runner = createFrpcRunner({ root: fs.mkdtempSync(path.join(os.tmpdir(), 'frpc-retry-t14-')),
+  const runner = createFrpcRunner({ portOf: () => 18787, root: fs.mkdtempSync(path.join(os.tmpdir(), 'frpc-retry-t14-')),
     setTimeoutImpl: (fn) => { timers.set(++id, fn); return id; }, clearTimeoutImpl: (key) => timers.delete(key),
     ensure: async () => ({ ok: true, path: '/fake/frpc' }),
     spawnImpl: () => { spawns++; return { pid: 1, kill() {}, on(event, fn) { if (event === 'close') closes = fn; } }; },

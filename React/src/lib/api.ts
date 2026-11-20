@@ -1,3 +1,4 @@
+// 本机端口设置带固定偏好及自动锁定原因。
 // 本机面板读取真实上报去向，并区分入口恢复与 FRP 启用、启动、待重试状态。
 /**
  * 控制面客户端：只碰 `/api/relay/*` 这一组本机接口。
@@ -147,6 +148,8 @@ export type StatusView = {
    * 按开处理 —— 那正是它一直以来的行为。
    */
   controlReportEnabled?: boolean
+  lanPortFixed?: boolean
+  lanPortLockReason?: string
   /** 本机控制面提供的实际地址目录目的地，不含设备令牌。 */
   controlReportTargetUrl?: string
   os: string
@@ -517,6 +520,7 @@ export type ConfigPatch = {
   relayUrls?: string[]
   lanEnabled?: boolean
   lanPort?: number
+  lanPortFixed?: boolean
   name?: string
   pairingPolicy?: PairingPolicy
   /** 新配对设备的权限档位（只在电脑侧设定）。 */

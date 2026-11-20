@@ -1,4 +1,4 @@
-// FRP 生命周期、JSON 运行配置与停止后的待启动取消回归。
+// FRP 真实端口等待与运行跟随、JSON 配置、有限重试及主动停止取消回归。
 'use strict';
 
 // 2026-11-19：补一条断言——启动同步抛 UNKNOWN 时要翻译成能照着排查的提示，而不是原始 errno。
@@ -15,6 +15,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
+const { createRequire } = require('node:module');
 
 const { createFrpcRunner, alignLocalPort, withAdminPort } = require('../lib/frpc/runner.cjs');
 
@@ -43,6 +45,85 @@ function fakeChild() {
 }
 
 const CONFIG = ['serverAddr = "1.2.3.4"', 'serverPort = 8000', '[[proxies]]', 'type = "tcp"', 'localIP = "127.0.0.1"', 'localPort = 18787'].join('\n');
+
+function runnerFactory(mutate = (source) => source) {
+  const file = require.resolve('../lib/frpc/runner.cjs');
+  const module = { exports: {} };
+  vm.runInNewContext(mutate(fs.readFileSync(file, 'utf8')), {
+    module, exports: module.exports, require: createRequire(file), process, Buffer, performance,
+    setTimeout, clearTimeout, AbortController,
+  });
+  return module.exports.createFrpcRunner;
+}
+
+async function portFollowContract(create = createFrpcRunner) {
+  let port = 0;
+  const children = [];
+  let kills = 0, writes = 0;
+  const runner = create({ root: tempDir(), portOf: () => port,
+    fsImpl: { ...fs, writeFileSync(...args) { writes += 1; return fs.writeFileSync(...args); } },
+    ensure: async () => ({ ok: true, path: '/fake/frpc' }),
+    spawnImpl: () => { const child = fakeChild(); child.kill = () => { kills += 1; }; children.push(child); return child; },
+  });
+  const file = runner.saveConfig(CONFIG);
+  try {
+    await runner.start();
+    assert.equal(children.length, 0, '没有真实监听端口时不能按旧配置启动');
+    assert.equal(runner.status().waitingForPort, true);
+    port = 23456;
+    await Promise.all([runner.syncLocalPort(), runner.syncLocalPort()]);
+    assert.equal(children.length, 1);
+    assert.match(fs.readFileSync(file, 'utf8'), /localPort = 23456/);
+    assert.equal(runner.status().localPort, 23456);
+    const stableWrites = writes;
+    for (let poll = 0; poll < 6; poll += 1) await runner.syncLocalPort();
+    assert.equal(children.length, 1, '相同端口不重复启动');
+    assert.equal(writes, stableWrites, '健康轮询重复同步不重写配置');
+    port = 0;
+    await runner.syncLocalPort();
+    assert.equal(kills, 0, '监听重配期间的暂空不拆现有穿透');
+    port = 34567;
+    await Promise.all([runner.syncLocalPort(), runner.syncLocalPort()]);
+    assert.equal(children.length, 2);
+    assert.equal(kills, 1);
+    assert.match(fs.readFileSync(file, 'utf8'), /localPort = 34567/);
+    children[0].emit('close', 0, null);
+    assert.equal(runner.status().running, true, '旧进程迟到退出不污染新代');
+    await runner.stop();
+    port = 45678;
+    await runner.syncLocalPort();
+    assert.equal(children.length, 2, '主动停止后监听更新不能重新启动');
+    assert.equal(runner.status().waitingForPort, false);
+  } finally { await runner.clear(); }
+}
+
+test('等到真实端口再启动，运行中换号只重建一次，主动停止不复活', () => portFollowContract());
+
+test('变异：跳过端口等待或忽略运行端口变化时，恢复契约必须失败', async () => {
+  await assert.rejects(portFollowContract(runnerFactory((source) => source.replaceAll("if (waitingForPort) { error = ''; return; }", ''))), assert.AssertionError);
+  await assert.rejects(portFollowContract(runnerFactory((source) => source.replace('if (port === requestedLocalPort && !waitingForPort) return status();', 'if (child) return status();'))), assert.AssertionError);
+});
+
+test('获取二进制期间端口变化或停止，只能启动最新仍有效的入口', async () => {
+  let port = 18787;
+  const releases = [], launched = [];
+  const runner = createFrpcRunner({ root: tempDir(), portOf: () => port,
+    ensure: () => new Promise((resolve) => releases.push(resolve)),
+    spawnImpl: (_binary, args) => { launched.push(fs.readFileSync(args[1], 'utf8')); return fakeChild(); },
+  });
+  runner.saveConfig(CONFIG);
+  const first = runner.start();
+  port = 23456;
+  const changed = runner.syncLocalPort();
+  releases[0]({ ok: true, path: '/fake/frpc' });
+  await first;
+  assert.equal(launched.length, 0, '迟到的旧启动不能占用入口');
+  releases[1]({ ok: true, path: '/fake/frpc' });
+  await changed;
+  assert.equal(launched.length, 1);
+  assert.match(launched[0], /localPort = 23456/);
+  await runner.clear();
+});
 
 test('alignLocalPort 只改 localPort，不动 localIP', () => {
   const out = alignLocalPort(CONFIG, 49906);
@@ -189,7 +270,7 @@ function retryClock() {
 test('异常退出按退避有限重启，主动停用取消待重试且清错误', async () => {
   const clock = retryClock();
   const children = [];
-  const runner = createFrpcRunner({ root: tempDir(), ...clock,
+  const runner = createFrpcRunner({ root: tempDir(), portOf: () => 18787, ...clock,
     ensure: async () => ({ ok: true, path: '/fake/frpc' }),
     spawnImpl: () => { const child = fakeChild(); children.push(child); return child; },
   });
@@ -215,7 +296,7 @@ test('等待重试时 clear/dispose 均取消，clear 后宿主不再自动启�
   for (const action of ['clear', 'dispose']) {
     const clock = retryClock();
     const child = fakeChild();
-    const runner = createFrpcRunner({ root: tempDir(), ...clock,
+    const runner = createFrpcRunner({ root: tempDir(), portOf: () => 18787, ...clock,
       ensure: async () => ({ ok: true, path: '/fake/frpc' }), spawnImpl: () => child });
     runner.saveConfig(CONFIG);
     await runner.start();
@@ -231,7 +312,7 @@ test('等待重试时 clear/dispose 均取消，clear 后宿主不再自动启�
 test('二进制仍在获取时停止，稍后完成也不能重新拉起；并发 start 只起一份', async () => {
   let release;
   let spawns = 0;
-  const runner = createFrpcRunner({ root: tempDir(),
+  const runner = createFrpcRunner({ root: tempDir(), portOf: () => 18787,
     ensure: () => new Promise((resolve) => { release = resolve; }),
     spawnImpl: () => { spawns += 1; return fakeChild(); },
   });
@@ -272,7 +353,7 @@ for (const [kind, config] of [
 ]) {
   test(`${kind} 已有管理端口9000用于真实发现，不覆盖用户配置`, async () => {
     const urls = [];
-    const runner = createFrpcRunner({ root: tempDir(), ensure: async () => ({ ok: true, path: '/fake/frpc' }),
+    const runner = createFrpcRunner({ root: tempDir(), portOf: () => 18787, ensure: async () => ({ ok: true, path: '/fake/frpc' }),
       spawnImpl: () => fakeChild(), fetchImpl: async (url) => { urls.push(url); return { ok: true, json: async () => ({ tcp: [{ remote_addr: 'example.com:6000' }] }) }; },
     });
     const file = runner.saveConfig(config);
@@ -288,7 +369,7 @@ test('每代异常重启重新发现动态地址并同步，停止后迟到的�
   const clock = retryClock();
   const children = [], published = [], responses = [];
   let address = 'example.com:6000';
-  const runner = createFrpcRunner({ root: tempDir(), ...clock,
+  const runner = createFrpcRunner({ root: tempDir(), portOf: () => 18787, ...clock,
     ensure: async () => ({ ok: true, path: '/fake/frpc' }),
     spawnImpl: () => { const child = fakeChild(); children.push(child); return child; },
     fetchImpl: async () => new Promise((resolve) => responses.push(() => resolve({ ok: true, json: async () => ({ tcp: [{ remote_addr: address }] }) }))),

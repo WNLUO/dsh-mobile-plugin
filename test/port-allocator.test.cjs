@@ -1,3 +1,4 @@
+// 原端口优先与配置失效无副作用保持为绑定契约。
 'use strict';
 // 需求已确认：原端口优先，已监听且完成发现发布后才能保存新入口。
 const { test } = require('node:test');
@@ -13,7 +14,7 @@ const busy = () => Object.assign(new Error('occupied'), { code: 'EADDRINUSE' });
 function fixture(error = busy(), ready = true, credentials = compatible) {
   const attempts = []; const stopped = []; const published = [];
   return { attempts, stopped, published, args: {
-    requestedPort: 18787, instanceId: 'i', store: credentials,
+    requestedPort: 18787, retryDelays: [], instanceId: 'i', store: credentials,
     discovery: { publish: async port => { published.push(port); return ready; }, stop: () => {} },
     createProxy(port) { attempts.push(port); return {
       start: async () => { if (port === 18787) throw error; },
@@ -105,7 +106,8 @@ test('失效配置不能留下监听或新地址', async () => {
   const f = fixture();
   f.args.isCurrent = () => false;
   await assert.rejects(bindLanEndpoint(f.args), /配置已更新/);
-  assert.deepEqual(f.attempts, [18787]);
+  assert.deepEqual(f.attempts, []);
+  assert.deepEqual(f.published, []);
 });
 
 test('端口只在监听成功后落盘，重启继续用它，只有 LAN 鉴权才算恢复', () => {

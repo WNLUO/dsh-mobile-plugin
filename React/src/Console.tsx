@@ -1,3 +1,4 @@
+// 固定端口与端口号通过同一次配置保存。
 /**
  * 面板控制台（`/api/relay/panel/console`，也是面板主页）：桌面端那颗手机图标点开的那一窗。
  *
@@ -351,9 +352,9 @@ export function Console() {
   const saveControlReport = (enabled: boolean) =>
     postConfig({ controlReportEnabled: enabled }, 'panel.shell.configSaved')
 
-  const saveLanPort = (port: number) =>
+  const saveLanPort = (port: number, lanPortFixed: boolean) =>
     act('lan', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/config', { lanPort: port }))
+      setStatus(await apiPost<StatusView>('/api/relay/config', { lanPort: port, lanPortFixed }))
       setPortOpen(false)
       await loadPairing()
       notify('soft', t('panel.shell.lanSaved'))
@@ -560,7 +561,9 @@ export function Console() {
         onOpenChange={setPortOpen}
         port={pairing?.lanPort ?? status.lan.requestedPort ?? status.lan.port}
         busy={busy}
-        onSave={(port) => void saveLanPort(port)}
+        fixed={status.lanPortFixed === true}
+        forwarding={status.lanPortLockReason === 'forwarding'}
+        onSave={(port, fixed) => void saveLanPort(port, fixed)}
       />
 
       {/* 收件文件：原先常驻的那张卡，现在收进这扇弹窗，由顶栏那颗垃圾桶图标打开。 */}

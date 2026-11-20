@@ -1,3 +1,4 @@
+// 首次空地址补连和目录发布回执采用同一组时间验证。
 // 验证总控握手、协议心跳、退避代次与停止清理。
 'use strict';
 
@@ -77,7 +78,7 @@ function fixture(t, { Socket, url = 'https://control.example/findme/', mutate = 
   return {
     timers, sockets, logs, client, state,
     setAddresses(value) { addresses = value; }, setRelay(value) { relay = value; },
-    open() { const ws = sockets.at(-1); ws.open(); return ws; },
+    open(ack = true) { const ws = sockets.at(-1); ws.open(); if (ack) ws.message({ type: 'registered' }); return ws; },
     plain: (frame) => openHistoryBlob(HK, 'control', 'liveness', frame.payload),
   };
 }
@@ -139,11 +140,11 @@ test('总控：open 取消握手期限，协议 pong 维持空闲连接，失联
 test('总控：只有 registered 才清零退避，error/close 幂等且日志不泄露令牌', (t) => {
   const f = fixture(t);
   f.client.start();
-  let ws = f.open();
+  let ws = f.open(false);
   ws.message({ type: 'error', message: `unauthorized ${f.state.controlToken}` });
   ws.emit('error', new Error(`failed ${f.state.controlToken}`)); ws.emit('close');
   f.timers.tick(1_000);
-  ws = f.open();
+  ws = f.open(false);
   ws.message({ type: 'error', message: 'unauthorized' });
   f.timers.tick(1_999); assert.equal(f.sockets.length, 2, 'open 不能重置退避');
   f.timers.tick(1); ws = f.open();
@@ -213,7 +214,7 @@ test('总控：真实 WS 协议 pong 保活，停止回应后按心跳期限重�
   server.on('connection', (ws) => {
     accepted.push(ws);
     ws.on('ping', (data) => { if (answerPings) ws.pong(data); });
-    ws.on('message', (raw) => { messages.push(JSON.parse(raw.toString())); });
+    ws.on('message', (raw) => { const frame = JSON.parse(raw.toString()); messages.push(frame); ws.send(JSON.stringify({ type: frame.type === 'register' ? 'registered' : 'updated' })); });
   });
   const f = fixture(t, { Socket: CapturedSocket, url: `http://127.0.0.1:${server.address().port}` });
   t.after(async () => {
@@ -224,6 +225,7 @@ test('总控：真实 WS 协议 pong 保活，停止回应后按心跳期限重�
   const connection = once(server, 'connection');
   f.client.start();
   await Promise.all([once(dialed[0], 'open'), connection]);
+  await once(dialed[0], 'message');
   for (let i = 0; i < 4; i += 1) {
     const pong = once(dialed[0], 'pong');
     f.timers.tick(15_000);
@@ -242,10 +244,55 @@ test('总控：真实 WS 协议 pong 保活，停止回应后按心跳期限重�
   assert.equal(f.client.snapshot().connected, true);
 });
 
+test('首次无地址时不拨号，监听就绪后定时补报，收到回执才确认已发布', (t) => {
+  const f = fixture(t);
+  f.setAddresses([]); f.setRelay(''); f.client.start();
+  assert.equal(f.sockets.length, 0);
+  f.setAddresses([{ kind: 'lan', url: 'http://192.168.1.5:23456' }]);
+  f.timers.tick(30_000);
+  assert.equal(f.sockets.length, 1, '首次为空不能让后续地址永不上报');
+  const ws = f.open(false);
+  assert.equal(f.client.snapshot().published, false);
+  ws.message({ type: 'registered' });
+  assert.equal(f.client.snapshot().published, true);
+  f.setAddresses([{ kind: 'lan', url: 'http://192.168.1.6:23456' }]);
+  f.client.sync();
+  assert.equal(f.client.snapshot().published, false);
+  ws.message({ type: 'updated' });
+  assert.equal(f.client.snapshot().published, true);
+});
+
+test('回执期间合并最新地址，无回执按期限重连并重新上报整包', (t) => {
+  const f = fixture(t); f.client.start(); const ws = f.open(false);
+  const stale = f.timers.pending().find(timer => timer.delay === 10_000);
+  f.setAddresses([{ kind: 'lan', url: 'http://192.168.1.7:23456' }]); f.client.sync();
+  assert.equal(ws.sent.length, 1);
+  ws.message({ type: 'registered' });
+  assert.equal(ws.sent.length, 2);
+  assert.equal(f.plain(ws.sent[1]).addresses[0].url, 'http://192.168.1.7:23456');
+  stale.fn();
+  assert.equal(ws.terminated, 0, '旧回执期限不关闭新更新');
+  f.timers.tick(10_000);
+  assert.equal(ws.terminated, 1);
+  f.timers.tick(1_000);
+  assert.equal(f.sockets.length, 2);
+  const next = f.open();
+  assert.equal(f.plain(next.sent[0]).addresses[0].url, 'http://192.168.1.7:23456');
+});
+
+test('变异：删掉首次空地址补连后，相同恢复断言会失败', (t) => {
+  const f = fixture(t, { mutate(source) {
+    return source.replace('if (!sock && running && !reconnectTimer) { connect(); return; }', '');
+  } });
+  f.setAddresses([]); f.setRelay(''); f.client.start();
+  f.setAddresses([{ kind: 'lan', url: 'http://192.168.1.5:18787' }]); f.timers.tick(30_000);
+  assert.throws(() => assert.equal(f.sockets.length, 1), { code: 'ERR_ASSERTION' });
+});
+
 test('变异：移除握手或半开回收时，同一条期限断言必须失败', (t) => {
   const handshake = fixture(t, { mutate(source) {
-    const marker = '}, HANDSHAKE_TIMEOUT_MS);'; assert.ok(source.includes(marker));
-    return source.replace(marker, '}, HANDSHAKE_TIMEOUT_MS + 1);');
+    const marker = "if (handshakeTimer && sock === ws) retire();\n    }, HANDSHAKE_TIMEOUT_MS);"; assert.ok(source.includes(marker));
+    return source.replace(marker, "if (handshakeTimer && sock === ws) retire();\n    }, HANDSHAKE_TIMEOUT_MS + 1);");
   } });
   handshake.client.start();
   assert.throws(() => assertHandshakeDeadline(handshake), { code: 'ERR_ASSERTION' });
