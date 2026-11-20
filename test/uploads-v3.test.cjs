@@ -1,3 +1,4 @@
+// v2 begin 回执补上契约里的 receivedBytes:0（字节 ACK 能力声明）。
 'use strict';
 
 /**
@@ -237,13 +238,15 @@ test('不带 caps / caps.wire 不是 bin：begin 回执与 v2 逐字段相同', 
   try {
     const legacy = await api.post('/upload/begin', { name: 'old.txt' });
     assert.equal(legacy.status, 200);
-    assert.deepEqual(Object.keys(legacy.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'uploadId']);
+    // `receivedBytes: 0` 是 v2 begin 刻意加的一格：老 App 据此知道宿主支持字节 ACK（见
+    // lib/mobile/uploads.js 的 begin 分支）。这是已提交的契约，不是多余字段。
+    assert.deepEqual(Object.keys(legacy.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'receivedBytes', 'uploadId']);
     assert.equal(legacy.body.chunkSize, CHUNK_BYTES);
     assert.equal(legacy.body.maxChunkSize, CHUNK_MAX_BYTES);
 
     // 显式说 `wire: 'json'` 也是老路：协商结果不是 bin 就不该碰 v3 的任何一格。
     const explicit = await api.post('/upload/begin', { name: 'old2.txt', size: 10, caps: { wire: 'json' } });
-    assert.deepEqual(Object.keys(explicit.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'uploadId']);
+    assert.deepEqual(Object.keys(explicit.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'receivedBytes', 'uploadId']);
     assert.equal(explicit.body.chunkSize, CHUNK_BYTES);
 
     // 不吃 size 也就不该因为缺 size 报错：老客户端从来没有这个字段。
@@ -487,7 +490,7 @@ test('老客户端走明文（不带信封头）时，v2 分片与收口一字�
   const api = await serve(inbox);
   try {
     const begin = await api.postPlain('/upload/begin', { name: 'plain.txt' });
-    assert.deepEqual(Object.keys(begin.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'uploadId']);
+    assert.deepEqual(Object.keys(begin.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'receivedBytes', 'uploadId']);
     const uploadId = begin.body.uploadId;
     const first = await api.postPlain('/upload/chunk', { uploadId, index: 0, data: Buffer.from('AAA').toString('base64') });
     assert.equal(first.status, 200);

@@ -115,7 +115,9 @@ test('整卡左显示右控件：运行中版本在左，自动上报在右，�
   // 2026-11-20 用户要求：左列只读、右列控件；权限档位三选一不用单选下拉。
   assert.doesNotMatch(card, /moreOpen|panel\.common\.more/, '「其他」弹窗入口已撤');
   assert.match(card, /panel\.update\.runningVersion/, '运行中版本在左列');
-  assert.match(app, /<PairingCard[\s\S]{0,200}version=\{status\.appVersion \|\| ''\}/, '版本值传给左列');
+  // 2026-11-20：配对卡属性变多，`<PairingCard` 到 `version=` 已相隔 260 余字符，原 200 窗口不够；
+  // 只是窗口宽度，断言本身（版本值真的传给左列）不变，放宽到 400。
+  assert.match(app, /<PairingCard[\s\S]{0,400}version=\{status\.appVersion \|\| ''\}/, '版本值传给左列');
   assert.match(app, /<PairingPolicyRows[\s\S]{0,400}onChangeControlReport/, '自动上报回调交给右列控件');
   assert.match(card, /aria-pressed=\{tier === pairingTier\}/, '权限档位用按钮组切换');
   assert.doesNotMatch(card, /<Select\b|SelectTrigger/, '权限档位不再是单选下拉');

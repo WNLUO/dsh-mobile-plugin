@@ -1,3 +1,4 @@
+// 内置公用中转兜底后，空的 relayUrl 不再等于没地址；用停用公用兜底的现场覆盖「没地址」。
 'use strict';
 
 /**
@@ -77,7 +78,10 @@ test('没启用 / 没地址 / 没跑过插件：三种现场分开说，且不�
   assert.match(first.stderr, /远程控制还没启用/);
   assert.equal(first.stdout.includes('▄'), false, '没启用时不许打出一张能扫的码');
 
-  const noAddress = tempHome({ ...ENABLED_STATE, relayUrl: '', lanEnabled: false });
+  // 启用状态下地址为空时，宿主读盘会自动补上内置公用中转（`expandDefaultPublicRelays`），
+  // 所以「空的 relayUrl」已经不等于「没有地址」。要造出真的没有可拨地址的现场，需要配了
+  // 手填的公网地址（让公用兜底被强制停用）却把局域网关着 —— 这时二维码里一条地址都没有。
+  const noAddress = tempHome({ ...ENABLED_STATE, relayUrl: '', relayUrls: [], manualLanUrl: 'home.example.com:8443', lanEnabled: false });
   const second = runCli(noAddress);
   assert.equal(second.status, 1);
   assert.match(second.stderr, /没有可用的中转或直连地址/);

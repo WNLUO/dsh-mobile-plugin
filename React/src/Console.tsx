@@ -14,6 +14,7 @@
  * 设备卡按连接卡高度封顶，多出来的在卡内滚动。
  */
 // 控制台按实际状态报告就绪，FRP 随父窗保存，地址读取错误可独立重试。
+// 2026-11-20：连接自检也接这条轮询的状态指纹，连接状态一变就重查，结论显示在连接卡里。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -62,6 +63,7 @@ import { pageVisible } from './lib/embed-visibility.ts'
 import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
 import { useNotify } from './lib/notify.ts'
+import { mobileLooksIdle, selfCheckRow, useSelfCheck } from './lib/selfcheck.ts'
 
 /**
  * 这一页轮询的相位偏移。
@@ -119,6 +121,15 @@ export function Console() {
   const [p2pOpen, setP2POpen] = useState(false)
   const [inboxOpen, setInboxOpen] = useState(false)
   const notify = useNotify()
+  /**
+   * 连接自检：与引导页同一套取数层，`status` 的几个关键字段拼成指纹传进去，
+   * 连接状态一变就跳过宿主缓存重查一次（见 `lib/selfcheck.ts` 的文件头）。
+   */
+  const selfcheck = useSelfCheck(
+    mobileLooksIdle(status?.lastMobileAt),
+    status ? `${status.enabled ? 1 : 0}|${status.lan.enabled ? 1 : 0}|${status.lan.state}|${status.tunnel.state}|${(status.lastMobileAt ?? 0) > 0 ? 1 : 0}` : '',
+  )
+  const selfcheckRow = selfCheckRow(selfcheck)
 
   useEffect(() => {
     if (status) reportPanelState('ready')
@@ -517,6 +528,7 @@ export function Console() {
               onManageTailcat={() => setTailcatOpen(true)}
               onManageP2P={() => setP2POpen(true)}
               restartError={status.sidecar.restartError}
+              selfcheck={selfcheckRow}
             />
           </div>
           <div className="min-h-0" style={connectionHeight > 0 ? { height: `${connectionHeight}px` } : undefined}>

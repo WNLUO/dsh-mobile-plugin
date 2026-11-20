@@ -1,4 +1,4 @@
-// 配对地址错误可重取，上报说明展示真实目录目的地且不改变默认开关。
+// 配对地址操作使用小号图标按钮，悬停提示保留完整操作名称。
 /**
  * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
  *
@@ -8,7 +8,7 @@
  * 看走眼的东西。「重新生成」那颗也一并去了 —— 宿主在配对成功那一刻就会换码换票据
  * （`rotatePairing`），二维码自己会变，不需要人来按。
  *
- * 标题栏那几颗是纯文字按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
+ * 地址行操作是小号图标按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
  * 2026-11-20 用户要求：整卡按「左显示、右控件」重排——左列放连接信息与运行中版本，
  * 右列放权限档位（三按钮切换）、配对策略、自动审阅、自动上报网络地址。
  */
@@ -206,16 +206,25 @@ export function PairingCard({
                     <span className="ml-2 font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
                   ) : null}
                 </span>
-                {/* 用户要求：文字按钮，不要胶囊 —— 形状与旁边行里的「显示」一致（ghost + sm），
-                    手搓一颗会让字号、行高与同一张卡里别的按钮对不齐。 */}
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon-sm"
                   aria-label={t('panel.pairing.portTitle')}
+                  title={t('panel.pairing.portTitle')}
                   disabled={idle}
                   onClick={onEditPort}
                 >
-                  {t('panel.common.edit')}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m16 3 5 5M4 15 16 3a3.54 3.54 0 0 1 5 5L9 20l-6 1 1-6Z" />
+                  </svg>
                 </Button>
               </span>
             </InfoRow>

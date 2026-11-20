@@ -1,6 +1,7 @@
 /** 远程电脑：本机生成绑定信息、添加电脑、按设备打开与管理线路。 */
 // 2026-11-19：顶部渲染窗口自动续期 / 关掉后保留一小时的提示；页面连上之前禁用同一设备的打开按钮；
 // 线路检测每行带上 host:port 区分同通道的两条；窗口开着时改挡位单独说明重新打开后生效。
+// 2026-11-20：窗口按钮（浏览器打开 / 关闭）改由 Remote 页面层渲染一次，卡片不再重复挂。
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
@@ -14,7 +15,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../lib/api.ts'
 import { pageVisible } from '../lib/embed-visibility.ts'
-import { PanelWindowActions } from './PanelWindowActions.tsx'
 import { t } from '../lib/i18n/index.ts'
 import { isPublicRelayUrl } from '../lib/links.ts'
 import { useNotify } from '../lib/notify.ts'
@@ -247,7 +247,6 @@ export function RemoteComputersCard() {
               </Button>
             </span>
           ) : null}
-          <PanelWindowActions />
         </div>
       </header>
       <Card frame="solid" className="flex h-full min-h-0 flex-col">

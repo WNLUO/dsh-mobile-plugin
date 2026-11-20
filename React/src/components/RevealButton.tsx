@@ -1,15 +1,7 @@
+// 显示与隐藏使用眼睛图标，操作对象保留在悬停提示和无障碍名中。
 /**
- * 一处「明文摆着、可当场遮上」的值旁边那颗小按钮。
- *
- * 形状照抄「局域网直连」弹窗里「修改」那颗：`variant="ghost" size="sm"` 的文字按钮，
- * 跟在值的后面。库里有的组件不许手搓，眼睛图标整套（画法、可访问名、按下态）都是
- * 自己发明的第二套语言 —— 同一个面板里两种「揭开」长得不一样，比没有更糟。
- *
- * 文字写「显示 / 隐藏」而不是图标：旁边已经有「已隐藏」「还没取到地址」这类说明，
- * 文字按钮读起来是一句话，图标还得让人猜。
- *
- * 遮的是哪一样东西用 `what` 说明，拼进无障碍名（「显示二维码」那类）；可见文字保持短，
- * 免得把这一行撑开。
+ * 值旁边的显示 / 隐藏按钮，沿用面板的 ghost 小号图标按钮。
+ * 图标表示下一步操作：眼睛显示，划线眼睛隐藏。
  */
 
 import { Button } from '@appica/ui-react/button'
@@ -18,9 +10,9 @@ import { t } from '../lib/i18n/index.ts'
 type Props = {
   /** 现在看得见吗。可见时按钮变成「隐藏」。 */
   on?: boolean
-  /** 遮的是哪一样东西（「中转地址」），只用于无障碍名。 */
+  /** 遮的是哪一样东西（「中转地址」），用于提示和无障碍名。 */
   what: string
-  /** 可见文字；不给就按 `on` 写成「隐藏 / 显示」。 */
+  /** 操作文字；不给就按 `on` 写成「隐藏 / 显示」。 */
   label?: string
   className?: string
   /** 没有值可揭时传 true：别给一颗点了没反应的按钮。 */
@@ -33,13 +25,34 @@ export function RevealButton({ on, what, label, className, disabled, onClick }: 
   return (
     <Button
       variant="ghost"
-      size="sm"
+      size="icon-sm"
       className={className}
       aria-label={`${text}${what}`}
+      title={`${text}${what}`}
       disabled={disabled}
       onClick={onClick}
     >
-      {text}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {on ? (
+          <>
+            <path d="m3 3 18 18M10.58 10.59a2 2 0 0 0 2.83 2.82" />
+            <path d="M9.88 5.09A10.94 10.94 0 0 1 12 5c7 0 10 7 10 7a14.5 14.5 0 0 1-3.17 4.36M6.61 6.61A16.77 16.77 0 0 0 2 12s3 7 10 7a10.94 10.94 0 0 0 5.39-1.39" />
+          </>
+        ) : (
+          <>
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7S2 12 2 12Z" />
+            <circle cx="12" cy="12" r="3" />
+          </>
+        )}
+      </svg>
     </Button>
   )
 }

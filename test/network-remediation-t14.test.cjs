@@ -59,6 +59,13 @@ function component(file, name, imports = {}, context = {}, mutate = (source) => 
     if (id.includes('embed-visibility')) return { pageVisible: () => true };
     if (id.includes('panel-load')) return { reportPanelState() {} };
     if (id.includes('notify')) return { useNotify: () => () => {} };
+    // 2026-11-20：Console 现在也接 selfcheck（连接状态变就重查），这里补一份最小桩，
+    // 只为了让渲染路径跑通，断言仍落在 api 调用与回调上。
+    if (id.includes('selfcheck.ts')) return {
+      mobileLooksIdle: () => false,
+      useSelfCheck: () => ({ data: null, checking: false, error: '', missing: false, ensure() {}, refresh() {} }),
+      selfCheckRow: () => ({ tone: 'off', text: 'panel.selfcheck.notChecked' }),
+    };
     return ui;
   };
   vm.runInNewContext(code, { module, exports: module.exports, require: requireStub, AbortController, performance,

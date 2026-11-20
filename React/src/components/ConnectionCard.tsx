@@ -1,4 +1,5 @@
 // 复用现有状态行和按钮展示 FRP 运行、恢复与主动停用入口。
+// 2026-11-20：连接自检以一行短结论回到这张卡（由控制台按 status 指纹重查后传入）。
 /**
  * 主页右栏「连接状态」卡：远程控制一颗开关 + 只读事实。
  *
@@ -28,6 +29,8 @@ type Props = {
   onManageP2P: () => void
   /** 上次重启 sidecar 的失败原因；并入「旁挂进程」那行显示，不单独铺一块告警。 */
   restartError: string | null
+  /** 连接自检的短结论（`selfCheckRow` 的结果）：只报一句，给不给都不影响其它行。 */
+  selfcheck?: { tone: Tone; text: string }
 }
 
 /** 隧道此刻的状态 → 一行字的键。老宿主没有这一格时整行不画（见下面 `status.tailcat`）。 */
@@ -85,14 +88,14 @@ function tailcatTone(tailcat: TailcatStatus): Tone {
  * 「插件更新」卡里已经有，「局域网直连」那行原本只是开弹窗的按钮，端口现在直接在「配对与
  * 二维码」里改（见 components/PortDialog.tsx），状态想看得去「连接自检」。
  *
- * 连接自检**不在这张卡里**（2026-11-02 用户要求）：那一行和配对卡右上角的「检查网络」是
- * 同一件事，一屏摆两处入口只会让人猜哪个才是真的。
+ * 连接自检在这张卡里只占**一行短结论**（2026-11-20）：入口与详细结论仍在自检弹窗，
+ * 这里只说「正常 / 直连没在监听 / 防火墙挡住了」，不再铺开一段说明。
  *
  * **中转地址不在这张卡里**（2026-10-26 用户要求删）：域名长的时候那一行会把「隐藏」那颗
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp, onManageTailcat, onManageP2P, restartError }: Props) {
+export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp, onManageTailcat, onManageP2P, restartError, selfcheck }: Props) {
   const tunnel = status.tunnel
   const enabled = status.enabled
   const tailcat = status.tailcat ?? null
@@ -222,6 +225,11 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp,
             detail={timeText(status.mirror.pushedAt)}
           />
         </InfoRow>
+        {selfcheck ? (
+          <InfoRow label={t('panel.selfcheck.title')} tone={selfcheck.tone}>
+            <ToneValue tone={selfcheck.tone} text={selfcheck.text} />
+          </InfoRow>
+        ) : null}
       </InfoList>
 
       {status.lan.recovery?.state === 'awaiting-device' ? (

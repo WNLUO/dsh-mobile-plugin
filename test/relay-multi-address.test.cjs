@@ -1,3 +1,4 @@
+// 首连改为有界并发竞速：输家可被拨但必须立刻关闭，不再钉「完全没被碰过」。
 'use strict';
 
 /**
@@ -217,7 +218,15 @@ test('换到下一条：第一条判死，别的能连上的候选被选中并�
     assert.equal(relays[connectedIndex].connections.length, 1, '连接要落在中选的那条假中转上');
     assert.equal(relays[connectedIndex].connections[0].registrations.length, 1, '注册帧要真的发出去');
     const untouched = [1, 2].find((i) => i !== connectedIndex);
-    assert.equal(relays[untouched].connections.length, 0, '已经有一条连上了，排在后面的存活候选不该再被碰');
+    // 首连从 2026-11-20 起是**有界并发竞速**（worker 的 RELAY_RACE_CONCURRENCY=3）：排在前面的
+    // 存活候选会和赢家一起拨，赢家一注册成功，其余在途连接立即被 stop。所以不再钉「完全没被
+    // 碰过」，而是钉「没有留下第二条活连接」——被竞速拨过也必须是已关闭的输家。
+    const untouchedConns = relays[untouched].connections;
+    assert.ok(untouchedConns.length <= 1, '输掉的候选最多被竞速拨过一次，不该反复拨');
+    if (untouchedConns.length === 1) {
+      await wait(150);
+      assert.equal(untouchedConns[0].closed, true, '竞速输掉的那条连接必须被立刻停掉，不留在连着');
+    }
     assert.equal(relays[0].connections.length, 0, '判死的那条握手就被拒，不该有连接');
 
     // 择路的账：index 是「这次连上的是排序队列里的第几条」，tried 是顺着队列试到它为止的条数。

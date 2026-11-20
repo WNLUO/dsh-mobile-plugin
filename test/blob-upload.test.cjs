@@ -1,3 +1,4 @@
+// blob 重推用会话定点补推驱动，绕开全量推送 30s 合流门，避免第二发被挡。
 // blob确认、桥接和停止代次的行为用例与内存源码变异证明。
 'use strict';
 const test = require('node:test');
@@ -174,11 +175,13 @@ test('真实pusher上传未确认不挡镜像，失败仍会再推且成功后�
     assert.equal(calls.length, 1, '未完成上传不能重复创建并发轮次');
     fail(new Error('disk full'));
     await nextTurn();
-    await pusher.pushMirror();
+    // 全量 `pushMirror()` 有 30s 最小间隔（防事件风暴），连跑两发第二发会被挡掉；用会话定点的
+    // 立即补推来驱动「下一轮」，它不参与那个合流门，才真正会重新走一遍 blob 推送。
+    await pusher.pushMirror(['s']);
     for (let i = 0; i < 20 && calls.length < 2; i++) await nextTurn();
     assert.equal(calls.length, 2, '失败未记指纹，下一轮重推');
     await nextTurn();
-    await pusher.pushMirror();
+    await pusher.pushMirror(['s']);
     await nextTurn();
     assert.equal(calls.length, 2, '最终成功后才跳过相同内容');
   } finally {

@@ -1,3 +1,4 @@
+// 假响应改用 this 写入，覆盖 EventEmitter 包裹后断言读不到响应体的情况。
 // 验证移动中转配置、有界身份代测与代理诊断，并保留吊销响应收尾。
 'use strict';
 
@@ -49,8 +50,10 @@ function fakeRes() {
     status: 0,
     body: null,
     raw: '',
-    writeHead(status) { res.status = status; },
-    end(chunk) { res.raw = String(chunk); res.body = JSON.parse(res.raw); },
+    // 用 `this` 而不是闭包里的 `res`：本文件有一个用例把 fakeRes() 的结果 Object.assign 到
+    // EventEmitter（为了 emit('finish') 模拟 mux 排空），闭包会写到原始对象、断言看不到响应。
+    writeHead(status) { this.status = status; },
+    end(chunk) { this.raw = String(chunk); this.body = JSON.parse(this.raw); },
   };
   return res;
 }
