@@ -1,3 +1,4 @@
+// 验证会话文件权限、交付声明与字节响应兼容。
 'use strict';
 
 /**
@@ -174,6 +175,9 @@ test('工作区外的一条都不给：403 outside-workspace，且一次盘都�
     const absolute = await host.post({ sessionId: 's1', path: outsideFile });
     assert.equal(absolute.status, 403);
     assert.equal(absolute.body.error.code, 'outside-workspace');
+    const ranged = await host.post({ sessionId: 's1', path: outsideFile, offset: 0, length: FILE_CHUNK_BYTES });
+    assert.equal(ranged.status, 403, '请求有界字节段不能绕过会话权限');
+    assert.equal(ranged.body.error.code, 'outside-workspace');
   });
 });
 

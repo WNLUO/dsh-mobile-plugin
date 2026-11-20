@@ -1,3 +1,4 @@
+// 验证允许区内文件读取、范围透传与协议响应。
 'use strict';
 
 /**
@@ -12,7 +13,7 @@
  *  2. `path` 必须绝对：相对路径没有可信基准，回 400 而不是去猜。
  *  3. 认了之后的失败分开报：盘上没有 404 `missing`、目录 400 `not-a-file`、超 512MB 413。
  *  4. 回的是原始字节 + 与扩展名对得上的 `content-type` + 准确的 `content-length`，不是 JSON。
- *  5. 协议 v2 下与 `/session/file` **同一个信封**：chunked、`x-dsh-proto: 2`、
+ *  5. 协议 v2 下与 `/session/file` **同一个分块信封**：定长、`x-dsh-proto: 2`、
  *     `x-dsh-content-type` 带明文类型；这里按 §8.3(6) 把块切回来，用宿主自己的 `e2ee.open`
  *     加 `fileAad(请求路径, nonce, seq)` 解 —— 形状或 AAD 绑错，这一步就解不出来。
  *  6. 宿主工作区清单报错要如实回 502：当成空清单会让每个路径都变成 403，用户看到的是
@@ -194,6 +195,9 @@ test('工作区外一条都不给：403 outside-allowed，前缀相同的隔壁�
     const escape = await host.post({ path: path.join(ws, 'docs', '..', '..', path.basename(sibling), 'secret.txt') });
     assert.equal(escape.status, 403);
     assert.equal(escape.body.error.code, 'outside-allowed');
+    const ranged = await host.post({ path: path.join(sibling, 'secret.txt'), offset: 0, length: 65536 });
+    assert.equal(ranged.status, 403, '请求有界字节段不能扩大允许区');
+    assert.equal(ranged.body.error.code, 'outside-allowed');
   });
 });
 

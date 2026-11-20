@@ -1,3 +1,4 @@
+// 验证真实上传落盘、串行收片、累计字节确认与收口回放。
 'use strict';
 
 /**
@@ -103,6 +104,14 @@ async function serve(inbox, options = {}) {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: typeof body === 'string' ? body : JSON.stringify(body),
+      });
+      return { status: response.status, body: await response.json() };
+    },
+    bin: async (uploadId, offset, data) => {
+      const response = await fetch(base + '/upload/chunk', {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream', 'x-dsh-wire': 'bin', 'x-dsh-upload-id': uploadId, 'x-dsh-upload-offset': String(offset) },
+        body: data,
       });
       return { status: response.status, body: await response.json() };
     },
@@ -488,19 +497,236 @@ test('destPath 在会话的项目目录里：带了 sessionId 才放行', async 
   }
 });
 
-test('不带 destPath：仍落进收件箱，begin 的回执形状一个字没变', async () => {
+test('不带 destPath：仍落进收件箱，v2 明确协商字节 ACK 且不扩大落点权限', async () => {
   const inbox = tempInbox();
   const api = await serve(inbox, { workspaces: [] });
   try {
     const { begin, finish } = await uploadOnce(api, { name: 'share.txt' }, '正文');
     assert.equal(begin.status, 200);
-    assert.deepEqual(Object.keys(begin.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'uploadId']);
+    // 已批准的 v2 安全缩片契约：增加累计字节 ACK，片数与原有上传能力保持不变。
+    assert.deepEqual(Object.keys(begin.body).sort(), ['chunkSize', 'maxChunkSize', 'ok', 'receivedBytes', 'uploadId']);
+    assert.equal(begin.body.receivedBytes, 0);
     assert.equal(api.calls.workspace, 0, '不带 destPath 不该为了判范围去问宿主');
     assert.equal(path.relative(inbox, finish.body.path).split(path.sep).length, 2);
     assert.equal(fs.readFileSync(finish.body.path, 'utf8'), '正文');
   } finally {
     await api.close();
     fs.rmSync(inbox, { recursive: true, force: true });
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+/** 只暂停真实 append，不替换磁盘写入，用来稳定地制造同一上传的并发到达。 */
+function holdAppend(inbox) {
+  const appendFile = fsp.appendFile;
+  let release;
+  let arrived;
+  let calls = 0;
+  const held = new Promise((resolve) => { release = resolve; });
+  const entered = new Promise((resolve) => { arrived = resolve; });
+  fsp.appendFile = async (target, ...args) => {
+    if (String(target).startsWith(inbox + path.sep)) {
+      calls += 1;
+      arrived();
+      await held;
+    }
+    return appendFile(target, ...args);
+  };
+  return { entered, release, calls: () => calls, restore: () => { fsp.appendFile = appendFile; } };
+}
+
+function bodyArrivals() {
+  const counts = new Map();
+  const waiting = [];
+  return {
+    onBody: (route) => {
+      counts.set(route, (counts.get(route) || 0) + 1);
+      for (const item of waiting) if ((counts.get(item.route) || 0) >= item.count) item.resolve();
+    },
+    wait: (route, count) => new Promise((resolve) => {
+      if ((counts.get(route) || 0) >= count) resolve();
+      else waiting.push({ route, count, resolve });
+    }),
+  };
+}
+
+async function sameIndexScenario(t, handlers = uploadHandlers) {
+  for (const firstSize of [12, 3]) {
+    const inbox = tempDir(t, 'dsh-upload-byte-ack-');
+    const arrivals = bodyArrivals();
+    const api = await serve(inbox, { handlers, onBody: arrivals.onBody });
+    const gate = holdAppend(inbox);
+    const pending = [];
+    try {
+      const begin = await api.post('/upload/begin', { name: 'same.bin' });
+      assert.equal(begin.body.receivedBytes, 0);
+      const uploadId = begin.body.uploadId;
+      const bytes = Buffer.from('ABCDEFGHIJKL');
+      const first = pending[0] = api.post('/upload/chunk', { uploadId, index: 0, data: bytes.subarray(0, firstSize).toString('base64') });
+      await gate.entered;
+      const retry = pending[1] = api.post('/upload/chunk', { uploadId, index: 0, data: bytes.subarray(0, firstSize === 12 ? 3 : 12).toString('base64') });
+      await arrivals.wait('/upload/chunk', 2);
+      assert.equal(gate.calls(), 1, '同 index 判重必须与追加一同串行');
+      gate.release();
+      for (const ack of await Promise.all([first, retry])) {
+        assert.equal(ack.status, 200);
+        assert.deepEqual(ack.body, { ok: true, received: 1, receivedBytes: firstSize });
+      }
+      assert.equal(gate.calls(), 1, '排队重传不能用旧片数再追加一次');
+      const next = await api.post('/upload/chunk', { uploadId, index: 1, data: Buffer.from('尾').toString('base64') });
+      assert.deepEqual(next.body, { ok: true, received: 2, receivedBytes: firstSize + 3 });
+      const replay = await api.post('/upload/chunk', { uploadId, index: 0, data: bytes.toString('base64') });
+      assert.deepEqual(replay.body, next.body, '旧 ACK 重放须返回当前累计水位');
+      const finish = await api.post('/upload/finish', { uploadId });
+      assert.equal(finish.body.bytes, firstSize + 3);
+      assert.deepEqual(fs.readFileSync(finish.body.path), Buffer.concat([bytes.subarray(0, firstSize), Buffer.from('尾')]));
+    } finally {
+      gate.release();
+      await Promise.allSettled(pending);
+      gate.restore();
+      await api.close();
+      delete process.env.DSH_MOBILE_INBOX;
+    }
+  }
+}
+
+test('v2 大片与缩小片并发同 index：谁先落盘都只追加一次，重复回真实累计字节', { timeout: 10000 }, async (t) => {
+  await sameIndexScenario(t);
+});
+
+test('v2 丢 ACK 后缩片重发：按宿主累计字节继续，不按重发片长错位', { timeout: 10000 }, async (t) => {
+  const inbox = tempDir(t, 'dsh-upload-lost-ack-');
+  const api = await serve(inbox);
+  const gate = holdAppend(inbox);
+  const controller = new AbortController();
+  let first;
+  let retry;
+  try {
+    const begin = await api.post('/upload/begin', { name: 'lost.bin' });
+    const uploadId = begin.body.uploadId;
+    first = fetch(api.base + '/upload/chunk', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ uploadId, index: 0, data: Buffer.from('ABCDEFGHIJKL').toString('base64') }),
+      signal: controller.signal,
+    }).then(() => 'unexpected-ack', (error) => error.name);
+    await gate.entered;
+    controller.abort();
+    assert.equal(await first, 'AbortError');
+    retry = api.post('/upload/chunk', { uploadId, index: 0, data: Buffer.from('ABC').toString('base64') });
+    gate.release();
+    const ack = await retry;
+    assert.deepEqual(ack.body, { ok: true, received: 1, receivedBytes: 12 });
+    await api.post('/upload/chunk', { uploadId, index: 1, data: Buffer.from('MNO').toString('base64') });
+    const finish = await api.post('/upload/finish', { uploadId });
+    assert.equal(fs.readFileSync(finish.body.path, 'utf8'), 'ABCDEFGHIJKLMNO');
+    assert.equal(finish.body.bytes, 15);
+    assert.equal(gate.calls(), 2);
+  } finally {
+    gate.release();
+    await Promise.allSettled([first, retry].filter(Boolean));
+    gate.restore();
+    await api.close();
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+test('finish 排在已接收 chunk 后：包含此前排队片，拒绝收口后的片', { timeout: 10000 }, async (t) => {
+  const inbox = tempDir(t, 'dsh-upload-finish-chunk-');
+  const arrivals = bodyArrivals();
+  const api = await serve(inbox, { onBody: arrivals.onBody });
+  const gate = holdAppend(inbox);
+  const pending = [];
+  try {
+    const begin = await api.post('/upload/begin', { name: 'finish.bin' });
+    const uploadId = begin.body.uploadId;
+    pending[0] = api.post('/upload/chunk', { uploadId, index: 0, data: 'QUFB' });
+    await gate.entered;
+    pending[1] = api.post('/upload/chunk', { uploadId, index: 1, data: 'QkJC' });
+    await arrivals.wait('/upload/chunk', 2);
+    pending[2] = api.post('/upload/finish', { uploadId });
+    await arrivals.wait('/upload/finish', 1);
+    pending[3] = api.post('/upload/chunk', { uploadId, index: 2, data: 'Q0ND' });
+    await arrivals.wait('/upload/chunk', 3);
+    gate.release();
+    const [first, second, finish, late] = await Promise.all(pending);
+    assert.deepEqual(first.body, { ok: true, received: 1, receivedBytes: 3 });
+    assert.deepEqual(second.body, { ok: true, received: 2, receivedBytes: 6 });
+    assert.equal(finish.status, 200);
+    assert.equal(finish.body.bytes, 6);
+    assert.equal(fs.readFileSync(finish.body.path, 'utf8'), 'AAABBB');
+    assert.equal(late.status, 404);
+    assert.equal(gate.calls(), 2);
+  } finally {
+    gate.release();
+    await Promise.allSettled(pending);
+    gate.restore();
+    await api.close();
+    delete process.env.DSH_MOBILE_INBOX;
+  }
+});
+
+test('abort 与过期先于排队重传时：重新取身份，不复活暂存或接受 finish', { timeout: 10000 }, async (t) => {
+  for (const remove of ['abort', 'expiry']) {
+    const inbox = tempDir(t, 'dsh-upload-remove-');
+    const arrivals = bodyArrivals();
+    const api = await serve(inbox, { onBody: arrivals.onBody });
+    const gate = holdAppend(inbox);
+    const pending = [];
+    try {
+      const begin = await api.post('/upload/begin', { name: 'removed.bin' });
+      const uploadId = begin.body.uploadId;
+      pending[0] = api.post('/upload/chunk', { uploadId, index: 0, data: 'QUFB' });
+      await gate.entered;
+      if (remove === 'abort') {
+        pending[1] = api.post('/upload/abort', { uploadId });
+        await arrivals.wait('/upload/abort', 1);
+      } else {
+        pending[1] = sweepExpiredUploads(Date.now() + STAGING_TTL_MS + 1000);
+      }
+      pending[2] = api.post('/upload/chunk', { uploadId, index: 0, data: 'QQ==' });
+      await arrivals.wait('/upload/chunk', 2);
+      gate.release();
+      const [, , retry] = await Promise.all(pending);
+      assert.equal(retry.status, 404);
+      assert.equal((await api.post('/upload/finish', { uploadId })).status, 404);
+      assert.equal(fs.existsSync(path.join(inbox, '.staging', `${uploadId}.part`)), false);
+      assert.equal(gate.calls(), 1);
+    } finally {
+      gate.release();
+      await Promise.allSettled(pending);
+      gate.restore();
+      await api.close();
+      delete process.env.DSH_MOBILE_INBOX;
+    }
+  }
+});
+
+test('v3 仍按连续字节 ACK：乱序补齐、重复、wire 拒绝与 incomplete 均保持', { timeout: 10000 }, async (t) => {
+  const inbox = tempDir(t, 'dsh-upload-bin-ack-');
+  const api = await serve(inbox);
+  try {
+    const begin = await api.post('/upload/begin', { name: 'v3.bin', size: 6, caps: { wire: 'bin' } });
+    const uploadId = begin.body.uploadId;
+    assert.equal(begin.body.wire, 'bin');
+    assert.equal(Object.hasOwn(begin.body, 'receivedBytes'), false, 'v2 能力声明不改变 v3 协商形状');
+    assert.deepEqual((await api.bin(uploadId, 3, Buffer.from('BBB'))).body, { ok: true, received: 0 });
+    const incomplete = await api.post('/upload/finish', { uploadId });
+    assert.equal(incomplete.status, 400);
+    assert.equal(incomplete.body.error.code, 'incomplete');
+    assert.equal(incomplete.body.error.received, 0);
+    const wrongWire = await api.post('/upload/chunk', { uploadId, index: 0, data: 'QUFB' });
+    assert.equal(wrongWire.body.error.code, 'wire-mismatch');
+    assert.deepEqual((await api.bin(uploadId, 0, Buffer.from('AAA'))).body, { ok: true, received: 6 });
+    assert.deepEqual((await api.bin(uploadId, 0, Buffer.from('AAA'))).body, { ok: true, received: 6 });
+    const finish = await api.post('/upload/finish', { uploadId });
+    assert.equal(finish.body.bytes, 6);
+    assert.equal(fs.readFileSync(finish.body.path, 'utf8'), 'AAABBB');
+    const json = await api.post('/upload/begin', { name: 'v2.bin' });
+    const binOnJson = await api.bin(json.body.uploadId, 0, Buffer.from('AAA'));
+    assert.equal(binOnJson.body.error.code, 'wire-mismatch');
+    await api.post('/upload/abort', { uploadId: json.body.uploadId });
+  } finally {
+    await api.close();
     delete process.env.DSH_MOBILE_INBOX;
   }
 });
@@ -517,6 +743,16 @@ function changedUploads(from, to) {
   }, { filename });
   return module.exports;
 }
+
+test('变异：移除 uploadId 串行后，同 index 并发守卫必须失败', { timeout: 10000 }, async (t) => {
+  const mutant = changedUploads('const current = previous.then(action);', 'const current = Promise.resolve().then(action);');
+  await assert.rejects(() => sameIndexScenario(t, mutant), /同 index 判重必须与追加一同串行|排队重传不能用旧片数再追加一次/);
+});
+
+test('变异：累计字节错回片数时，同一 ACK 行为断言必须失败', { timeout: 10000 }, async (t) => {
+  const mutant = changedUploads('job.receivedBytes = job.bytes;', 'job.receivedBytes = job.received;');
+  await assert.rejects(() => sameIndexScenario(t, mutant), /receivedBytes|deep-equal|strictly deep/i);
+});
 
 async function crossVolumeScenario(t, handlers = uploadHandlers, code = 'EXDEV') {
   const inbox = tempDir(t, 'dsh-upload-cross-inbox-');

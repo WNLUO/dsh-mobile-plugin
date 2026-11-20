@@ -1,3 +1,4 @@
+// 验证两路有界字节段、范围头、块序号与空尾兼容。
 'use strict';
 
 /**
@@ -24,6 +25,8 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+const { createRequire } = require('node:module');
+const vm = require('node:vm');
 
 const { handleSessionFile, encryptedLengthOf } = require('../lib/mobile/session-file.js');
 const { handleFileRead } = require('../lib/mobile/file-read.js');
@@ -63,7 +66,7 @@ async function serve(options) {
   const server = http.createServer((req, res) => {
     // `req.__dshE2ee` 平时由 `createGuarded` 解封时挂上，这里直接画上同一个形状。
     if (opened) req.__dshE2ee = opened;
-    const handler = req.url === SESSION_FILE ? handleSessionFile : handleFileRead;
+    const handler = req.url === SESSION_FILE ? (options.sessionHandler || handleSessionFile) : handleFileRead;
     Promise.resolve(handler(ctx, req, res)).catch((error) => {
       if (res.headersSent || res.writableEnded) {
         try { res.destroy(); } catch { /* 连接已关闭 */ }
@@ -143,19 +146,20 @@ function decodeChunks(raw, { seqStart = 1, route = SESSION_FILE } = {}) {
 /** 一份跨多个块边界的测试文件内容：每个字节都不一样，按段比才比得出错位。 */
 function contentOf(size) {
   const buf = Buffer.alloc(size);
-  for (let i = 0; i < size; i += 1) buf[i] = (i * 31 + 7) & 0xff;
+  for (let i = 0; i < size; i += 1) buf[i] = (i * 31 + Math.floor(i / FILE_CHUNK_BYTES) * 17 + 7) & 0xff;
   return buf;
 }
 
 /** 加密档的一份响应头契约（offset 段）。 */
-function assertEncryptedHeaders(res, { size, offset, contentType = 'application/octet-stream' }) {
+function assertEncryptedHeaders(res, { size, offset, length = size - offset, contentType = 'application/octet-stream' }) {
   assert.equal(res.status, 200);
   assert.equal(res.type, 'application/x-dsh-e2ee-chunks');
   assert.equal(res.headers.get('x-dsh-proto'), '2');
   assert.equal(res.headers.get('x-dsh-file-size'), String(size));
   assert.equal(res.headers.get('x-dsh-range-start'), String(offset));
+  assert.equal(res.headers.get('x-dsh-range-length'), String(length));
   assert.equal(res.headers.get('x-dsh-content-type'), contentType);
-  assert.equal(Number(res.headers.get('content-length')), encryptedLengthOf(size - offset));
+  assert.equal(Number(res.headers.get('content-length')), encryptedLengthOf(length));
   assert.equal(res.bytes.length, Number(res.headers.get('content-length')), '实收字节数要与 content-length 相等');
 }
 
@@ -287,4 +291,146 @@ test('加密档：offset === size 回一个空的尾块', async (t) => {
     assert.equal(decoded.blocks, 1, '空尾块也要发出来，客户端据此确认「到头了」');
     assert.equal(decoded.plain.length, 0);
   });
+});
+
+function assertRangeHeaders(res, size, offset, length) {
+  assert.equal(res.headers.get('x-dsh-file-size'), String(size));
+  assert.equal(res.headers.get('x-dsh-range-start'), String(offset));
+  assert.equal(res.headers.get('x-dsh-range-length'), String(length));
+}
+
+test('length 校验：坏值与非 EOF 不对齐段均 bad-length，两路明密文一致', async (t) => {
+  const dir = await workspace(t);
+  await fs.writeFile(path.join(dir, 'blob.bin'), contentOf(3 * 1024 * 1024 + 7));
+  for (const encrypted of [false, true]) {
+    await withHost({ cwd: dir, e2ee: encrypted }, async (host) => {
+      for (const length of [null, 0, -1, 1.5, '65536', true, {}, 2 * 1024 * 1024 + 1, Number.MAX_SAFE_INTEGER + 1, 1, FILE_CHUNK_BYTES + 1]) {
+        for (const res of [
+          await host.sessionFile({ path: 'blob.bin', offset: FILE_CHUNK_BYTES, length }),
+          await host.fileRead({ path: path.join(dir, 'blob.bin'), offset: FILE_CHUNK_BYTES, length }),
+        ]) {
+          assert.equal(res.status, 400, `length=${JSON.stringify(length)}`);
+          assert.equal(res.body.error.code, 'bad-length');
+        }
+      }
+    });
+  }
+});
+
+async function firstSegmentScenario(t, sessionHandler = handleSessionFile) {
+  const dir = await workspace(t);
+  const length = 2 * 1024 * 1024;
+  const content = contentOf(length + FILE_CHUNK_BYTES + 17);
+  await fs.writeFile(path.join(dir, 'blob.bin'), content);
+  for (const encrypted of [false, true]) {
+    await withHost({ cwd: dir, e2ee: encrypted, sessionHandler }, async (host) => {
+      const routes = [
+        { request: (body) => host.sessionFile({ path: 'blob.bin', ...body }), route: SESSION_FILE },
+        { request: (body) => host.fileRead({ path: path.join(dir, 'blob.bin'), ...body }), route: FILE_READ },
+      ];
+      for (const { request, route } of routes) {
+        for (const body of [{ offset: 0, length }, { length }]) {
+          const res = await request(body);
+          assertRangeHeaders(res, content.length, 0, length);
+          if (encrypted) {
+            assertEncryptedHeaders(res, { size: content.length, offset: 0, length });
+            const decoded = decodeChunks(res.bytes, { route });
+            assert.equal(decoded.blocks, length / FILE_CHUNK_BYTES + 1, '满段仍有认证尾块');
+            assert.deepEqual(decoded.plain, content.subarray(0, length));
+          } else {
+            assert.equal(res.status, 206);
+            assert.equal(res.headers.get('content-range'), `bytes 0-${length - 1}/${content.length}`);
+            assert.equal(res.bytes.length, length);
+            assert.deepEqual(res.bytes, content.subarray(0, length));
+          }
+        }
+        for (const body of [{}, { offset: FILE_CHUNK_BYTES }]) {
+          const offset = body.offset || 0;
+          const res = await request(body);
+          const plain = encrypted ? decodeChunks(res.bytes, { route, seqStart: offset / FILE_CHUNK_BYTES + 1 }).plain : res.bytes;
+          assert.equal(res.status, encrypted || offset === 0 ? 200 : 206);
+          assertRangeHeaders(res, content.length, offset, content.length - offset);
+          assert.deepEqual(plain, content.subarray(offset), '省略 length 不得被 2MiB 上限截短');
+        }
+      }
+    });
+  }
+}
+
+test('首段最多 2MiB：两路只回本段，旧无 length 仍回全量或 offset 到尾', async (t) => {
+  await firstSegmentScenario(t);
+});
+
+test('变异：忽略 length 后，首段只取 2MiB 的同一行为断言必须失败', async (t) => {
+  const filename = require.resolve('../lib/mobile/session-file.js');
+  const source = await fs.readFile(filename, 'utf8');
+  const changed = source.replace('const length = hasLength ? Math.min(rawLength, size - offset) : size - offset;', 'const length = size - offset;');
+  assert.notEqual(changed, source, '变异必须真的替换到实现');
+  const module = { exports: {} };
+  vm.runInNewContext(changed, { module, exports: module.exports, require: createRequire(filename), Buffer, process }, { filename });
+  await assert.rejects(() => firstSegmentScenario(t, module.exports.handleSessionFile), /2097152|Expected values/);
+});
+
+test('有界中段与 EOF 短尾：两路 AAD 接续、content-range 与实际段长相符', async (t) => {
+  const dir = await workspace(t);
+  const content = contentOf(FILE_CHUNK_BYTES * 4 + 123);
+  await fs.writeFile(path.join(dir, 'blob.bin'), content);
+  for (const encrypted of [false, true]) {
+    await withHost({ cwd: dir, e2ee: encrypted }, async (host) => {
+      for (const { request, route } of [
+        { request: (body) => host.sessionFile({ path: 'blob.bin', ...body }), route: SESSION_FILE },
+        { request: (body) => host.fileRead({ path: path.join(dir, 'blob.bin'), ...body }), route: FILE_READ },
+      ]) {
+        for (const [offset, requested, length] of [
+          [FILE_CHUNK_BYTES, FILE_CHUNK_BYTES * 2, FILE_CHUNK_BYTES * 2],
+          [FILE_CHUNK_BYTES * 4, FILE_CHUNK_BYTES, 123],
+          [FILE_CHUNK_BYTES * 4, 123, 123],
+        ]) {
+          const res = await request({ offset, length: requested });
+          assertRangeHeaders(res, content.length, offset, length);
+          if (encrypted) {
+            assertEncryptedHeaders(res, { size: content.length, offset, length });
+            const decoded = decodeChunks(res.bytes, { route, seqStart: offset / FILE_CHUNK_BYTES + 1 });
+            assert.deepEqual(decoded.plain, content.subarray(offset, offset + length));
+            assert.equal(decoded.blocks, Math.floor(length / FILE_CHUNK_BYTES) + 1);
+            assert.throws(() => decodeChunks(res.bytes, { route }), /unable to authenticate|bad decrypt|Unsupported state/i);
+          } else {
+            assert.equal(res.status, 206);
+            assert.equal(res.headers.get('content-range'), `bytes ${offset}-${offset + length - 1}/${content.length}`);
+            assert.equal(Number(res.headers.get('content-length')), length);
+            assert.deepEqual(res.bytes, content.subarray(offset, offset + length));
+          }
+        }
+      }
+    });
+  }
+});
+
+test('显式 length 到合法空尾：两路明文空体，加密仍有一块认证尾', async (t) => {
+  const dir = await workspace(t);
+  for (const size of [0, FILE_CHUNK_BYTES * 2]) {
+    await fs.writeFile(path.join(dir, `blob-${size}.bin`), contentOf(size));
+    for (const encrypted of [false, true]) {
+      await withHost({ cwd: dir, e2ee: encrypted }, async (host) => {
+        for (const { request, route } of [
+          { request: () => host.sessionFile({ path: `blob-${size}.bin`, offset: size, length: FILE_CHUNK_BYTES }), route: SESSION_FILE },
+          { request: () => host.fileRead({ path: path.join(dir, `blob-${size}.bin`), offset: size, length: FILE_CHUNK_BYTES }), route: FILE_READ },
+        ]) {
+          const res = await request();
+          assertRangeHeaders(res, size, size, 0);
+          if (encrypted) {
+            assertEncryptedHeaders(res, { size, offset: size, length: 0 });
+            const decoded = decodeChunks(res.bytes, { route, seqStart: size / FILE_CHUNK_BYTES + 1 });
+            assert.equal(decoded.blocks, 1);
+            assert.equal(decoded.plain.length, 0);
+          } else {
+            assert.equal(res.status, 206);
+            assert.equal(res.headers.get('content-range'), `bytes */${size}`);
+            assert.equal(res.headers.get('content-length'), '0');
+            assert.equal(res.bytes.length, 0);
+          }
+        }
+      });
+    }
+  }
 });
