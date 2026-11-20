@@ -80,6 +80,44 @@ test('总控客户端：加密上送全部地址、拿令牌落盘、变化推 u
   assert.ok(urls.some((u) => u.includes('token=tok-1')), '重连 URL 应带上令牌');
 });
 
+test('总控客户端：状态晚于建客户端注入时，注册仍要带上已落盘令牌（稳定外壳场景）', async (t) => {
+  const { WebSocketServer } = require('ws');
+  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  await new Promise((resolve) => server.once('listening', resolve));
+  const port = server.address().port;
+
+  process.env.DSH_CONTROL_URL = `http://127.0.0.1:${port}`;
+  delete require.cache[require.resolve('../lib/relay/control.js')];
+  const { createControlClient } = require('../lib/relay/control.js');
+
+  const urls = [];
+  server.on('connection', (ws, req) => {
+    urls.push(req.url);
+    ws.on('message', () => {
+      try { ws.send(JSON.stringify({ type: 'registered', instanceId: 'inst-x', token: 'tok-1' })); } catch {}
+    });
+  });
+
+  // 复刻 shell/transport-host.js：control 客户端先用空 providers 建好，稍后才注入真状态。
+  let state = {};
+  const client = createControlClient({
+    getState: () => state,
+    persist: () => {},
+    getPort: () => 0,
+    getHistoryKey: () => HK,
+    getAddresses: () => [{ kind: 'relay', url: 'https://relay.example' }],
+  });
+  t.after(() => { client.stop(); server.close(); });
+
+  state = { enabled: true, instanceId: 'inst-x', controlToken: 'tok-persisted' };
+  client.start();
+  await waitFor(() => urls.length >= 1);
+  assert.ok(
+    urls[0].includes('token=tok-persisted'),
+    `注册 URL 应带上注入后的已落盘令牌，实际为 ${urls[0]}`,
+  );
+});
+
 test('总控客户端：被服务端拒绝时退避递增，不会每秒硬撞', async (t) => {
   const { WebSocketServer } = require('ws');
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
