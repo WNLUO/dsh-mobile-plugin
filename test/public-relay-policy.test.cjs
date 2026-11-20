@@ -94,21 +94,13 @@ test('接线：配置写入点真调用了剔除，status 补了标志', () => {
   assert.match(mobile, /const \{ relayAddressesOf, publicRelayBlocked \} = require\('\.\.\/relay\/core\.js'\)/, '判据仍只走 core 那一处');
 });
 
-// ── 老设备补齐：纯公用、只配了第一台 → 读盘时补成整份内置清单（2026-11-19 用户口径） ──
+// ── 老设备补齐：纯公用、缺公用地址 → 读盘时补成整份内置清单（2026-11-19 用户口径） ──
 
-test('补齐：只配了第一台内置公用中转 → 补成整份，主用不动', () => {
+test('补齐：内置只有一台，配了它就是齐全，不做改动', () => {
   const state = { relayUrl: PUBLIC, relayUrls: [PUBLIC] };
-  assert.equal(core.expandDefaultPublicRelays(state), true);
-  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS], '补成整份内置清单，第一台照旧在首位');
+  assert.equal(core.expandDefaultPublicRelays(state), false);
+  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS]);
   assert.equal(state.relayUrl, PUBLIC, 'relayUrl 恒为首项');
-});
-
-test('补齐：只配了内置清单里的两条 → 追加缺的那台，原顺序保留在前', () => {
-  const [a, b, c] = core.PUBLIC_RELAY_URLS;
-  const state = { relayUrl: b, relayUrls: [b, a] };
-  assert.equal(core.expandDefaultPublicRelays(state), true);
-  assert.deepEqual(state.relayUrls, [b, a, c], '原有顺序在前，缺的补在后面');
-  assert.equal(state.relayUrl, b);
 });
 
 test('补齐：有自建中转就不动（不归这管）', () => {

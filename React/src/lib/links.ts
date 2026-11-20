@@ -91,8 +91,6 @@ export const DOWNLOAD_CHANNELS: { platform: DownloadPlatform; channels: Download
  */
 export const PUBLIC_RELAYS: { nameKey: string; url: string }[] = [
   { nameKey: 'panel.links.publicRelay', url: 'https://ai-hub-de-1.wnluo.com' },
-  { nameKey: 'panel.links.publicRelay', url: 'https://dsh.iouf.cn' },
-  { nameKey: 'panel.links.publicRelay', url: 'https://dsh.yfyidc.cn' },
 ]
 
 /** 列表里的第一条：没有任何偏好时的默认选择。 */
