@@ -75,3 +75,11 @@ test('远程电脑候选按 lanAvailable 谓词产出局域网/IPv6，与手机�
   const stopped = routesOf({ state, lanPortInUse: () => 0, lanAvailable: () => false, interfaces });
   assert.ok(!stopped.some(row => row.channel === 'ipv6'));
 });
+test('「TCP 直连」目标成为远程电脑的一条候选线路', () => {
+  const state = { enabled: true, relayUrl: 'https://relay.test', relayUrls: ['https://relay.test'], manualTcpUrl: '203.0.113.9:51543' };
+  const rows = routesOf({ state, lanPortInUse: () => 0, lanAvailable: () => false });
+  assert.deepEqual(rows.find((row) => row.channel === 'tcp'), { url: 'http://203.0.113.9:51543', channel: 'tcp' });
+  // 没填就不产出 tcp，别凭空造一条。
+  const without = routesOf({ state: { ...state, manualTcpUrl: '' }, lanPortInUse: () => 0, lanAvailable: () => false });
+  assert.ok(!without.some((row) => row.channel === 'tcp'));
+});
