@@ -110,6 +110,29 @@ test('启动等待忽略状态帧，超时后迟到 ready 不会复活旧端口'
   assert.equal(h.facade.child, null)
 })
 
+test('生命周期卸载时停止失败写入错误状态，不遗留未处理拒绝', async () => {
+  const lifecycleFile = require.resolve('../lib/sidecar-lifecycle.cjs')
+  const anchored = createRequire(lifecycleFile)
+  const loaded = { exports: {} }
+  class FakeFacade {
+    async start() {}
+    async configure() { return { tunnel: { state: 'off' }, lan: { state: 'off' } } }
+    async stop() { throw new Error('old worker still running') }
+  }
+  new Function('require', 'module', 'exports', '__dirname', 'setInterval', 'clearInterval', readFileSync(lifecycleFile, 'utf8'))(
+    name => name === './sidecar-facade.cjs' ? { SidecarFacade: FakeFacade } : anchored(name),
+    loaded, loaded.exports, require('node:path').dirname(lifecycleFile), () => 1, () => {},
+  )
+  const lifecycle = loaded.exports.createSidecarLifecycle({ ctx: { webServer: { port: 1234 } } })
+  const dispose = lifecycle.start()
+  await new Promise(setImmediate)
+  dispose()
+  await new Promise(setImmediate)
+  assert.equal(lifecycle.getState(), 'error: old worker still running')
+  await lifecycle.stop()
+  assert.equal(lifecycle.getSnapshot().lan.error, 'old worker still running')
+})
+
 test('变异：强杀后直接宣布停止，会被同一退出断言拒绝', async () => {
   const before = "        kill('SIGKILL')"
   assert.ok(source.includes(before))
