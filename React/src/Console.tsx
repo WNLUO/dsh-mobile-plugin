@@ -15,6 +15,7 @@
  */
 // 控制台按实际状态报告就绪，FRP 随父窗保存，地址读取错误可独立重试。
 // 2026-11-20：连接自检也接这条轮询的状态指纹，连接状态一变就重查，结论显示在连接卡里。
+// 2026-11-20 用户要求：顶栏不再写设备名，只留状态点与版本徽标。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -407,7 +408,6 @@ export function Console() {
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {tone ? <Dot tone={tone} /> : null}
-          <span className="truncate text-sm font-medium text-foreground">{status.name || status.instanceId}</span>
           <Badge variant="soft" size="sm">
             {status.appVersion || t('panel.shell.unknownVersion')}
           </Badge>

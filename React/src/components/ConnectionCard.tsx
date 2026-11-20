@@ -1,5 +1,6 @@
 // 复用现有状态行和按钮展示 FRP 运行、恢复与主动停用入口。
 // 2026-11-20：连接自检以一行短结论回到这张卡（由控制台按 status 指纹重查后传入）。
+// 2026-11-20 用户要求：去掉「设备名」「实例 ID」两行与 TCP 直连的地址。
 /**
  * 主页右栏「连接状态」卡：远程控制一颗开关 + 只读事实。
  *
@@ -104,29 +105,25 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp,
   const tcpTarget = (addressBook?.manualTcp ?? '').trim()
   // 本地 frpc 进程跑没跑（宿主 status.frp）。配了地址不等于通了——只有进程真在跑才算这条活了。
   const frp = status.frp ?? null
+  // 这一行只说这条通道活没活，**不摆地址**（2026-11-20 用户要求删）：公网 IP 与端口在
+  // 面板上念一遍没有用途，要查去网络配置里看。
   let tcpTone: Tone
   let tcpText: string
-  let tcpDetail: string | undefined
   if (frp?.running) {
     tcpTone = 'ok'
     tcpText = t('panel.connection.tcpRunning')
-    tcpDetail = frp.remoteAddress || tcpTarget || undefined
   } else if (frp?.starting || frp?.retrying) {
     tcpTone = 'warn'
     tcpText = t('panel.frp.retrying')
-    tcpDetail = frp.error || undefined
   } else if (frp?.error) {
     tcpTone = 'error'
     tcpText = t('panel.connection.tcpFailed')
-    tcpDetail = frp.error
   } else if (tcpTarget) {
     tcpTone = 'warn'
     tcpText = t('panel.connection.tcpSet')
-    tcpDetail = tcpTarget
   } else {
     tcpTone = 'off'
     tcpText = t('panel.connection.tcpOff')
-    tcpDetail = undefined
   }
 
   return (
@@ -147,10 +144,6 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp,
       </label>
 
       <InfoList>
-        <InfoRow label={t('panel.connection.deviceName')}>{status.name || '—'}</InfoRow>
-        <InfoRow label={t('panel.connection.instanceId')} mono>
-          {status.instanceId || '—'}
-        </InfoRow>
         <InfoRow label={t('panel.connection.platform')}>
           {status.platform} {status.osVersion} · {status.arch}
         </InfoRow>
@@ -199,7 +192,7 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp,
           labelExtra={frp?.error ? <IssueMark issue={{ title: t('panel.connection.tcp'), detail: frp.error }} /> : undefined}
         >
           <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
-            <ToneValue tone={tcpTone} text={tcpText} {...(frp?.error ? {} : tcpDetail ? { detail: tcpDetail } : {})} />
+            <ToneValue tone={tcpTone} text={tcpText} />
             {frp && (frp.enabled || frp.running || frp.starting || frp.retrying || (frp.enabled === undefined && frp.configPresent)) ? (
               <Button variant="ghost" size="sm" disabled={busy !== ''} onClick={onStopFrp}>{t('panel.frp.stop')}</Button>
             ) : null}

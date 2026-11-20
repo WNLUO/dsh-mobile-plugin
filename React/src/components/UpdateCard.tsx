@@ -25,6 +25,7 @@
  * 单独用的场合。卡里的动作按钮都是纯文字按钮，颜色走主题 token，日夜间自动适配。
  * 2026-11-20 用户要求：版本信息挪到整卡左列，这张卡只留更新动作与检查结果。
  */
+// 2026-11-20 用户要求：自动更新开关不再按安装来源隐藏，开发台上也摆出来（配一句实情）。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -386,26 +387,29 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
       {hostMode && host ? (
         <>
           {/* 开关。放在信息行上面：它是这张卡唯一会被改的东西，先说清楚它在干什么。
-              本地来源（link: / file: / workspace:）时整颗开关不摆 —— 自动更新走的是同一条
-              「装注册表版」的路，开着它等于让后台自己把开发版覆盖掉，而这台恰恰不该这么装。 */}
-          {localSource ? null : (
-            <label className="mt-1 flex items-start justify-between gap-4 border-b border-border-muted py-3">
-              <span className="min-w-0">
-                <span className="block text-sm text-foreground">{t('panel.update.autoUpdate')}</span>
-                <span className="mt-1 block text-xs text-foreground-muted">{t('panel.update.autoDefaultHint')}</span>
-              </span>
-              <span className="flex shrink-0 items-center gap-2">
-                {savingAuto ? <Spinner /> : null}
-                <Switch
-                  size="md"
-                  checked={host.autoUpdate}
-                  disabled={idle || savingAuto}
-                  onCheckedChange={(next) => void flipAuto(next)}
-                  aria-label={t('panel.update.autoUpdate')}
-                />
-              </span>
-            </label>
-          )}
+              本地来源（link: / file: / workspace:）时**照样摆**（2026-11-20 用户要求）：
+              开发台上也得看得见、调得了这颗开关，不然没法验证这块的手感。自动更新在那种
+              机器上装不动（市场只认注册表来源），所以本行下面补一句实情，而不是让开关
+              看起来像能用。 */}
+          <label className="mt-1 flex items-start justify-between gap-4 border-b border-border-muted py-3">
+            <span className="min-w-0">
+              <span className="block text-sm text-foreground">{t('panel.update.autoUpdate')}</span>
+              <span className="mt-1 block text-xs text-foreground-muted">{t('panel.update.autoDefaultHint')}</span>
+              {localSource ? (
+                <span className="mt-1 block text-xs text-foreground-muted">{t('panel.update.autoLocalSource')}</span>
+              ) : null}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              {savingAuto ? <Spinner /> : null}
+              <Switch
+                size="md"
+                checked={host.autoUpdate}
+                disabled={idle || savingAuto}
+                onCheckedChange={(next) => void flipAuto(next)}
+                aria-label={t('panel.update.autoUpdate')}
+              />
+            </span>
+          </label>
 
           {/* 版本对不上已收进「运行中版本」那行的感叹号，这里不再铺段落。 */}
 
