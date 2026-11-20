@@ -3,7 +3,7 @@
 // 线路检测每行带上 host:port 区分同通道的两条；窗口开着时改挡位单独说明重新打开后生效。
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
-import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
+import { Card } from '@appica/ui-react/card'
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@appica/ui-react/dialog'
 import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Radio } from '@appica/ui-react/radio'
@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../lib/api.ts'
 import { pageVisible } from '../lib/embed-visibility.ts'
+import { PanelWindowActions } from './PanelWindowActions.tsx'
 import { t } from '../lib/i18n/index.ts'
 import { useNotify } from '../lib/notify.ts'
 import {
@@ -228,9 +229,10 @@ export function RemoteComputersCard() {
   const modeBusy = modeDevice !== null && isBusy(`mode:${modeDevice.id}`)
 
   return (
-    <Card frame="solid" className="flex h-full min-h-0 flex-col">
-      <CardHeader className="flex-none px-4 py-3">
-        <CardTitle className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base lg:text-lg">
+    <>
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-lg font-semibold text-foreground-strong">{t('panel.remote.title')}</h1>
+        <div className="flex flex-wrap items-center gap-1">
           {available ? (
             <span className="flex flex-wrap items-center gap-1.5">
               <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm xl:before:border xl:before:border-border xl:before:bg-background" disabled={isBusy('invite')} onClick={generateInvite}>
@@ -241,9 +243,11 @@ export function RemoteComputersCard() {
               </Button>
             </span>
           ) : null}
-        </CardTitle>
-      </CardHeader>
-      {available ? <p className="mt-2 text-xs leading-5 text-foreground-muted">{t('panel.remote.hint')}</p> : null}
+          <PanelWindowActions />
+        </div>
+      </header>
+      <Card frame="solid" className="flex h-full min-h-0 flex-col">
+        {available ? <p className="mt-2 text-xs leading-5 text-foreground-muted">{t('panel.remote.hint')}</p> : null}
       {!settled ? (
         <div className="flex items-center gap-2 py-2 text-sm text-foreground-muted">
           <Spinner />{t('panel.shell.readingStatus')}
@@ -402,6 +406,7 @@ export function RemoteComputersCard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+      </Card>
+    </>
   )
 }
