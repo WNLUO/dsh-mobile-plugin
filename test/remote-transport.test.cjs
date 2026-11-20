@@ -1,4 +1,4 @@
-// 真实流验证端到端身份、密钥保密、到期与流式背压。
+// 真实 HTTP/WS 响应验证加密传输边界与有证据的环境诊断。
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -243,5 +243,26 @@ test('握手信令版本号是数字但不等于1时报版本不兼容', { timeo
     for (const ws of wss.clients) ws.terminate();
     await new Promise((resolve) => wss.close(resolve));
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+
+test('配对和升级的407或HTML给出真实诊断，不回显响应且不误称门户', deadline, async () => {
+  for (const [status, type, body, expected] of [
+    [407, 'text/plain', 'private proxy challenge', 'REMOTE_PROXY'],
+    [200, 'text/html', '<html>private login page</html>', 'REMOTE_INTERCEPTED'],
+  ]) {
+    const server = http.createServer((req, res) => {
+      req.resume(); req.on('end', () => { res.writeHead(status, { 'content-type': type }); res.end(body); });
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const route = { url: `http://127.0.0.1:${server.address().port}`, channel: 'relay' };
+    const binding = { instanceId: 'a', deviceId: 'b', keyId: '0123456789abcdef', deviceKey: c.random(), credential: 'private' };
+    const invite = { type: 'dsh-computer', version: 1, instanceId: 'a', name: 'a', ticketId: c.random(16), ticket: c.random(), expiresAt: Date.now() + 10000, routes: [route] };
+    try {
+      for (const attempt of [() => pairComputer(invite), () => probeRemote(binding, route)]) {
+        await assert.rejects(attempt, error => error.code === expected && !error.message.includes('private') && !/portal/i.test(error.message));
+      }
+    } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
   }
 });

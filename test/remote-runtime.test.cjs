@@ -1,3 +1,4 @@
+// 实际装配与 IPv6 候选必须对应真实监听端口。
 'use strict';
 // 实际装配使用真实凭据库/Host/Controller，验证入口存在、生成邀请及卸载释放。
 const test = require('node:test');
@@ -68,4 +69,9 @@ test('远程电脑候选按 lanAvailable 谓词产出局域网/IPv6，与手机�
   assert.ok(rows.some((row) => row.channel === 'lan'));
   assert.ok(rows.some((row) => row.channel === 'ipv6'));
   assert.ok(rows.some((row) => row.channel === 'relay'));
+  const independent = routesOf({ state, lanPortInUse: () => 18787, lanAvailable: () => false, interfaces });
+  assert.ok(independent.some(row => row.channel === 'ipv6'));
+  assert.ok(!independent.some(row => row.channel === 'lan'));
+  const stopped = routesOf({ state, lanPortInUse: () => 0, lanAvailable: () => false, interfaces });
+  assert.ok(!stopped.some(row => row.channel === 'ipv6'));
 });

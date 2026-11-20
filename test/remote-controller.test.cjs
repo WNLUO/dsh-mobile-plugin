@@ -1,4 +1,4 @@
-// 控制器绑定、租期与模式持久化使用异步真实接口。
+// 控制器保留环境诊断，助手换代只收回隧道事实并维持租期。
 'use strict';
 
 const test = require('node:test');
@@ -48,7 +48,7 @@ async function fixture(t, options = {}) {
       return { stream, host: { port: target.address().port, token: 'launch-secret' } };
     },
   };
-  const controller = createRemoteController({ store, transport, name: '本机', tunnels: { routesFor: async () => [], close: async (id) => state.closes.push(id) }, onBindingsChanged: options.onBindingsChanged });
+  const controller = createRemoteController({ store, transport, name: '本机', tunnels: options.tunnels || { routesFor: async () => [], close: async (id) => state.closes.push(id) }, onBindingsChanged: options.onBindingsChanged });
   t.after(async () => { await controller.close(); for (const socket of sockets) socket.destroy(); target.close(); });
   await controller.add('invite');
   return { controller, store, state, binding };
@@ -177,4 +177,25 @@ test('绑定增删后触发 onBindingsChanged，让局域网监听随远程电�
   assert.equal(calls, 2, '再次 add 也要联动');
   await f.controller.remove('A');
   assert.equal(calls, 3, 'remove 也要联动');
+});
+
+
+test('助手恢复主动重建候选，已停止设备不复活，真实环境码可见', async t => {
+  let change; let starts = 0;
+  const tunnels = { onChange(fn) { change = fn; return () => { change = null; }; },
+    routesFor: async () => [{ channel: 'tunnel', url: 'http://127.0.0.1:49999' }],
+    refresh: async () => { starts++; return []; }, close: async () => {} };
+  const f = await fixture(t, { tunnels });
+  await browser(f.controller);
+  await new Promise(setImmediate);
+  change({ ready: false }); change({ ready: true });
+  await new Promise(setImmediate);
+  assert.ok(starts > 0);
+  for (const code of ['REMOTE_PROXY', 'REMOTE_INTERCEPTED', 'REMOTE_PROXY_CONFIGURED']) {
+    f.state.failure = Object.assign(new Error('private response body'), { code });
+    const row = await f.controller.probe('A');
+    assert.equal(row.lastErrorCode, code);
+    assert.ok(row.lastError && !row.lastError.includes('private'));
+  }
+  await f.controller.close(); assert.equal(change, null);
 });

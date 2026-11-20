@@ -1,4 +1,4 @@
-// 桌面助手 RPC 守卫：并发关联、旧版本降级、超时与关闭清理，错误不回显私钥。
+// 桌面助手 RPC 守卫：退避重拉、代次通知与旧助手退出清理。
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -110,4 +110,26 @@ test('单设备请求超时排队清理该设备，关闭拒绝未完成请求',
   await new Promise(resolve => setImmediate(resolve));
   const rejected = assert.rejects(pending, /remote-helper-closed/);
   await helper.close(); await rejected;
+});
+
+
+test('意外退出退避重拉且通知新代次，关闭后取消重拉', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const children = []; const states = [];
+  const helper = createRemoteTunnelHelper({ resolve: () => 'helper', spawn: () => {
+    const proc = fakeProcess({ command(proc, command) { reply(proc, command, { path: 'direct' }); } });
+    children.push(proc); return proc;
+  } });
+  helper.onChange(state => states.push(state));
+  await helper.request('remoteP2PPath', { deviceId: 'a' });
+  children[0].exit();
+  assert.equal(helper.status().running, false);
+  assert.equal(helper.status().restarting, true);
+  await assert.rejects(helper.request('remoteP2PPath', { deviceId: 'a' }), /remote-helper-restarting/);
+  t.mock.timers.tick(999); assert.equal(children.length, 1);
+  t.mock.timers.tick(1); await new Promise(setImmediate);
+  assert.equal(children.length, 2);
+  assert.ok(states.some(state => state.ready && state.generation === 2));
+  children[1].exit(); await helper.close();
+  t.mock.timers.tick(30000); assert.equal(children.length, 2);
 });

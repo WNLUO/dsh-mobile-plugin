@@ -1,3 +1,4 @@
+// 身份重启、空状态与单 peer 收尾的真实 IPC 守卫。
 'use strict';
 
 /**
@@ -13,6 +14,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { test } = require('node:test');
+const { EventEmitter } = require('node:events');
+const { PassThrough, Writable } = require('node:stream');
 
 const { createTailcatHost } = require('../lib/tailcat/host-process.cjs');
 
@@ -107,4 +110,45 @@ test('给这两个事件开的口子不能变成「什么都收」（别的键�
     event: 'p2pStatus', running: true, url: 'http://x', path: 'direct', active: true, detail: '', candidates: [], peerKey: 'phone-a', extra: 'nope',
   }, 'p2pStatus');
   assert.equal(polluted, undefined, '多出 peerKey 之外的键必须整条丢掉');
+});
+
+
+function processFixture() {
+  const proc = new EventEmitter();
+  proc.exitCode = null;
+  proc.stdout = new PassThrough();
+  proc.commands = [];
+  proc.stdin = new Writable({ write(chunk, _encoding, done) {
+    proc.commands.push(JSON.parse(String(chunk))); done();
+  } });
+  proc.reply = value => proc.stdout.write(`${JSON.stringify(value)}\n`);
+  proc.kill = () => { proc.exitCode = 1; proc.emit('exit', 1); };
+  proc.stdin.on('finish', proc.kill);
+  return proc;
+}
+
+test('重启使用存储当前身份和名单，单peer停止带公钥且空状态能穿过', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const children = [];
+  const events = [];
+  const state = { identity: null, allowed: [] };
+  const host = createTailcatHost({ localPort: 19000, state: null, allowedClients: [],
+    readState: () => state, resolve: () => 'helper',
+    spawn: () => { const proc = processFixture(); children.push(proc); return proc; },
+    onEvent: event => { events.push(event); if (event.event === 'persist') host.ack(event.id, true); },
+  });
+  host.start();
+  children[0].reply({ event: 'persist', id: '1', state: 'identity-a', allowedClients: ['old'] });
+  state.identity = 'identity-a'; state.allowed = ['new']; host.setAllowed(['new']);
+  children[0].kill(); t.mock.timers.tick(1000);
+  assert.equal(children.length, 2);
+  assert.equal(children[1].commands[0].state, 'identity-a');
+  assert.deepEqual(children[1].commands[0].allowedClients, ['new']);
+  host.stopP2P('phone-b');
+  assert.deepEqual(children[1].commands.at(-1), { command: 'p2pStop', p2pPeerKey: 'phone-b' });
+  children[1].reply({ event: 'p2pStopped', peerKey: 'phone-b' });
+  children[1].reply({ event: 'p2pStatus', running: false });
+  assert.ok(events.some(event => event.event === 'p2pStopped' && event.peerKey === 'phone-b'));
+  assert.deepEqual(events.at(-1), { event: 'p2pStatus', running: false, url: '', path: 'unknown', active: false, detail: '', candidates: [] });
+  await host.close();
 });

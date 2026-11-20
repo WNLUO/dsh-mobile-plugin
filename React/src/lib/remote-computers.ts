@@ -1,4 +1,4 @@
-/** 远程电脑控制面契约、访问租期与打开方式。 */
+/** 远程电脑控制契约与有证据的网络、助手恢复诊断。 */
 // 2026-11-19：回退浏览器时把「没装桌面端」和「壳没起来」分开标记，前者单独提示；新增错误码补上词条映射。
 import { ApiError, apiGet, apiPost } from './api.ts'
 import { t } from './i18n/index.ts'
@@ -55,6 +55,8 @@ export function remoteErrorText(error: unknown): string {
   const keys: Record<string, string> = {
     'credentials-unavailable': 'errorAuth', REMOTE_AUTH: 'errorAuth', REMOTE_REVOKED: 'errorAuth',
     REMOTE_EXPIRED: 'errorExpired', REMOTE_TIMEOUT: 'errorTimeout', REMOTE_CONNECT: 'errorConnect',
+    REMOTE_PROXY: 'errorProxy', REMOTE_PROXY_CONFIGURED: 'errorProxyConfigured',
+    REMOTE_INTERCEPTED: 'errorIntercepted', REMOTE_HELPER_RESTARTING: 'errorHelperRestarting',
     REMOTE_INVITATION: 'errorInvitation', REMOTE_OPEN_URL: 'invalidOpenUrl',
     REMOTE_POPUP: 'popupBlocked', REMOTE_EXTERNAL_OPEN: 'externalOpenFailed',
     REMOTE_VERSION: 'errorVersion', SHELL_UNAVAILABLE: 'shellUnavailable',

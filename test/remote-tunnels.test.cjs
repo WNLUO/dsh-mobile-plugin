@@ -1,4 +1,4 @@
-// 桌面隧道适配守卫：加密控制会合、每设备私钥、两阶段候选与单设备清理。
+// 桌面隧道适配守卫：助手代次撤销候选，健康 direct 才进入 P2P 候选。
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,6 +23,7 @@ function fixture() {
       if (command === 'remoteTailcatStart') return { port: 31001 };
       if (command === 'remoteP2PStart') return { url: 'http://127.0.0.1:31002', candidates };
       if (command === 'remoteP2PCandidates') return { candidates, localCandidates: [] };
+      if (command === 'remoteP2PPath') return { path: 'direct' };
       return {};
     },
     async closeDevice(id) { stopped.push(id); },
@@ -133,4 +134,24 @@ test('Tailcat 失败仍保留 P2P，拒绝助手提供的非回环地址', async
   const other = createRemoteTunnels(f);
   assert.deepEqual(await other.routesFor(f.binding('a')), [{ url: 'http://127.0.0.1:31001', channel: 'tunnel' }]);
   await other.closeAll();
+});
+
+
+test('助手换代清旧端口并通知，P2P未打通或失健康时不入候选', async () => {
+  const f = fixture(); let change; let path = 'punching';
+  f.helper.onChange = fn => { change = fn; return () => { change = null; }; };
+  const request = f.helper.request;
+  f.helper.request = (command, fields) => command === 'remoteP2PPath' ? Promise.resolve({ path }) : request(command, fields);
+  const tunnels = createRemoteTunnels(f); const states = [];
+  tunnels.onChange(state => states.push(state));
+  const a = f.binding('a'); await f.store.put(a);
+  assert.deepEqual((await tunnels.routesFor(a)).map(row => row.channel), ['tunnel']);
+  path = 'direct'; assert.ok((await tunnels.routesFor(a)).some(row => row.channel === 'p2p'));
+  path = 'failed'; assert.ok(!(await tunnels.routesFor(a)).some(row => row.channel === 'p2p'));
+  change({ ready: false, running: false, generation: 1 });
+  change({ ready: true, running: true, generation: 2 });
+  assert.deepEqual(states.map(state => state.ready), [false, true]);
+  await tunnels.routesFor(a);
+  assert.equal(f.calls.filter(row => row.command === 'remoteTailcatStart').length, 2);
+  await tunnels.closeAll(); assert.equal(change, null);
 });

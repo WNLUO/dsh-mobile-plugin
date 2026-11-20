@@ -21,7 +21,7 @@ function fakeHost() {
     close: async () => {},
     startP2P(options) { written.push({ command: 'p2pStart', ...options }); },
     statusP2P() { written.push({ command: 'p2pStatus' }); },
-    stopP2P() { written.push({ command: 'p2pStop' }); },
+    stopP2P(peerKey) { written.push({ command: 'p2pStop', peerKey }); },
     newKeysP2P() { written.push({ command: 'p2pKeys' }); },
     status: () => ({ available: true, running: true, ready: true }),
   };
@@ -160,6 +160,10 @@ test('发起落空的那一台还能再发起，不许永久卡成「正在起�
 
   // 再一模一样地来一次：必须重新发一条 p2pStart，而不是复用那条从没起来的。
   const again = session.open({ phonePublicKey: 'phone-a', candidates: ['203.0.113.1:5000'] });
+  // 失败命令仍可能迟到；先收停止边界，再发送下一次启动。
+  session._event({ event: 'p2pReady', peerKey: 'phone-a', url: 'http://late', candidates: [] });
+  session._event({ event: 'p2pStopped', peerKey: 'phone-a' });
+  await Promise.resolve();
   session._event({ event: 'p2pReady', peerKey: 'phone-a', url: 'http://a', candidates: [] });
   await again;
   const starts = host.written.filter((item) => item.command === 'p2pStart');
@@ -517,19 +521,19 @@ test('会合：公钥形状不对一律不收（空白 / 太短 / 太长）', as
   assert.equal(opened[0].phonePublicKey, '');
 });
 
-test('会合与轮询同时在等时，两边都要收到回执（单等待位会被顶掉，会合永远超时）', async () => {
-  // 这条钉的是一个真事故：`waiting` 只放得下一个等待者，而会话起好后状态轮询每 2 秒就要问
-  // 一次现状。手机的会合请求刚把等待位放进去，下一拍轮询就把它顶掉 —— 助手回的 `p2pReady`
-  // 交给了轮询，会合这一发永远等不到回执。表现是「会合必超时、P2P 永远接不上」，而电脑
-  // 那头一切正常。两个等待者必须都能收到同一条事件。
+test('会合与轮询各等对应操作回执，互不覆盖等待位', async () => {
+  // PLUG-17/22：ready 只确认启动，status 只确认查询，不能用同一事件越过操作边界。
   const { session } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
   const pending = session.open({ candidates: [] });
-  const polling = session.refresh();
+  let polled = false;
+  const polling = session.refresh().then(value => { polled = true; return value; });
   session._event({ event: 'p2pReady', url: 'http://127.0.0.1:1', candidates: ['1.2.3.4:5'] });
-  const openReply = await Promise.race([pending, new Promise((r) => setTimeout(() => r('TIMEOUT'), 3000))]);
-  const pollReply = await Promise.race([polling, new Promise((r) => setTimeout(() => r('TIMEOUT'), 3000))]);
-  assert.notEqual(openReply, 'TIMEOUT', '会合必须收到回执（单等待位会被轮询顶掉）');
-  assert.notEqual(pollReply, 'TIMEOUT', '轮询也要收到回执');
+  assert.equal((await pending).ok, true);
+  await Promise.resolve();
+  assert.equal(polled, false);
+  session._event({ event: 'p2pStatus', running: true, url: 'http://127.0.0.1:1', path: 'punching', candidates: [] });
+  assert.equal((await polling).ok, true);
+  await session.stop();
 });
 
 test('状态要能区分「还没人接」与「正在起」（否则面板永远说「正在启动」）', () => {
@@ -713,4 +717,194 @@ test('总开关：显式开启才拉起助手并落盘，关掉停进程且状�
   assert.equal(session.setEnabled(false), true);
   assert.equal(saved[STATE.enabled], false);
   assert.equal(session.status().enabled, false);
+});
+
+
+test('空状态清除全部旧peer，轮询合并等待且单peer停止不结束其他会合', async () => {
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  session.start();
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://a', candidates: [] });
+  const first = session.refresh(); const second = session.refresh();
+  assert.equal(first, second);
+  assert.equal(host.written.filter(row => row.command === 'p2pStatus').length, 1);
+  session._event({ event: 'p2pStatus', running: false });
+  await first;
+  assert.deepEqual(session.status().peers, []);
+  const a = session.stopPeer('a');
+  let completed = false;
+  const b = session.open({ phonePublicKey: 'b', candidates: [] }).then(() => { completed = true; });
+  session._event({ event: 'p2pStopped', peerKey: 'a' });
+  await a; await Promise.resolve();
+  assert.equal(completed, false);
+  assert.ok(host.written.some(row => row.command === 'p2pStop' && row.peerKey === 'a'));
+  session._event({ event: 'p2pReady', peerKey: 'b', url: 'http://b', candidates: [] });
+  await b; await session.stop();
+});
+
+test('旧空状态晚于新open登记时只结束查询，保留在飞候选并等ready', async () => {
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  session.start();
+  session._event({ event: 'p2pReady', peerKey: 'old', url: 'http://old', candidates: [] });
+  const polling = session.refresh();
+  const request = { phonePublicKey: 'a', candidates: ['203.0.113.4:5000'], localCandidates: ['10.0.0.2:5000'] };
+  let opened = false;
+  const opening = session.open(request).then(reply => { opened = true; return reply; });
+  session._event({ event: 'p2pStatus', running: false });
+  assert.equal((await polling).running, false);
+  await Promise.resolve();
+  assert.equal(opened, false);
+  assert.deepEqual(session.status().peers.map(peer => peer.peerKey), ['a']);
+  let reopened = false;
+  const same = session.open(request).then(reply => { reopened = true; return reply; });
+  await Promise.resolve();
+  assert.equal(reopened, false);
+  assert.equal(host.written.filter(row => row.command === 'p2pStart').length, 1, '在飞候选不能被旧空状态清掉而重复启动');
+  session._event({ event: 'p2pStatus', peerKey: 'a', running: true, url: 'http://old-a', path: 'direct', active: true });
+  await Promise.resolve();
+  assert.equal(opened, false, '普通状态不能确认open');
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://new-a', candidates: ['203.0.113.4:5000'] });
+  assert.equal((await opening).url, 'http://new-a');
+  assert.equal((await same).url, 'http://new-a');
+  await session.stop();
+});
+
+test('普通状态不能确认stop，停止只等对应peer的stopped', async () => {
+  const { session } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  session.start();
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://a', candidates: [] });
+  let stopped = false;
+  const stopping = session.stopPeer('a').then(reply => { stopped = true; return reply; });
+  session._event({ event: 'p2pStatus', peerKey: 'a', running: true, url: 'http://a', path: 'direct', active: true });
+  session._event({ event: 'p2pStatus', running: false });
+  session._event({ event: 'p2pStopped', peerKey: 'b' });
+  await Promise.resolve();
+  assert.equal(stopped, false);
+  session._event({ event: 'p2pStopped', peerKey: 'a' });
+  assert.equal((await stopping).running, false);
+  await session.stop();
+});
+
+test('同peer候选变更排在当前ready后，相同候选共享同一Promise', async () => {
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const aRequest = { phonePublicKey: 'a', candidates: [] };
+  const bRequest = { phonePublicKey: 'a', candidates: ['203.0.113.9:5000'] };
+  const a = session.open(aRequest);
+  assert.equal(session.open(aRequest), a);
+  let bDone = false;
+  const b = session.open(bRequest);
+  b.then(() => { bDone = true; });
+  assert.equal(session.open(bRequest), b);
+  assert.equal(host.written.filter(row => row.command === 'p2pStart').length, 1);
+  session._event({ event: 'p2pStatus', peerKey: 'a', running: true, url: 'http://old', path: 'direct', active: true });
+  session._event({ event: 'p2pReady', peerKey: 'other', url: 'http://other', candidates: [] });
+  await Promise.resolve();
+  assert.equal(bDone, false);
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://a-first', candidates: ['192.168.1.1:41000'] });
+  assert.equal((await a).url, 'http://a-first');
+  assert.equal(bDone, false);
+  const starts = host.written.filter(row => row.command === 'p2pStart');
+  assert.equal(starts.length, 2);
+  assert.deepEqual(starts[0].peerPublic, []);
+  assert.deepEqual(starts[1].peerPublic, bRequest.candidates);
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://a-second', candidates: ['192.168.1.1:42000'] });
+  const replyB = await b;
+  assert.equal(replyB.url, 'http://a-second');
+  assert.deepEqual(replyB.candidates, ['192.168.1.1:42000']);
+  assert.equal((await session.open(bRequest)).url, 'http://a-second');
+  assert.equal(host.written.filter(row => row.command === 'p2pStart').length, 2);
+  await session.stop();
+});
+
+test('超时启动迟到ready不能完成下一候选，停止边界后才发下一条', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const a = session.open({ phonePublicKey: 'a', candidates: [] });
+  let finished = false;
+  const b = session.open({ phonePublicKey: 'a', candidates: ['203.0.113.9:5000'] });
+  b.then(() => { finished = true; });
+  t.mock.timers.tick(10000);
+  assert.equal(await a, null);
+  assert.ok(host.written.some(row => row.command === 'p2pStop' && row.peerKey === 'a'));
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://late', candidates: [] });
+  await Promise.resolve();
+  assert.equal(finished, false);
+  assert.equal(host.written.filter(row => row.command === 'p2pStart').length, 1);
+  session._event({ event: 'p2pStopped', peerKey: 'a' });
+  await Promise.resolve();
+  assert.equal(host.written.filter(row => row.command === 'p2pStart').length, 2);
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://current', candidates: [] });
+  assert.equal((await b).url, 'http://current');
+  await session.stop();
+});
+
+test('启动与停止都超时后，助手空状态触发重试边界，再次会合可自愈', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const first = session.open({ phonePublicKey: 'a', candidates: [] });
+  t.mock.timers.tick(10000);
+  assert.equal(await first, null);
+  t.mock.timers.tick(10000);
+  session._event({ event: 'p2pStatus', running: false });
+  assert.equal(host.written.filter(row => row.command === 'p2pStop' && row.peerKey === 'a').length, 2);
+  const retried = session.open({ phonePublicKey: 'a', candidates: ['203.0.113.9:5000'] });
+  let completed = false; retried.then(() => { completed = true; });
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://stale', candidates: [] });
+  await Promise.resolve();
+  assert.equal(completed, false);
+  assert.equal(host.written.filter(row => row.command === 'p2pStart').length, 1);
+  session._event({ event: 'p2pStopped', peerKey: 'a' });
+  await Promise.resolve();
+  assert.equal(host.written.filter(row => row.command === 'p2pStart').length, 2);
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://recovered', candidates: [] });
+  assert.equal((await retried).url, 'http://recovered');
+  await session.stop();
+});
+
+test('停止确认超时后，下一次会合有界重试停止而非永久拒绝', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const first = session.open({ phonePublicKey: 'a', candidates: [] });
+  t.mock.timers.tick(10000); assert.equal(await first, null);
+  t.mock.timers.tick(10000);
+  const retried = session.open({ phonePublicKey: 'a', candidates: [] });
+  assert.equal(host.written.filter(row => row.command === 'p2pStop').length, 2);
+  session._event({ event: 'p2pStopped', peerKey: 'a' });
+  await Promise.resolve();
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://recovered', candidates: [] });
+  assert.equal((await retried).url, 'http://recovered');
+  await session.stop();
+});
+
+test('单peer停止取消自己的启动与队列，不结束别的peer操作', async () => {
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const first = session.open({ phonePublicKey: 'a', candidates: [] });
+  const queued = session.open({ phonePublicKey: 'a', candidates: ['203.0.113.9:5000'] });
+  let bDone = false;
+  const other = session.open({ phonePublicKey: 'b', candidates: [] });
+  other.then(() => { bDone = true; });
+  const stopping = session.stopPeer('a');
+  assert.equal(await first, null);
+  assert.equal(await queued, null);
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://late-a', candidates: [] });
+  session._event({ event: 'p2pStatus', peerKey: 'a', running: true, url: 'http://late-a' });
+  await Promise.resolve();
+  assert.equal(bDone, false);
+  session._event({ event: 'p2pStopped', peerKey: 'a' });
+  assert.equal((await stopping).ok, true);
+  await Promise.resolve();
+  assert.equal(host.written.filter(row => row.command === 'p2pStart' && row.peerKey === 'a').length, 1);
+  session._event({ event: 'p2pReady', peerKey: 'b', url: 'http://b', candidates: [] });
+  assert.equal((await other).url, 'http://b');
+  await session.stop();
+});
+
+test('同候选的失败隧道不复用，重新会合会重新启动该peer', async () => {
+  const { session, host } = makeSession({ [STATE.privateKey]: 'priv', [STATE.publicKey]: 'pub' });
+  const first = session.open({ phonePublicKey: 'a', candidates: [] });
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://a', candidates: [] }); await first;
+  session._event({ event: 'p2pStatus', peerKey: 'a', running: true, path: 'failed', active: false });
+  const second = session.open({ phonePublicKey: 'a', candidates: [] });
+  assert.equal(host.written.filter(row => row.command === 'p2pStart').length, 2);
+  session._event({ event: 'p2pReady', peerKey: 'a', url: 'http://new', candidates: [] }); await second;
+  await session.stop();
 });

@@ -1,4 +1,4 @@
-/** 远程电脑面板：API 接线、单次浏览器入口、租期边界及入站电脑独立撤权。 */
+/** 远程电脑面板：既有错误展示映射真实网络与助手恢复诊断。 */
 'use strict';
 
 const test = require('node:test');
@@ -294,7 +294,7 @@ test('远程错误按code翻译，未知与行错误不透传服务端中文', a
   const { ApiError } = await import(pathToFileURL(path.join(SRC, 'lib', 'api.ts')).href);
   const { setPanelLanguagePreference } = await import(pathToFileURL(path.join(SRC, 'lib', 'i18n', 'index.ts')).href);
   setPanelLanguagePreference('en');
-  for (const code of ['credentials-unavailable', 'REMOTE_AUTH', 'REMOTE_REVOKED', 'REMOTE_EXPIRED', 'REMOTE_TIMEOUT', 'REMOTE_CONNECT', 'REMOTE_INVITATION', 'remote-operation-failed']) {
+  for (const code of ['credentials-unavailable', 'REMOTE_AUTH', 'REMOTE_REVOKED', 'REMOTE_EXPIRED', 'REMOTE_TIMEOUT', 'REMOTE_CONNECT', 'REMOTE_PROXY', 'REMOTE_PROXY_CONFIGURED', 'REMOTE_INTERCEPTED', 'REMOTE_HELPER_RESTARTING', 'REMOTE_INVITATION', 'remote-operation-failed']) {
     const text = remoteErrorText(new ApiError('服务端中文不透出', code, 500));
     assert.ok(text && !/[\u4e00-\u9fff]/.test(text));
     assert.doesNotMatch(text, /panel\.remote\./);

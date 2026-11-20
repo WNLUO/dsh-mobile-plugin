@@ -135,12 +135,13 @@ test('助手发送配对请求时抛错仍结束等待，下次取码可以重�
   await session.stop()
 })
 
-test('paired 事件把手机公钥记进白名单，不重复记', () => {
+// PLUG-16：paired 只确认窗口；名单已由 persist/ack 原子确认，不能复活后来吊销的设备。
+test('paired 不重复写名单，也不把已吊销的设备加回来', () => {
   const { session, host, disk, emit } = makeSession()
   session.start()
   emit({ event: 'paired', address: 'tcpADDR', client: 'nodekey:cc' })
   emit({ event: 'paired', address: 'tcpADDR', client: 'nodekey:cc' })
-  assert.deepEqual(disk.tailcatAllowedClients, ['nodekey:cc'])
+  assert.deepEqual(disk.tailcatAllowedClients, [])
 })
 
 test('吊销走 setAllowed：先落盘，再告诉助手', () => {
@@ -218,4 +219,67 @@ test('助手装晚了：第一次找不到，之后入口上重探到就能正�
 
   emit({ event: 'pairing', address: 'tcpADDR', port: 48942, key: 'privkey:' + 'a'.repeat(64), proof: 'p'.repeat(43), expiresAt: 1 })
   assert.equal((await pending).address, 'tcpADDR')
+})
+
+
+test('吊销后迟到的旧persist被拒绝，最新回执和重启保留新名单', () => {
+  const { session, host, disk, emit } = makeSession()
+  session.start()
+  emit({ event: 'persist', id: '1', state: 'identity-a', allowedClients: ['old'] })
+  session.setAllowed(['new'])
+  emit({ event: 'persist', id: '2', state: 'identity-old', allowedClients: ['old'] })
+  emit({ event: 'paired', client: 'old', address: 'tcpADDR' })
+  assert.deepEqual(disk.tailcatAllowedClients, ['new'])
+  assert.equal(disk.tailcatState, 'identity-a')
+  assert.deepEqual(host.calls.ack.at(-1), ['2', false])
+  emit({ event: 'persist', id: '3', state: 'identity-a', allowedClients: ['new'] })
+  assert.deepEqual(host.calls.ack.at(-1), ['3', true])
+})
+
+test('关闭后吊销最后设备再空名单启动，新配对persist正常且旧代回执无效', async () => {
+  const disk = { tailcatEnabled: true, tailcatState: 'identity-a', tailcatAllowedClients: ['old'] }
+  const generations = []
+  const session = createTailcatSession({
+    localPort: 19000,
+    readState: () => ({ ...disk }),
+    writeState: patch => Object.assign(disk, patch),
+    resolveBinary: () => 'helper',
+    createHost(options) {
+      let running = false
+      const replies = []
+      const host = {
+        start() { running = true; options.readState(); options.onEvent({ event: 'ready', address: '' }) },
+        close() { running = false; return Promise.resolve() },
+        status: () => ({ running }),
+        setAllowed() {},
+        ack(id, ok) { replies.push(JSON.stringify({ command: 'ack', id, ok })) },
+      }
+      generations.push({ options, host, replies,
+        emit: text => options.onEvent(JSON.parse(text)) })
+      return host
+    },
+  })
+  session.start()
+  const old = generations[0]
+  session.setEnabled(false)
+  assert.equal(session.setAllowed([]), true)
+  session.setEnabled(true)
+  const current = generations[1]
+  assert.deepEqual(current.options.allowedClients, [])
+  // 空名单启动只会 ready，不会有 persist 可用来解除旧确认门。
+  current.emit('{"event":"persist","id":"1","state":"identity-a","allowedClients":["new"]}')
+  assert.deepEqual(disk.tailcatAllowedClients, ['new'])
+  assert.deepEqual(JSON.parse(current.replies.at(-1)), { command: 'ack', id: '1', ok: true })
+  old.emit('{"event":"persist","id":"2","state":"identity-old","allowedClients":["old"]}')
+  assert.deepEqual(disk.tailcatAllowedClients, ['new'])
+  assert.equal(disk.tailcatState, 'identity-a')
+  assert.equal(old.replies.length, 0)
+  // 当前助手自动重拉也按最新存储启动，旧 setAllowed 确认门不得跨进程存活。
+  session.setAllowed([])
+  current.options.readState()
+  current.emit('{"event":"ready","address":""}')
+  current.emit('{"event":"persist","id":"3","state":"identity-a","allowedClients":["newer"]}')
+  assert.deepEqual(disk.tailcatAllowedClients, ['newer'])
+  assert.deepEqual(JSON.parse(current.replies.at(-1)), { command: 'ack', id: '3', ok: true })
+  await session.stop()
 })
