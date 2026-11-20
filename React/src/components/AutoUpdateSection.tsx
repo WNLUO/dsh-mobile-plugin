@@ -79,9 +79,6 @@ export function AutoUpdateSection() {
   if (!host) return null
 
   const enabled = host.autoUpdate === true
-  const source = host.marketResult?.source ?? null
-  // 本地来源（link: / file: / workspace:）装不动注册表版：开关照摆，但要说清它只记录选择。
-  const localSource = source === 'linked' || source === 'file' || source === 'workspace'
   const minutes = Math.round((host.autoIntervalMs ?? DEFAULT_AUTO_INTERVAL_MS) / 60000)
 
   return (
@@ -113,9 +110,6 @@ export function AutoUpdateSection() {
           />
         </span>
       </div>
-      {localSource ? (
-        <p className="mt-1 text-xs text-foreground-muted">{t('panel.update.autoLocalSource')}</p>
-      ) : null}
 
       {/* 问号：这格到底怎么运转、以及它只对 npm 装的插件有效。 */}
       <Dialog open={infoOpen} onOpenChange={setInfoOpen}>
