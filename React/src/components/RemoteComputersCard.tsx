@@ -230,11 +230,7 @@ export function RemoteComputersCard() {
   return (
     <Card frame="solid" className="flex h-full min-h-0 flex-col">
       <CardHeader className="flex-none px-4 py-3">
-        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-base lg:text-lg">
-          <span className="flex items-center gap-2">
-            <span>{t('panel.remote.title')}</span>
-            {devices.length > 0 ? <Badge variant="secondary" size="sm">{devices.length}</Badge> : null}
-          </span>
+        <CardTitle className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base lg:text-lg">
           {available ? (
             <span className="flex flex-wrap items-center gap-1.5">
               <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm xl:before:border xl:before:border-border xl:before:bg-background" disabled={isBusy('invite')} onClick={generateInvite}>
