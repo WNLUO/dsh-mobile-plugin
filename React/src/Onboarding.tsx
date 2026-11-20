@@ -15,7 +15,7 @@
  * 码里的隧道段只活两分钟（宿主每取一次码就换一张），所以这一页在它临期前会自己重取一次，
  * 人装完 App 回来扫时屏幕上那张仍带一条能用的隧道。
  */
-// 首次取码失败直接显示原因与重试；后台续码失败仍保留已有二维码。
+// 首次取码失败可重试，后台续码保留已有二维码；扫码绑定成功后进入插件主页。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
@@ -53,6 +53,8 @@ import {
 } from './lib/selfcheck.ts'
 import { PUBLIC_RELAYS } from './lib/links.ts'
 import { t } from './lib/i18n/index.ts'
+import { pageVisible } from './lib/embed-visibility.ts'
+import { usePairingCompletion } from './lib/usePairingCompletion.ts'
 
 type Props = {
   /** 配好之后去哪。默认回插件主页。 */
@@ -121,6 +123,32 @@ export function Onboarding({ onDone }: Props) {
       alive.current = false
     }
   }, [])
+
+  // 与主页同样每三秒读状态，确认扫码绑定成功后结束引导；后台不继续轮询。
+  useEffect(() => {
+    let active = true
+    const tick = async () => {
+      if (!pageVisible()) return
+      try {
+        const current = await apiGet<StatusView>('/api/relay/status')
+        if (active) setStatus(current)
+      } catch {
+        /* 临时读取失败不打断扫码，下一轮继续。 */
+      }
+    }
+    const timer = window.setInterval(() => void tick(), 3000)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [])
+
+  usePairingCompletion(status?.lastPairingAt, () => {
+    setQrZoomOpen(false)
+    enterNow()
+  })
 
   /** 地址清单：决定二维码里哪条局域网排最前，所以它先到、并且取不到不挡路。 */
   useEffect(() => {

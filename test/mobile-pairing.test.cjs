@@ -1,4 +1,4 @@
-// 验证配对凭据与独立 IPv6 候选契约。
+// 验证真实配对成功时间、配对凭据与独立 IPv6 候选契约。
 'use strict'
 
 /**
@@ -72,16 +72,18 @@ function makeHandler({ policy = 'code', lanEnabled = false, lan = [], v6 = [] } 
     lanPort: () => 18787,
     log: (...a) => issues.push(a),
   })
-  return { handler, issued }
+  return { handler, issued, state }
 }
 
 const issues = []
 
 test('配对码正确时签发 token 与设备凭据', async () => {
   resetPairLocks()
-  const { handler, issued } = makeHandler()
+  const { handler, issued, state } = makeHandler()
+  const started = Date.now()
   const res = fakeRes()
   await handler(fakeReq({ code: CODE, device: { deviceId: 'dev-1', name: 'iPhone', platform: 'ios' } }), res)
+  assert.ok(state.lastPairingAt >= started, '签发成功后记录绑定成功时间')
 
   assert.equal(res.status, 200, `应当 200，实际 ${res.status}`)
   assert.equal(res.body.ok, true)
@@ -133,9 +135,10 @@ test('关掉局域网直连时配对响应保留IPv6候选', async () => {
 
 test('配对码错误被拒，且不签发凭据', async () => {
   resetPairLocks()
-  const { handler, issued } = makeHandler()
+  const { handler, issued, state } = makeHandler()
   const res = fakeRes()
   await handler(fakeReq({ code: '000000', device: { deviceId: 'dev-1' } }), res)
+  assert.equal(state.lastPairingAt, undefined, '配对被拒不记录成功')
 
   assert.equal(res.status, 401)
   assert.equal(res.body.ok, false)

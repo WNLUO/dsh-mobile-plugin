@@ -1,4 +1,4 @@
-// 配对地址操作使用小号图标按钮，悬停提示保留完整操作名称。
+// 扫码绑定成功后收起二维码弹窗；地址操作保留小号图标按钮与悬停提示。
 /**
  * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
  *
@@ -29,6 +29,7 @@ import * as React from 'react'
 
 import type { AddressBook, PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
 import { isPublicRelayUrl } from '../lib/links.ts'
+import { usePairingCompletion } from '../lib/usePairingCompletion.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { ALIGNED_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
 import { IssueMark, type Issue } from './IssueMark.tsx'
@@ -125,6 +126,8 @@ export function PairingCard({
   // 放大二维码：屏幕缩放、手机离得远时，卡片里那颗太小。它只是同一张码的另一个尺寸，
   // 揭开状态另算 —— 关掉弹窗回到卡片里的样子，不改变「默认遮着」那条。
   const [qrZoom, setQrZoom] = React.useState(false)
+  usePairingCompletion(status.lastPairingAt, () => setQrZoom(false))
+  const qrCurrent = pairing?.pairingCode === status.pairingCode
   // 二维码占位的尺寸跟随右邻信息行：量它的实际高度，宽高都取这个值才是正方形。
   // 不靠 aspect-ratio 从高度反推宽度——高度由内容撑开时会塌成竖条，把文字挤成竖排。
   const infoRef = React.useRef<HTMLDivElement | null>(null)
@@ -151,7 +154,7 @@ export function PairingCard({
           className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:h-[var(--qr-size)] sm:w-[var(--qr-size)] sm:max-w-none sm:self-start"
           style={qrSize > 0 ? { '--qr-size': `${qrSize}px` } as React.CSSProperties : undefined}
         >
-          {!pairing?.svg ? (
+          {!pairing?.svg || !qrCurrent ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle">
               {error ? (
                 <>
@@ -278,7 +281,7 @@ export function PairingCard({
           </DialogHeader>
           <DialogBody>
             <div className="flex items-center justify-center overflow-auto rounded-md bg-white p-2 sm:p-4">
-              {pairing?.svg ? (
+              {pairing?.svg && qrCurrent ? (
                 <div
                   className="aspect-square h-[min(64vh,560px)] w-auto max-w-full [&_svg]:h-full [&_svg]:w-full"
                   dangerouslySetInnerHTML={{ __html: pairing.svg }}

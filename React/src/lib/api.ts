@@ -1,4 +1,4 @@
-// 本机端口设置带固定偏好及自动锁定原因。
+// 扫码绑定成功时间供界面收起二维码，本机端口设置带固定偏好及自动锁定原因。
 // 本机面板读取真实上报去向，并区分入口恢复与 FRP 启用、启动、待重试状态。
 /**
  * 控制面客户端：只碰 `/api/relay/*` 这一组本机接口。
@@ -96,6 +96,8 @@ export type StatusView = {
   enabled: boolean
   instanceId: string
   pairingCode: string
+  /** 最近一次扫码签发绑定凭据的时间；0 表示尚未绑定，不随手动换码更新。 */
+  lastPairingAt?: number
   relayUrl: string
   name: string
   pairingPolicy: PairingPolicy

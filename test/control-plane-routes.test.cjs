@@ -1,4 +1,4 @@
-// 验证本机控制面边界、设备吊销回执与连接关闭计数。
+// 验证局域网配对成功回执、本机控制面边界、设备吊销与连接关闭计数。
 'use strict';
 
 /**
@@ -225,6 +225,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     getPluginRuntime,
     status: () => ({}),
     syncSidecar: async () => {},
+    sidecarToken: 'test',
     lanPortInUse: () => 18787,
     getLanPortAdjusted: () => false,
     resolveLanPort: async () => 18787,
@@ -234,6 +235,33 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
   });
   return table;
 }
+
+test('行为：局域网配对成功回执记录完成时间，手动换码不伪造成功', async () => {
+  const core = require('../lib/relay/core.js');
+  const rotate = core.rotatePairing;
+  const save = core.saveState;
+  core.rotatePairing = (state) => ({ pairingCode: state.pairingCode = '654321' });
+  core.saveState = () => {};
+  try {
+    const state = { pairingCode: '123456' };
+    const table = controlRoutes({ state });
+    const denied = {};
+    await table.get('/api/relay/internal/rotate-pairing')({ headers: { authorization: 'invalid' } }, denied);
+    assert.equal(denied.status, 401);
+    assert.equal(state.lastPairingAt, undefined, '被拒的内部请求不记录成功');
+    const started = Date.now();
+    const success = {};
+    await table.get('/api/relay/internal/rotate-pairing')({ headers: { authorization: 'Bearer test' } }, success);
+    assert.equal(success.status, 200);
+    assert.ok(state.lastPairingAt >= started, '局域网绑定成功才写完成时间');
+    const recorded = state.lastPairingAt;
+    await table.get('/api/relay/regenerate')({ method: 'POST', body: {} }, {});
+    assert.equal(state.lastPairingAt, recorded, '面板手动换码不能冒充成功绑定');
+  } finally {
+    core.rotatePairing = rotate;
+    core.saveState = save;
+  }
+});
 
 test('行为：手填的 IPv6 直连地址写得进、读得回，空串能清掉', async () => {
   const state = { manualLanUrl: '', manualIpv6Url: '' };
