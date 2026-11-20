@@ -1,4 +1,4 @@
-// 手机入站与远程电脑出站隧道共用的助手，桌面客户端按设备隔离。
+// 手机入站与远程电脑出站隧道共用的助手，停止回执按设备隔离。
 //
 // 由移动端插件作为子进程拉起：stdin 第一行给配置，之后是命令；stdout 只写事件。
 // 两条流都是 JSON 行，不混日志（日志走 stderr）。隧道里只开一个固定端口，进来
@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -269,17 +270,20 @@ func Run(in io.Reader, out io.Writer, opt Option) error {
 				// 给了手机公钥就只停那一台；没给（老插件）就全停 —— 一台电脑可能同时
 				// 接着好几台手机，为其中一台收尾不该把别人一起停掉。
 				//
-				// 回执保持老形状（不带 peerKey）：插件那条 IPC 的白名单只给 `p2pReady` /
-				// `p2pStatus` 开了这一格，多带一个键整条事件会被当脏数据丢掉，于是发了
-				// 「停了」却等不到回执。谁停的谁自己知道，回执不需要再说一遍。
-				key := p2pPeerID(cmd.P2PPeerKey)
+				// 按 peer 的回执带原公钥；无公钥保持全停形状。
+				peer := strings.TrimSpace(cmd.P2PPeerKey)
+				key := p2pPeerID(peer)
 				r.launch(func() error {
 					if key == "" {
 						stopP2P()
 					} else {
 						stopP2PFor(key)
 					}
-					return r.emit(map[string]any{"event": "p2pStopped"})
+					event := map[string]any{"event": "p2pStopped"}
+					if peer != "" {
+						event["peerKey"] = peer
+					}
+					return r.emit(event)
 				})
 			case "p2pStatus":
 				r.launch(func() error { return r.emitP2PStatus() })

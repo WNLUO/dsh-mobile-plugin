@@ -1,4 +1,4 @@
-// 点对点隧道（P2P）：两台机器直接对话，并由隧道统一收回网络资源。
+// 点对点隧道持续核对数据面健康，限时通告公网映射并统一回收网络资源。
 //
 // 与直连隧道（tailcat）的区别只在**怎么找到对方**：tailcat 借公共中继会合，这条借
 // 「此刻已经通着的那条通道」互换几个字节的地址，然后两端同时往对方打洞。数据面是标准
@@ -53,8 +53,8 @@ const (
 )
 
 const (
-	// tunnelMTU 比物理链路小一点，给 WireGuard 的头留出空间。
-	tunnelMTU = 1420
+	// 内层仅用 IPv4：1200 加上 WireGuard/UDP/IPv6 的 80 字节仍能落在 1280 路径内。
+	tunnelMTU = 1200
 	// holeTimeout 是**一轮**打洞的预算：两端同时在打，通常一秒内就有结论。
 	holeTimeout = 8 * time.Second
 	// holeAttempts 是整条隧道一共打几轮。一轮没成不判死刑：网络刚切换、NAT 映射刚被
@@ -70,7 +70,11 @@ const (
 	handshakeWait = 12 * time.Second
 	// stunRefresh 是隧道活着时重问出口地址的周期。NAT 映射会随网络切换而变，问一次就
 	// 再也不问的后果是：重连时还在报上一个网络的地址，对端往那儿打永远打不到。
-	stunRefresh = 60 * time.Second
+	stunRefresh = 20 * time.Second
+	stunLifetime = 30 * time.Second
+	// WireGuard 空闲连接也会重握手；留出其 120 秒周期与重传时间。
+	directLifetime = 3 * time.Minute
+	healthCheck = time.Second
 	// holeInterval 是往每个候选打洞的间隔。
 	holeInterval = 250 * time.Millisecond
 	// keepAlive 是打通之后保活 NAT 映射的周期。
@@ -80,7 +84,7 @@ const (
 	// 一直说「正在打洞」会让人以为它在干活，而它其实只是站在那儿等。
 	PathPunching = "punching"
 	PathWaiting  = "waiting"
-	// holePayload / livePayload 是探测包，收到就说明洞开了 / 还开着。
+	// holePayload / livePayload 仅供打洞，不能延长认证数据面的健康窗口。
 	holePayload = "dsh-p2p-hole"
 	livePayload = "dsh-p2p-keepalive"
 )
@@ -133,7 +137,13 @@ type Tunnel struct {
 	// localAddr 是 STUN 报出来的「我从外面看是什么样」；localPort 是本端 socket 的端口。
 	// 两样合起来就是我要告诉对端的候选 —— 没有它，对端只能往空气里打洞。
 	localAddr netip.AddrPort
+	localAt   time.Time
 	localPort int
+	lastHandshake string
+	lastRx uint64
+	healthAt time.Time
+	wake chan struct{}
+	refresh chan struct{}
 
 	conn    *net.UDPConn
 	bind    *punchedBind
@@ -157,24 +167,27 @@ type Tunnel struct {
 // 明洞开了，UDP 打洞与密钥无关，公钥配错时洞照样开、`direct` 照样置上，而数据面一个包
 // 都过不去（这条通道踩过一次，见开发地图 A2-92）。所以这里读一次 `latest_handshake_time`。
 //
-// 这里只有两种终态：这条通道没有中继可用，打不通就是打不通，不会因为绕了一圈又通而
-// 改口 —— 会改口的那条是 tailcat，别混在一起。
+// direct 只在本地健康窗口内有效，失联后回到打洞，后台有限重试期间失败仍如实报告。
 func (t *Tunnel) Path() string {
 	t.mu.Lock()
 	path := t.path
 	holeOpen := t.holeOpen
 	dialPending := t.dialPending
 	listenOnly := t.listenOnly
+	closed := t.lastErr == ErrClosed
 	t.mu.Unlock()
-
-	if path == "direct" {
-		return "direct"
+	if closed {
+		return "failed"
 	}
-	// **握手是最终凭据**：握上了就是通了，不管这一轮打到哪一步、也不管之前报过什么。
-	// 反过来握手没写就不是通 —— 洞开了也只是洞开了。
+
+	// 历史握手非零不代表现在仍通；只用新握手或已认证接收增量延长本地健康窗口。
 	if t.handshakeSeen() {
 		t.confirmDirect()
 		return "direct"
+	}
+	if path == "direct" {
+		t.loseDirect(ErrHandshake)
+		return PathPunching
 	}
 	// **已经报过 failed 的，重试期间继续报 failed**，哪怕这一轮又收到对端探测包。
 	// 把 failed 翻回 punching 会让同一个事实在界面上来回跳（洞开着不等于这轮就不会再失败），
@@ -206,25 +219,70 @@ func (t *Tunnel) Path() string {
 	return "unknown"
 }
 
-// handshakeSeen 问 WireGuard：这条对端有没有成功握过手。
-//
-// 读的是 `latest_handshake_time_sec`：非零就说明数据面真的走通过一次（WireGuard 只在自己
-// 解出对方握手之后才写这个字段）。这是「通了」唯一诚实的凭据 —— 比「收到探测包」硬。
+// handshakeSeen 只让 WireGuard 的认证证据更新本地单调健康窗口。
 func (t *Tunnel) handshakeSeen() bool {
 	raw, err := t.readIpcGet()
 	if err != nil {
 		return false
 	}
+	var seconds, nanos string
+	var rx uint64
 	for _, line := range strings.Split(raw, "\n") {
-		rest, ok := strings.CutPrefix(line, "last_handshake_time_sec=")
+		name, value, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
 		}
-		if secs, err := strconv.ParseInt(strings.TrimSpace(rest), 10, 64); err == nil && secs > 0 {
-			return true
+		switch name {
+		case "last_handshake_time_sec":
+			if secs, err := strconv.ParseInt(value, 10, 64); err == nil && secs > 0 {
+				seconds = value
+			}
+		case "last_handshake_time_nsec":
+			nanos = value
+		case "rx_bytes":
+			rx, _ = strconv.ParseUint(value, 10, 64)
 		}
 	}
-	return false
+	now := time.Now()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	handshake := seconds + ":" + nanos
+	if seconds != "" && handshake != t.lastHandshake || rx > t.lastRx {
+		t.healthAt = now
+	}
+	if seconds != "" {
+		t.lastHandshake = handshake
+	}
+	t.lastRx = rx
+	return !t.healthAt.IsZero() && now.Sub(t.healthAt) <= directLifetime
+}
+
+func (t *Tunnel) loseDirect(code string) {
+	t.mu.Lock()
+	changed := t.path == "direct"
+	if changed {
+		t.path = ""
+		t.holeOpen = false
+		t.dialPending = true
+		t.healthAt = time.Time{}
+		t.lastErr = code
+	}
+	t.mu.Unlock()
+	if !changed {
+		return
+	}
+	t.requestRefresh()
+	select {
+	case t.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (t *Tunnel) requestRefresh() {
+	select {
+	case t.refresh <- struct{}{}:
+	default:
+	}
 }
 
 // readIpcGet 取一份 WireGuard 的配置回执（`IpcGet` 是它的导出接口）。
@@ -282,6 +340,7 @@ func (t *Tunnel) setLocalEndpoint(addr netip.AddrPort) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.localAddr = addr
+	t.localAt = time.Now()
 }
 
 // setLocalPort 记下本端 socket 的端口（同一张网里直连用得上）。
@@ -312,7 +371,7 @@ func (t *Tunnel) Candidates() []string {
 			out = append(out, netip.AddrPortFrom(addr, uint16(t.localPort)).String())
 		}
 	}
-	if t.localAddr.IsValid() {
+	if t.localAddr.IsValid() && time.Since(t.localAt) <= stunLifetime {
 		out = append(out, t.localAddr.String())
 	}
 	return out
@@ -447,7 +506,7 @@ func containsAddr(list []netip.Addr, want netip.Addr) bool {
 //
 // 与 v4 那份同理：UDP 的 connect 不发包，只让内核按路由表挑出口，目标地址不需要真的可达。
 func outboundLocalV6Addr() (netip.Addr, bool) {
-	conn, err := net.Dial("udp6", "[2001:db8::9]:9")
+	conn, err := net.Dial("udp6", "[2606:4700:4700::1111]:53")
 	if err != nil {
 		return netip.Addr{}, false
 	}
@@ -570,7 +629,8 @@ func Start(opts Options) (int64, string) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	tunnel := &Tunnel{cancel: cancel, done: make(chan struct{}), stun: newStunWaiter()}
+	tunnel := &Tunnel{cancel: cancel, done: make(chan struct{}), stun: newStunWaiter(),
+		wake: make(chan struct{}, 1), refresh: make(chan struct{}, 1)}
 
 	socket, bind, localURL, err := assemble(ctx, private, peerKey, tunnel, servers, peers, opts)
 	if err != nil {
@@ -662,6 +722,10 @@ func Diagnose(handle int64) string {
 		"peer":     tunnel.Peer(),
 		"error":    tunnel.LastError(),
 		"attempts": attempts,
+		"candidates": tunnel.Candidates(),
+		"candidateMaxAgeMs": stunLifetime.Milliseconds(),
+		"healthMaxAgeMs": directLifetime.Milliseconds(),
+		"mtu": tunnelMTU,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -675,18 +739,27 @@ func Diagnose(handle int64) string {
 // 不发的话，多数家用路由器空闲十几秒就把映射收走，隧道会在「看起来正常」的情况下
 // 静默断掉，而且再也不会自己恢复。
 func keepHoleAlive(ctx context.Context, socket *net.UDPConn, tunnel *Tunnel) {
-	peer, err := netip.ParseAddrPort(tunnel.Peer())
-	if err != nil {
-		return
-	}
 	ticker := time.NewTicker(keepAlive)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-tunnel.wake:
+			return
 		case <-ticker.C:
-			_, _ = socket.WriteToUDPAddrPort([]byte(livePayload), peer)
+			if tunnel.Path() != "direct" {
+				return
+			}
+			peer, err := netip.ParseAddrPort(tunnel.Peer())
+			if err != nil {
+				tunnel.loseDirect(ErrNoPeer)
+				return
+			}
+			if _, err := socket.WriteToUDPAddrPort([]byte(livePayload), peer); err != nil {
+				tunnel.loseDirect(ErrStart)
+				return
+			}
 		}
 	}
 }
@@ -704,12 +777,19 @@ func (t *Tunnel) noteHoleOpen(from netip.AddrPort) {
 // confirmDirect 是数据面真的通了之后才调用的一步。
 func (t *Tunnel) confirmDirect() {
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	changed := t.path != "direct"
 	t.path = "direct"
 	t.holeOpen = true
 	t.lastErr = ""
 	t.dialPending = false
 	t.listenOnly = false
+	t.mu.Unlock()
+	if changed {
+		select {
+		case t.wake <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // startAttempt 标记「新的一轮打洞开始了」。
@@ -736,8 +816,9 @@ func (t *Tunnel) hasHole() bool {
 // setFailure 如实记下这一轮的失败码（打不通就是打不通，绝不改口说通了）。
 func (t *Tunnel) setFailure(code string) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.path = "failed"
 	t.lastErr = code
 	t.dialPending = false
+	t.mu.Unlock()
+	t.requestRefresh()
 }

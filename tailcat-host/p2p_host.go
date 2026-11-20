@@ -1,4 +1,4 @@
-// 电脑侧的点对点隧道（P2P）：在隧道里听，进来什么就转给本机插件。
+// 电脑侧点对点隧道按 peer 持有，空状态与运行状态保持同一 IPC 形状。
 //
 // 这一半刻意做得很薄：私钥、对端公钥、候选、端口全都由插件通过 IPC 交进来，助手自己
 // 不生成任何身份、也不决定「该不该开」——白名单与配对窗口那套判断留在插件里，和
@@ -132,11 +132,11 @@ func (r *runtime) emitP2PKeys() error {
 
 // emitP2PStatus 如实报每条隧道此刻的现场，**一台手机一条事件**。
 //
-// 一台都没有时回一条老形状的 `running: false`（没有对端可写进 peerKey）。有多条时一条
-// 事件只说得清一条，硬塞成一格数组会改掉插件与 App 认的形状。
+// 一台都没有时仍补齐状态字段（没有对端可写进 peerKey）。有多条时一台一条事件。
 func (r *runtime) emitP2PStatus() error {
 	if len(p2pTunnels) == 0 {
-		return r.emit(map[string]any{"event": "p2pStatus", "running": false})
+		return r.emit(map[string]any{"event": "p2pStatus", "running": false,
+			"url": "", "path": "unknown", "active": false, "detail": "", "candidates": []string{}})
 	}
 	for _, item := range p2pTunnels {
 		path := p2p.Path(item.handle)

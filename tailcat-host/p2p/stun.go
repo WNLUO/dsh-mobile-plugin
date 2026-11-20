@@ -1,4 +1,4 @@
-// 极简 STUN 客户端：只做一件事，问「我从外面看是什么地址」。
+// STUN 探测把解析与响应计入同一预算，始终使用原打洞 socket。
 //
 // 为什么要它：手机与电脑要直接对话，必须先知道自己穿过多层 NAT 之后在公网上是哪个
 // IP:端口，对方也只能往这个地址打洞。这一步用现成的公共 STUN 服务器就够，不需要我们
@@ -18,6 +18,7 @@
 package p2p
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -127,10 +128,40 @@ func (w *stunWaiter) offer(from netip.AddrPort, data []byte) bool {
 //
 // 问不到不是致命错误：对方也可能主动打过来（一端 Full Cone 时成立），所以调用方继续走。
 func discoverSelf(conn *net.UDPConn, servers []string, waiter *stunWaiter) (netip.AddrPort, error) {
+	deadline := time.Now().Add(stunBudget)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
 	targets := make([]*net.UDPAddr, 0, len(servers))
+	resolved := make(chan *net.UDPAddr, len(servers))
 	for _, server := range servers {
-		if addr, err := net.ResolveUDPAddr("udp", server); err == nil && addr != nil {
-			targets = append(targets, addr)
+		go func(text string) {
+			host, port, err := net.SplitHostPort(text)
+			if err != nil {
+				resolved <- nil
+				return
+			}
+			number, err := net.DefaultResolver.LookupPort(ctx, "udp", port)
+			if err != nil {
+				resolved <- nil
+				return
+			}
+			addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+			if err != nil || len(addrs) == 0 {
+				resolved <- nil
+				return
+			}
+			resolved <- net.UDPAddrFromAddrPort(netip.AddrPortFrom(addrs[0].Unmap(), uint16(number)))
+		}(server)
+	}
+resolve:
+	for range servers {
+		select {
+		case <-ctx.Done():
+			break resolve
+		case addr := <-resolved:
+			if addr != nil {
+				targets = append(targets, addr)
+			}
 		}
 	}
 	if len(targets) == 0 {
@@ -156,7 +187,7 @@ func discoverSelf(conn *net.UDPConn, servers []string, waiter *stunWaiter) (neti
 				continue
 			}
 		}
-		budget := time.NewTimer(stunBudget)
+		budget := time.NewTimer(time.Until(deadline))
 		defer budget.Stop()
 		for {
 			select {
@@ -179,7 +210,6 @@ func discoverSelf(conn *net.UDPConn, servers []string, waiter *stunWaiter) (neti
 			continue
 		}
 	}
-	deadline := time.Now().Add(stunBudget)
 	buf := make([]byte, 1500)
 	for {
 		if err := conn.SetReadDeadline(deadline); err != nil {

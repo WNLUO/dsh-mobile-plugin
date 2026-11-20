@@ -1,3 +1,4 @@
+// IPC 空状态字段完整，按公钥停止只回执并收回对应 peer。
 // 助手这一层对 P2P 命令的应答：真跑一次 `Run`，看它认不认这一组命令。
 //
 // 为什么需要这一条：电脑侧那个助手是**另外编出来的二进制**，装到机器上的那份未必跟着
@@ -240,9 +241,9 @@ func TestHostUnderstandsP2PCommands(t *testing.T) {
 	host.send(t, map[string]any{"command": "p2pStop"})
 	host.waitFor(t, "p2pStopped", 30*time.Second)
 	host.send(t, map[string]any{"command": "p2pStatus"})
-	if stopped := host.waitFor(t, "p2pStatus", 30*time.Second); stopped["running"] == true {
-		t.Fatalf("停掉之后还说在跑：%+v", stopped)
-	}
+	stopped := host.waitFor(t, "p2pStatus", 30*time.Second)
+	assertEventShape(t, stopped, "running", "url", "path", "active", "detail", "candidates")
+	if stopped["running"] == true { t.Fatalf("停掉之后还说在跑：%+v", stopped) }
 }
 
 // 一条命令的形状：起一条隧道、问一次现状。
@@ -314,10 +315,11 @@ func TestHostServesSeveralPhones(t *testing.T) {
 
 	// 4. 只停一台：另一台必须还在（按手机停，不是全停）。
 	//
-	//    回执刻意不带 peerKey：插件那条 IPC 的严格白名单只给 p2pReady / p2pStatus 开了这一
-	//    格，多带一个键整条事件会被当脏数据丢掉 —— 那就成了「说了停、等不到回执」。
+	//    停止回执携带 peerKey，插件不得把单台停止当作全停。
 	host.send(t, map[string]any{"command": "p2pStop", "p2pPeerKey": first.Public})
-	host.waitFor(t, "p2pStopped", 30*time.Second)
+	stopped := host.waitFor(t, "p2pStopped", 30*time.Second)
+	assertEventShape(t, stopped, "peerKey")
+	if stopped["peerKey"] != first.Public { t.Fatal("停止回执丢了 peerKey") }
 	host.send(t, map[string]any{"command": "p2pStatus"})
 	remaining := host.waitFor(t, "p2pStatus", 30*time.Second)
 	if remaining["peerKey"] != second.Public || remaining["running"] != true {
