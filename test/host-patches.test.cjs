@@ -1,3 +1,4 @@
+// 使用真实上下文验证兼容桥在新旧代交接和宿主服务延迟就绪时的可用性。
 'use strict';
 
 /**
@@ -31,6 +32,7 @@ const ROOT = path.join(__dirname, '..');
 const readSource = (relative) => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 const HOST = readSource('host.js');
 const IMPL = readSource('lib/impl.js');
+const BRIDGE = readSource('lib/mobile/host-bridge.js');
 
 const BIN = 'dsh-mobile-plugin';
 
@@ -128,14 +130,15 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
   assert.match(
     IMPL,
     /mount\('apiProxy 兼容桥', \(\) => ctx\.reflect\.provide\('apiProxy', createApiProxy\(ctx\)\)\)/,
-    '无条件 provide 会在老运行时撞上宿主的 apiProxy（整棵树加载失败）；现在还得兜住「别的插件也占了这个名字」',
+    '兼容桥必须注册在本代的隔离上下文，不能借用其它代即将卸载的服务',
   );
   assert.match(
-    IMPL,
+    BRIDGE,
     /require\.resolve\('@deepseek-ai\/dsh-host-apiproxy\/package\.json'\)/,
     '判据是「解析得到这个包」——不能只看包名或版本号；桌面端插件装在 profile 里，够不到 asar',
   );
-  assert.match(IMPL, /function runtimeProvidesApiProxy\(\)/);
+  assert.match(BRIDGE, /function runtimeProvidesApiProxy\(\)/);
+  assert.match(IMPL, /const \{ createApiProxy, runtimeProvidesApiProxy \} = require\('\.\/mobile\/host-bridge\.js'\)/);
   // 光不 provide 还不够：旧运行时上读宿主的 apiProxy **必须声明 inject**，否则 cordis 的
   // get trap 抛 "cannot get property ... without inject"。
   //
@@ -153,9 +156,91 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
   // 宽限期之后仍没有真服务 → 按新版宿主装配（兼容桥 + 审批桥 + 提问桥一起）。
   assert.match(
     IMPL,
-    /ctx\.get\('apiProxy'\)\) return\s*\n\s*warn\('等不到宿主的 apiProxy[\s\S]{0,120}installCompatBridges\(\)/,
+    /const hostProxy = hostContext\.get\('apiProxy'\)[\s\S]{0,180}ctx\.reflect\.provide\('apiProxy', hostProxy\)[\s\S]{0,140}warn\('等不到宿主的 apiProxy[\s\S]{0,120}installCompatBridges\(\)/,
     '解析到包但服务一直不来的那支必须自己兜桥，否则这一代静默空转',
   );
+});
+
+/** 执行生产装配段，Context 来自真实 cordis，网关业务与帧桥用最小假体。 */
+function compatAssembly({ hasHostPackage = false, mutate = source => source } = {}) {
+  const start = IMPL.indexOf('function apply(ctx) {');
+  const end = IMPL.indexOf('  const state = core.loadState()', start);
+  assert.ok(start >= 0 && end > start, '应能定位兼容桥装配段');
+  const timers = [];
+  const factory = new Function('deps', `
+    const { runtimeProvidesApiProxy, createApiProxy, installApprovalBridge, installQuestionBridge, setApprovalPushNotifier, setQuestionPushNotifier, setTimeout, name, API_PROXY_GRACE_MS } = deps;
+    ${mutate(IMPL.slice(start, end))}
+      return ctx;
+    }
+    return apply;
+  `);
+  const apply = factory({
+    runtimeProvidesApiProxy: () => hasHostPackage,
+    createApiProxy: ctx => ({ ctx }),
+    installApprovalBridge: () => {}, installQuestionBridge: () => {},
+    setApprovalPushNotifier: () => {}, setQuestionPushNotifier: () => {},
+    setTimeout: callback => { timers.push(callback); return { unref() {} }; },
+    name: 'compat-test', API_PROXY_GRACE_MS: 3000,
+  });
+  return {
+    timers,
+    mount: async root => {
+      let ctx;
+      const fiber = await root.plugin({ apply: source => { ctx = apply(source); } });
+      return { ctx, fiber };
+    },
+  };
+}
+
+test('蓝绿换代：新旧兼容桥各自可用，卸旧代不影响新代', async t => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const root = new Context();
+  const assembly = compatAssembly();
+  const old = await assembly.mount(root);
+  const next = await assembly.mount(root);
+  t.after(() => next.fiber.dispose());
+  const oldProxy = old.ctx.apiProxy;
+  assert.notEqual(next.ctx.apiProxy, oldProxy, '新代不能借用会被卸掉的旧代服务');
+  await old.fiber.dispose();
+  assert.equal(next.ctx.apiProxy.ctx.fiber, next.ctx.fiber);
+  assert.equal(root.get('apiProxy'), undefined, '兼容服务不应占用全局服务名');
+});
+
+test('兼容桥隔离变异：移除代际隔离就能抓住同名服务冲突', async t => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const marker = "ctx = ctx.isolate('apiProxy')";
+  assert.ok(IMPL.includes(marker), '兼容桥应使用原生服务隔离');
+  const assembly = compatAssembly({ mutate: source => source.replace(marker, 'ctx = ctx') });
+  const root = new Context();
+  const old = await assembly.mount(root);
+  const next = await assembly.mount(root);
+  t.after(() => next.fiber.dispose());
+  await old.fiber.dispose();
+  assert.throws(() => next.ctx.apiProxy, /without inject/);
+});
+
+test('宿主包还在但服务没出现：宽限期后两代分别装桥', async t => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const root = new Context();
+  const assembly = compatAssembly({ hasHostPackage: true });
+  const old = await assembly.mount(root);
+  const next = await assembly.mount(root);
+  assembly.timers.forEach(callback => callback());
+  t.after(() => next.fiber.dispose());
+  assert.notEqual(old.ctx.apiProxy, next.ctx.apiProxy);
+  await old.fiber.dispose();
+  assert.equal(next.ctx.apiProxy.ctx.fiber, next.ctx.fiber);
+});
+
+test('旧宿主服务延迟出现：宽限期后本代使用宿主服务', async t => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const root = new Context();
+  const assembly = compatAssembly({ hasHostPackage: true });
+  const generation = await assembly.mount(root);
+  t.after(() => generation.fiber.dispose());
+  root.provide('apiProxy', { who: 'host' });
+  assembly.timers.forEach(callback => callback());
+  assert.equal(generation.ctx.apiProxy.who, 'host');
 });
 
 test('解析不动就是「没有」：不能把插件带崩', () => {
