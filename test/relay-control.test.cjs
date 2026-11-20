@@ -1,4 +1,4 @@
-// 验证移动中转配置及响应结束后吊销凭据和连接。
+// 验证移动中转配置、有界身份代测与代理诊断，并保留吊销响应收尾。
 'use strict';
 
 /**
@@ -314,6 +314,45 @@ test('测速：只测配置里登记过的中转候选、最多 8 条，不把�
   assert.ok(seen.length <= 8, `最多测 8 条，实际 ${seen.length}`);
   assert.ok(seen.every((url) => /^https?:\/\//.test(url)), '只许 http(s)');
   assert.ok(seen.every((url) => new URL(url).host === 'relay.example.com'), '只测配置里登记过的中转 host');
+});
+
+test('手机代测复用严格身份探测，不追重定向且拒绝门户成功页', async (t) => {
+  const http = require('node:http');
+  const sockets = new Set();
+  const paths = [];
+  const server = http.createServer((req, res) => {
+    paths.push(req.url);
+    const body = req.url.startsWith('/valid/') ? { ok: true, service: 'dsh-mobile-relay' } : { ok: true, service: 'portal' };
+    res.writeHead(req.url.startsWith('/redirect/') ? 302 : 200, { 'content-type': 'application/json', location: '/valid/api/mobile/v1/health' });
+    res.end(JSON.stringify(body));
+  });
+  server.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve)); });
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const { deps } = makeDeps({ state: baseState({ relayUrl: url, relayUrls: [url] }), deps: { probeUrls: null } });
+  const res = fakeRes();
+  await createRelayControlHandlers(deps).handleRelayProbe({}, reqWith({ urls: [`${url}/valid`, `${url}/portal`, `${url}/redirect`] }), res);
+  assert.equal(typeof res.body.results[0].ms, 'number');
+  assert.equal(res.body.results[1].ms, null);
+  assert.equal(res.body.results[2].ms, null);
+  assert.deepEqual(paths.sort(), ['/valid/api/mobile/v1/health', '/portal/api/mobile/v1/health', '/redirect/api/mobile/v1/health'].sort());
+});
+
+test('代理提示接到现有诊断错误，只有配置证据时说明直连限制且不含代理值', async () => {
+  const prior = process.env.HTTPS_PROXY;
+  process.env.HTTPS_PROXY = 'http://name:{{PASSWORD_orcf3uws}}@private-proxy.example:8080';
+  try {
+    const { deps } = makeDeps({ deps: { status: () => ({ tunnel: { state: 'error', error: '注册超时' } }) } });
+    const res = fakeRes();
+    await createRelayControlHandlers(deps).handleRelayDiagnostics({}, {}, res);
+    assert.match(res.body.tunnel.error, /HTTPS_PROXY/);
+    assert.match(res.body.tunnel.error, /只支持直连出网/);
+    assert.doesNotMatch(res.raw, /password|private-proxy|name:/);
+  } finally {
+    if (prior === undefined) delete process.env.HTTPS_PROXY;
+    else process.env.HTTPS_PROXY = prior;
+  }
 });
 
 test('试连（stage:"prepare"）：一行都不落盘，临时实例 id 与正式 id 不同', async () => {

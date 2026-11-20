@@ -1,3 +1,4 @@
+// 并发注册仍须保留实例与世代守卫，主动取消不能污染当前状态。
 'use strict'
 // 「状态不许由过期的隧道实例改写」。
 //
@@ -47,11 +48,11 @@ function bootWorker() {
     }
     // 真 start() 要等 registered 帧才 resolve；这里不 resolve——本用例要控制
     // 「哪一帧在什么时候回来」，让 resolve 自然发生会把时序锁死。
-    start() { return new Promise(() => {}) }
+    start() { return new Promise((resolve) => { this.resolve = resolve }) }
     stop() { this.stopped = true; log.stopped.push(this) }
     sendPairConfirm() {}
     // 让这一帧「回来」
-    deliverRegistered() { this.registered = true; this.opts.onRegistered() }
+    deliverRegistered() { this.registered = true; this.opts.onRegistered(); this.resolve?.() }
   }
   const api = new Function('deps', `
     const { config, core, RelayTunnel, upstream, lanUrls, lanUrlPort, currentLanUrls, snapshotRead, parentJson, log, publishState, reconnect, markOutdated } = deps;
@@ -59,7 +60,13 @@ function bootWorker() {
     let tunnelState = 'off';
     let tunnelError = null;
     let tunnelRoute = null;
-    let pendingAttempt = null;
+    let relayRace = null;
+    let connectedRelayUrl = null;
+    let relayMirror = true;
+    const relayRegistrations = { order: urls => urls, noteSuccess() {}, noteFailure() {} };
+    const relayFailureMessage = message => String(message);
+    const RELAY_RACE_CONCURRENCY = 3;
+    const RELAY_RACE_TIMEOUT_MS = 10000;
     // relayRoutePlan() 现在会读这两格做「实测延迟排序」。本用例只钉状态机，不测延迟：
     // relayLatencyAt=0 让保鲜期判定恒为过期，于是候选取配置原序；探测 stub 直接返回 null。
     let relayLatencyCache = new Map();
@@ -72,6 +79,7 @@ function bootWorker() {
     // 与 lib/sidecar-facade-worker.cjs 的 stopTunnel() 逐行同义（含换代）。
     const stopTunnel = () => {
       tunnelGeneration += 1;
+      relayRace?.cancel();
       if (tunnel) tunnel.stop();
       tunnel = null; tunnelState = 'off'; tunnelError = null;
     };
@@ -80,7 +88,7 @@ function bootWorker() {
     return {
       startTunnel,
       snapshot: () => ({ state: tunnelState, error: tunnelError }),
-      live: () => (tunnel && tunnel.registered ? 'open' : (tunnel ? 'connecting' : 'none')),
+      live: () => (tunnel && tunnel.registered ? 'open' : (tunnel || relayRace ? 'connecting' : 'none')),
     };
   `)({
     config: {
@@ -98,7 +106,7 @@ function bootWorker() {
     snapshotRead: async () => null,
     parentJson: async () => ({ approved: false }),
     // 重连退避账：连上之后必须清零（否则连续失败几次后就永远停在 30s 上）。
-    reconnect: { reset: () => { log.resets += 1 } },
+    reconnect: { cancel() {}, reset: () => { log.resets += 1 } },
     log,
     // worker 的 publishState()：状态跳变要立刻经 IPC 推给宿主，别等 10s 健康轮询。
     // 这里只数调用次数；「推的是不是真状态」由下面的契约断言钉住。
@@ -246,17 +254,8 @@ async function behaviorPublishOnTransition() {
   assert.equal(w.log.publishes, 5, '断线必须立刻上报 error（宿主据此停止推镜像，而不是再撞 10s 超时）')
 }
 
-// 中途被关掉（enabled 转 false）那一条早退必须把这笔择路账清掉。
-//
-// `pendingAttempt` 的用途是「还在等这一次注册结果，所以 onClose 闭嘴」。留着它不请，
-// 那条隧道的 close 会被当成「还在等」，于是下一次真正的掉线报不出来 —— 状态永远停在
-// connecting，宿主不再推镜像，手机上看到的是「一直连不上」而没有任何错误。
-{
-  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'lib', 'sidecar-facade-worker.cjs'), 'utf8');
-  const body = source.slice(source.indexOf('async function raceTunnels('), source.indexOf('function startLan() {'));
-  assert.match(body, /if \(!config\.enabled\)\s*\{\s*pendingAttempt = null;\s*return false\s*\}/,
-    'enabled 转 false 的早退必须清掉 pendingAttempt，否则下一次真实掉线会被 onClose 静默吞掉');
-}
+// PLUG-06 按用户需求改为并发注册，旧单条 pendingAttempt 由竞速对象取代。
+// 关闭清理不再钉旧变量文本，relay-selection 行为用例验证 stop 后没有候选/重连/失败，身份断言继续保留。
 
 ;(async () => {
   await behaviorStaleRegistered()

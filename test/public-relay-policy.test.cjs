@@ -1,3 +1,4 @@
+// 公用清单补齐只恢复已启用实例的空列表，不改变自建与禁用意图。
 'use strict';
 
 /**
@@ -122,11 +123,73 @@ test('补齐：配了公网自建直连（公用强制停用）就不补', () =>
   assert.deepEqual(state.relayUrls, [PUBLIC]);
 });
 
-test('补齐：整份已齐 / 空列表都不动', () => {
+test('补齐：整份已齐时不动', () => {
   const full = { relayUrl: core.PUBLIC_RELAY_URLS[0], relayUrls: [...core.PUBLIC_RELAY_URLS] };
   assert.equal(core.expandDefaultPublicRelays(full), false);
-  const empty = { relayUrl: '', relayUrls: [] };
-  assert.equal(core.expandDefaultPublicRelays(empty), false);
+});
+
+test('回补：已启用且没有公网替代的空清单恢复完整公用兜底', () => {
+  const state = { enabled: true, relayUrl: '', relayUrls: [] };
+  assert.equal(core.expandDefaultPublicRelays(state), true);
+  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS]);
+  assert.equal(state.relayUrl, state.relayUrls[0]);
+  assert.equal(state.enabled, true);
+  assert.equal(core.expandDefaultPublicRelays(state), false, '回补幂等');
+});
+
+test('回补：禁用或尚未启用的空清单原样保留，不更改总开关', () => {
+  for (const enabled of [false, undefined]) {
+    const state = { enabled, relayUrl: '', relayUrls: [] };
+    const before = { ...state, relayUrls: [] };
+    assert.equal(core.expandDefaultPublicRelays(state), false);
+    assert.deepEqual(state, before);
+  }
+});
+
+test('回补：旧首项已经剔除时以空清单为准，不复活旧自建地址', () => {
+  const state = { enabled: true, relayUrl: SELF, relayUrls: [] };
+  assert.equal(core.expandDefaultPublicRelays(state), true);
+  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS]);
+  assert.equal(state.relayUrl, core.PUBLIC_RELAY_URLS[0]);
+});
+
+test('回补：公网直连仍在时保持空表，清掉最后一个替代后才恢复', () => {
+  const state = { enabled: true, relayUrl: PUBLIC, relayUrls: [PUBLIC], manualLanUrl: 'https://direct.example.com', manualTcpUrl: 'tcp.example.com:8443' };
+  assert.equal(core.stripPublicRelay(state), true);
+  assert.deepEqual(state.relayUrls, []);
+  assert.equal(state.relayUrl, '');
+  assert.equal(core.expandDefaultPublicRelays(state), false);
+  state.manualLanUrl = '';
+  assert.equal(core.expandDefaultPublicRelays(state), false, 'TCP 替代仍在');
+  state.manualTcpUrl = '';
+  assert.equal(core.expandDefaultPublicRelays(state), true);
+  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS]);
+  assert.equal(state.relayUrl, core.PUBLIC_RELAY_URLS[0]);
+});
+
+test('回补：公网替代撤掉但实例已禁用时仍保持空表', () => {
+  const state = { enabled: false, relayUrl: PUBLIC, relayUrls: [PUBLIC], manualLanUrl: 'https://direct.example.com' };
+  core.stripPublicRelay(state);
+  state.manualLanUrl = '';
+  assert.equal(core.expandDefaultPublicRelays(state), false);
+  assert.deepEqual(state.relayUrls, []);
+  assert.equal(state.relayUrl, '');
+  assert.equal(state.enabled, false);
+});
+
+test('回补：局域网偏好和手填 IPv6 不阻止公用兜底', () => {
+  const state = { enabled: true, relayUrl: '', relayUrls: [], preferredLanAddress: '192.168.31.69', manualIpv6Url: 'http://[240e::1]:18787' };
+  assert.equal(core.expandDefaultPublicRelays(state), true);
+  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS]);
+  assert.equal(state.manualIpv6Url, 'http://[240e::1]:18787');
+});
+
+test('配置装配：先剔除再回补，且两者都在状态写入与落盘之前', () => {
+  const impl = fs.readFileSync(path.join(__dirname, '..', 'lib', 'impl.js'), 'utf8');
+  const store = impl.slice(impl.indexOf('async update(patch, options = {})'), impl.indexOf('watch(listener)'));
+  assert.ok(store.indexOf('core.expandDefaultPublicRelays(parsed)') > store.indexOf('core.stripPublicRelay(parsed)'));
+  assert.ok(store.indexOf('core.expandDefaultPublicRelays(parsed)') < store.indexOf('Object.assign(state, parsed)'));
+  assert.ok(store.indexOf('core.expandDefaultPublicRelays(parsed)') < store.indexOf('core.saveState(state)'));
 });
 
 test('读盘即补齐：落盘只有第一台时 loadState 直接返回整份', () => {
