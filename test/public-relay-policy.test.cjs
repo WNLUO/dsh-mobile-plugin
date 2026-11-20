@@ -191,3 +191,33 @@ test('读盘即补齐：落盘只有第一台时 loadState 直接返回整份', 
   assert.deepEqual(loaded.relayUrls, [...core.PUBLIC_RELAY_URLS], '启动读盘就把老设备补成整份');
   assert.equal(loaded.relayUrl, PUBLIC);
 });
+
+test('退役的公用中转：认得出、从配置里剔掉、再补回现行公用', () => {
+  assert.equal(core.isRetiredPublicRelayUrl('https://dsh.yfyidc.cn'), true);
+  assert.equal(core.isRetiredPublicRelayUrl('https://dsh.iouf.cn/healthz'), true, '带路径也认');
+  assert.equal(core.isRetiredPublicRelayUrl('https://my-own-relay.example.org'), false, '自建中转不算退役');
+  const state = { enabled: true, relayUrl: 'https://dsh.yfyidc.cn', relayUrls: ['https://dsh.yfyidc.cn'] };
+  assert.equal(core.pruneRetiredPublicRelays(state), true, '剔了东西');
+  assert.deepEqual(state.relayUrls, [], '退役地址被清空');
+  core.expandDefaultPublicRelays(state);
+  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS], '再补回现行公用');
+  assert.equal(state.relayUrl, core.PUBLIC_RELAY_URLS[0]);
+});
+
+test('退役地址混在自建列表里：只剔退役那条，自建原样保留', () => {
+  const self = 'https://my-own-relay.example.org';
+  const state = { relayUrl: self, relayUrls: [self, 'https://dsh.iouf.cn'] };
+  assert.equal(core.pruneRetiredPublicRelays(state), true);
+  assert.deepEqual(state.relayUrls, [self]);
+  assert.equal(state.relayUrl, self);
+});
+
+test('回补前先剔退役：只含退役地址的启用配置换成现行公用，混自建的只剔退役', () => {
+  const onlyRetired = { enabled: true, relayUrl: 'https://dsh.iouf.cn', relayUrls: ['https://dsh.iouf.cn'] };
+  assert.equal(core.expandDefaultPublicRelays(onlyRetired), true);
+  assert.deepEqual(onlyRetired.relayUrls, [...core.PUBLIC_RELAY_URLS], '退役地址被换回现行公用');
+  const self = 'https://my-own-relay.example.org';
+  const mixed = { enabled: true, relayUrl: self, relayUrls: [self, 'https://dsh.yfyidc.cn'] };
+  assert.equal(core.expandDefaultPublicRelays(mixed), true);
+  assert.deepEqual(mixed.relayUrls, [self], '只剔退役，自建原样留着');
+});
