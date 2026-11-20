@@ -1,10 +1,15 @@
 'use strict';
+// 异常 500 的日志保留方法、无查询串路径和堆栈，并验证响应、鉴权与信封行为不变。
 
 /** HTTP 路由守卫约定：本机与局域网直连分开识别，转发与跨站仍受限。 */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const { createRequire } = require('node:module');
+const { format } = require('node:util');
 
 const root = path.join(__dirname, '..');
 const routing = require(path.join(root, 'lib/http/routing.js'));
@@ -229,12 +234,119 @@ test('移动端：handler 抛错收成 500 信封而不是让请求炸掉', asyn
   assert.equal(res.body.error.message, 'boom');
 });
 
-test('移动端：抛的不是 Error 也照样有文案', async () => {
+async function assertInternalErrorLog(api) {
+  const lines = [];
+  const logger = { error(...args) { lines.push(format(...args)); } };
+  const error = new Error('读取会话失败');
+  error.stack = 'Error: 读取会话失败\n    at listSessions (host.js:7:3)';
   const res = fakeRes();
-  const handler = routing.createGuarded({}, () => true);
+  const req = {
+    ...fakeReq({ authorization: 'Bearer header-private', cookie: 'cookie-private' }, 'post'),
+    url: '/api/mobile/v1/session/send?token=query-private&query=private-search',
+    body: { text: 'body-private' },
+  };
+  await api.createGuarded({ logger }, () => true)(async () => { throw error; })(req, res);
+  assert.deepEqual(res.body, { ok: false, error: { code: 'internal', message: error.message } });
+  assert.equal(res.status, 500);
+  assert.equal(lines.length, 1, '同一异常只记一条日志');
+  assert.match(lines[0], /POST \/api\/mobile\/v1\/session\/send:/);
+  assert.ok(lines[0].includes(error.message), '日志保留异常原因');
+  assert.ok(lines[0].includes(error.stack), '日志保留完整异常堆栈');
+  for (const privateText of ['?', 'query-private', 'private-search', 'body-private', 'header-private', 'cookie-private']) {
+    assert.ok(!lines[0].includes(privateText), `日志不携带请求私密内容：${privateText}`);
+  }
+}
+
+test('移动端：异常 500 记录方法、无查询串路径与异常堆栈，不记录请求内容和凭据', async () => {
+  await assertInternalErrorLog(routing);
+});
+
+test('移动端：日志出口异常仍返回原有 500 错误响应', async () => {
+  const res = fakeRes();
+  const logger = { error() { throw new Error('日志出口故障'); } };
+  await routing.createGuarded({ logger }, () => true)(async () => { throw new Error('业务故障'); })(fakeReq(), res);
+  assert.equal(res.status, 500);
+  assert.deepEqual(res.body, { ok: false, error: { code: 'internal', message: '业务故障' } });
+});
+
+test('移动端：抛的不是 Error 也照样有文案和日志', async () => {
+  const lines = [];
+  const res = fakeRes();
+  const handler = routing.createGuarded({ logger: { error(...args) { lines.push(format(...args)); } } }, () => true);
   await handler(async () => { throw 'plain string'; })(fakeReq(), res);
   assert.equal(res.status, 500);
   assert.equal(res.body.error.message, 'plain string');
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /GET \/: plain string$/);
+});
+
+test('移动端：未鉴权不执行 handler，也不记业务异常日志', async () => {
+  const lines = [];
+  const res = fakeRes();
+  const handler = routing.createGuarded({ logger: { error(...args) { lines.push(args); } } }, () => false);
+  await handler(async () => { throw new Error('不该执行'); })(fakeReq(), res);
+  assert.equal(res.status, 401);
+  assert.deepEqual(lines, []);
+});
+
+test('移动端：协议 v2 异常 500 保持原有加密信封，日志不含解封请求体', async () => {
+  const e2ee = require(path.join(root, 'lib/shared/e2ee.js'));
+  const { unwrapper } = require(path.join(root, 'lib/shared/e2ee-request.js'));
+  const deviceKey = Buffer.alloc(32, 0x29);
+  const keys = e2ee.deriveSessionKeys(deviceKey);
+  const pathname = '/api/mobile/v1/session/send';
+  const query = '?token=sealed-query-private';
+  const method = 'POST';
+  const ts = Date.now();
+  const nonceBytes = Buffer.alloc(12, 0x79);
+  const nonce = e2ee.b64url(nonceBytes);
+  const plain = { text: 'sealed-body-private' };
+  const encrypted = e2ee.sealWithNonce(keys.up, nonceBytes, Buffer.from(JSON.stringify(plain)), e2ee.upAad(method, pathname));
+  const wire = Buffer.from(JSON.stringify({ v: 2, c: Buffer.from(encrypted).toString('base64') }));
+  const signature = e2ee.sign(keys.sig, e2ee.canonicalString({ method, path: pathname, query, ts, nonce, bodyBytes: wire }));
+  const req = {
+    method, url: pathname + query,
+    headers: {
+      'x-dsh-proto': '2', 'x-dsh-key-id': 'http-routing-500', 'x-dsh-ts': String(ts),
+      'x-dsh-nonce': nonce, 'x-dsh-sig': signature,
+    },
+  };
+  const lines = [];
+  const guarded = routing.createGuarded({ logger: { error(...args) { lines.push(format(...args)); } } }, () => true, null, {
+    envelope: { keyFor: () => ({ deviceKey: deviceKey.toString('base64url') }), readBody: async () => wire },
+  });
+  const res = fakeRes();
+  await guarded(async (_ctx, openedReq) => {
+    assert.deepEqual(openedReq.body, plain);
+    throw new Error('加密请求业务故障');
+  })(req, res);
+  assert.equal(res.status, 500);
+  assert.equal(res.body.v, 2, '异常响应仍由既有信封路径加密');
+  const opened = JSON.parse(e2ee.open(keys.down, unwrapper(res.body), e2ee.downAad(method, pathname, ts, nonce)).toString('utf8'));
+  assert.deepEqual(opened, { ok: false, error: { code: 'internal', message: '加密请求业务故障' } });
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /POST \/api\/mobile\/v1\/session\/send:/);
+  assert.ok(!lines[0].includes('sealed-body-private'));
+  assert.ok(!lines[0].includes('sealed-query-private'));
+  assert.ok(!lines[0].includes(signature));
+});
+
+test('变异证明：去掉异常日志、带回查询串或丢堆栈，真实行为断言都会拒绝', async () => {
+  const file = path.join(root, 'lib/http/routing.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const mutations = [
+    ['异常日志', "ctx?.logger?.error?.('dsh-mobile-plugin: 移动请求异常 %s %s: %s%s', method, path,\n          String(error?.message || error), error?.stack ? `\\n${error.stack}` : '')", 'void 0'],
+    ['查询串过滤', ".split('?')[0]", ''],
+    ['异常堆栈', "error?.stack ? `\\n${error.stack}` : ''", "''"],
+  ];
+  for (const [label, before, after] of mutations) {
+    assert.equal(source.split(before).length, 2, `${label}变异必须命中唯一生产逻辑`);
+    const loaded = { exports: {} };
+    vm.runInNewContext(source.replace(before, after), {
+      module: loaded, exports: loaded.exports, require: createRequire(file), Buffer, URL,
+    }, { filename: file });
+    await assert.rejects(() => assertInternalErrorLog(loaded.exports), { name: 'AssertionError' }, `${label}回退必须让同一行为断言失败`);
+  }
 });
 
 test('移动端：ctx 透传给 handler（路由表里就是靠它拿 state）', async () => {
