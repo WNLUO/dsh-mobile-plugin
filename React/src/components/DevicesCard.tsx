@@ -46,7 +46,7 @@ import {
 } from '@appica/ui-react/alert-dialog'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
-import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
+import { Card } from '@appica/ui-react/card'
 import { Radio } from '@appica/ui-react/radio'
 import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
@@ -185,12 +185,6 @@ function nameOf(device: NameParts | null): string {
 }
 
 type Props = {
-  /**
-   * 「吊销全部设备授权」：连中转侧一起清，是 `legacy` 那些旧通行证唯一能立刻作废的入口。
-   * 它本来挂在配对卡右下角，2026-11-02 用户要求挪到这张卡的标题行右侧 —— 它作用的对象
-   * 就是这张卡里这些人。
-   */
-  onRevokeAll: () => void
   /** 有动作在飞（与页面其他地方共用同一份 busy）。 */
   busy: string
   /** 撑满父容器、列表在卡内滚动（与「连接状态」并排等高时用）。 */
@@ -238,7 +232,7 @@ function UnlinkIcon() {
   )
 }
 
-export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
+export function DevicesCard({ busy, fill = false }: Props) {
   const notify = useNotify()
   const [list, setList] = useState<DeviceList | null>(null)
   /** 正在等确认的那台设备：null = 确认框关着。 */
@@ -425,25 +419,6 @@ export function DevicesCard({ onRevokeAll, busy, fill = false }: Props) {
 
   return (
     <Card frame="solid" className={fill ? 'flex h-full min-h-0 flex-col' : undefined}>
-      <CardHeader className={fill ? 'flex-none px-4 py-3' : 'px-4 py-3'}>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-base lg:text-lg">
-          <span className="flex items-center gap-2">
-            {t('panel.devices.title')}
-            {/* 台数只数活着的那些。一台都不剩时这一格不画：标题写着「已绑定的设备」、
-                旁边挂个 0，底下却还摆着一串已解绑的记录，那个组合自相矛盾。历史有几台
-                由下面的折叠行自己说。 */}
-            {devices.length > 0 ? (
-              <Badge variant="secondary" size="sm">
-                {devices.length}
-              </Badge>
-            ) : null}
-          </span>
-          <Button variant="ghost" size="sm" className="shrink-0 px-2" disabled={busy !== ''} onClick={onRevokeAll}>
-            {t('panel.pairing.revokeAll')}
-          </Button>
-        </CardTitle>
-      </CardHeader>
-
       <div className={fill ? 'hvscroll mt-1 min-h-0 flex-1' : 'hscroll mt-1'}>
         <div className="min-w-max">
         {devices.map((device) => {

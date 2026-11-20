@@ -53,7 +53,6 @@ import {
   type ConfigPatch,
   type PairingInfo,
   type PairingPolicy,
-  type RevokeResult,
   type StatusView,
   type Tier,
   type WebAccessState,
@@ -291,16 +290,6 @@ export function Console() {
       notify('soft', t('panel.shell.sidecarRestarted'))
     })
 
-  const revokeAll = () => {
-    if (!window.confirm(t('panel.shell.revokeConfirm'))) return
-    void act('revoke', async () => {
-      const payload = await apiPost<RevokeResult>('/api/relay/revoke-all')
-      await loadStatus()
-      await loadPairing()
-      notify('soft', `${t('panel.shell.revoked', { count: payload.revoked })}${payload.revokedRelay ? t('panel.shell.revokedRelay', { count: payload.revokedRelay }) : ''}`)
-    })
-  }
-
   const toggleWebAccess = (enabled: boolean) =>
     act('webAccess', async () => {
       const payload = await apiPost<{ ok: boolean; webAccess: WebAccessState }>('/api/relay/web-access', { enabled })
@@ -536,7 +525,7 @@ export function Console() {
             />
           </div>
           <div className="min-h-0" style={connectionHeight > 0 ? { height: `${connectionHeight}px` } : undefined}>
-            <DevicesCard onRevokeAll={revokeAll} busy={busy} fill />
+            <DevicesCard busy={busy} fill />
           </div>
         </div>
 

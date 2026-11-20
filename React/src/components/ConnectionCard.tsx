@@ -9,7 +9,7 @@
  */
 import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
-import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
+import { Card } from '@appica/ui-react/card'
 import { Switch } from '@appica/ui-react/switch'
 
 import type { AddressBook, P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
@@ -128,10 +128,6 @@ export function ConnectionCard({ status, addressBook, busy, onToggle, onStopFrp,
 
   return (
     <Card frame="solid">
-      <CardHeader className="px-4 py-3">
-        <CardTitle className="text-base lg:text-lg">{t('panel.connection.state')}</CardTitle>
-      </CardHeader>
-
       <label className="flex items-center justify-between gap-4 border-b border-border-muted py-3">
         <span className="text-sm text-foreground-muted">{t('panel.connection.remoteControl')}</span>
         <Switch

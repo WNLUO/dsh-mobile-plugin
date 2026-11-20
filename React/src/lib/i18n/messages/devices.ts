@@ -13,7 +13,6 @@ import type { PanelMessages } from './shell.ts'
 
 export const DEVICES: PanelMessages = {
   'zh-Hans': {
-    'panel.devices.title': '已绑定的设备',
     'panel.devices.permissions': '权限',
     'panel.devices.permissionsTitle': '调整设备权限',
     'panel.devices.permissionsHint': '选一个档位：只读、可答审批或全权。这里调的是「手机能操作这台电脑到什么程度」，不是 agent 执行任务的权限。手机端能往下调，往上提权只能在电脑侧。',
@@ -74,7 +73,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': '清空历史失败：{message}',
   },
   'zh-Hant': {
-    'panel.devices.title': '已綁定的裝置',
     'panel.devices.permissions': '權限',
     'panel.devices.permissionsTitle': '調整裝置權限',
     'panel.devices.permissionsHint': '選一個檔位：唯讀、可答審批或全權。這裡調的是「手機能操作這台電腦到什麼程度」，不是 agent 執行任務的權限。手機端能往下調，往上提權只能在電腦端。',
@@ -135,7 +133,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': '清空歷史失敗：{message}',
   },
   en: {
-    'panel.devices.title': 'Paired devices',
     'panel.devices.permissions': 'Permissions',
     'panel.devices.permissionsTitle': 'Adjust device permissions',
     'panel.devices.permissionsHint': 'Pick a tier: Read-only, Approve, or Full. This controls how far this phone can operate this computer, not the agent\'s task permissions. The phone can lower it; raising it is only possible on this computer.',
@@ -196,7 +193,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': 'Could not clear history: {message}',
   },
   ja: {
-    'panel.devices.title': 'ペアリング済みのデバイス',
     'panel.devices.permissions': '権限',
     'panel.devices.permissionsTitle': 'デバイスの権限を調整',
     'panel.devices.permissionsHint': '権限レベルを選択：読み取り専用・承認可能・すべて。ここで調整するのは「スマホがこのパソコンをどこまで操作できるか」であり、エージェントのタスク権限ではありません。スマホ側で下げることはできますが、上げるのはこのパソコン側でのみ可能です。',
@@ -257,7 +253,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': '履歴の削除に失敗しました：{message}',
   },
   ko: {
-    'panel.devices.title': '페어링된 기기',
     'panel.devices.permissions': '권한',
     'panel.devices.permissionsTitle': '기기 권한 조정',
     'panel.devices.permissionsHint': '등급을 선택하세요: 읽기 전용, 승인 가능, 전체 권한. 여기서 조정하는 것은 "휴대폰이 이 컴퓨터를 어디까지 조작할 수 있는가"이며, 에이전트 작업 권한이 아닙니다. 휴대폰에서 낮출 수는 있지만, 올리는 것은 이 컴퓨터에서만 가능합니다.',
@@ -318,7 +313,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': '기록 지우기 실패: {message}',
   },
   de: {
-    'panel.devices.title': 'Gekoppelte Geräte',
     'panel.devices.permissions': 'Berechtigungen',
     'panel.devices.permissionsTitle': 'Geräteberechtigungen anpassen',
     'panel.devices.permissionsHint': 'Wähle eine Stufe: Nur lesen, Genehmigen oder Voll. Hier wird gesteuert, wie weit dieses Telefon diesen Computer bedienen darf – nicht die Aufgabenrechte des Agenten. Am Telefon lässt es sich nur verringern; erhöhen geht nur an diesem Computer.',
@@ -379,7 +373,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': 'Verlauf konnte nicht gelöscht werden: {message}',
   },
   es: {
-    'panel.devices.title': 'Dispositivos vinculados',
     'panel.devices.permissions': 'Permisos',
     'panel.devices.permissionsTitle': 'Ajustar permisos del dispositivo',
     'panel.devices.permissionsHint': 'Elige un nivel: Solo lectura, Aprobar o Total. Esto controla hasta dónde puede operar este teléfono este ordenador, no los permisos de tareas del agente. En el teléfono solo se puede reducir; ampliarlo solo es posible en este ordenador.',
@@ -440,7 +433,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': 'No se pudo borrar el historial: {message}',
   },
   fr: {
-    'panel.devices.title': 'Appareils appairés',
     'panel.devices.permissions': 'Permissions',
     'panel.devices.permissionsTitle': 'Ajuster les permissions de l\'appareil',
     'panel.devices.permissionsHint': 'Choisissez un niveau : Lecture seule, Approbation ou Complet. Cela contrôle jusqu’où ce téléphone peut piloter cet ordinateur, et non les autorisations de tâches de l’agent. Le téléphone peut le réduire ; l’augmenter n’est possible que sur cet ordinateur.',
@@ -501,7 +493,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': 'Impossible d’effacer l’historique : {message}',
   },
   pt: {
-    'panel.devices.title': 'Dispositivos emparelhados',
     'panel.devices.permissions': 'Permissões',
     'panel.devices.permissionsTitle': 'Ajustar permissões do dispositivo',
     'panel.devices.permissionsHint': 'Escolhe um nível: Só leitura, Aprovar ou Total. Isto controla até onde este telefone pode operar este computador, não as permissões de tarefas do agente. No telefone só dá para reduzir; aumentar só é possível neste computador.',
@@ -562,7 +553,6 @@ export const DEVICES: PanelMessages = {
     'panel.devices.historyClearFailed': 'Não foi possível limpar o histórico: {message}',
   },
   ru: {
-    'panel.devices.title': 'Сопряжённые устройства',
     'panel.devices.permissions': 'Права',
     'panel.devices.permissionsTitle': 'Настроить права устройства',
     'panel.devices.permissionsHint': 'Выбери уровень: только чтение, одобрение или полный. Здесь настраивается, насколько этот телефон может управлять этим компьютером, а не права агента на выполнение задач. На телефоне можно только понизить; повысить можно лишь на этом компьютере.',
