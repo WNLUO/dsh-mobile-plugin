@@ -17,7 +17,8 @@ test('电脑网页能力独立落盘，权限调整会收回它，手机签发�
   });
   credentials.resetForTest();
   assert.equal(credentials.find(desktop.credential, 'A').remoteWeb, true);
-  assert.deepEqual(credentials.find(desktop.credential, 'A').permissions, []);
+  // 权限档位已移除：记录不再带 `permissions`（缺省即全权），老记录读到也会被抹掉。
+  assert.equal(credentials.find(desktop.credential, 'A').permissions, undefined);
   assert.deepEqual(credentials.listDevices('A').map(row => row.deviceId), ['phone']);
   assert.equal(credentials.activeDigests('A').length, 1, '电脑网页凭据不授予手机镜像读取');
   assert.deepEqual(credentials.listRemoteComputers('A').map(row => row.deviceId), ['B']);

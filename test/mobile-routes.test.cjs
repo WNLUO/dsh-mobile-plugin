@@ -224,16 +224,13 @@ test('心跳里必须带「这台电脑装没装团队」那一格', () => {
   assert.match(body, /hasAgentTeams\(ctx\)/, '这一格要问宿主注册没注册 agentTeams，不要在路由里另猜');
 });
 
-test('心跳里必须带「这台设备当前的权限」那一格', () => {
-  // 与上面几条同一个病：电脑侧改了权限档位，手机只能靠这条每 30 秒必发的心跳学会新档。
-  // 少了这一格，手机永远停在配对时那份 —— 电脑改成「可答审批」、手机照旧显示「只读」，
-  // 而且降权后还会按旧档继续往外发。必须按出示的凭据现算（currentPermissions），
-  // 不能在路由里自己拼一份。
+test('心跳不再下发设备权限档（权限档位已移除，所有设备一律全权）', () => {
+  // 2026-11-20 需求变更：权限档位整体撤掉，所有设备一律全权，`/status` 不再带 `permissions`
+  // 这一格。这条钉住「别把已撤的档位又加回来」——加回来手机侧就会按一个不存在的子集去限权。
   const table = readRouteTable();
   const statusBlock = table.slice(table.indexOf("path: '/api/mobile/v1/status'"));
   const body = statusBlock.slice(0, statusBlock.indexOf('}) })'));
-  assert.match(body, /permissions\s*:/, '/status 的回包里必须有 permissions 这一格');
-  assert.match(body, /currentPermissions\(req\.__dshRecord\)/, '这一格要按出示的凭据现算，不要另拼');
+  assert.doesNotMatch(body, /permissions\s*:/, '/status 不应再带 permissions 这一格');
 });
 
 test('公开路由清单本身没腐化', () => {

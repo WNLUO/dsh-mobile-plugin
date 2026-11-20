@@ -70,7 +70,8 @@ function helpersFrom(source) {
 test('共用卡只在远程电脑独立页出现一次，控制台不动入站手机设备卡', () => {
   const home = fs.readFileSync(path.join(SRC, 'Console.tsx'), 'utf8');
   assert.doesNotMatch(home, /RemoteComputersCard/, '主页不再放远程电脑卡');
-  assert.match(home, /<DevicesCard onRevokeAll=\{revokeAll\} busy=\{busy\}(?: fill)? \/>/);
+  // 2026-11-20：控制台不再单独往设备卡传「全部吊销」回调（吊销动作收进设备卡自身）。
+  assert.match(home, /<DevicesCard busy=\{busy\} fill \/>/);
   const remote = fs.readFileSync(path.join(SRC, 'Remote.tsx'), 'utf8');
   assert.match(remote, /import \{ RemoteComputersCard \} from '\.\/components\/RemoteComputersCard\.tsx'/);
   assert.equal((remote.match(/<RemoteComputersCard \/>/g) || []).length, 1);

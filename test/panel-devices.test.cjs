@@ -363,6 +363,12 @@ test('老宿主没有 ?history=1 分支时，不许把活设备当成历史摆�
     '历史行要按 kind 过滤：没有结局的行不是历史',
   );
   assert.match(devices, /historyUnreadable/, '整份对不上时按「读不到历史」处理');
-  // 台数徽标只数活设备：一台不剩时不画，否则「已绑定的设备 0」底下挂着解绑记录。
-  assert.match(devices, /\{devices\.length > 0 \? \(\s*<Badge variant="secondary" size="sm">/, '台数徽标只在有活设备时画');
+  // 2026-11-20 设备卡改版：台数徽标从「活设备数」挪到「历史 · 已解绑」折叠行上，数字取
+  // `revokedCount`（历史条数）。活设备与历史同时为空才整卡不渲染（见文件头第 1 条约定）。
+  assert.match(
+    devices,
+    /<Badge variant="secondary" size="xs">\s*\{t\('panel\.devices\.historyCount', \{ count: revokedCount \}\)\}/,
+    '历史折叠行的台数徽标取 revokedCount',
+  );
+  assert.match(devices, /\{revokedCount > 0 \? \(/, '有历史记录才画「清空历史」按钮');
 });
