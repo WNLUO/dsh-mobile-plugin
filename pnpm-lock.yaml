@@ -67,7 +67,13 @@ importers:
       dsh-mobile-tailcat-darwin-x64:
         specifier: 1.1.5
         version: 1.1.5
+      dsh-mobile-tailcat-linux-arm64:
+        specifier: 1.1.5
+        version: 1.1.5
       dsh-mobile-tailcat-linux-x64:
+        specifier: 1.1.5
+        version: 1.1.5
+      dsh-mobile-tailcat-win32-x64:
         specifier: 1.1.5
         version: 1.1.5
 
@@ -820,10 +826,20 @@ packages:
     cpu: [x64]
     os: [darwin]
 
+  dsh-mobile-tailcat-linux-arm64@1.1.5:
+    resolution: {integrity: sha512-hVyiZYOHmxFRkReOrQlJcUC+Wv5mEQpJCdFZUEiDjN53htJ9dpYDZSvBlgjZWFRyQlSIRlYju9x54IT5WujVew==}
+    cpu: [arm64]
+    os: [linux]
+
   dsh-mobile-tailcat-linux-x64@1.1.5:
     resolution: {integrity: sha512-nGxKnxYoc7/NEBuwnIv+hzqhc6wW0R7XfeZZ8qgm4gmgbks0bflwsem6X23ht3ciT3phsSIPEf3q+Qa1iCM79g==}
     cpu: [x64]
     os: [linux]
+
+  dsh-mobile-tailcat-win32-x64@1.1.5:
+    resolution: {integrity: sha512-oKfMyZNpmhkdVkD88L/82oq9lOr0T2Zr2mTnHIuacPyGMm/T9BvoAH9qrd3vFU51vR7nKOIutEje3Hd4agq9Cg==}
+    cpu: [x64]
+    os: [win32]
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
@@ -1768,7 +1784,13 @@ snapshots:
   dsh-mobile-tailcat-darwin-x64@1.1.5:
     optional: true
 
+  dsh-mobile-tailcat-linux-arm64@1.1.5:
+    optional: true
+
   dsh-mobile-tailcat-linux-x64@1.1.5:
+    optional: true
+
+  dsh-mobile-tailcat-win32-x64@1.1.5:
     optional: true
 
   emoji-regex@8.0.0: {}
