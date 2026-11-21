@@ -465,6 +465,10 @@ function createEnv(options = {}) {
     URL,
     Date,
     JSON,
+    FormData,
+    Blob,
+    AbortController,
+    clearTimeout() {},
     console,
   };
   if (options.chatEmbedBridge) sandbox.__DSH_MOBILE_CHAT_EMBED__ = options.chatEmbedBridge;
@@ -1007,6 +1011,58 @@ test('两小时窗口开不出来时：不嵌那半张窗，把宿主的原话�
     assert.match(text, new RegExp(`HTTP 状态.*${status}`, 's'));
     assert.match(text, /重新读取状态/);
     assert.match(text, /复制诊断信息/);
+  }
+});
+
+async function assertOpenFailureFeedback(source = SOURCE) {
+  for (const entry of [
+    { status: 409, body: { error: { code: 'busy', message: 'https://example.test/?token=private-token Bearer private-credential' } }, expected: 'busy' },
+    { status: 503, body: {}, expected: 'http-503' },
+    { status: 0, network: true, expected: 'network-request-failed' },
+  ]) {
+    let submitted;
+    const env = materialize({ source, fetch: async (url, init) => {
+      if (url === 'https://app.wnluo.com/api/sdk/feedback') {
+        submitted = init.body;
+        return { ok: true, status: 200, json: async () => ({ data: { thread_key: 'feedback-test' } }) };
+      }
+      if (String(url).endsWith('/status')) return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) };
+      if (String(url).endsWith('/host-half')) return { ok: true, status: 200, json: async () => ({ half: { version: '0.6.0' } }) };
+      if (String(url).endsWith('/web-access')) {
+        if (entry.network) throw new Error('request failed https://example.test/?token=private-token');
+        return { ok: false, status: entry.status, json: async () => entry.body };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    } });
+    env.renderFooter({}, { wide: false });
+    await env.hooks.flush();
+    const icon = env.renderFooter({}, { wide: false });
+    await icon.props.onClick({ preventDefault() {} });
+    await settle();
+    const send = elements(diagnosisNode(env)).find(node => node.tag === 'button' && node.textContent === '发送此问题');
+    assert.ok(send, '诊断窗应可提交反馈');
+    await clickDialogButton(env, '发送此问题');
+    assert.ok(submitted, '未发出反馈');
+    const context = JSON.parse(submitted.get('context'));
+    assert.equal(context.code, String(entry.status));
+    assert.equal(context.error_code, entry.expected);
+    const text = await submitted.get('files').text();
+    assert.match(text, new RegExp(`error_code=${entry.expected}`));
+    assert.doesNotMatch(text + JSON.stringify(context), /private-token|private-credential|example\.test|Bearer/);
+  }
+}
+
+test('网页管理反馈保留授权原因码与网络失败阶段，不外发原始凭据', () => assertOpenFailureFeedback());
+
+test('网页管理反馈变异：丢原因码或把无HTTP响应当缺值时行为断言失败', async () => {
+  for (const [before, after] of [
+    ["code: outcome.code || '', message: outcome.message", "code: '', message: outcome.message"],
+    ["current && Number.isFinite(current.status) ? String(current.status) : ''", "current && current.status ? String(current.status) : ''"],
+    ["error_code: current && typeof current.code === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,79}$/.test(current.code) ? current.code : ''", "error_code: current ? current.message : ''"],
+  ]) {
+    const changed = SOURCE.replaceAll(before, after);
+    assert.notEqual(changed, SOURCE);
+    await assert.rejects(() => assertOpenFailureFeedback(changed), assert.AssertionError);
   }
 });
 

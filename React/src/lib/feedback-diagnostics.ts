@@ -1,4 +1,4 @@
-// 连接反馈只投影状态、版本和中转域名，配对码、密钥与完整地址不进入诊断。
+// 连接反馈投影线路及 Tailcat 运行事实，配对码、密钥与完整地址不进入诊断。
 import type { StatusView } from './api.ts'
 
 function safeError(value: string | null | undefined): string {
@@ -28,6 +28,13 @@ export function connectionFeedbackFacts(status: StatusView | null): Record<strin
     discovery_error: safeError(status.lan.discovery?.error),
     sidecar_state: safeError(status.sidecar.state),
     sidecar_restart_error: safeError(status.sidecar.restartError),
+    tailcat_available: String(status.tailcat?.available ?? ''),
+    tailcat_enabled: String(status.tailcat?.enabled ?? ''),
+    tailcat_running: String(status.tailcat?.running ?? ''),
+    tailcat_ready: String(status.tailcat?.ready ?? ''),
+    tailcat_target_port: String(status.tailcat?.targetPort ?? ''),
+    tailcat_paired: String(status.tailcat?.paired ?? ''),
+    tailcat_error: safeError(status.tailcat?.error),
     mirror_error: safeError(status.mirror.error),
   }
 }

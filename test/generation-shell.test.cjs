@@ -1,3 +1,4 @@
+// 验证整代换装及常驻 Tailcat 依赖的外壳变更提示。
 'use strict';
 
 /**
@@ -71,8 +72,8 @@ const updaterUrl = pathToFileURL(path.join(PKG_DIR, 'lib', 'shell', 'updater.js'
 const BUNDLED_VERSION = JSON.parse(fs.readFileSync(path.join(PKG_DIR, 'package.json'), 'utf8')).version;
 
 /**
- * 磁盘上的外壳文件全集：`lib/index.js` + `lib/shell/` 下所有 .js。
- * 指纹清单必须与此一致；守卫按这里枚举，新增外壳文件忘了进清单就会红。
+ * 外壳文件及其持有的 Tailcat 静态依赖：换代只更新来源，不替换这些运行中的模块。
+ * 外壳目录按磁盘枚举，Tailcat 的六项依赖明确列出，遗漏会让逐文件变更守卫变红。
  */
 function shellFilesOnDisk() {
   const files = [path.join('lib', 'index.js')];
@@ -80,6 +81,8 @@ function shellFilesOnDisk() {
   for (const name of fs.readdirSync(shellDir).sort()) {
     if (name.endsWith('.js')) files.push(path.join('lib', 'shell', name));
   }
+  files.push('lib/tailcat/wiring.cjs', 'lib/tailcat/session.cjs', 'lib/tailcat/ingress.cjs',
+    'lib/tailcat/host-process.cjs', 'lib/relay/tunnel-forwarder.cjs', 'lib/shared/via-header.js');
   return files;
 }
 
@@ -698,8 +701,8 @@ export function apply(ctx) {
  * 换，代价只是「装载它的那层还是旧的」。用户有权知道，于是 `status()` 里报三个字段：
  * 跑着的外壳指纹、盘上那份的指纹、以及两者是否不同。
  *
- * 「盘上那份和跑着的一致」用真外壳文件的**逐字节副本**构造（指纹算的是 lib/index.js 与
- * lib/shell 下**全部**外壳文件的内容 —— 漏一个就会在「新版本只改了那个文件」时谎报没变）。
+ * 「盘上那份和跑着的一致」用常驻文件的**逐字节副本**构造，包含外壳和它持有的 Tailcat
+ * 静态依赖；漏一个就会在「新版本只改了那个文件」时谎报没变。
  */
 test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不报「外壳变了」', async t => {
   await resetProfile();
@@ -731,7 +734,7 @@ test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不�
 });
 
 /**
- * 指纹必须覆盖**全部**外壳文件。
+ * 指纹必须覆盖全部外壳文件和常驻 Tailcat 依赖。
  *
  * 漏掉的那几个同样在进程启动时被 Node 缓存、同样换不掉；只改它们时如果不报「外壳变了」，
  * 就是用户在界面上看着「更新成功」、跑的却是旧代码 —— 静默失效是最贵的失效。
@@ -739,7 +742,7 @@ test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不�
  * 守卫从**磁盘目录**枚举外壳文件全集，逐个改一个字节再算指纹：任何一个漏进清单，这一格
  * 就会红。这样以后往 lib/shell/ 里加新文件，不必记得同步指纹清单 —— 忘了守卫会提醒。
  */
-test('换代：指纹盖住磁盘上每一个外壳文件（漏一个就必须报「外壳变了」）', async () => {
+test('换代：指纹盖住每个外壳文件和常驻 Tailcat 依赖（漏一个就必须报「外壳变了」）', async () => {
   await resetProfile();
   const { updater } = await loadShellModules();
   const shellFiles = shellFilesOnDisk();

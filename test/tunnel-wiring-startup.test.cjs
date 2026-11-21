@@ -1,4 +1,4 @@
-// 真实监听错误必须结束启动等待，让装配清理能关闭入口和代理。
+// 验证 Tailcat 等待状态、真实生命周期与监听错误收口，保留错误原因和关闭链。
 // 验证两类隧道装配门面的启用意图、就绪与启动失败，并用同一行为断言拒绝变异。
 'use strict';
 
@@ -18,15 +18,16 @@ function fixture(type, options = {}, mutate = source => source) {
   const anchored = createRequire(file);
   const loaded = { exports: {} };
   let state = { [`${type}Enabled`]: true };
-  const seen = { forwarderStarts: 0, ingressStarts: 0, sessions: [], warnings: [], cleanups: [] };
+  const seen = { forwarderStarts: 0, forwarderCloses: 0, ingressStarts: 0, ingressCloses: 0,
+    sessionStops: 0, sessions: [], warnings: [], cleanups: [] };
   const forwarder = {
     start() { seen.forwarderStarts += 1; return options.forwarderStart ? options.forwarderStart() : Promise.resolve(40911); },
     port: () => 40911,
-    close() {},
+    close() { seen.forwarderCloses += 1; },
   };
   const ingress = {
     start() { seen.ingressStarts += 1; return options.ingressStart ? options.ingressStart() : Promise.resolve(40912); },
-    close() {},
+    close() { seen.ingressCloses += 1; },
   };
   const createSession = config => {
     if (options.sessionError) throw options.sessionError;
@@ -35,7 +36,7 @@ function fixture(type, options = {}, mutate = source => source) {
       status: () => ({ available: true, enabled: config.readState()[`${type}Enabled`] === true,
         ready: session.ready, error: '' }),
       start() { if (options.startError) throw options.startError; },
-      watch() {}, unwatch() {}, stop: () => Promise.resolve(),
+      watch() {}, unwatch() {}, stop() { seen.sessionStops += 1; return Promise.resolve(); },
     };
     seen.sessions.push(session);
     return session;
@@ -68,7 +69,7 @@ function fixture(type, options = {}, mutate = source => source) {
     localPort: () => options.localPort ?? 18787,
     lanEnabled: () => false, lanPort: () => 18787, webPort: () => 61494,
     hostName: () => 'test', name: 'test',
-    ctx: { effect(fn) { seen.effect = fn; if (!options.deferEffect) seen.cleanups.push(fn()); }, reflect: { provide() {} } },
+    ctx: options.ctx || { effect(fn) { seen.effect = fn; if (!options.deferEffect) seen.cleanups.push(fn()); }, reflect: { provide() {} } },
   });
   return { door, seen, setState: next => { state = next; }, close: () => seen.cleanups.forEach(fn => fn()) };
 }
@@ -203,6 +204,52 @@ for (const type of TYPES) {
     await assert.rejects(() => assertFailure(earlyReject, 'early bind denied'), { code: 'ERR_ASSERTION' });
   });
 }
+
+function assertTailcatPending(f) {
+  assert.equal(f.door.status().enabled, true);
+  assert.equal(f.door.status().ready, false);
+  assert.equal(f.door.status().error, '', '正常等待端口不属于启动错误');
+  for (const state of [{ tailcatEnabled: false }, {}]) {
+    f.setState(state);
+    assert.equal(f.door.status().enabled, false, '显式关闭和默认关闭都保留关闭意图');
+    assert.equal(f.door.status().error, '', '关闭的通道不能因等待端口产生故障反馈');
+  }
+}
+
+test('tailcat：等待端口不生成 error，默认关闭也不会报 starting 故障', async t => {
+  const f = fixture('tailcat', { forwarderStart: () => new Promise(() => {}) });
+  t.after(f.close);
+  await flush();
+  assertTailcatPending(f);
+});
+
+test('tailcat：真实 Cordis effect 立即启动监听，创建会话并归属插件关闭', async t => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const ctx = new Context();
+  let f;
+  const fiber = await ctx.plugin(child => { f = fixture('tailcat', { ctx: child }); });
+  t.after(async () => { await fiber.dispose(); await flush(); });
+  await flush();
+  assert.equal(f.seen.forwarderStarts, 1);
+  assert.equal(f.seen.ingressStarts, 1, '无需额外 ready 事件就会启动入口');
+  assert.equal(f.seen.sessions.length, 1, '监听完成后必须创建助手会话');
+  assert.equal(f.door.status().error, '');
+  assert.ok(fiber.getEffects().some(effect => effect.label === 'test: tailcat'));
+  await fiber.dispose();
+  await flush();
+  assert.equal(fiber.getEffects().length, 0, '卸载插件回收 effect');
+  assert.equal(f.seen.sessionStops, 1);
+  assert.equal(f.seen.ingressCloses, 1);
+  assert.equal(f.seen.forwarderCloses, 1);
+});
+
+test('tailcat：变异把正常等待写进 error，同一状态断言必须失败', async t => {
+  const f = fixture('tailcat', { forwarderStart: () => new Promise(() => {}) }, source =>
+    replaceMutation(source, 'error: startupError }', "error: startupError || 'starting' }"));
+  t.after(f.close);
+  await flush();
+  assert.throws(() => assertTailcatPending(f), { code: 'ERR_ASSERTION' });
+});
 
 test('tailcat：入口拒绝、零端口和未完成监听错误都会终结假 starting', async t => {
   const construction = fixture('tailcat', { ingressError: new Error('ingress construction denied') });

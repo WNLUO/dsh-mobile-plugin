@@ -1,4 +1,4 @@
-/** 安装失败后的新版不能被换代，盘上状态与恢复结果按实际记录。 */
+/** 验证安装恢复结果及常驻 Tailcat 代码更新后的重启提示。 */
 'use strict';
 
 /**
@@ -216,6 +216,67 @@ test('更新没动外壳：外壳指纹一致时仍按「无需重启」上报',
   assert.equal(result.swapped, true);
   assert.equal(updateState.lastApply.restartRequired, false, '外壳没变就不该劝人重启');
   assert.equal(updateState.lastApply.shellChanged, false);
+});
+
+// transport-host 静态引用 wiring，后者持有会话、入口、助手与带来源标记的落点代理。
+const TAILCAT_HOST_FILES = ['lib/tailcat/wiring.cjs', 'lib/tailcat/session.cjs', 'lib/tailcat/ingress.cjs',
+  'lib/tailcat/host-process.cjs', 'lib/relay/tunnel-forwarder.cjs', 'lib/shared/via-header.js'];
+
+function addTailcatHostFiles(pkgDir) {
+  addShellFiles(pkgDir);
+  for (const rel of TAILCAT_HOST_FILES) {
+    fs.mkdirSync(path.dirname(path.join(pkgDir, rel)), { recursive: true });
+    fs.copyFileSync(path.join(__dirname, '..', rel), path.join(pkgDir, rel));
+  }
+}
+
+function assertTailcatRestart(result, updateState) {
+  assert.equal(result.swapped, true, '实现仍可正常换代');
+  assert.equal(result.shellChanged, true, '常驻 Tailcat 代码变化属于外壳变化');
+  assert.equal(result.restartRequired, true, '更新返回值必须提示重新载入常驻代码');
+  assert.equal(updateState.lastApply.shellChanged, true);
+  assert.equal(updateState.lastApply.restartRequired, true, '更新账本必须保留重启提示');
+}
+
+async function tailcatHostUpdate(updater, t, rel, id) {
+  const beforeVersion = `0.30.${id * 2}`;
+  const nextVersion = `0.30.${id * 2 + 1}`;
+  const runningDir = install(beforeVersion);
+  addTailcatHostFiles(runningDir);
+  const runningShellHash = updater.shellFingerprint(runningDir);
+  const market = await startMarket(() => {
+    const installed = install(nextVersion);
+    addTailcatHostFiles(installed);
+    fs.appendFileSync(path.join(installed, rel), '\n// 常驻模块更新\n');
+    return { state: 'succeeded', beforeVersion, installedVersion: nextVersion };
+  }, { installedVersion: beforeVersion, latestVersion: nextVersion, updateAvailable: true, source: 'npm' });
+  t.after(() => market.server.close());
+  const updateState = { lastApply: null, appliedAt: null, lastError: null };
+  let reloads = 0;
+  const runtime = { status: () => ({ version: beforeVersion }), reload: async () => { reloads += 1; return { version: nextVersion }; } };
+  const result = await updater.performUpdate({ runtime, base: updater.marketBase(market.port), updateState, runningShellHash });
+  assert.equal(reloads, 1);
+  return { result, updateState };
+}
+
+for (const [index, rel] of TAILCAT_HOST_FILES.entries()) {
+  test(`只更新 ${rel}：实现换代成功仍提示常驻代码需要重启`, async t => {
+    const { result, updateState } = await tailcatHostUpdate(await loadUpdater(), t, rel, index);
+    assertTailcatRestart(result, updateState);
+  });
+}
+
+test('变异证明：指纹漏掉 Tailcat wiring 时，同一重启提示断言必须失败', async t => {
+  const file = path.join(__dirname, '..', 'lib', 'shell', 'updater.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const marker = "'lib/tailcat/wiring.cjs', ";
+  assert.equal(source.split(marker).length, 2, '变异必须移除唯一指纹项');
+  const broken = source.replace(marker, '')
+    .replaceAll("'./manager.js'", JSON.stringify(pathToFileURL(path.join(path.dirname(file), 'manager.js')).href))
+    .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(pathToFileURL(file).href)})`);
+  const updater = await import(`data:text/javascript;base64,${Buffer.from(broken).toString('base64')}`);
+  const { result, updateState } = await tailcatHostUpdate(updater, t, 'lib/tailcat/wiring.cjs', 10);
+  assert.throws(() => assertTailcatRestart(result, updateState), { code: 'ERR_ASSERTION' });
 });
 
 test('换不过来之后：自动不再反复抖同一个版本，手按一次才重试', async t => {

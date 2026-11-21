@@ -1,4 +1,4 @@
-// 扫码绑定成功时间供界面收起二维码，本机端口设置带固定偏好及自动锁定原因。
+// 本机面板状态包含 Tailcat 内部落点端口，反馈可区分监听与助手就绪。
 // 本机面板读取真实上报去向，并区分入口恢复与 FRP 启用、启动、待重试状态。
 /**
  * 控制面客户端：只碰 `/api/relay/*` 这一组本机接口。
@@ -28,6 +28,8 @@ export type TailcatStatus = {
   address: string
   paired: number
   error: string
+  /** 内部转发代理当前监听端口；老门面可能不返回。 */
+  targetPort?: number
 }
 
 /** `GET/POST /api/relay/tailcat*` 的回答：状态 + 当前允许的手机公钥。 */

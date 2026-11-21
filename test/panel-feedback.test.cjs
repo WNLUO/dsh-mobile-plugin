@@ -1,4 +1,4 @@
-// 验证插件反馈能保存编号、查看原线程、继续回复，并携带固定连接事实而非凭据。
+// 验证插件反馈线程与脱敏连接事实，Tailcat 监听、启用和助手状态分别保留。
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -92,6 +92,56 @@ test('连接诊断保留版本、域名和线路状态，只投影固定字段�
   assert.match(facts.tunnel_error, /522/);
   assert.match(facts.tunnel_error, /token=\[redacted\]/);
   assert.doesNotMatch(JSON.stringify(facts), /private|password|123456|do-not-include/);
+});
+
+function assertTailcatFacts(api) {
+  const current = status();
+  current.tailcat = {
+    available: true, enabled: true, running: false, ready: false, paired: 0, targetPort: 40911,
+    error: 'bind denied token=tailcat-private', address: 'tc-do-not-include',
+    allowedClients: ['nodekey:do-not-include'],
+  };
+  const facts = api.connectionFeedbackFacts(current);
+  assert.equal(facts.tailcat_available, 'true');
+  assert.equal(facts.tailcat_enabled, 'true');
+  assert.equal(facts.tailcat_running, 'false');
+  assert.equal(facts.tailcat_ready, 'false');
+  assert.equal(facts.tailcat_target_port, '40911');
+  assert.equal(facts.tailcat_paired, '0');
+  assert.equal(facts.tailcat_error, 'bind denied token=[redacted]');
+  assert.doesNotMatch(JSON.stringify(facts), /tailcat-private|tc-do-not-include|nodekey:/);
+  current.tailcat = { available: false, enabled: false, ready: false, paired: 0, targetPort: 0, error: '' };
+  const unavailable = api.connectionFeedbackFacts(current);
+  assert.equal(unavailable.tailcat_available, 'false');
+  assert.equal(unavailable.tailcat_enabled, 'false');
+  assert.equal(unavailable.tailcat_running, '', '旧门面缺 running 不能冒充 false');
+  assert.equal(unavailable.tailcat_target_port, '0', '未监听与未知端口分开报告');
+  for (const tailcat of [null, undefined]) {
+    current.tailcat = tailcat;
+    const missing = api.connectionFeedbackFacts(current);
+    for (const field of ['available', 'enabled', 'running', 'ready', 'target_port', 'paired', 'error']) {
+      assert.equal(missing[`tailcat_${field}`], '', `旧宿主缺 ${field} 不能伪造状态`);
+    }
+  }
+}
+
+test('Tailcat 诊断保留启用、监听端口与助手状态，缺失字段留空且不带地址和公钥', () => {
+  assertTailcatFacts(load('feedback-diagnostics').api);
+});
+
+test('变异证明：删掉 Tailcat 诊断或把缺失状态伪装成关闭，同一断言必须失败', () => {
+  for (const [before, after] of [
+    ["    tailcat_enabled: String(status.tailcat?.enabled ?? ''),\n", ''],
+    ["    tailcat_target_port: String(status.tailcat?.targetPort ?? ''),\n", ''],
+    ["String(status.tailcat?.running ?? '')", "String(status.tailcat?.running ?? false)"],
+    ['safeError(status.tailcat?.error)', 'status.tailcat?.error'],
+  ]) {
+    const broken = load('feedback-diagnostics', { mutate: source => {
+      assert.equal(source.split(before).length, 2, '变异必须命中唯一实现');
+      return source.replace(before, after);
+    } });
+    assert.throws(() => assertTailcatFacts(broken.api), { code: 'ERR_ASSERTION' });
+  }
 });
 
 test('入口接通：提交保存编号，引导与控制台可重开；补充成功后才清草稿', () => {
