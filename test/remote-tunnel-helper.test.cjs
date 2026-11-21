@@ -1,10 +1,12 @@
-// 桌面助手 RPC 守卫：退避重拉、代次通知与旧助手退出清理。
+// 桌面助手只在明确不支持时停用，探测超时和意外退出均有界退避恢复。
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { PassThrough, Writable } = require('node:stream');
 const path = require('node:path');
+const fs = require('node:fs');
+const { createRequire } = require('node:module');
 const { createRemoteTunnelHelper, resolveRemoteBinary } = require('../lib/remote/tunnel-helper.cjs');
 
 function fakeProcess(handler) {
@@ -89,14 +91,45 @@ test('旧助手明确拒绝时禁用新增能力，后续调用不重复拉起',
   await helper.close();
 });
 
-test('旧助手无能力响应时只探测一次，后续设备立即降级', async () => {
-  let launches = 0;
-  const proc = fakeProcess({ capabilities() {} });
-  const helper = createRemoteTunnelHelper({ resolve: () => 'old-helper', spawn: () => { launches++; return proc; }, capabilityTimeoutMs: 20 });
-  await assert.rejects(helper.request('remoteP2PKeys', { deviceId: 'a' }), /remote-helper-unsupported/);
-  await assert.rejects(helper.request('remoteP2PKeys', { deviceId: 'b' }), /remote-helper-unsupported/);
-  assert.equal(launches, 1);
-  await helper.close();
+// 能力探测无响应可能只是本机启动迟缓；只有明确旧协议拒绝才永久停用。
+test('能力探测超时退避重拉，恢复后后续设备可使用', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const children = [];
+  const helper = createRemoteTunnelHelper({ resolve: () => 'helper', capabilityTimeoutMs: 20, spawn: () => {
+    const proc = fakeProcess(children.length === 0 ? { capabilities() {} } : {
+      command(proc, command) { reply(proc, command, { public: 'recovered' }); },
+    });
+    children.push(proc); return proc;
+  } });
+  try {
+    const pending = assert.rejects(helper.request('remoteP2PKeys', { deviceId: 'a' }), /remote-helper-capability-timeout/);
+    await new Promise(setImmediate);
+    t.mock.timers.tick(20); await pending;
+    assert.equal(helper.status().available, true);
+    assert.equal(helper.status().restarting, true);
+    assert.equal(children[0].killed, true);
+    await assert.rejects(helper.request('remoteP2PKeys', { deviceId: 'b' }), /remote-helper-restarting/);
+    t.mock.timers.tick(999); assert.equal(children.length, 1);
+    t.mock.timers.tick(1); await new Promise(setImmediate);
+    assert.equal(children.length, 2);
+    assert.equal((await helper.request('remoteP2PKeys', { deviceId: 'b' })).public, 'recovered');
+  } finally { await helper.close(); }
+});
+
+test('变异：能力超时改回永久不支持会被可恢复状态拒绝', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const file = path.join(__dirname, '../lib/remote/tunnel-helper.cjs');
+  const source = fs.readFileSync(file, 'utf8');
+  const marker = "command === 'remoteCapabilities' ? 'remote-helper-capability-timeout'";
+  assert.ok(source.includes(marker));
+  const loaded = { exports: {} };
+  new Function('require', 'module', 'exports', source.replace(marker, "command === 'remoteCapabilities' ? 'remote-helper-unsupported'"))(createRequire(file), loaded, loaded.exports);
+  const helper = loaded.exports.createRemoteTunnelHelper({ resolve: () => 'helper', spawn: () => fakeProcess({ capabilities() {} }), capabilityTimeoutMs: 20 });
+  try {
+    const rejected = helper.request('remoteP2PKeys', { deviceId: 'phone' }).catch(error => error);
+    await new Promise(setImmediate); t.mock.timers.tick(20); await rejected;
+    assert.throws(() => assert.equal(helper.status().available, true), assert.AssertionError);
+  } finally { await helper.close(); }
 });
 
 test('单设备请求超时排队清理该设备，关闭拒绝未完成请求', async () => {

@@ -1,4 +1,4 @@
-// 验证反馈读写仅限本机和局域网控制面，保留配对、设备吊销与连接关闭契约。
+// 网络控制动作必须真实执行；重连失败不报成功，FRP 重试受理与运行状态分开。
 'use strict';
 
 /**
@@ -201,7 +201,8 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  * 落点 —— 这样才谈得上「写进去能读回」，只对着源码正则断言字段名是钉不住的。
  */
 function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
-  localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0, getPluginRuntime = () => null } = {}) {
+  localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0, getPluginRuntime = () => null,
+  reconnectTunnel, frp, registerRoutes = registerControlPlaneRoutes } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
   const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
@@ -213,7 +214,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
       return state;
     },
   };
-  registerControlPlaneRoutes({
+  registerRoutes({
     registerRoute: (route) => table.set(route.path, route.handler),
     localOnly,
     trustedLocalUi,
@@ -226,6 +227,8 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     getPluginRuntime,
     status: () => ({}),
     syncSidecar: async () => {},
+    reconnectTunnel,
+    frp,
     sidecarToken: 'test',
     lanPortInUse: () => 18787,
     getLanPortAdjusted: () => false,
@@ -849,6 +852,77 @@ test('单台吊销响应保留数字closed', async () => {
   await table.get('/api/relay/devices/revoke')({ method: 'POST', body: { deviceId: 'phone' }, headers: {} }, res);
   assert.equal(res.body.closed, 3);
   assert.equal(typeof res.body.closed, 'number');
+});
+
+function networkRoutesModule(mutate = source => source, globals = {}) {
+  const module = { exports: {} };
+  vm.runInNewContext(mutate(fs.readFileSync(CONTROL_PLANE, 'utf8')), {
+    module, exports: module.exports, require: createRequire(CONTROL_PLANE), __dirname: path.dirname(CONTROL_PLANE),
+    process, Buffer, URL, performance, AbortController, fetch, setTimeout, clearTimeout, ...globals,
+  });
+  return module.exports.registerControlPlaneRoutes;
+}
+
+async function reconnectContract(mutate) {
+  const registerRoutes = networkRoutesModule(mutate);
+  let release, calls = 0;
+  const pending = new Promise(resolve => { release = resolve; });
+  const table = controlRoutes({ registerRoutes, reconnectTunnel: async () => { calls += 1; await pending; } });
+  const res = {};
+  const action = table.get('/api/relay/reconnect')({}, res);
+  await Promise.resolve();
+  assert.equal(calls, 1, '同配置也必须调用独立重连动作');
+  assert.equal(res.status, undefined, '动作尚未受理不能先报成功');
+  release(); await action;
+  assert.equal(res.status, 200);
+  const failed = controlRoutes({ registerRoutes, reconnectTunnel: async () => { throw new Error('worker unavailable'); } });
+  const error = {};
+  await failed.get('/api/relay/reconnect')({}, error);
+  assert.equal(error.status, 502);
+  assert.equal(error.body.error.code, 'reconnect-failed');
+  const missing = {};
+  await controlRoutes({ registerRoutes }).get('/api/relay/reconnect')({}, missing);
+  assert.equal(missing.status, 503);
+}
+test('主动重连调用独立动作，等受理后回执，失败与缺能力不报成功', () => reconnectContract());
+test('变异：主动重连退回幂等配置同步会被行为断言拒绝', async () => {
+  await assert.rejects(reconnectContract(source => source.replace('await reconnectTunnel()', 'await syncSidecar()')), assert.AssertionError);
+});
+
+async function frpAcceptedContract(mutate) {
+  const registerRoutes = networkRoutesModule(mutate);
+  for (const phase of ['retrying', 'starting', 'failed']) {
+    const current = { running: false, retrying: phase === 'retrying', starting: phase === 'starting', error: 'frpc offline' };
+    let saved = 0;
+    const table = controlRoutes({ registerRoutes, frp: { runId: 1, saveConfig() { saved += 1; }, start: async () => current, status: () => current } });
+    const res = {};
+    await table.get('/api/relay/frp/import')({ body: { config: 'serverAddr = "example.com"' } }, res);
+    assert.equal(saved, 1);
+    assert.equal(res.body.ok, phase !== 'failed', '配置已保存并自动重试时按受理处理');
+    assert.equal(res.body.status.running, false, '受理不伪造成已连通');
+    assert.equal(res.body.status.error, 'frpc offline');
+  }
+}
+test('FRP配置受理包含启动和自动重试，终止失败仍保留真实错误', () => frpAcceptedContract());
+test('变异：只认running会误报正在自动重试的导入失败', async () => {
+  await assert.rejects(frpAcceptedContract(source => source.replace(' || current.retrying || current.starting', '')), assert.AssertionError);
+});
+
+async function probeCleanupContract(mutate) {
+  const timers = new Set();
+  const registerRoutes = networkRoutesModule(mutate, {
+    setTimeout(fn) { const timer = { fn }; timers.add(timer); return timer; },
+    clearTimeout(timer) { timers.delete(timer); },
+    fetch: async () => { throw new Error('network unreachable'); },
+  });
+  const res = {};
+  await controlRoutes({ registerRoutes }).get('/api/relay/probe-relays')({ body: { urls: ['https://relay.example'] } }, res);
+  assert.equal(res.body.results[0].ms, null);
+  assert.equal(timers.size, 0, '异常路径也必须撤销6秒探测期限');
+}
+test('公用中转探测失败后释放总期限计时器', () => probeCleanupContract());
+test('变异：异常分支漏清计时器会被资源断言拒绝', async () => {
+  await assert.rejects(probeCleanupContract(source => source.replace('} finally {\n        clearTimeout(timer)\n      }', '}')), assert.AssertionError);
 });
 
 test('行为：/status 如实报「外壳改过、要重启」，供侧边栏那颗入口变成提醒', async () => {

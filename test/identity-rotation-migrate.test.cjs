@@ -1,3 +1,4 @@
+// 连续换号同时迁移凭据与连接登记，保留原连接并支持后续精确吊销。
 'use strict';
 
 /**
@@ -23,6 +24,8 @@ const core = require('../lib/relay/core.js');
 const credentials = require('../dsh-mobile-credentials/lib/credentials.js');
 const auth = require('../lib/mobile/auth.js');
 const { createIdentityRotator } = require('../lib/relay/identity-rotate.cjs');
+const registry = require('../lib/mobile/stream-registry');
+const { createRequire } = require('node:module');
 
 function reqWith(cred) {
   return { headers: { 'x-dsh-device-credential': cred } };
@@ -97,4 +100,62 @@ test('reassignInstance：本机全部凭据迁到新号，凭据串与吊销状�
   credentials.setReadOnly(true);
   assert.throws(() => credentials.reassignInstance('d'.repeat(32)), /只读/);
   credentials.setReadOnly(false);
+});
+
+async function assertConnectionMigration(createRotator = createIdentityRotator) {
+  registry.reset();
+  const state = { instanceId: 'scope-first' };
+  const sse = { end() {}, destroy() { this.destroyed = true; } };
+  const sibling = { end() {}, destroy() { this.destroyed = true; } };
+  const detach = registry.track('phone', sse, state.instanceId);
+  registry.track('phone', sibling, 'other-instance');
+  const moved = [];
+  const rotate = createRotator({ state, saveState() {}, migrateCredentials() {},
+    rotateIdentity(current) { current.instanceId += '-next'; return { instanceId: current.instanceId }; },
+    migrateConnections(from, to) { moved.push([from, to]); registry.reassignInstance(from, to); },
+    syncSidecar: async () => {}, syncControl() {},
+  });
+  try {
+    await rotate(); await rotate();
+    assert.equal(moved.length, 2);
+    assert.equal(registry.drop('phone', state.instanceId), 1);
+    assert.equal(sse.destroyed, true);
+    assert.equal(sibling.destroyed, undefined);
+    detach();
+  } finally { registry.reset(); }
+}
+test('换号钩子逐次迁移已有连接，连续换号后的吊销不漏流', () => assertConnectionMigration());
+test('迁移后的SSE清理回调删除新scope，不留下空登记', () => {
+  registry.reset();
+  const response = {};
+  const detach = registry.track('phone', response, 'first');
+  registry.reassignInstance('first', 'second'); registry.reassignInstance('second', 'third');
+  detach();
+  assert.equal(registry.size(), 0);
+  assert.equal(registry.dropAll('third'), 0);
+  registry.reset();
+});
+test('装配迁移当前三类登记，旧外壳mux无迁移方法时清掉更早scope', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../lib/impl.js'), 'utf8');
+  const match = source.match(/migrateConnections: (\(fromId, toId\) => \{[^\n]+\}) \}\)/);
+  assert.ok(match, '装配必须注入连接迁移钩子');
+  const scopes = new Set(['first', 'second', 'current']);
+  const calls = [];
+  const migration = new Function('streamRegistry', 'preview', 'mux', `return (${match[1]})`)(
+    { reassignInstance: (...ids) => calls.push(['sse', ...ids]) },
+    { reassignInstance: (...ids) => calls.push(['preview', ...ids]) },
+    { dropAll(scope) { assert.equal(scope, undefined, '旧service不能仅按上一代scope清理'); scopes.clear(); } },
+  );
+  migration('current', 'next');
+  assert.equal(scopes.size, 0);
+  assert.deepEqual(calls, [['sse', 'current', 'next'], ['preview', 'current', 'next']]);
+});
+test('变异：删除换号连接迁移钩子会被真实登记行为拒绝', async () => {
+  const file = path.join(__dirname, '../lib/relay/identity-rotate.cjs');
+  const source = fs.readFileSync(file, 'utf8');
+  const marker = 'if (typeof migrateConnections === \'function\') migrateConnections(previousInstanceId, instanceId);';
+  assert.ok(source.includes(marker));
+  const loaded = { exports: {} };
+  new Function('require', 'module', 'exports', source.replace(marker, ''))(createRequire(file), loaded, loaded.exports);
+  await assert.rejects(assertConnectionMigration(loaded.exports.createIdentityRotator), assert.AssertionError);
 });

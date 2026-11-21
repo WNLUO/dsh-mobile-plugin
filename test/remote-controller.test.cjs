@@ -1,4 +1,4 @@
-// 控制器保留环境诊断，助手换代只收回隧道事实并维持租期。
+// 控制器终止授权回收对应隧道，环境诊断与有效访问恢复保持原语义。
 'use strict';
 
 const test = require('node:test');
@@ -7,6 +7,9 @@ const http = require('node:http');
 const net = require('node:net');
 const { once, EventEmitter } = require('node:events');
 const { createRemoteController } = require('../lib/remote/controller.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
+const { createRequire } = require('node:module');
 const { LEASE_MS } = require('../lib/remote/local.cjs');
 
 function memoryStore() {
@@ -48,7 +51,7 @@ async function fixture(t, options = {}) {
       return { stream, host: { port: target.address().port, token: 'launch-secret' } };
     },
   };
-  const controller = createRemoteController({ store, transport, name: '本机', tunnels: options.tunnels || { routesFor: async () => [], close: async (id) => state.closes.push(id) }, onBindingsChanged: options.onBindingsChanged });
+  const controller = (options.createController || createRemoteController)({ store, transport, name: '本机', tunnels: options.tunnels || { routesFor: async () => [], close: async (id) => state.closes.push(id) }, onBindingsChanged: options.onBindingsChanged });
   t.after(async () => { await controller.close(); for (const socket of sockets) socket.destroy(); target.close(); });
   await controller.add('invite');
   return { controller, store, state, binding };
@@ -148,16 +151,32 @@ test('认证后的基础线路更新持久保存且不覆盖模式或隧道密�
   assert.equal((await f.controller.list())[0].mode, 'lan');
 });
 
-test('认证过的吊销错误主动关闭本地访问，列表不暴露原始错误', async (t) => {
-  const f = await fixture(t);
+async function assertTerminalCleanup(t, code, createController) {
+  const f = await fixture(t, { createController });
   const page = await browser(f.controller);
   await fetch(page.base, { headers: { cookie: page.cookie } });
-  f.state.failure = Object.assign(new Error('credential-secret at https://user:secret@example/?token=secret'), { code: 'REMOTE_REVOKED' });
+  f.state.closes.length = 0;
+  f.state.failure = Object.assign(new Error('credential-secret'), { code });
   const row = await f.controller.probe('A');
-  assert.equal(row.state, 'revoked');
+  assert.equal(row.state, code === 'REMOTE_REVOKED' ? 'revoked' : 'expired');
   assert.equal(JSON.stringify(row).includes('credential-secret'), false);
+  assert.deepEqual(f.state.closes, ['A'], '终止授权必须回收该设备的助手隧道');
   const denied = await fetch(page.base, { headers: { cookie: page.cookie } }).catch(() => null);
   assert.ok(!denied || denied.status >= 400);
+}
+for (const code of ['REMOTE_REVOKED', 'REMOTE_EXPIRED']) {
+  test(`${code}关闭本地访问并回收对应助手隧道`, t => assertTerminalCleanup(t, code));
+}
+test('变异：终止fault不收隧道会被行为断言拒绝', async t => {
+  const file = path.join(__dirname, '../lib/remote/controller.cjs');
+  const source = fs.readFileSync(file, 'utf8');
+  const start = source.indexOf('  function fault(');
+  const end = source.indexOf('  function ensure(', start);
+  const changed = source.slice(start, end).replaceAll('void Promise.resolve(tunnels?.close?.(item.binding.id)).catch(() => {});', '');
+  assert.notEqual(changed, source.slice(start, end));
+  const loaded = { exports: {} };
+  new Function('require', 'module', 'exports', source.slice(0, start) + changed + source.slice(end))(createRequire(file), loaded, loaded.exports);
+  await assert.rejects(assertTerminalCleanup(t, 'REMOTE_REVOKED', loaded.exports.createRemoteController), assert.AssertionError);
 });
 
 test('逐线路诊断直接返回每条候选的探测结果，不改设备状态', async (t) => {

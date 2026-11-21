@@ -1,4 +1,4 @@
-// 配置不变时仅对失败的 LAN 监听重试，正常服务保持不动。
+// 配置同步保持幂等，手工换址首次状态发布即撤下旧选路账。
 'use strict'
 // 「配置下发只重建真正变了的那一半」。
 //
@@ -56,13 +56,16 @@ function bootWorker(options = {}) {
     const { status, stopLan, startLan, stopTunnel, startTunnel, stopNetworkMonitor, startNetworkMonitor, lanUrls, lanUrlPort, core, publishState, switchRelay, openTunnel, reconnect } = deps;
     let config = deps.initialConfig;
     let tunnel = deps.tunnel;
+    let tunnelRoute = deps.initialRoute || null;
     let lanState = 'listening';
     let lanBoundPort = 18787;
     ${SIGNATURES_BODY}
-    ${CONFIGURE_BODY}
+    ${options.configureBody || CONFIGURE_BODY}
     return {
       configure,
       currentConfig: () => config,
+      currentRoute: () => tunnelRoute,
+      setRoute: (next) => { tunnelRoute = next },
       setTunnel: (next) => { tunnel = next },
       setLanState: (next) => { lanState = next },
     };
@@ -79,7 +82,7 @@ function bootWorker(options = {}) {
     reconnect: { cancel: () => { calls.reconnectCancel += 1 } },
     // 地址规范化用真实现：尾斜杠那条边界就是它管的，桩一份就等于没测。
     core: require(join(__dirname, '..', 'lib', 'relay', 'core.js')),
-    publishState: () => {},
+    publishState: options.publishState || (() => {}),
     switchRelay: options.switchRelay || ((opts) => { calls.switchRelay += 1; switches.push(opts); return options.switchResult ? options.switchResult(opts) : Promise.resolve(true) }),
     openTunnel: options.openTunnel || (() => Promise.resolve()),
     initialConfig: {},
@@ -129,6 +132,25 @@ test('中转地址变了：走「先登记迁移、再重建」那条路，旧�
   assert.equal(w.registrations.length, 0, '隧道都重建了，不需要再补一次注册')
   assert.equal(w.currentConfig().relayUrl, 'https://relay2.invalid')
 })
+
+async function assertManualRouteCleared(configureBody = CONFIGURE_BODY) {
+  const frames = [];
+  let w;
+  w = bootWorker({ configureBody, publishState: () => frames.push(w.currentRoute()),
+    switchResult: opts => opts.open(), openTunnel: async () => { throw new Error('new relay unavailable'); } });
+  await w.configure(baseConfig());
+  w.setRoute({ adopted: true, urls: ['https://stale.invalid'], url: 'https://stale.invalid' });
+  frames.length = 0;
+  await assert.rejects(w.configure({ ...baseConfig(), relayUrl: 'https://manual.invalid' }), /unavailable/);
+  assert.deepEqual(frames, [null], '手工换址首次状态不能再携带旧自动选路账');
+  assert.equal(w.currentRoute(), null, '注册失败也不能恢复过期账');
+}
+test('手工换址在首次publish前清旧route，失败状态不回灌旧地址', () => assertManualRouteCleared());
+test('变异：去掉手工换址route清理会被状态断言拒绝', async () => {
+  const changed = CONFIGURE_BODY.replace('tunnelRoute = null', '');
+  assert.notEqual(changed, CONFIGURE_BODY);
+  await assert.rejects(assertManualRouteCleared(changed), assert.AssertionError);
+});
 
 test('同时关掉总开关并换地址：走老路（停下就完了），不许把隧道又建起来', async () => {
   const w = bootWorker()

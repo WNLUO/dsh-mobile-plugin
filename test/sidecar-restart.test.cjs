@@ -1,4 +1,4 @@
-// 覆盖当前代重启路径和真实退出的一次恢复、停止与超时边界。
+// 主动重连复用进程和LAN，先等待最新配置；完整重启仍覆盖退出与超时边界。
 // 重启测试假体提供即时状态回写，覆盖重启后的 LAN 入口公布。
 'use strict'
 
@@ -178,6 +178,60 @@ const waitUntil = async (fn, what) => {
   }
   throw new Error(`超时：${what}`)
 }
+
+function reconnectHarness(mutate = source => source) {
+  const source = mutate(read(LIFECYCLE))
+  const from = source.indexOf('  const reconnectTunnel = async () => {')
+  const to = source.indexOf('  // ── sidecar 自重启', from)
+  assert.ok(from > 0 && to > from)
+  const calls = [], applied = []
+  let release, reject, followup
+  const configured = new Promise((resolve, fail) => { release = resolve; reject = fail })
+  const snapshot = { tunnel: { state: 'connecting' }, lan: { state: 'listening', port: 18787 } }
+  const deps = { calls, applied, snapshot, configured, followup: () => followup }
+  const factory = new Function('deps', `
+    let started = true, syncInFlight = null, sidecarSnapshot = {}, stateFromPoll = true, sidecarState = 'off'
+    const syncSidecar = async () => { deps.calls.push('sync'); await deps.configured; syncInFlight = deps.followup(); if (syncInFlight) void syncInFlight.then(() => { syncInFlight = null }) }
+    let sidecar = { child: {}, request: async (...args) => { deps.calls.push(args); return deps.snapshot } }
+    const applyTunnelState = value => deps.applied.push(value)
+    ${source.slice(from, to)}
+    return { reconnectTunnel, stop: () => { started = false }, state: () => ({sidecarSnapshot,stateFromPoll,sidecarState}) }
+  `)
+  return { ...factory(deps), calls, applied, snapshot, release, reject, setFollowup: value => { followup = value } }
+}
+async function reconnectContract(mutate) {
+  const h = reconnectHarness(mutate)
+  let finishFollowup
+  const followup = new Promise(resolve => { finishFollowup = resolve })
+  h.setFollowup(followup)
+  const pending = h.reconnectTunnel()
+  assert.deepEqual(h.calls, ['sync'])
+  h.release(); await Promise.resolve(); await Promise.resolve()
+  assert.deepEqual(h.calls, ['sync'], '合并的新配置未完成前不重连')
+  // 生产的finally会清syncInFlight；假体也让等待下一轮时读到完成事实。
+  h.setFollowup(null); finishFollowup()
+  const result = await Promise.race([pending, new Promise((_, reject) => setTimeout(() => reject(new Error('reconnect did not finish')), 1000))])
+  assert.deepEqual(h.calls[1], ['/reconnect', 'POST'])
+  assert.equal(h.calls.length, 2, '没有stop/start进程或LAN操作')
+  assert.equal(result, h.snapshot)
+  assert.equal(h.state().sidecarSnapshot.tunnel.state, 'connecting')
+  assert.equal(h.applied.length, 1)
+  const failed = reconnectHarness()
+  const rejected = assert.rejects(failed.reconnectTunnel(), /configuration failed/)
+  failed.reject(new Error('configuration failed')); await rejected
+  assert.equal(failed.calls.length, 1, '配置失败不能执行重连')
+  const stopped = reconnectHarness(); stopped.stop()
+  await assert.rejects(stopped.reconnectTunnel(), /sidecar stopped/)
+  assert.equal(stopped.calls.length, 0)
+}
+test('主动重连等待配置和合并配置，再用同进程独立动作回写真实快照', () => reconnectContract())
+test('变异：主动重连不调用独立worker动作会被行为断言拒绝', async () => {
+  await assert.rejects(reconnectContract(source => {
+    const changed = source.replace("await current.request('/reconnect', 'POST')", 'await Promise.resolve({})')
+    assert.notEqual(changed, source, '变异必须命中真实重连调用')
+    return changed
+  }), assert.AssertionError)
+})
 
 const extractRestartBlock = () => {
   const src = read(LIFECYCLE)
@@ -435,10 +489,10 @@ test('首次起不来会自动重试一次，不用人点重启（Windows 冷启
 
 const flushLifecycle = () => new Promise(setImmediate)
 function lifecycleFixture(mutate = source => source) {
-  const calls = { start: 0, stop: 0, configure: 0, loaded: [] }
+  const calls = { start: 0, stop: 0, configure: 0, loaded: [], requests: [], configs: [] }
   const instances = []
   const polls = []
-  const behavior = { startError: null, requestError: null, startWait: null, configureError: null, onlyOldConfigureError: false }
+  const behavior = { startError: null, requestError: null, startWait: null, configureError: null, onlyOldConfigureError: false, configureWait: null, reconnectWait: null }
   const nextLib = path.join(PKG_DIR, '.test-next', 'lib')
   class FakeFacade {
     constructor(options) { this.options = options; this.running = false; instances.push(this) }
@@ -447,17 +501,22 @@ function lifecycleFixture(mutate = source => source) {
       if (behavior.startWait) await behavior.startWait
       if (behavior.startError) throw new Error(behavior.startError)
       this.running = true
+      this.child = {}
     }
-    async stop() { calls.stop += 1; this.running = false }
-    async configure() {
+    async stop() { calls.stop += 1; this.running = false; this.child = null }
+    async configure(config) {
       calls.configure += 1
+      calls.configs.push(config)
+      if (behavior.configureWait) await behavior.configureWait
       if (behavior.configureError && (!behavior.onlyOldConfigureError || this === instances[0])) throw new Error(behavior.configureError)
       return { tunnel: { state: 'connected' }, lan: { state: 'listening', port: 18787 } }
     }
-    async request() {
+    async request(route, method) {
+      calls.requests.push([route, method])
       if (behavior.requestError) throw new Error(behavior.requestError)
       if (!this.running) throw new Error('sidecar facade is not running')
-      return { tunnel: { state: 'connected' }, lan: { state: 'listening', port: 18787 } }
+      if (route === '/reconnect' && behavior.reconnectWait) return await behavior.reconnectWait
+      return { tunnel: { state: route === '/reconnect' ? 'connecting' : 'connected' }, lan: { state: 'listening', port: 18787 } }
     }
     exit(message) { this.running = false; this.options.onDown(new Error(message)) }
   }
@@ -493,6 +552,64 @@ async function assertCurrentGenerationRestart(mutate) {
     assert.equal(h.calls.start, 2)
   } finally { await h.lifecycle.stop() }
 }
+
+async function assertReconnectGeneration(mode, mutate) {
+  const h = lifecycleFixture(mutate)
+  try {
+    await flushLifecycle()
+    let release
+    h.behavior.reconnectWait = new Promise(resolve => { release = resolve })
+    const pending = h.lifecycle.reconnectTunnel()
+    const rejected = assert.rejects(pending, /sidecar changed during reconnect/)
+    await flushLifecycle()
+    assert.deepEqual(h.calls.requests.at(-1), ['/reconnect', 'POST'])
+    if (mode === 'restart') await h.lifecycle.restartSidecar()
+    else { await h.lifecycle.stop(); h.lifecycle.start(); await flushLifecycle() }
+    const fresh = h.lifecycle.getSnapshot()
+    release({ tunnel: { state: 'connected', marker: 'stale' }, lan: { state: 'off' } })
+    await rejected
+    assert.equal(h.lifecycle.getSnapshot(), fresh, '旧worker回执不得覆盖新代快照')
+  } finally { await h.lifecycle.stop() }
+}
+test('主动重连在途遇重启或stop/start不得接受旧worker回执', async () => {
+  await assertReconnectGeneration('restart')
+  await assertReconnectGeneration('stop-start')
+})
+test('变异：回执只验started会被跨进程代次行为捕获', async () => {
+  await assert.rejects(assertReconnectGeneration('restart', source => source.replaceAll(
+    '!started || sidecar !== current || current.child !== child', '!started',
+  )), assert.AssertionError)
+})
+test('主动重连等待同步时停止，不向停掉的worker发请求', async () => {
+  const h = lifecycleFixture()
+  try {
+    await flushLifecycle()
+    let release
+    h.behavior.configureWait = new Promise(resolve => { release = resolve })
+    const pending = h.lifecycle.reconnectTunnel()
+    const rejected = assert.rejects(pending, /sidecar changed during reconnect/)
+    await flushLifecycle(); await h.lifecycle.stop(); release()
+    await rejected
+    assert.equal(h.calls.requests.some(([route]) => route === '/reconnect'), false)
+  } finally { await h.lifecycle.stop() }
+})
+test('热换代旧生命周期只在明确缺动作时升级worker，普通失败不重启', async () => {
+  const { createTunnelReconnector } = require('../lib/sidecar-lifecycle.cjs')
+  const calls = [], first = { child: {} }
+  let current = first, started = true, fail = 'sidecar facade request failed: 404 (not found)'
+  first.configure = async config => { calls.push(['configure', config]) }
+  first.request = async () => { calls.push('request'); if (fail) throw new Error(fail); return { tunnel: { state: 'connecting' } } }
+  const lifecycle = { isStarted: () => started, getSidecar: () => current, syncSidecar: async () => { calls.push('sync') },
+    restartSidecar: async () => { calls.push('restart'); current = { child: {} }; return { ok: true } },
+    getSnapshot: () => ({ tunnel: { state: 'connecting' } }) }
+  const reconnect = createTunnelReconnector(lifecycle, async () => ({ relayUrl: 'latest' }))
+  assert.equal((await reconnect()).tunnel.state, 'connecting')
+  assert.deepEqual(calls, ['sync', ['configure', { relayUrl: 'latest' }], 'request', 'restart'])
+  current = first; calls.length = 0; fail = 'sidecar facade request timeout'
+  await assert.rejects(reconnect(), /request timeout/)
+  assert.equal(calls.includes('restart'), false)
+  started = false; await assert.rejects(reconnect(), /sidecar stopped/)
+})
 
 test('手动重启从 providers 当前代加载 facade，不回到外壳启动目录', async () => {
   await assertCurrentGenerationRestart()

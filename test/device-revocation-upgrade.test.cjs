@@ -1,4 +1,4 @@
-// 驱动真实移动/控制路由吊销升级连接，验证回执、实例隔离与准确关闭计数。
+// 真实升级连接覆盖连续换号后的吊销、回执排空与实例隔离。
 'use strict';
 
 const test = require('node:test');
@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
+const { createRequire } = require('node:module');
 const { WebSocket } = require('ws');
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-revoke-upgrade-'));
@@ -32,7 +33,7 @@ const waitFor = async (predicate, timeoutMs = 3000) => {
 };
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 
-async function fixture(upstreamAgent) {
+async function fixture(upstreamAgent, services = {}) {
   registry.reset();
   const instanceId = `revoke-${Math.random().toString(36).slice(2)}`;
   const otherId = `${instanceId}-other`;
@@ -56,10 +57,10 @@ async function fixture(upstreamAgent) {
     Promise.resolve(handler(req, res)).catch((error) => { if (!res.writableEnded) sendJson(res, 500, { error: error.message }); });
   });
   const port = await listen(upstream);
-  const mux = createMuxService({ upstream: { port, agent: upstreamAgent }, authorize: (req) => {
+  const mux = (services.createMuxService || createMuxService)({ upstream: { port, agent: upstreamAgent }, authorize: (req) => {
     const result = auth(req); req.__dshRecord = result.record; return Boolean(result.ok && result.record);
   } });
-  const preview = createPreviewService({ authorized: (req) => {
+  const preview = (services.createPreviewService || createPreviewService)({ authorized: (req) => {
     const result = auth(req); req.__dshRecord = result.record; req.__dshInstanceId = instanceId; return result.ok;
   }, protectedPorts: () => new Set(), ownWebPort: () => port });
   const closedCounts = [];
@@ -342,3 +343,61 @@ for (const releaseGate of [true, false]) {
     } finally { release(); await f.close(); }
   });
 }
+
+function serviceWithMutation(relative, marker) {
+  const file = path.join(__dirname, relative);
+  const source = fs.readFileSync(file, 'utf8');
+  assert.ok(source.includes(marker));
+  const loaded = { exports: {} };
+  new Function('require', 'module', 'exports', source.replace(marker, ''))(createRequire(file), loaded, loaded.exports);
+  return loaded.exports;
+}
+async function assertRotatedUpgradeCleanup(all, services = {}) {
+  const f = await fixture(undefined, services);
+  const phone = await f.open('mux', f.first.credential);
+  const preview = await f.open('preview', f.first.credential);
+  const legacy = await f.open('preview', 'legacy');
+  const other = await f.open('mux', f.other.credential);
+  const sse = f.fakeSse();
+  const current = `${f.instanceId}-third`;
+  try {
+    for (const [from, to] of [[f.instanceId, `${f.instanceId}-second`], [`${f.instanceId}-second`, current]]) {
+      registry.reassignInstance(from, to); f.mux.reassignInstance(from, to); f.preview.reassignInstance(from, to);
+    }
+    assert.equal(phone.ws.readyState, WebSocket.OPEN, '换号不能主动打断新实现持有的连接');
+    assert.equal(preview.ws.readyState, WebSocket.OPEN);
+    const closed = all
+      ? registry.dropAll(current) + f.preview.dropAll(current) + f.mux.dropAll(current)
+      : registry.drop('same-phone', current) + f.preview.dropDevice('same-phone', current) + f.mux.dropDevice('same-phone', current);
+    assert.equal(closed, all ? 4 : 3, '吊销按当前scope找到连续换号前的连接');
+    await waitFor(() => phone.ws.readyState === WebSocket.CLOSED && preview.ws.readyState === WebSocket.CLOSED);
+    assert.equal(sse.destroyed, true);
+    if (all) await waitFor(() => legacy.ws.readyState === WebSocket.CLOSED);
+    else assert.equal(legacy.ws.readyState, WebSocket.OPEN);
+    assert.equal(other.ws.readyState, WebSocket.OPEN, '另一实例不能被迁移或关闭');
+  } finally { await f.close(); }
+}
+for (const all of [false, true]) {
+  test(`连续换号后${all ? '全部吊销覆盖legacy预览' : '单设备吊销'}保留实例隔离`, () => assertRotatedUpgradeCleanup(all));
+}
+test('变异：mux或preview漏迁移scope会被真实连接吊销断言拒绝', async () => {
+  const marker = 'if (identity.instanceId === from) identity.instanceId = to;';
+  const mux = serviceWithMutation('../lib/mobile/mux.js', marker);
+  await assert.rejects(assertRotatedUpgradeCleanup(false, mux), assert.AssertionError);
+  const preview = serviceWithMutation('../lib/relay/preview.js', marker);
+  await assert.rejects(assertRotatedUpgradeCleanup(true, preview), assert.AssertionError);
+});
+test('mux握手在建WS前拒绝空权限设备，保留老凭据', async () => {
+  const statuses = [];
+  const mux = createMuxService({ authorize(req) { req.__dshRecord = { permissions: [] }; return true; } });
+  mux.handleUpgrade({ url: '/api/mobile/v1/mux', headers: {}, method: 'GET' }, {
+    write(value) { statuses.push(value); }, destroy() { statuses.push('closed'); },
+  }, Buffer.alloc(0));
+  assert.match(statuses[0], /403 Forbidden/);
+  assert.equal(statuses[1], 'closed');
+  const f = await fixture();
+  try {
+    const phone = await f.open('mux', f.first.credential);
+    assert.equal(phone.ws.readyState, WebSocket.OPEN, '没有permissions字段的旧凭据仍可连');
+  } finally { await f.close(); }
+});
