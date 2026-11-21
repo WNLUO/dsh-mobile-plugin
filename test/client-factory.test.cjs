@@ -607,7 +607,7 @@ function createEnv(options = {}) {
 
   /**
    * 渲染侧边栏底部那颗图标；`preset` 按 useState 顺序预置槽位
-   * （0 url / 1 webAccess / 2 panelScope / 3 failure / 4 anchored），`props` 覆盖 owner 给的 `wide`。
+   * （0 url / 1 panelScope / 2 failure / 3 anchored），`props` 覆盖 owner 给的 `wide`。
    */
   function renderFooter(preset, props = {}) {
     const registration = byPathname('sidebar.footer.action');
@@ -682,7 +682,6 @@ function readyStatus(overrides = {}) {
     panelUrl: 'http://127.0.0.1:19387/api/relay/panel',
     // 宿主按请求的 Host 算出来的：面板地址落在哪类网络上。回环 = 本机设置页。
     panelScope: 'loopback',
-    webAccess: { enabled: false, expiresAt: 0 },
     lan: { state: 'listening', enabled: true, port: 18787, requestedPort: 18788 },
     tunnel: { state: 'connected' },
     mirror: { ok: true },
@@ -976,9 +975,8 @@ test('控制面请求不许写成站点根绝对地址（DSH 挂在子路径下�
   assert.deepEqual(absolute, [], `这些请求仍是站点根绝对地址：${absolute.join(' | ')}`);
 });
 
-test('两小时窗口开不出来时：不嵌那半张窗，把宿主的原话拍平写进诊断窗', async () => {
-  // 2026-11-05 起点一下是「弹控制台」而不是「开浏览器窗口」，所以这里不再有空白页可关；
-  // 要钉的是同一件事：**开不出来就必须说清楚**，不许留一屏空白或点了没反应。
+test('打不开配置页时：不嵌空窗，把宿主的原话拍平写进诊断窗', async () => {
+  // 起点一下就是「弹控制台」，没有空白页可关；要钉的是**开不出来就必须说清楚**。
   const cases = [
     [{ error: '直接一句' }, 500, '直接一句'],
     [{ error: { code: 'busy', message: '有任务在跑' } }, 409, 'busy: 有任务在跑'],
@@ -987,9 +985,6 @@ test('两小时窗口开不出来时：不嵌那半张窗，把宿主的原话�
   for (const [body, status, expected] of cases) {
     const env = materialize({
       fetch: async (url) => {
-        if (String(url).endsWith('/status')) {
-          return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) };
-        }
         if (String(url).endsWith('/host-half')) {
           return { ok: true, status: 200, json: async () => ({ ok: true, half: { version: '0.6.0', source: 'npm' } }) };
         }
@@ -1002,11 +997,11 @@ test('两小时窗口开不出来时：不嵌那半张窗，把宿主的原话�
     await icon.props.onClick({ preventDefault() {} });
     await settle();
     assert.equal(env.openedWindows.length, 0, '这一下不开任何浏览器窗口');
-    assert.equal(consoleFrame(env), undefined, '窗口没开成就不嵌：嵌进去只会是一屏 423');
+    assert.equal(consoleFrame(env), undefined, '地址都拿不到就不嵌');
     const dialog = diagnosisNode(env);
     assert.ok(dialog, '失败必须弹诊断窗：不许点了没反应');
     const text = texts(dialog).join('');
-    assert.match(text, /开放网页管理失败/);
+    assert.match(text, /打开配置页面失败/);
     assert.equal(text.includes(expected), true, `body=${JSON.stringify(body)} status=${status} → ${text}`);
     assert.match(text, new RegExp(`HTTP 状态.*${status}`, 's'));
     assert.match(text, /重新读取状态/);
@@ -1026,13 +1021,9 @@ async function assertOpenFailureFeedback(source = SOURCE) {
         submitted = init.body;
         return { ok: true, status: 200, json: async () => ({ data: { thread_key: 'feedback-test' } }) };
       }
-      if (String(url).endsWith('/status')) return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) };
       if (String(url).endsWith('/host-half')) return { ok: true, status: 200, json: async () => ({ half: { version: '0.6.0' } }) };
-      if (String(url).endsWith('/web-access')) {
-        if (entry.network) throw new Error('request failed https://example.test/?token=private-token');
-        return { ok: false, status: entry.status, json: async () => entry.body };
-      }
-      return { ok: true, status: 200, json: async () => ({}) };
+      if (entry.network) throw new Error('request failed https://example.test/?token=private-token');
+      return { ok: false, status: entry.status, json: async () => entry.body };
     } });
     env.renderFooter({}, { wide: false });
     await env.hooks.flush();
@@ -1107,7 +1098,7 @@ test('字典覆盖两张界面，中英一一对应', () => {
     'diagBusy', 'diagChecking', 'diagClose', 'diagCopied', 'diagCopy', 'diagCopyFailed',
     'diagFactActivated', 'diagFactOnDisk', 'diagFactPanelUrl', 'diagFactPlugin', 'diagFactReason',
     'diagFactRetry', 'diagFactReturned', 'diagFactScope', 'diagFactSelfcheck', 'diagFactShell',
-    'diagFactSource', 'diagFactStatus', 'diagFactUnavailable', 'diagFactWindow',
+    'diagFactSource', 'diagFactStatus', 'diagFactUnavailable',
     'diagHeadingFacts', 'diagHeadingSteps', 'diagOpenPanel', 'diagPopupBlocked', 'diagReload', 'diagReloadBusy',
     'diagReloadFailed', 'diagReloadOk', 'diagRetry', 'diagStepDuplicate', 'diagStepProxy',
     'diagStepReinstall', 'diagStepRestart', 'diagStepRetryOpen', 'diagStepRetrying',
@@ -1115,7 +1106,7 @@ test('字典覆盖两张界面，中英一一对应', () => {
     'diagSummaryOpenFailed', 'diagSummaryRestored', 'diagSummaryUnreachable', 'diagTitleLoad',
     'diagTitleOpen', 'footerAgoDays', 'footerAgoHours', 'footerAgoMinutes', 'footerAgoNow',
     'footerDeviceCount', 'footerDeviceSeen', 'footerLoadMissing', 'footerNoDevice', 'footerOpen',
-    'footerPending', 'footerPublicConfirm', 'footerRemoteOpen', 'footerSidecarBad', 'footerTunnelBad',
+    'footerPending', 'footerRemoteOpen', 'footerSidecarBad', 'footerTunnelBad',
     'heading', 'iconComputer', 'iconHidden', 'iconKeepOne', 'iconPhone', 'iconSaveFailed',
     'iconShown', 'iconsHint', 'iconsTitle', 'loadFailed', 'nav', 'openFailed', 'openHint', 'openPanel', 'panelMissing', 'panelPending',
     'pluginPageMissing', 'pluginPages', 'pluginPagesEmpty', 'pluginPagesHint', 'remoteConsoleTitle',
@@ -1247,20 +1238,14 @@ test('侧边栏图标：写盘失败要回滚开关并说清原因', async () =>
   assert.match(texts(env.renderSettings()).join(' '), /保存图标设置失败.*盘满了/);
 });
 
-test('设置项：读状态被窗口门挡住（423）时，点它先开窗再取地址', async () => {
-  const posts = [];
-  let accessOpen = false;
+test('设置项：读状态失败时，点它补读一次再取地址', async () => {
+  let attempts = 0;
   const env = materialize({
-    fetch: async (url, init = {}) => {
-      const path = String(url);
-      if (path.endsWith('/status')) {
-        if (!accessOpen) return { ok: false, status: 423, json: async () => ({ ok: false, error: { code: 'web_access_closed', message: '暂未开放' } }) };
+    fetch: async (url) => {
+      if (String(url).endsWith('/status')) {
+        attempts += 1;
+        if (attempts === 1) return { ok: false, status: 503, json: async () => ({ ok: false, error: '稍后再试' }) };
         return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) };
-      }
-      if (path.endsWith('/web-access')) {
-        posts.push(JSON.parse(init.body));
-        accessOpen = true;
-        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
       }
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     },
@@ -1271,11 +1256,10 @@ test('设置项：读状态被窗口门挡住（423）时，点它先开窗再�
   assert.equal(button.props.href, undefined, '宿主没给地址：不挂死链');
   await button.props.onClick({ preventDefault() {} });
   await settle(12);
-  assert.deepEqual(posts, [{ enabled: true }]);
-  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl);
+  assert.equal(env.openedWindows[0].location.href, readyStatus().panelUrl, '补读拿到地址后把它导航过去');
 });
 
-test('设置项：读到地址后按钮指向配置页，本机点击不拦也不开窗口', async () => {
+test('设置项：读到地址后按钮指向配置页，点击就是普通链接', async () => {
   const env = materialize({ fetch: async () => ({ ok: true, status: 200, json: async () => readyStatus() }) });
   env.renderSettings();
   await env.hooks.flush();
@@ -1285,23 +1269,13 @@ test('设置项：读到地址后按钮指向配置页，本机点击不拦也�
   let prevented = false;
   await button.props.onClick({ preventDefault() { prevented = true; } });
   await settle();
-  assert.equal(prevented, false, '回环地址就交给浏览器照常跳转');
+  assert.equal(prevented, false, '有地址就交给浏览器照常跳转');
   assert.equal(env.openedWindows.length, 0);
 });
 
-test('设置项：另一台局域网电脑直接打开，不开启两小时窗口', async () => {
-  const posts = [];
+test('设置项：公网地址也直接打开，不再弹确认也不开窗口', async () => {
   const env = materialize({
-    fetch: async (url, init = {}) => {
-      if (String(url).endsWith('/status')) {
-        return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
-      }
-      if (String(url).endsWith('/web-access')) {
-        posts.push(JSON.parse(init.body));
-        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
-      }
-      return { ok: true, status: 200, json: async () => ({ ok: true }) };
-    },
+    fetch: async () => ({ ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) }),
   });
   env.renderSettings();
   await env.hooks.flush();
@@ -1309,10 +1283,10 @@ test('设置项：另一台局域网电脑直接打开，不开启两小时窗�
   let prevented = false;
   await button.props.onClick({ preventDefault() { prevented = true; } });
   await settle();
-  assert.equal(prevented, false, '局域网直接走普通链接');
-  assert.deepEqual(posts, [], '不为局域网开启公网管理窗口');
+  assert.equal(prevented, false, '公网地址同样是普通链接');
+  assert.equal(env.confirms.length, 0, '不再为公网弹确认');
+  assert.deepEqual(env.openedWindows, []);
   assert.equal(button.props.href, readyStatus().panelUrl);
-  assert.equal(env.openedWindows.length, 0);
 });
 
 /* ── 5. 侧边栏底部那颗手机图标（唯一的入口）─────────────────────────────
@@ -1541,25 +1515,17 @@ test('认不出那一行（外壳换了版式）：退回自己一行，入口�
   assert.equal(tree.props['aria-disabled'], 'false', '没地址也照样能点：点了会自己去开窗再取地址');
 });
 
-test('宿主没给地址：不挂死链，但点它自己开窗取地址再嵌控制台（不再是死图标）', async () => {
+test('宿主没给地址：不挂死链，但点它补读地址再嵌控制台（不再是死图标）', async () => {
   const sidebar = fakeSidebarRow();
-  const posts = [];
-  let accessOpen = false;
+  let attempts = 0;
   const env = materialize({
     sidebar,
-    fetch: async (url, init = {}) => {
+    fetch: async (url) => {
       const path = String(url);
       if (path.endsWith('/status')) {
-        // 窗口关着时，非本机浏览器读到的是 423（`/status` 自己也在窗口门后面）。
-        if (!accessOpen) {
-          return { ok: false, status: 423, json: async () => ({ ok: false, error: { code: 'web_access_closed', message: '网页管理暂未开放' } }) };
-        }
+        attempts += 1;
+        if (attempts === 1) return { ok: false, status: 503, json: async () => ({ ok: false, error: '稍后再试' }) };
         return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'private' }) };
-      }
-      if (path.endsWith('/web-access')) {
-        posts.push(JSON.parse(init.body));
-        accessOpen = true;
-        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
       }
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     },
@@ -1576,10 +1542,8 @@ test('宿主没给地址：不挂死链，但点它自己开窗取地址再嵌�
 
   await node.onclick({ preventDefault() {} });
   await settle(12);
-  assert.deepEqual(posts, [{ enabled: true }], '先开两小时窗口——这是远程用户唯一能走通的顺序');
-  assert.equal(env.openedWindows.length, 0, '开完窗口是**弹这一窗**，不是再开一个浏览器窗口');
-  assert.equal(consoleFrame(env).attrs.src, consolePageOf(), '开完窗再读一次状态，地址就拿到了');
-  // 一进来就嵌着控制台：这一下不是「诊断」，是那一屏本身。
+  assert.equal(env.openedWindows.length, 0, '补读地址之后弹这一窗，不是再开一个浏览器窗口');
+  assert.equal(consoleFrame(env).attrs.src, consolePageOf(), '补读拿到地址后就嵌控制台');
   assert.notEqual(texts(diagnosisNode(env)).join(''), '', '控制台那一窗要有标题与说明');
 });
 
@@ -1604,19 +1568,19 @@ test('宿主那一半没装载（404）：标题说清该怎么处理，不甩�
   assert.equal(node.attrs[FOOTER_ALERT], '');
 });
 
-test('只是还没读到地址、或者窗口关着被回 423：不算插件坏了，不转红', async () => {
+test('只是还没读到地址（读状态暂时失败）：不算插件坏了，不转红', async () => {
   const sidebar = fakeSidebarRow();
   const env = materialize({
     sidebar,
-    // 远程用户第一眼的现场：窗口关着，`/status` 回 423（不是 404）。
-    fetch: async () => ({ ok: false, status: 423, json: async () => ({}) }),
+    // 远程用户第一眼的现场：`/status` 暂时回 503（不是 404）。
+    fetch: async () => ({ ok: false, status: 503, json: async () => ({}) }),
   });
   env.renderFooter();
   await env.hooks.flush();
   env.renderFooter();
   await env.hooks.flush();
   const node = footerDomNode(sidebar);
-  assert.equal(node.attrs[FOOTER_ALERT], undefined, '423 是正常态，红点一亮就成了每开一次页面都报的假警');
+  assert.equal(node.attrs[FOOTER_ALERT], undefined, '暂时读不到是正常态，红点一亮就成了每开一次页面都报的假警');
   assert.match(node.attrs.title, /还没就绪/);
 });
 
@@ -1659,7 +1623,7 @@ test('切语言之后标题跟着换（插进那一行的按钮不吃旧文案�
   // 依赖数组里必须是**文案本身**：`t` 是 bind 出来的稳定函数，只依赖它 effect 不会重跑。
   // 2026-11-17 起还要带上 visible：用户收起这颗图标时，effect 必须重跑把插进去的节点摘掉。
   // 2026-11-20 起带上 restartPending / restartLabel：需要重启 DSH 时这颗要当场变成提醒按钮。
-  assert.match(SOURCE, /\}, \[wide, visible, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess, hint, fault, restartPending, restartLabel\]\);/);
+  assert.match(SOURCE, /\}, \[wide, visible, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, hint, fault, restartPending, restartLabel\]\);/);
 });
 
 test('地址问不到时会自己再问；拿到地址后仍低频刷新现场', async () => {
@@ -1849,25 +1813,20 @@ function consolePageOf() {
   return 'http://127.0.0.1:56495/api/relay/panel/console';
 }
 
-/** 只给一颗图标用的环境：`panelScope` 与窗口状态由调用方定。 */
-function clickEnv({ panelScope = 'loopback', webAccess = { enabled: false, expiresAt: 0 }, confirm = true, pageProtocol = 'http:', source } = {}) {
-  const posts = [];
+/** 只给一颗图标用的环境：`panelScope` 由调用方定。 */
+function clickEnv({ panelScope = 'loopback', confirm = true, pageProtocol = 'http:', source } = {}) {
   const env = materialize({
     confirm,
     pageProtocol,
     source,
-    fetch: async (url, init = {}) => {
+    fetch: async (url) => {
       if (String(url).endsWith('/status')) {
-        return { ok: true, status: 200, json: async () => readyStatus({ panelScope, webAccess }) };
-      }
-      if (String(url).endsWith('/web-access')) {
-        posts.push(JSON.parse(init.body));
-        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
+        return { ok: true, status: 200, json: async () => readyStatus({ panelScope }) };
       }
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     },
   });
-  return { env, posts };
+  return { env };
 }
 
 /** 渲染窄条那颗（自己占一行，点击处理器直接挂在元素上，最好驱动）。 */
@@ -1878,14 +1837,13 @@ async function railIcon(env) {
 }
 
 test('本机回环：点下去直接嵌控制台那一屏，不再有中间那层', async () => {
-  const { env, posts } = clickEnv({ panelScope: 'loopback' });
+  const { env } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   let prevented = false;
   await icon.props.onClick({ preventDefault() { prevented = true; } });
   await settle();
   assert.equal(prevented, true, '点击一律先拦下来：这一下是弹窗，不是导航');
   assert.equal(env.openedWindows.length, 0, '不许跳走');
-  assert.deepEqual(posts, [], '本机浏览器控制面本来就认，不必开那两小时窗口');
   const frame = consoleFrame(env);
   assert.ok(frame, '点下去就地嵌那一页');
   assert.equal(frame.attrs.src, consolePageOf(), '嵌的是同源的控制台页');
@@ -1899,7 +1857,7 @@ test('本机回环：点下去直接嵌控制台那一屏，不再有中间那�
 });
 
 test('点电脑图标：本机回环直接嵌远程电脑页，不是控制台页', async () => {
-  const { env, posts } = clickEnv({ panelScope: 'loopback' });
+  const { env } = clickEnv({ panelScope: 'loopback' });
   env.renderRemoteFooter({}, { wide: false });
   await env.hooks.flush();
   const icon = env.renderRemoteFooter({}, { wide: false });
@@ -1909,7 +1867,6 @@ test('点电脑图标：本机回环直接嵌远程电脑页，不是控制台�
   await settle();
   assert.equal(prevented, true, '点击先拦下来：这一下是弹窗');
   assert.equal(env.openedWindows.length, 0, '不许跳走');
-  assert.deepEqual(posts, [], '本机不必开两小时窗口');
   const frame = consoleFrame(env);
   assert.ok(frame, '点下去就地嵌那一页');
   assert.equal(frame.attrs.src, remotePageOf(), '嵌的是远程电脑独立页');
@@ -2063,67 +2020,16 @@ test('页面发 open-browser：外壳开同源地址并收掉这一窗', async (
   assert.equal(consoleFrame(env), undefined, '开出去就把这一窗收掉');
 });
 
-test('局域网地址：直接嵌控制台，不开启两小时窗口', async () => {
-  // 局域网部署支持另一台电脑管理，入口不能再额外开启公网管理窗口。
-  const { env, posts } = clickEnv({ panelScope: 'private' });
-  const icon = await railIcon(env);
-  await icon.props.onClick({ preventDefault() {} });
-  await settle();
-  assert.deepEqual(posts, [], '局域网直连不需要两小时窗口');
-  assert.equal(env.confirms.length, 0, '局域网不再问第二遍');
-  assert.equal(env.openedWindows.length, 0, '只弹窗，不导航');
-  assert.equal(consoleFrame(env).attrs.src, consolePageOf());
-});
-
-test('变异：局域网入口恢复强制开窗会被同一断言识别', async () => {
-  const marker = "state.panelScope !== 'loopback' && state.panelScope !== 'private'";
-  const changed = SOURCE.replace(marker, "state.panelScope !== 'loopback'");
-  assert.notEqual(changed, SOURCE, '变异必须命中实际入口');
-  const assertNoWindow = async (source) => {
-    const { env, posts } = clickEnv({ panelScope: 'private', source });
+test('局域网与公网地址：都直接嵌控制台，不再开窗口也不弹确认', async () => {
+  for (const panelScope of ['private', 'public']) {
+    const { env } = clickEnv({ panelScope });
     const icon = await railIcon(env);
     await icon.props.onClick({ preventDefault() {} });
     await settle();
-    assert.deepEqual(posts, [], '局域网入口不能强制开窗');
-    assert.ok(consoleFrame(env));
-  };
-  await assertNoWindow(SOURCE);
-  await assert.rejects(() => assertNoWindow(changed), assert.AssertionError);
-});
-
-test('公网地址：先弹一句确认，取消就什么都不做', async () => {
-  const { env, posts } = clickEnv({ panelScope: 'public', confirm: false });
-  const icon = await railIcon(env);
-  await icon.props.onClick({ preventDefault() {} });
-  await settle();
-  assert.equal(env.confirms.length, 1, '公网地址必须先问一句');
-  assert.match(env.confirms[0], /位于公网[\s\S]*2 小时/);
-  assert.deepEqual(posts, [], '取消之后一个写请求都不许发');
-  assert.equal(diagnosisNode(env), undefined, '取消就什么都不弹');
-});
-
-test('公网地址：确认之后开窗口再嵌控制台', async () => {
-  const { env, posts } = clickEnv({ panelScope: 'public', confirm: true });
-  const icon = await railIcon(env);
-  await icon.props.onClick({ preventDefault() {} });
-  await settle();
-  assert.equal(env.confirms.length, 1);
-  assert.deepEqual(posts, [{ enabled: true }]);
-  assert.ok(consoleFrame(env), '确认之后就直接是那一屏');
-  assert.equal(env.openedWindows.length, 0);
-});
-
-test('窗口已经开着：不再确认也不再重复开（不续期），照样嵌控制台', async () => {
-  const { env, posts } = clickEnv({
-    panelScope: 'public',
-    webAccess: { enabled: true, expiresAt: 7_000_000 },
-  });
-  const icon = await railIcon(env);
-  await icon.props.onClick({ preventDefault() {} });
-  await settle();
-  assert.equal(env.confirms.length, 0);
-  assert.deepEqual(posts, [], '开着就直接用，别又续一次两小时');
-  assert.ok(consoleFrame(env));
+    assert.equal(env.confirms.length, 0, `${panelScope} 不再弹确认`);
+    assert.equal(env.openedWindows.length, 0, '只弹窗，不导航');
+    assert.equal(consoleFrame(env).attrs.src, consolePageOf());
+  }
 });
 
 test('页面发 open-browser 开的是**同源**地址，不是宿主报的那个 panelUrl', async () => {
@@ -2166,11 +2072,10 @@ test('桌面壳里页面发 open-browser：交给页面导航开系统浏览器�
 test('桌面壳里的页面（dsh-app:）：照样就地嵌，页面不被导航走', async () => {
   // 桌面版前端跑在 `dsh-app://app`（Electron 的安全协议）下，所以 iframe 的地址必须按页面
   // 自身的同源地址推，**不能**用宿主报的那个 http 绝对地址（那是跨协议、会被当混合内容挡掉）。
-  const { env, posts } = clickEnv({ panelScope: 'private', pageProtocol: 'dsh-app:' });
+  const { env } = clickEnv({ panelScope: 'private', pageProtocol: 'dsh-app:' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
-  assert.deepEqual(posts, [], '局域网地址直接访问，不开启公网管理窗口');
   assert.equal(env.openedWindows.length, 0, '壳里 `window.open` 一定被拒，先开一个空窗口只会盖一屏黑的出来');
   assert.equal(
     env.sandbox.window.location.href,
@@ -2188,9 +2093,6 @@ test('插进那一行的那颗也走同一套点击逻辑', async () => {
       if (String(url).endsWith('/status')) {
         return { ok: true, status: 200, json: async () => readyStatus({ panelScope: 'public' }) };
       }
-      if (String(url).endsWith('/web-access')) {
-        return { ok: true, status: 200, json: async () => ({ ok: true, webAccess: { enabled: true, expiresAt: 7_200_000 } }) };
-      }
       return { ok: true, status: 200, json: async () => ({ ok: true }) };
     },
   });
@@ -2202,7 +2104,7 @@ test('插进那一行的那颗也走同一套点击逻辑', async () => {
   assert.equal(typeof node.onclick, 'function', '插进 DOM 的那颗要有自己的点击处理');
   await node.onclick({ preventDefault() {} });
   await settle();
-  assert.equal(env.confirms.length, 1);
+  assert.equal(env.confirms.length, 0);
   assert.ok(consoleFrame(env), '插进那一行的那颗点下去也是同一屏');
   assert.equal(env.openedWindows.length, 0);
 });

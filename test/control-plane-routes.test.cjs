@@ -29,9 +29,7 @@ const CONTROL_PLANE = path.join(__dirname, '..', 'lib', 'routes', 'control-plane
 const { pairingPayload } = require(path.join(__dirname, '..', 'lib', 'relay', 'pairing-payload.cjs'));
 const {
   WEB_ACCESS_ROUTES,
-  WEB_ACCESS_WINDOW_MS,
   panelScopeOf,
-  createWebAccessWindow,
   registerControlPlaneRoutes,
 } = require(CONTROL_PLANE);
 
@@ -50,7 +48,6 @@ const NO_WEB_ACCESS = new Map([
   ['/api/relay/read-receipt', '桌面端轮询上报回执以同步本地已读状态，属于客户端功能，不是网页管理面板。'],
   ['/api/relay/client-half', '桌面客户端每 10 秒上报存活与故障自检状态，不能随网页管理窗口停止。'],
   ['/api/relay/desktop-read', '桌面客户端轮询同步已读会话，属于手机与桌面协同通道，不是网页管理接口。'],
-  ['/api/relay/web-access', '开关路由本身必须始终可达：侧边栏那颗手机图标要在窗口关着时把它打开'],
 ]);
 
 /**
@@ -76,7 +73,6 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
   const known = new Set(routes.map((r) => r.path));
   for (const expected of [
     '/api/relay/internal/approval',
-    '/api/relay/web-access',
     '/api/relay/status',
     '/api/relay/feedback',
     // 面板页（设置界面搬进宿主吐的 HTML）与它的「引导走完了」标记。
@@ -277,7 +273,6 @@ test('反馈读写：返回线程本身、续回复共用提交服务，来源�
     const method = networkResponse();
     await handler(networkRequest('/api/relay/feedback', '127.0.0.1', '127.0.0.1:19387', { method: 'DELETE' }), method);
     assert.equal(method.status, 405);
-    await table.get('/api/relay/web-access')({ ...networkRequest('/api/relay/web-access', '127.0.0.1', '127.0.0.1:19387', { method: 'POST' }), body: { enabled: true } }, {});
     for (const method of ['GET', 'POST']) {
       // 2026-11-21：控制面不按来源拦截，只拦经中转 / 局域网代理转发来的请求。
       for (const headers of [{ 'x-dsh-via': 'relay' }, { 'x-dsh-via': 'lan' }, { 'x-dsh-instance': 'phone' }]) {
@@ -540,24 +535,6 @@ test('网页管理访问窗口只保护管理面板路由，例外路由逐条�
   }
 });
 
-test('网页管理窗口默认关闭、固定两小时且访问不续期', () => {
-  let wall = 1_000_000;
-  let monotonic = 500;
-  const window = createWebAccessWindow({ now: () => wall, monotonicNow: () => monotonic });
-  assert.deepEqual(window.status(), { enabled: false, expiresAt: 0 });
-  const opened = window.enable();
-  assert.deepEqual(opened, { enabled: true, expiresAt: wall + WEB_ACCESS_WINDOW_MS });
-  monotonic += 1_000;
-  wall += 1_000;
-  assert.deepEqual(window.status(), opened, '读取状态与请求访问不能滑动延长到期点');
-  monotonic += WEB_ACCESS_WINDOW_MS - 1_001;
-  assert.equal(window.isOpen(), true);
-  monotonic += 1;
-  assert.deepEqual(window.status(), { enabled: false, expiresAt: 0 });
-  assert.deepEqual(window.enable(), { enabled: true, expiresAt: wall + WEB_ACCESS_WINDOW_MS });
-  assert.deepEqual(window.disable(), { enabled: false, expiresAt: 0 });
-});
-
 test('面板地址分三类：本机回环 / 局域网 / 公网（域名一律算公网）', () => {
   const scope = (host) => panelScopeOf({ headers: { host } });
   assert.equal(scope('127.0.0.1:19387'), 'loopback');
@@ -619,56 +596,6 @@ test('行为：/status 拿不到凭据库时报 null，不编一个 0 台', asyn
   await table.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res);
   assert.equal(res.status, 200);
   assert.equal(res.body.devices, null);
-});
-
-test('行为：那颗图标能从同源界面把两小时窗口打开 —— 本机地址直连即可，不要求回环', async () => {
-  // 2026-11-02 放宽：公网 / 局域网部署的人就是在自己的浏览器里点那颗图标，按老的
-  // trustedLocalUi（要求 socket 回环）会 403，于是谁都开不了窗口、面板永远 423。
-  // 现在的判据是 Host 必须是地址字面量（IP / localhost）：跨站与经代理转发的仍在 localOnly
-  // 挡着，DNS 重绑定页面带的是域名 Host，会被这一条挡掉（见下一条用例）。
-  const table = controlRoutes({ state: {} });
-  const opened = {};
-  await table.get('/api/relay/web-access')(
-    { method: 'POST', headers: { host: '203.0.113.9:19387' }, body: { enabled: true } },
-    opened,
-  );
-  assert.equal(opened.status, 200, JSON.stringify(opened.body));
-  assert.equal(opened.body.webAccess.enabled, true);
-
-  const closed = {};
-  await table.get('/api/relay/web-access')(
-    { method: 'POST', headers: { host: '203.0.113.9:19387' }, body: { enabled: false } },
-    closed,
-  );
-  assert.equal(closed.body.webAccess.enabled, false, '关掉也要走同一条路');
-
-  const bad = {};
-  await table.get('/api/relay/web-access')(
-    { method: 'POST', headers: { host: '203.0.113.9:19387' }, body: { enabled: 'yes' } },
-    bad,
-  );
-  assert.equal(bad.status, 400, 'enabled 必须是布尔值，别把字符串当开');
-});
-
-test('行为：DNS 重绑定页面（域名 Host）不能自己把管理窗口打开', async () => {
-  // 重绑定页面 origin 与 Host 都是攻击者的域名，localOnly 的同源判断认不出；挡它的判据是
-  // 「Host 必须是 IP 字面量 / localhost」，域名 Host 一律 403。
-  const table = controlRoutes({ state: {} });
-  for (const host of ['evil.example.com', 'rebind.test:19387']) {
-    const res = {};
-    await table.get('/api/relay/web-access')(
-      { method: 'POST', headers: { host }, body: { enabled: true } },
-      res,
-    );
-    assert.equal(res.status, 403, `域名 Host（${host}）不该能开窗口`);
-    assert.equal(res.body.error.code, 'local_only');
-  }
-  const loop = {};
-  await table.get('/api/relay/web-access')(
-    { method: 'POST', headers: { host: '127.0.0.1:19387' }, body: { enabled: true } },
-    loop,
-  );
-  assert.equal(loop.status, 200, '回环本机照旧能开');
 });
 
 test('管理操作不按来源拦截：公网、局域网、本机都放行，只拒绝转发来的请求', async () => {

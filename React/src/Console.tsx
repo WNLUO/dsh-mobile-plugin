@@ -41,7 +41,6 @@ import { PublicRelayNoticeDialog } from './components/PublicRelayNoticeDialog.ts
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { TailcatDialog } from './components/TailcatDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
-import { WebAccessCard } from './components/WebAccessCard.tsx'
 import {
   apiGet,
   apiPost,
@@ -55,7 +54,6 @@ import {
   type PairingInfo,
   type PairingPolicy,
   type StatusView,
-  type WebAccessState,
 } from './lib/api.ts'
 import { Dot, ALIGNED_ROWS, InfoList } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
@@ -286,13 +284,6 @@ export function Console() {
       const payload = await apiPost<{ status: StatusView }>('/api/relay/restart-sidecar')
       setStatus(payload.status)
       notify('soft', t('panel.shell.sidecarRestarted'))
-    })
-
-  const toggleWebAccess = (enabled: boolean) =>
-    act('webAccess', async () => {
-      const payload = await apiPost<{ ok: boolean; webAccess: WebAccessState }>('/api/relay/web-access', { enabled })
-      setStatus((current) => (current ? { ...current, webAccess: payload.webAccess } : current))
-      notify('soft', t(enabled ? 'panel.webAccess.opened' : 'panel.webAccess.closedNotice'))
     })
 
   /**
@@ -544,9 +535,6 @@ export function Console() {
           `break-inside-avoid` 保证一张卡不会被劈到两列里。
         */}
         <div className="columns-1 gap-3 md:columns-2 xl:columns-3 [&>*]:mb-3 [&>*]:break-inside-avoid">
-          {status.webAccess?.enabled && status.panelScope !== 'loopback' ? (
-            <WebAccessCard webAccess={status.webAccess} busy={busy} onToggle={(on) => void toggleWebAccess(on)} />
-          ) : null}
         </div>
       </div>
 

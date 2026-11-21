@@ -170,25 +170,11 @@ export type StatusView = {
    */
   panelScope?: 'loopback' | 'private' | 'public'
   /**
-   * 网页管理那两小时的临时窗口（进程内，DSH 重启即关）。只有 `/api/relay/status` 带它。
-   */
-  webAccess?: WebAccessState
-  /**
    * 最近一次「手机上真的来过」的时刻（毫秒，0 = 从来没来过）。宿主在移动端守卫里记的，
    * 也只有本机这条状态路由带它。引导最后一页靠它把「等手机扫码」变成真结论。
    * **老宿主没有这个字段**：那时它是 `undefined`，界面不能假装自己在等一个永远等不到的信号。
    */
   lastMobileAt?: number
-}
-
-/**
- * `POST /api/relay/web-access` 与 `/api/relay/status` 里那份窗口状态。
- *
- * `expiresAt` 是墙钟毫秒（0 = 没开）；窗口到点自己关，访问不会延长它。
- */
-export type WebAccessState = {
-  enabled: boolean
-  expiresAt: number
 }
 
 /** `/api/relay/addresses` 里一条地址。 */
