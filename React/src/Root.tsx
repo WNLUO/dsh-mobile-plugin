@@ -9,7 +9,7 @@
  * 2026-11-15 收成一套，根地址与各入口统一进控制台。认后缀用 `endsWith`：这一页可能挂在
  * 反代给的子路径下，前缀变了不该把几条路弄丢。
  */
-// 首屏状态请求结束后才报告就绪；失败显示原因，并允许原地重新载入。
+// 首屏状态请求结束后才报告就绪；失败显示原因、重启建议与重新载入入口。
 import { Button } from '@appica/ui-react/button'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
@@ -73,6 +73,7 @@ export function Root() {
     return (
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-3 p-5">
         <p className="text-sm text-error" role="alert">{startupError}</p>
+        <p className="text-sm text-foreground-muted">{t('panel.shell.restartHint')}</p>
         <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
           {t('panel.console.reload')}
         </Button>

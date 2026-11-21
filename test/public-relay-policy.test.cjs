@@ -1,14 +1,16 @@
-// 公用清单补齐只恢复已启用实例的空列表，不改变自建与禁用意图。
+// 公用清单补齐只恢复已启用实例的空列表，不改变自建与禁用意图；退役地址只在读盘清理、写入不碰。
 'use strict';
 
 /**
- * 「配了公网自建 → 公用中转强制停用」的判定与真停用（2026-11-18 用户要求）。
+ * 「配了公网自建中转 → 公用中转强制停用」的判定与真停用。
  *
- * 判定口径只写一份（core.publicRelayBlocked）：有公网可达的自建——自建中转 / 直连
- * manualLanUrl / TCP 直连 manualTcpUrl——才停公用；局域网 preferredLanAddress 与 IPv6
- * manualIpv6Url 不算（外面访问不进来）。真停用是 core.stripPublicRelay：把公用地址从列表
- * 剔除，存下去的那份就不含公用，手机也就不可能再走公用。面板 status 的 publicRelayBlocked
- * 只是如实反映同一判据，让前端划删除线、禁用「启用」。
+ * 判定口径只写一份（core.publicRelayBlocked）：只有**真正的中转**——relayUrls 里有一条非公用
+ * 地址（自己搭的中转服务器）——才停公用。手填直连 manualLanUrl / TCP 直连 manualTcpUrl 只是
+ * 手机直连这台电脑的入口，顶替不了公用中转「让新手机在外网发现这台电脑」的作用，不再据此
+ * 停用（2026-11-21 反馈 #125 修正 2026-11-18 口径）；局域网 preferredLanAddress 与 IPv6
+ * manualIpv6Url 同样不算。真停用是 core.stripPublicRelay：把公用地址从列表剔除，存下去的那份
+ * 就不含公用，手机也就不可能再走公用。面板 status 的 publicRelayBlocked 只是如实反映同一
+ * 判据，让前端划删除线、禁用「启用」。
  *
  * data 目录先改临时再 require：core 在求值时就定死了 relay.json 路径。
  */
@@ -35,16 +37,16 @@ test('公用地址识别：按 host 比，协议 / 端口 / 尾斜杠差异不�
   assert.equal(core.isPublicRelayUrl('not a url'), false);
 });
 
-test('判定：只有公网可达的自建才停公用', () => {
+test('判定：只有公网可达的自建中转才停公用', () => {
   // 只有公用 / 什么都没配 → 不停。
   assert.equal(core.publicRelayBlocked({ relayUrls: [PUBLIC] }), false, '只有公用时照常用公用');
   assert.equal(core.publicRelayBlocked({ relayUrls: [] }), false, '什么都没配时不停');
   // 自建中转（列表里有非公用地址）→ 停。
   assert.equal(core.publicRelayBlocked({ relayUrls: [SELF] }), true, '自建中转要停公用');
   assert.equal(core.publicRelayBlocked({ relayUrls: [PUBLIC, SELF] }), true, '列表里混着自建也算');
-  // 直连 / TCP 直连 → 停。
-  assert.equal(core.publicRelayBlocked({ relayUrls: [PUBLIC], manualLanUrl: 'https://x.example.com' }), true, '公网直连要停公用');
-  assert.equal(core.publicRelayBlocked({ relayUrls: [PUBLIC], manualTcpUrl: 'relay.example.com:8443' }), true, 'TCP 直连要停公用');
+  // 直连 / TCP 直连不算：它们是手机直连电脑的入口，顶替不了公用中转的发现作用，不再停用（反馈 #125）。
+  assert.equal(core.publicRelayBlocked({ relayUrls: [PUBLIC], manualLanUrl: 'https://x.example.com' }), false, '直连地址不再停公用');
+  assert.equal(core.publicRelayBlocked({ relayUrls: [PUBLIC], manualTcpUrl: 'relay.example.com:8443' }), false, 'TCP 直连不再停公用');
   // 排除项：局域网优先地址与 IPv6 都不算。
   assert.equal(core.publicRelayBlocked({ relayUrls: [PUBLIC], preferredLanAddress: '192.168.31.69' }), false, '局域网地址不算');
   assert.equal(core.publicRelayBlocked({ relayUrls: [PUBLIC], manualIpv6Url: 'http://[240e::1]:18787' }), false, 'IPv6 地址不算');
@@ -57,12 +59,11 @@ test('真停用：从地址列表剔除公用项，自建项照留，不变式�
   assert.deepEqual(mixed.relayUrls, [SELF], '公用项没了，自建项留着');
   assert.equal(mixed.relayUrl, SELF, '首项跟着变，relayUrls[0] === relayUrl 仍成立');
 
-  // 自建是「公网直连」而非中转时：公用从列表剔除后 relayUrls 为空，中转这一档就没了，
-  // 用户已有直连替代（relayUrls[0] === relayUrl 仍成立）。
+  // 只有直连地址、没有自建中转时判据为假：公用一个字节不动（反馈 #125）。
   const withDirect = { relayUrls: [PUBLIC], relayUrl: PUBLIC, manualLanUrl: 'https://x.example.com' };
-  assert.equal(core.stripPublicRelay(withDirect), true);
-  assert.deepEqual(withDirect.relayUrls, []);
-  assert.equal(withDirect.relayUrl, '');
+  assert.equal(core.stripPublicRelay(withDirect), false, '直连地址不触发停用');
+  assert.deepEqual(withDirect.relayUrls, [PUBLIC], '公用照留');
+  assert.equal(withDirect.relayUrl, PUBLIC);
 
   // 只有公用、没有任何自建时判据为假，一个字节不动（用户没配自建，公用照常用）。
   const untouched = { relayUrls: [PUBLIC], relayUrl: PUBLIC };
@@ -109,10 +110,11 @@ test('补齐：有自建中转就不动（不归这管）', () => {
   assert.deepEqual(state.relayUrls, ['https://self.example.com']);
 });
 
-test('补齐：配了公网自建直连（公用强制停用）就不补', () => {
-  const state = { relayUrl: PUBLIC, relayUrls: [PUBLIC], manualLanUrl: 'https://穿透.example.com' };
-  assert.equal(core.expandDefaultPublicRelays(state), false);
-  assert.deepEqual(state.relayUrls, [PUBLIC]);
+test('补齐：只有直连地址时不再抑制公用兜底（反馈 #125）', () => {
+  const state = { enabled: true, relayUrl: '', relayUrls: [], manualLanUrl: 'https://穿透.example.com' };
+  assert.equal(core.expandDefaultPublicRelays(state), true, '直连地址不再阻止公用兜底');
+  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS]);
+  assert.equal(state.relayUrl, state.relayUrls[0]);
 });
 
 test('补齐：整份已齐时不动', () => {
@@ -145,27 +147,20 @@ test('回补：旧首项已经剔除时以空清单为准，不复活旧自建�
   assert.equal(state.relayUrl, core.PUBLIC_RELAY_URLS[0]);
 });
 
-test('回补：公网直连仍在时保持空表，清掉最后一个替代后才恢复', () => {
+test('回补：直连地址不触发停用，公用照常保留（反馈 #125）', () => {
   const state = { enabled: true, relayUrl: PUBLIC, relayUrls: [PUBLIC], manualLanUrl: 'https://direct.example.com', manualTcpUrl: 'tcp.example.com:8443' };
-  assert.equal(core.stripPublicRelay(state), true);
-  assert.deepEqual(state.relayUrls, []);
-  assert.equal(state.relayUrl, '');
-  assert.equal(core.expandDefaultPublicRelays(state), false);
-  state.manualLanUrl = '';
-  assert.equal(core.expandDefaultPublicRelays(state), false, 'TCP 替代仍在');
-  state.manualTcpUrl = '';
-  assert.equal(core.expandDefaultPublicRelays(state), true);
-  assert.deepEqual(state.relayUrls, [...core.PUBLIC_RELAY_URLS]);
-  assert.equal(state.relayUrl, core.PUBLIC_RELAY_URLS[0]);
+  assert.equal(core.stripPublicRelay(state), false, '直连 / TCP 直连都不停用公用');
+  assert.deepEqual(state.relayUrls, [PUBLIC], '公用照留');
+  assert.equal(state.relayUrl, PUBLIC);
+  assert.equal(core.expandDefaultPublicRelays(state), false, '公用已齐全');
 });
 
-test('回补：公网替代撤掉但实例已禁用时仍保持空表', () => {
+test('回补：直连地址撤掉后公用不受影响，实例禁用状态保持', () => {
   const state = { enabled: false, relayUrl: PUBLIC, relayUrls: [PUBLIC], manualLanUrl: 'https://direct.example.com' };
-  core.stripPublicRelay(state);
+  assert.equal(core.stripPublicRelay(state), false, '直连地址不停用公用');
+  assert.deepEqual(state.relayUrls, [PUBLIC]);
   state.manualLanUrl = '';
-  assert.equal(core.expandDefaultPublicRelays(state), false);
-  assert.deepEqual(state.relayUrls, []);
-  assert.equal(state.relayUrl, '');
+  assert.deepEqual(state.relayUrls, [PUBLIC]);
   assert.equal(state.enabled, false);
 });
 
@@ -212,12 +207,40 @@ test('退役地址混在自建列表里：只剔退役那条，自建原样保�
   assert.equal(state.relayUrl, self);
 });
 
-test('回补前先剔退役：只含退役地址的启用配置换成现行公用，混自建的只剔退役', () => {
+test('读盘清理退役地址：loadState 先剔退役，再补回现行公用', () => {
+  // 退役地址由 loadState 在读盘时清理（老配置残留的官方地址），这是保留的旧行为。
   const onlyRetired = { enabled: true, relayUrl: 'https://dsh.iouf.cn', relayUrls: ['https://dsh.iouf.cn'] };
+  assert.equal(core.pruneRetiredPublicRelays(onlyRetired), true);
   assert.equal(core.expandDefaultPublicRelays(onlyRetired), true);
   assert.deepEqual(onlyRetired.relayUrls, [...core.PUBLIC_RELAY_URLS], '退役地址被换回现行公用');
   const self = 'https://my-own-relay.example.org';
   const mixed = { enabled: true, relayUrl: self, relayUrls: [self, 'https://dsh.yfyidc.cn'] };
-  assert.equal(core.expandDefaultPublicRelays(mixed), true);
+  core.pruneRetiredPublicRelays(mixed);
+  core.expandDefaultPublicRelays(mixed);
   assert.deepEqual(mixed.relayUrls, [self], '只剔退役，自建原样留着');
+});
+
+test('写入不清理退役地址：用户显式填的退役域名自建中转照存（issue #26）', () => {
+  // 用户把自建中转搭在与退役官方地址相同的域名上：可通过面板或接口显式填进来。
+  // 写入路径只调 expandDefaultPublicRelays（不再连带 prune），必须原样保留，不许静默
+  // 改写成现行公用地址——那会让填了 dsh.iouf.cn 的用户看到地址「自己变了」还毫无提示。
+  const explicit = { enabled: true, relayUrl: 'https://dsh.iouf.cn', relayUrls: ['https://dsh.iouf.cn'] };
+  assert.equal(core.expandDefaultPublicRelays(explicit), false, '补齐这一步不碰它');
+  assert.deepEqual(explicit.relayUrls, ['https://dsh.iouf.cn'], '显式填的退役域名原样留在列表');
+  assert.equal(explicit.relayUrl, 'https://dsh.iouf.cn');
+  // 混着真自建也一样：一个字节不动。
+  const mixed = { enabled: true, relayUrl: 'https://dsh.yfyidc.cn', relayUrls: ['https://dsh.yfyidc.cn', 'https://self.example.com'] };
+  assert.equal(core.expandDefaultPublicRelays(mixed), false);
+  assert.deepEqual(mixed.relayUrls, ['https://dsh.yfyidc.cn', 'https://self.example.com']);
+});
+
+test('接线：退役清理只在 loadState，写入路径不带（issue #26）', () => {
+  const coreSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'relay', 'core.js'), 'utf8');
+  const loadState = coreSrc.slice(coreSrc.indexOf('function loadState('), coreSrc.indexOf('/**', coreSrc.indexOf('function loadState(')));
+  assert.match(loadState, /pruneRetiredPublicRelays\(state\)/, '读盘要清理官方退役地址');
+  const expand = coreSrc.slice(coreSrc.indexOf('function expandDefaultPublicRelays('), coreSrc.indexOf('module.exports'));
+  assert.doesNotMatch(expand, /pruneRetiredPublicRelays/, '补齐函数不再连带剔退役地址，否则显式写入被误伤');
+  const impl = fs.readFileSync(path.join(__dirname, '..', 'lib', 'impl.js'), 'utf8');
+  const store = impl.slice(impl.indexOf('async update(patch, options = {})'), impl.indexOf('watch(listener)'));
+  assert.doesNotMatch(store, /pruneRetiredPublicRelays/, '写入路径不许直接剔退役地址');
 });
