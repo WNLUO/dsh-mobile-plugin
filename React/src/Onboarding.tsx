@@ -31,6 +31,8 @@ import {
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
+import { FeedbackButton } from './components/FeedbackButton.tsx'
+import { connectionFeedbackFacts } from './lib/feedback-diagnostics.ts'
 import { DownloadChannelsGrid } from './components/DownloadAppButton.tsx'
 import { FirewallDialog } from './components/FirewallDialog.tsx'
 import { InfoList, InfoRow, ToneValue } from './components/InfoRow.tsx'
@@ -109,6 +111,7 @@ export function Onboarding({ onDone }: Props) {
    */
   const [feedbackBusy, setFeedbackBusy] = useState<Record<string, boolean>>({})
   const [feedbackKeys, setFeedbackKeys] = useState<Record<string, string>>({})
+  const [feedbackSummaries, setFeedbackSummaries] = useState<Record<string, string>>({})
   const [feedbackErrors, setFeedbackErrors] = useState<Record<string, string>>({})
   /**
    * 连接自检：防火墙状态与总结句读它。
@@ -365,6 +368,7 @@ export function Onboarding({ onDone }: Props) {
   async function sendFeedback(slot: string, title: string, message: string) {
     if (feedbackBusy[slot]) return
     setFeedbackBusy((prev) => ({ ...prev, [slot]: true }))
+    setFeedbackSummaries((prev) => ({ ...prev, [slot]: `${title}\n${message}` }))
     setFeedbackKeys((prev) => ({ ...prev, [slot]: '' }))
     setFeedbackErrors((prev) => ({ ...prev, [slot]: '' }))
     const detail = [
@@ -375,12 +379,14 @@ export function Onboarding({ onDone }: Props) {
       `tailcat=${tailcatText || ''}`,
       `firewall=${firewallInfo.text || ''}`,
       `verdict=${selfcheckVerdict || ''}`,
+      ...Object.entries(connectionFeedbackFacts(status)).map(([key, value]) => `${key}=${value}`),
     ].join('\n')
     try {
       const result = await submitDirectFeedback({
         summary: `${title}\n${message}`,
         detail,
         context: {
+          ...connectionFeedbackFacts(status),
           title,
           lan: status?.lan.state ?? '',
           tunnel: status?.tunnel.state ?? '',
@@ -398,8 +404,9 @@ export function Onboarding({ onDone }: Props) {
 
   /** 三处错误 Alert 共用这一块动作 + 回执，各记各的槽位，位置跟着错误走。 */
   function feedbackAction(slot: string, title: string, message: string) {
-    const key = feedbackKeys[slot] || ''
-    const failure = feedbackErrors[slot] || ''
+    const sameIssue = feedbackSummaries[slot] === `${title}\n${message}`
+    const key = sameIssue ? feedbackKeys[slot] || '' : ''
+    const failure = sameIssue ? feedbackErrors[slot] || '' : ''
     return (
       <div className="flex flex-col items-start gap-2">
         <Button variant="outline" size="sm" disabled={!!feedbackBusy[slot]} onClick={() => void sendFeedback(slot, title, message)}>
@@ -409,6 +416,7 @@ export function Onboarding({ onDone }: Props) {
         {key ? (
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs text-foreground-muted">{t('panel.feedback.receipt', { key })}</p>
+            <FeedbackButton threadKey={key} />
             <CopyButton
               value={key}
               label={t('panel.feedback.copyKey')}
@@ -470,6 +478,7 @@ export function Onboarding({ onDone }: Props) {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 pt-6 pb-24">
+      <div className="flex w-full max-w-4xl justify-end"><FeedbackButton /></div>
       {fatal ? (
         <Alert className="w-full max-w-4xl" variant="error">
           <AlertIcon />

@@ -1,4 +1,4 @@
-// 启动失败沿用带退出确认的停止流程，不能跳过旧进程回收。
+// 覆盖当前代重启路径和真实退出的一次恢复、停止与超时边界。
 // 重启测试假体提供即时状态回写，覆盖重启后的 LAN 入口公布。
 'use strict'
 
@@ -203,6 +203,7 @@ const buildRestartHarness = (deps) => {
     let sidecarState = 'starting'
     let sidecarSnapshot = { tunnel: { state: 'off', error: null }, lan: { state: 'off', error: null } }
     let sidecarRestarts = 0, sidecarRestartedAt = 0, sidecarRestartError = null, restartInFlight = null
+    let started = true, sidecarExitError = null
     // 与 lib/sidecar-lifecycle.cjs 里那个同义：facade 交上来的 onDown 回调。
     const applyTunnelState = (message) => { if (message.lan) sidecarSnapshot.lan = message.lan }
     const markSidecarDown = (error) => {
@@ -210,6 +211,7 @@ const buildRestartHarness = (deps) => {
       sidecarState = 'error: ' + message
       sidecarSnapshot = { tunnel: { state: 'off', error: message }, lan: { state: 'off', error: message } }
     }
+    const handleSidecarExit = markSidecarDown
 ${body}
     return {
       restartSidecar,
@@ -223,15 +225,10 @@ ${body}
   return factory(deps)
 }
 
-test('生命周期模块里的 require 路径能真的解析到 facade（上一版栽在这）', () => {
-  // 单独钉一条：模块住在 lib/ 下，'./' 才是同目录，'../' 会跑到包根目录去。
-  const src = read(LIFECYCLE)
-  const m = src.match(/require\((['"])(\.[^'"]*sidecar-facade\.cjs)\1\)/)
-  assert.ok(m, '应能找到 require sidecar-facade 的那一句')
-  assert.equal(m[2], './sidecar-facade.cjs', `路径应为 './sidecar-facade.cjs'，实际是 '${m[2]}'（从 lib/ 出发 '../' 指向包根目录，那里没有这个文件）`)
-  // 用锚在该模块上的 require 实际解析一次：写错的话这里直接抛。
+test('生命周期模块默认目录能解析到 facade，重启从当前代目录加载', () => {
   const anchored = Module.createRequire(LIFECYCLE)
-  assert.equal(typeof anchored('./sidecar-facade.cjs').SidecarFacade, 'function')
+  assert.equal(typeof anchored(path.join(LIB, 'sidecar-facade.cjs')).SidecarFacade, 'function')
+  assert.match(extractRestartBlock(), /require\(path\.join\(providers\.pluginLibDir, 'sidecar-facade\.cjs'\)\)/)
 })
 
 test('真跑一遍 restartSidecar：worker 换新、隧道自己接回来', { timeout: 60_000 }, async (t) => {
@@ -396,7 +393,7 @@ test('宿主把 onDown 接到了两处 facade 构造上，健康轮询失败也�
   const constructions = src.match(/new (SidecarFacade|Fresh)\(\{[^}]*\}\)/g) || []
   assert.ok(constructions.length >= 2, `应能找到两处 facade 构造，实际 ${constructions.length} 处`)
   for (const c of constructions) {
-    assert.match(c, /onDown: markSidecarDown/, `构造时必须交 onDown：${c}`)
+    assert.match(c, /onDown: handleSidecarExit/, `构造时必须交真实退出回调：${c}`)
   }
   // 健康轮询的 catch 必须调 markSidecarDown，不能是空的。
   const poll = src.slice(src.indexOf('healthTimer = setInterval'))
@@ -434,6 +431,188 @@ test('首次起不来会自动重试一次，不用人点重启（Windows 冷启
   const block = src.slice(botAt, src.indexOf('void boot()', botAt))
   assert.match(block, /catch \(error\)/, 'boot 必须接住首次启动失败，才有机会重试')
   assert.match(block, /await restartSidecar\(\)/, '首次起不来要自动重启一次（restartSidecar 负责重新 fork 并重下发配置）')
+})
+
+const flushLifecycle = () => new Promise(setImmediate)
+function lifecycleFixture(mutate = source => source) {
+  const calls = { start: 0, stop: 0, configure: 0, loaded: [] }
+  const instances = []
+  const polls = []
+  const behavior = { startError: null, requestError: null, startWait: null, configureError: null, onlyOldConfigureError: false }
+  const nextLib = path.join(PKG_DIR, '.test-next', 'lib')
+  class FakeFacade {
+    constructor(options) { this.options = options; this.running = false; instances.push(this) }
+    async start() {
+      calls.start += 1
+      if (behavior.startWait) await behavior.startWait
+      if (behavior.startError) throw new Error(behavior.startError)
+      this.running = true
+    }
+    async stop() { calls.stop += 1; this.running = false }
+    async configure() {
+      calls.configure += 1
+      if (behavior.configureError && (!behavior.onlyOldConfigureError || this === instances[0])) throw new Error(behavior.configureError)
+      return { tunnel: { state: 'connected' }, lan: { state: 'listening', port: 18787 } }
+    }
+    async request() {
+      if (behavior.requestError) throw new Error(behavior.requestError)
+      if (!this.running) throw new Error('sidecar facade is not running')
+      return { tunnel: { state: 'connected' }, lan: { state: 'listening', port: 18787 } }
+    }
+    exit(message) { this.running = false; this.options.onDown(new Error(message)) }
+  }
+  const anchored = Module.createRequire(LIFECYCLE)
+  const localRequire = name => {
+    if (name === './sidecar-facade.cjs' || name === path.join(nextLib, 'sidecar-facade.cjs')) {
+      calls.loaded.push(name)
+      return { SidecarFacade: FakeFacade }
+    }
+    if (name === './relay/apply-ledger.cjs') return { recordSuccess() {}, recordFailure() {} }
+    return anchored(name)
+  }
+  localRequire.cache = {}
+  const loaded = { exports: {} }
+  new Function('require', 'module', 'exports', '__dirname', 'setInterval', 'clearInterval', mutate(read(LIFECYCLE)))(
+    localRequire, loaded, loaded.exports, LIB, fn => { polls.push(fn); return 1 }, () => {},
+  )
+  const lifecycle = loaded.exports.createSidecarLifecycle({
+    ctx: { webServer: { port: 1234 } }, pluginLibDir: nextLib,
+    resolveLanPort: async () => 18787, lanPortInUse: () => 18787,
+    buildConfig: () => ({ lanPort: 18787, relayUrl: 'https://relay.example' }),
+  })
+  lifecycle.start()
+  return { lifecycle, calls, instances, polls, behavior, nextLib }
+}
+
+async function assertCurrentGenerationRestart(mutate) {
+  const h = lifecycleFixture(mutate)
+  try {
+    await flushLifecycle()
+    assert.equal((await h.lifecycle.restartSidecar()).ok, true)
+    assert.equal(h.calls.loaded.at(-1), path.join(h.nextLib, 'sidecar-facade.cjs'))
+    assert.equal(h.calls.start, 2)
+  } finally { await h.lifecycle.stop() }
+}
+
+test('手动重启从 providers 当前代加载 facade，不回到外壳启动目录', async () => {
+  await assertCurrentGenerationRestart()
+})
+
+async function assertRuntimeExitRecovers(mutate) {
+  const h = lifecycleFixture(mutate)
+  try {
+    await flushLifecycle()
+    h.instances[0].exit('sidecar facade exited 7')
+    assert.match(h.lifecycle.getState(), /exited 7/)
+    await flushLifecycle()
+    assert.equal(h.calls.start, 2, '真实退出后应自动启动一次')
+    assert.equal(h.calls.configure, 2, '恢复后必须重新下发配置')
+    assert.equal(h.lifecycle.getState(), 'healthy')
+    h.instances.at(-1).exit('sidecar facade exited 8')
+    await flushLifecycle()
+    for (let i = 0; i < 3; i += 1) await h.polls[0]()
+    assert.equal(h.calls.start, 2, '同一次运行最多自动恢复一次，避免退出循环')
+    assert.match(h.lifecycle.getState(), /exited 8/, '后续轮询不得把退出原因盖成 not running')
+  } finally { await h.lifecycle.stop() }
+}
+
+test('运行中真实退出只恢复一次，再退出保留真实原因', async () => {
+  await assertRuntimeExitRecovers()
+})
+
+async function assertRejectedConfigRecovers(mutate) {
+  const h = lifecycleFixture(mutate)
+  try {
+    await flushLifecycle()
+    h.behavior.configureError = 'sidecar facade request failed: 503 (unknown configuration field)'
+    h.behavior.onlyOldConfigureError = true
+    await h.lifecycle.syncSidecar()
+    assert.equal(h.calls.start, 2, '旧进程明确拒绝新字段时更换一次')
+    assert.equal(h.calls.loaded.at(-1), path.join(h.nextLib, 'sidecar-facade.cjs'))
+    assert.equal(h.lifecycle.getState(), 'healthy')
+    await h.lifecycle.syncSidecar()
+    assert.equal(h.calls.start, 2, '新进程接受配置后不再重复更换')
+  } finally { await h.lifecycle.stop() }
+}
+
+test('旧 worker 拒绝新配置时从当前代恢复，不等待自身同步也不重复重启', async () => {
+  await assertRejectedConfigRecovers()
+})
+
+test('配置错误只在明确的旧字段拒绝时恢复，新进程仍拒绝就报错', async () => {
+  const h = lifecycleFixture()
+  try {
+    await flushLifecycle()
+    h.behavior.configureError = 'invalid lanPort'
+    await assert.rejects(h.lifecycle.syncSidecar(), /invalid lanPort/)
+    assert.equal(h.calls.start, 1)
+    h.behavior.configureError = 'unknown configuration field'
+    await assert.rejects(h.lifecycle.syncSidecar(), /unknown configuration field/)
+    assert.equal(h.calls.start, 2, '新进程同样拒绝时本次不得无限重启')
+  } finally { await h.lifecycle.stop() }
+})
+
+test('变异：去掉旧配置拒绝后的恢复会被同一行为断言发现', async () => {
+  await assert.rejects(assertRejectedConfigRecovers(source => source.replace(
+    'started && !restartInFlight && /unknown configuration field/', 'false && /unknown configuration field/',
+  )), /unknown configuration field/)
+})
+
+test('普通请求超时不算退出，也不会启动新 worker', async () => {
+  const h = lifecycleFixture()
+  try {
+    await flushLifecycle()
+    h.behavior.requestError = 'sidecar facade request timeout'
+    await h.polls[0]()
+    await flushLifecycle()
+    assert.equal(h.calls.start, 1)
+    assert.match(h.lifecycle.getState(), /request timeout/)
+    h.behavior.requestError = null
+    await h.polls[0]()
+    assert.equal(h.lifecycle.getState(), 'healthy')
+  } finally { await h.lifecycle.stop() }
+})
+
+test('恢复已经开始时 stop 不会留下新 worker', async () => {
+  const h = lifecycleFixture()
+  await flushLifecycle()
+  let release
+  h.behavior.startWait = new Promise(resolve => { release = resolve })
+  h.instances[0].exit('sidecar facade exited 9')
+  await flushLifecycle()
+  assert.equal(h.calls.start, 2)
+  await h.lifecycle.stop()
+  release()
+  await flushLifecycle()
+  assert.equal(h.instances.at(-1).running, false)
+  assert.equal(h.calls.configure, 1, '停止期间恢复出来的进程不许继续 configure')
+  const starts = h.calls.start
+  h.instances.at(-1).exit('sidecar facade exited 0')
+  await flushLifecycle()
+  assert.equal(h.calls.start, starts, '停止后真实退出也不许复活')
+})
+
+test('自动恢复失败后轮询仍保留原退出码', async () => {
+  const h = lifecycleFixture()
+  try {
+    await flushLifecycle()
+    h.behavior.startError = 'startup timeout'
+    h.instances[0].exit('sidecar facade exited 13')
+    await flushLifecycle()
+    await h.polls[0]()
+    assert.equal(h.calls.start, 2)
+    assert.match(h.lifecycle.getState(), /exited 13/)
+    assert.match(h.lifecycle.getRestartError(), /exited 13.*startup timeout/)
+  } finally { await h.lifecycle.stop() }
+})
+
+test('变异：旧目录重启和删掉退出恢复都会被同一行为断言拒绝', async () => {
+  await assert.rejects(assertCurrentGenerationRestart(source => source.replace(
+    "require(path.join(providers.pluginLibDir, 'sidecar-facade.cjs'))", "require('./sidecar-facade.cjs')",
+  )), { name: 'AssertionError' })
+  await assert.rejects(assertRuntimeExitRecovers(source => source.replace(
+    'started ? restartSidecar() : undefined', 'undefined',
+  )), { name: 'AssertionError' })
 })
 
 test('启动超时给足冷启动预算，且超时要收掉子进程（不留占端口的孤儿）', () => {

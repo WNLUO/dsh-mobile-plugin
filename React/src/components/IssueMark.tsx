@@ -13,6 +13,8 @@ import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTi
 import { useState } from 'react'
 
 import { apiGet } from '../lib/api.ts'
+import { rememberFeedbackThread } from '../lib/feedback.ts'
+import { FeedbackButton } from './FeedbackButton.tsx'
 import { t } from '../lib/i18n/index.ts'
 import { useNotify } from '../lib/notify.ts'
 import { InfoMark } from './InfoMark.tsx'
@@ -118,6 +120,8 @@ export async function submitDirectFeedback(draft: FeedbackDraft): Promise<Feedba
     // 成功后清掉：同文案下次提交是新反馈，不能被平台当成重试返回旧线程。
     // 失败时保留，重试沿用同一个号；在途的重复点击此前已取到同一个号，不受影响。
     submissionIds.delete(draft.summary)
+    // 平台已经收下反馈，浏览器禁用存储也不能把成功误报成发送失败。
+    try { rememberFeedbackThread(threadKey, draft.summary) } catch { /* 编号仍由回执显示，可复制找回 */ }
     return { threadKey, submissionId }
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') throw new Error(t('panel.feedback.timeout'))
@@ -132,25 +136,31 @@ export type Issue = {
   title: string
   /** 详情全文，原样可复制。 */
   detail: string
+  /** 失败发生时的固定状态读数，不含凭据或会话内容。 */
+  facts?: Record<string, string>
 }
 
 export function IssueMark({ issue }: { issue: Issue }) {
   const [open, setOpen] = useState(false)
   const [sending, setSending] = useState(false)
   const [threadKey, setThreadKey] = useState('')
+  const [feedbackFor, setFeedbackFor] = useState('')
+  const summary = `${issue.title}\n${issue.detail}`
   const [sendError, setSendError] = useState('')
   const notify = useNotify()
 
   async function send() {
     if (sending) return
     setSending(true)
+    setFeedbackFor(summary)
     setThreadKey('')
     setSendError('')
     try {
       const result = await submitDirectFeedback({
         summary: `${issue.title}\n${issue.detail}`,
-        detail: `${issue.title}\n${issue.detail}`,
-        context: { title: issue.title, detail: issue.detail },
+        detail: [`${issue.title}\n${issue.detail}`,
+          ...Object.entries(issue.facts || {}).map(([key, value]) => `${key}=${value}`)].join('\n'),
+        context: { ...issue.facts, title: issue.title, detail: issue.detail },
       })
       setThreadKey(result.threadKey)
     } catch (error) {
@@ -179,12 +189,13 @@ export function IssueMark({ issue }: { issue: Issue }) {
           <DialogBody>
             <p className="whitespace-pre-wrap break-all text-sm leading-6 text-foreground-muted">{issue.detail}</p>
             <p className="mt-2 text-xs leading-5 text-foreground-muted">{t('panel.feedback.consent')}</p>
-            {sendError ? <p className="mt-2 text-sm text-error">{sendError}</p> : null}
-            {threadKey ? (
+            {feedbackFor === summary && sendError ? <p className="mt-2 text-sm text-error">{sendError}</p> : null}
+            {feedbackFor === summary && threadKey ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <p className="text-xs leading-5 text-foreground-muted">
                   {t('panel.feedback.receipt', { key: threadKey })}
                 </p>
+                <FeedbackButton threadKey={threadKey} onOpen={() => setOpen(false)} />
                 <CopyButton
                   value={threadKey}
                   label={t('panel.feedback.copyKey')}

@@ -1,4 +1,4 @@
-// 验证局域网配对成功回执、本机控制面边界、设备吊销与连接关闭计数。
+// 验证反馈读写仅限本机和局域网控制面，保留配对、设备吊销与连接关闭契约。
 'use strict';
 
 /**
@@ -79,6 +79,7 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     '/api/relay/internal/approval',
     '/api/relay/web-access',
     '/api/relay/status',
+    '/api/relay/feedback',
     // 面板页（设置界面搬进宿主吐的 HTML）与它的「引导走完了」标记。
     // 面板页三个地址：自己分流 / 强制引导 / 强制主页。
     '/api/relay/panel',
@@ -235,6 +236,65 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
   });
   return table;
 }
+
+test('反馈读写：返回线程本身、续回复共用提交服务，来源守卫拒绝移动转发与公网窗口', async () => {
+  const table = controlRoutes({ state: { instanceId: 'install-1' }, localOnly: routing.localOnly, trustedLocalUi: routing.trustedLocalUi });
+  const handler = table.get('/api/relay/feedback');
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return { status: 200, json: async () => ({ data: init.method === 'GET'
+      ? { id: 9, thread_key: 'thread-1', status: 'open', messages: [{ id: 2, author: 'staff', content: '请补充信息', created_at: '2026-11-21', attachments: [] }] }
+      : { thread_key: 'thread-1' } }) };
+  };
+  try {
+    const get = {};
+    await handler(networkRequest('/api/relay/feedback?thread_key=thread-1', '127.0.0.1', '127.0.0.1:19387'), get);
+    assert.equal(get.status, 200);
+    assert.equal(get.body.thread_key, 'thread-1');
+    assert.equal(get.body.messages[0].content, '请补充信息');
+    assert.equal(get.body.data, undefined);
+    assert.equal(calls[0].url, 'https://app.wnluo.com/api/sdk/feedback?thread_key=thread-1');
+    const post = {};
+    await handler({ ...networkRequest('/api/relay/feedback', '192.168.1.2', '192.168.1.20:19387', { method: 'POST' }), body: { content: '版本已更新', threadKey: 'thread-1' } }, post);
+    assert.equal(post.status, 200);
+    assert.equal(post.body.threadKey, 'thread-1');
+    assert.ok(post.body.submissionId);
+    assert.equal(post.body.data, undefined);
+    assert.equal(calls[1].init.body.get('thread_key'), 'thread-1');
+    assert.equal(calls[1].init.body.get('content'), '版本已更新');
+    assert.equal(calls[1].init.body.get('device_id'), 'install-1');
+    const bad = {};
+    await handler(networkRequest('/api/relay/feedback?thread_key=%20', '127.0.0.1', '127.0.0.1:19387'), bad);
+    assert.equal(bad.status, 400);
+    const empty = {};
+    await handler({ ...networkRequest('/api/relay/feedback', '127.0.0.1', '127.0.0.1:19387', { method: 'POST' }), body: { content: '' } }, empty);
+    assert.equal(empty.status, 400);
+    const method = networkResponse();
+    await handler(networkRequest('/api/relay/feedback', '127.0.0.1', '127.0.0.1:19387', { method: 'DELETE' }), method);
+    assert.equal(method.status, 405);
+    await table.get('/api/relay/web-access')({ ...networkRequest('/api/relay/web-access', '127.0.0.1', '127.0.0.1:19387', { method: 'POST' }), body: { enabled: true } }, {});
+    for (const method of ['GET', 'POST']) {
+      for (const headers of [{ 'x-dsh-via': 'relay' }, { 'x-dsh-via': 'lan' }, { 'x-dsh-instance': 'phone' }, { origin: 'https://elsewhere.example' }]) {
+        const denied = networkResponse();
+        await handler(networkRequest('/api/relay/feedback?thread_key=thread-1', '127.0.0.1', '127.0.0.1:19387', { method, headers }), denied);
+        assert.equal(denied.status, 403);
+      }
+      const remote = {};
+      await handler(networkRequest('/api/relay/feedback?thread_key=thread-1', '203.0.113.2', 'public.example', { method }), remote);
+      assert.equal(remote.status, 403, '公网开窗也不能读取或续回复');
+    }
+    assert.equal(calls.length, 2, '无效输入和越界请求不触发上游');
+    globalThis.fetch = async () => ({ status: 404, json: async () => ({ error: '平台说线程不存在' }) });
+    const missing = {};
+    await handler(networkRequest('/api/relay/feedback?thread_key=missing', '127.0.0.1', '127.0.0.1:19387'), missing);
+    assert.equal(missing.status, 404);
+    assert.equal(missing.body.error.message, '平台说线程不存在');
+    assert.ok(LOCAL_OPERATOR_ROUTES.has('/api/relay/feedback'));
+    assert.ok(WEB_ACCESS_ROUTES.has('/api/relay/feedback'));
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test('行为：局域网配对成功回执记录完成时间，手动换码不伪造成功', async () => {
   const core = require('../lib/relay/core.js');
@@ -393,6 +453,25 @@ test('局域网部署：窗口关闭也能读取二维码和保存配置，公�
   const publicStatus = networkResponse();
   await table.get('/api/relay/status')(networkRequest('/api/relay/status', '203.0.113.2', '203.0.113.20:19387'), publicStatus);
   assert.equal(publicStatus.status, 423, '公网读接口仍要求两小时窗口');
+});
+
+test('变异：反馈退出本机操作清单后，公网拒绝断言会失败', async () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const changed = source.replace(/(const LOCAL_OPERATOR_ROUTES = new Set\(\[[\s\S]*?)  '\/api\/relay\/feedback',\n/, '$1');
+  assert.notEqual(changed, source);
+  const mod = { exports: {} };
+  vm.runInNewContext(changed, { module: mod, exports: mod.exports, require: createRequire(CONTROL_PLANE), __dirname: path.dirname(CONTROL_PLANE) });
+  const rejectsPublic = async factory => {
+    const guard = factory({ localOnly: routing.localOnly, trustedLocalUi: routing.trustedLocalUi,
+      webAccessWindow: { isOpen: () => true }, sendJson: routing.sendJson });
+    for (const method of ['GET', 'POST']) {
+      const res = networkResponse();
+      await guard(['GET', 'POST'], async () => {})(networkRequest('/api/relay/feedback?thread_key=key', '203.0.113.2', 'public.example', { method }), res);
+      assert.equal(res.status, 403, '反馈不能因公网窗口开放而泄露对话或允许续回复');
+    }
+  };
+  await rejectsPublic(createWebAccessLocalOnly);
+  await assert.rejects(() => rejectsPublic(mod.exports.createWebAccessLocalOnly), assert.AssertionError);
 });
 
 test('变异：退回仅信任回环来源，会被同一个局域网配对断言拒绝', async () => {

@@ -1,4 +1,4 @@
-// 用途：钉住插件反馈提交——无手机可交、新字段齐全、重试幂等、失败摘要与回执口径。
+// 用途：验证插件反馈提交、线程读取与续回复共用服务，保留身份、附件和重试契约。
 'use strict';
 
 /**
@@ -91,8 +91,8 @@ test('channels：两条途径都在，说明里写明不用查明根因、也不
   assert.ok(distribution, '缺少分发平台那条');
   assert.equal(distribution.endpoint, `${PLATFORM_ORIGIN}${FEEDBACK_PATH}`);
   assert.equal(distribution.requiresLogin, false);
-  assert.match(distribution.description, /维护者反馈队列/);
-  assert.match(distribution.description, /npm run feedback/);
+  assert.match(distribution.description, /read 动作查看官方回复/);
+  assert.match(distribution.description, /submit 带 threadKey 继续补充/);
   assert.match(distribution.description, /不会写进 App 的反馈列表/);
   assert.match(distribution.description, /没配手机也能提交/);
   assert.match(distribution.description, /线程 key/);
@@ -286,10 +286,11 @@ test('工具：说明不再要求查明根因、改为现象/已查/不确定；
   const ctx = { tools: { register: (tool) => { registered = tool; } } };
   registerFeedbackTool(ctx, depsFor([]));
   assert.equal(registered.name, 'dsh_feedback');
-  assert.deepEqual([...registered.parameters.properties.action.enum].sort(), ['channels', 'submit']);
+  assert.deepEqual([...registered.parameters.properties.action.enum].sort(), ['channels', 'read', 'submit']);
   assert.match(registered.description, /distribution platform/);
   assert.match(registered.description, new RegExp(GITHUB_REPO));
-  assert.match(registered.description, /maintainer feedback queue/);
+  assert.match(registered.description, /Use `read` with the thread key/);
+  assert.match(registered.description, /`submit` with the same threadKey/);
   assert.match(registered.description, /not written into the in-app feedback list/);
   assert.match(registered.description, /what you observed, what you already checked, and what is still uncertain/);
   assert.match(registered.description, /No paired phone is required/);
@@ -311,6 +312,22 @@ test('工具：说明不再要求查明根因、改为现象/已查/不确定；
   });
   assert.equal(fake.calls.length, 1);
 
+  const thread = { thread_key: 'tk-read', status: 'closed', messages: [{ id: 7, author: 'staff', content: '请补充系统版本', created_at: '2026-11-21', attachments: [] }] };
+  const read = fakeFetch({ data: thread });
+  await withFetch(read, async () => {
+    const viewed = await registered.execute({ action: 'read', threadKey: 'tk-read' });
+    assert.equal(viewed.threadKey, 'tk-read');
+    assert.equal(viewed.thread.status, 'closed');
+    assert.equal(viewed.thread.messages[0].content, '请补充系统版本');
+    assert.match(registered.output.render({}, viewed)[0].text, /官方.*请补充系统版本/);
+  });
+  assert.equal(read.calls[0].url, `${PLATFORM_ORIGIN}${FEEDBACK_PATH}?thread_key=tk-read`);
+  const reply = fakeFetch({ data: { thread_key: 'tk-read' } });
+  await withFetch(reply, async () => {
+    await registered.execute({ action: 'submit', content: 'Windows 11', threadKey: 'tk-read' });
+  });
+  assert.equal(reply.calls[0].body.get('thread_key'), 'tk-read');
+  await assert.rejects(() => registered.execute({ action: 'read' }), /需要 threadKey/);
   await assert.rejects(() => registered.execute({ action: 'submit' }), /需要 content/);
   await assert.rejects(() => registered.execute({ action: 'submit', content: 'x'.repeat(4001) }), /超长/);
   await assert.rejects(() => registered.execute({ action: 'noop' }), /must be one of|invalid arguments/);
