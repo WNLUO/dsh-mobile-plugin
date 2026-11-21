@@ -1,3 +1,4 @@
+// 用途：首次接入引导页；错误处可直接提交脱敏摘要与诊断附件，并回显反馈编号。
 /**
  * 首次接入引导（一页）：宿主还没配过、或走 `/api/relay/panel/setup` 时进这一页，
  * 把两条路一起打开、把二维码摆出来让手机扫。
@@ -19,6 +20,7 @@
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
+import { CopyButton } from '@appica/ui-react/copy-button'
 import {
   Dialog,
   DialogBody,
@@ -33,6 +35,7 @@ import { DownloadChannelsGrid } from './components/DownloadAppButton.tsx'
 import { FirewallDialog } from './components/FirewallDialog.tsx'
 import { InfoList, InfoRow, ToneValue } from './components/InfoRow.tsx'
 import { QuestionMark } from './components/QuestionMark.tsx'
+import { submitDirectFeedback } from './components/IssueMark.tsx'
 import {
   apiGet,
   apiPost,
@@ -100,6 +103,13 @@ export function Onboarding({ onDone }: Props) {
   const [tailcatOpen, setTailcatOpen] = useState(false)
   /** 复制给 AI 之后的回执：照防火墙弹窗那套挨着按钮说，不走右上角胶囊。 */
   const [copied, setCopied] = useState('')
+  /**
+   * 就地反馈的回执：错误处直接走公开接口，线程 key 就地显示并可复制。
+   * 每个错误处各占一格，免得三处共用一份在途 / 回执 / 报错串到别的提示上。
+   */
+  const [feedbackBusy, setFeedbackBusy] = useState<Record<string, boolean>>({})
+  const [feedbackKeys, setFeedbackKeys] = useState<Record<string, string>>({})
+  const [feedbackErrors, setFeedbackErrors] = useState<Record<string, string>>({})
   /**
    * 连接自检：防火墙状态与总结句读它。
    *
@@ -348,6 +358,72 @@ export function Onboarding({ onDone }: Props) {
     }
   }
 
+  /**
+   * 错误处就地反馈：把这一屏能读到的诊断读数作为 text/plain 附件发出去，
+   * 不读任意文件、密钥或会话内容；返回线程 key 就地显示并复制。
+   */
+  async function sendFeedback(slot: string, title: string, message: string) {
+    if (feedbackBusy[slot]) return
+    setFeedbackBusy((prev) => ({ ...prev, [slot]: true }))
+    setFeedbackKeys((prev) => ({ ...prev, [slot]: '' }))
+    setFeedbackErrors((prev) => ({ ...prev, [slot]: '' }))
+    const detail = [
+      `title=${title}`,
+      `error=${message}`,
+      `lan=${status?.lan.state ?? ''}`,
+      `tunnel=${status?.tunnel.state ?? ''}`,
+      `tailcat=${tailcatText || ''}`,
+      `firewall=${firewallInfo.text || ''}`,
+      `verdict=${selfcheckVerdict || ''}`,
+    ].join('\n')
+    try {
+      const result = await submitDirectFeedback({
+        summary: `${title}\n${message}`,
+        detail,
+        context: {
+          title,
+          lan: status?.lan.state ?? '',
+          tunnel: status?.tunnel.state ?? '',
+          tailcat: tailcatText,
+        },
+        version: status?.appVersion,
+      })
+      setFeedbackKeys((prev) => ({ ...prev, [slot]: result.threadKey }))
+    } catch (error) {
+      setFeedbackErrors((prev) => ({ ...prev, [slot]: t('panel.feedback.failed', { error: (error as Error).message || String(error) }) }))
+    } finally {
+      setFeedbackBusy((prev) => ({ ...prev, [slot]: false }))
+    }
+  }
+
+  /** 三处错误 Alert 共用这一块动作 + 回执，各记各的槽位，位置跟着错误走。 */
+  function feedbackAction(slot: string, title: string, message: string) {
+    const key = feedbackKeys[slot] || ''
+    const failure = feedbackErrors[slot] || ''
+    return (
+      <div className="flex flex-col items-start gap-2">
+        <Button variant="outline" size="sm" disabled={!!feedbackBusy[slot]} onClick={() => void sendFeedback(slot, title, message)}>
+          {feedbackBusy[slot] ? t('panel.feedback.sending') : t('panel.onboarding.feedback')}
+        </Button>
+        {failure ? <p className="text-xs text-error">{failure}</p> : null}
+        {key ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs text-foreground-muted">{t('panel.feedback.receipt', { key })}</p>
+            <CopyButton
+              value={key}
+              label={t('panel.feedback.copyKey')}
+              copiedLabel={t('panel.feedback.keyCopied')}
+              size="sm"
+              variant="outline"
+            >
+              {t('panel.feedback.copyKey')}
+            </CopyButton>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
   const qrSvg = pairing?.svg ?? ''
 
   /**
@@ -378,6 +454,20 @@ export function Onboarding({ onDone }: Props) {
   }[tailcatState]
   const tailcatToneValue: Tone = tailcatState === 'ready' ? 'ok' : tailcatState === 'starting' ? 'warn' : 'off'
 
+  /** 常驻的直连 / 中转失败提示：标题与正文各算一次，下面的反馈入口复用同一份。 */
+  const statusFailure = status !== null && (status.lan.state === 'error' || status.tunnel.state === 'error')
+    ? {
+        title: status.lan.state === 'error' ? t('panel.onboarding.lanFailed') : t('panel.onboarding.relayFailed'),
+        message: status.lan.state === 'error'
+          ? status.lan.error
+            ? t('panel.onboarding.lanErrorWithPort', { error: status.lan.error })
+            : t('panel.onboarding.lanNoStart')
+          : status.tunnel.error
+            ? t('panel.onboarding.tunnelErrorHint', { error: status.tunnel.error })
+            : t('panel.onboarding.tunnelNoStart'),
+      }
+    : null
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 pt-6 pb-24">
       {fatal ? (
@@ -385,6 +475,7 @@ export function Onboarding({ onDone }: Props) {
           <AlertIcon />
           <AlertTitle>{t('panel.onboarding.statusFailed')}</AlertTitle>
           <AlertDescription>{fatal}</AlertDescription>
+          {feedbackAction('fatal', t('panel.onboarding.statusFailed'), fatal)}
         </Alert>
       ) : null}
 
@@ -393,6 +484,7 @@ export function Onboarding({ onDone }: Props) {
           <AlertIcon />
           <AlertTitle>{t('panel.onboarding.stepFailed')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+          {feedbackAction('step', t('panel.onboarding.stepFailed'), error)}
         </Alert>
       ) : null}
 
@@ -514,21 +606,12 @@ export function Onboarding({ onDone }: Props) {
               结论只由能观测到的事实决定：宿主这边起没起来，直接看同一份 `status`。
               报错就如实说报错，不装成成功。
             */}
-            {status !== null && (status.lan.state === 'error' || status.tunnel.state === 'error') ? (
+            {statusFailure ? (
               <Alert className="mt-2" variant="error">
                 <AlertIcon />
-                <AlertTitle>
-                  {status.lan.state === 'error' ? t('panel.onboarding.lanFailed') : t('panel.onboarding.relayFailed')}
-                </AlertTitle>
-                <AlertDescription>
-                  {status.lan.state === 'error'
-                    ? status.lan.error
-                      ? t('panel.onboarding.lanErrorWithPort', { error: status.lan.error })
-                      : t('panel.onboarding.lanNoStart')
-                    : status.tunnel.error
-                      ? t('panel.onboarding.tunnelErrorHint', { error: status.tunnel.error })
-                      : t('panel.onboarding.tunnelNoStart')}
-                </AlertDescription>
+                <AlertTitle>{statusFailure.title}</AlertTitle>
+                <AlertDescription>{statusFailure.message}</AlertDescription>
+                {feedbackAction('status', statusFailure.title, statusFailure.message)}
               </Alert>
             ) : null}
           </div>

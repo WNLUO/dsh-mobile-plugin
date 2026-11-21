@@ -1,3 +1,4 @@
+// 用途：引导页文案（含错误处反馈动作），十门语言逐键对齐。
 /**
  * 面板文案：引导页（首次设置）。
  *
@@ -71,6 +72,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. 给出具体该执行的命令或点击路径，把端口放行；需要管理员权限的地方明确说明。',
     'panel.onboarding.prompt.ask4': '4. 最后告诉我怎么验证已经通了（比如用哪条命令从本机、从手机分别确认）。',
     'panel.onboarding.prompt.extra': '补充：如果这台电脑是云服务器，服务商控制台里的安全组/防火墙也要放行同一个端口，这一项在本机查不到。',
+    'panel.onboarding.feedback': '反馈此问题',
   },
 
   'zh-Hant': {
@@ -132,6 +134,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. 給出具體該執行的命令或點擊路徑，把連接埠放行；需要系統管理員權限的地方明確說明。',
     'panel.onboarding.prompt.ask4': '4. 最後告訴我怎麼驗證已經通了（比如用哪條命令從本機、從手機分別確認）。',
     'panel.onboarding.prompt.extra': '補充：如果這台電腦是雲端伺服器，服務商主控台裡的安全群組/防火牆也要放行同一個連接埠，這一項在本機查不到。',
+    'panel.onboarding.feedback': '回饋此問題',
   },
 
   en: {
@@ -193,6 +196,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. Give me the exact commands or click paths to allow the port, and say clearly where administrator rights are needed.',
     'panel.onboarding.prompt.ask4': '4. Finally tell me how to verify it works (for example which command to run on the computer and on the phone).',
     'panel.onboarding.prompt.extra': 'Note: if this computer is a cloud server, the security group or firewall in the provider’s console must allow the same port too, and that cannot be checked locally.',
+    'panel.onboarding.feedback': 'Report this issue',
   },
 
   ja: {
@@ -254,6 +258,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. ポートを許可するための具体的なコマンドやクリック手順を示してください。管理者権限が必要な箇所は明記してください。',
     'panel.onboarding.prompt.ask4': '4. 最後に、通ったことを確認する方法（パソコン側とスマートフォン側それぞれで実行するコマンドなど）を教えてください。',
     'panel.onboarding.prompt.extra': '補足: このパソコンがクラウドサーバーの場合、事業者コンソールのセキュリティグループ／ファイアウォールでも同じポートを許可する必要があり、それはローカルでは確認できません。',
+    'panel.onboarding.feedback': 'この問題を報告',
   },
 
   ko: {
@@ -315,6 +320,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. 포트를 허용할 구체적인 명령이나 클릭 경로를 제시하고, 관리자 권한이 필요한 곳은 분명히 알려주세요.',
     'panel.onboarding.prompt.ask4': '4. 마지막으로 잘 되는지 확인하는 방법(컴퓨터와 휴대폰에서 각각 실행할 명령 등)을 알려주세요.',
     'panel.onboarding.prompt.extra': '참고: 이 컴퓨터가 클라우드 서버라면 사업자 콘솔의 보안 그룹/방화벽에서도 같은 포트를 허용해야 하며, 이는 로컬에서 확인할 수 없습니다.',
+    'panel.onboarding.feedback': '이 문제 신고',
   },
   de: {
     'panel.onboarding.pairingHint': 'Zum Verbinden scannen',
@@ -375,6 +381,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. Nenne die genauen Befehle oder Klickpfade, um den Port freizugeben, und sag klar, wo Administratorrechte nötig sind.',
     'panel.onboarding.prompt.ask4': '4. Sag mir zum Schluss, wie ich prüfe, dass es geht (z. B. mit welchem Befehl am Rechner und am Handy).',
     'panel.onboarding.prompt.extra': 'Nachtrag: Ist dieser Rechner ein Cloud-Server, muss auch die Sicherheitsgruppe bzw. Firewall in der Konsole des Anbieters denselben Port freigeben — das ist lokal nicht prüfbar.',
+    'panel.onboarding.feedback': 'Dieses Problem melden',
   },
   es: {
     'panel.onboarding.pairingHint': 'Escanea para conectar',
@@ -435,6 +442,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. Dame los comandos o rutas de clic exactos para abrir el puerto y di claramente dónde hacen falta permisos de administrador.',
     'panel.onboarding.prompt.ask4': '4. Por último, dime cómo comprobar que ya funciona (por ejemplo, qué comando usar en el ordenador y en el teléfono).',
     'panel.onboarding.prompt.extra': 'Nota: si este ordenador es un servidor en la nube, el grupo de seguridad o cortafuegos de la consola del proveedor también debe abrir el mismo puerto, y eso no se ve desde la máquina.',
+    'panel.onboarding.feedback': 'Informar de este problema',
   },
   fr: {
     'panel.onboarding.pairingHint': 'Scanne pour te connecter',
@@ -495,6 +503,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. Donne les commandes ou chemins de clic exacts pour ouvrir le port, et précise clairement où il faut des droits d\'administrateur.',
     'panel.onboarding.prompt.ask4': '4. Enfin, dis-moi comment vérifier que ça marche (par exemple quelle commande lancer sur l\'ordinateur et sur le téléphone).',
     'panel.onboarding.prompt.extra': 'Remarque : si cet ordinateur est un serveur cloud, le groupe de sécurité ou le pare-feu de la console du fournisseur doit aussi ouvrir le même port, et ça ne se voit pas en local.',
+    'panel.onboarding.feedback': 'Signaler ce problème',
   },
   pt: {
     'panel.onboarding.pairingHint': 'Escaneie para conectar',
@@ -555,6 +564,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. Me passe os comandos ou caminhos de clique exatos para liberar a porta e diga claramente onde precisa de permissões de administrador.',
     'panel.onboarding.prompt.ask4': '4. Por fim, me diga como verificar que já funciona (por exemplo, qual comando rodar no computador e no celular).',
     'panel.onboarding.prompt.extra': 'Observação: se este computador for um servidor na nuvem, o grupo de segurança ou firewall no console do provedor também precisa liberar a mesma porta, e isso não dá para ver na máquina.',
+    'panel.onboarding.feedback': 'Relatar este problema',
   },
   ru: {
     'panel.onboarding.pairingHint': 'Сканируй для подключения',
@@ -615,5 +625,6 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.prompt.ask3': '3. Дай точные команды или пути в меню, чтобы открыть порт, и явно укажи, где нужны права администратора.',
     'panel.onboarding.prompt.ask4': '4. В конце скажи, как проверить, что уже работает (например, какой командой это сделать на компьютере и на телефоне).',
     'panel.onboarding.prompt.extra': 'Примечание: если этот компьютер — облачный сервер, тот же порт нужно открыть и в группе безопасности или брандмауэре панели провайдера, локально это не проверить.',
+    'panel.onboarding.feedback': 'Сообщить об этой проблеме',
   },
 }
