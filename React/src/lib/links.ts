@@ -69,7 +69,7 @@ export const DOWNLOAD_CHANNELS: { platform: DownloadPlatform; channels: Download
       {
         name: 'App Store',
         hintKey: 'panel.links.appStore',
-        url: 'https://apps.apple.com/cn/app/ai-hub/id6821681438',
+        url: 'https://apps.apple.com/app/id6821681438',
       },
       {
         name: 'TestFlight',
