@@ -1,4 +1,4 @@
-/** 客户端服务、界面与嵌入声明的生命周期行为测试。 */
+/** 客户端服务、界面与嵌入声明的生命周期行为测试；图标物化时把 inject 的 tf 一并传给组件。 */
 'use strict';
 
 /**
@@ -607,9 +607,9 @@ function createEnv(options = {}) {
    */
   function renderFooter(preset, props = {}) {
     const registration = byPathname('sidebar.footer.action');
-    const { t } = registration.inject();
+    const { t, tf } = registration.inject();
     hooks.begin(preset);
-    return registration.component({ wide: true, ...props, t });
+    return registration.component({ wide: true, ...props, t, tf });
   }
 
   /** 渲染「设置 → 移动端」那张薄卡；`preset` 按 useState 顺序（0 url / 1 scope / 2 access / 3 failure）。 */
@@ -617,9 +617,9 @@ function createEnv(options = {}) {
   function renderRemoteFooter(preset, props = {}) {
     const registration = registrations.find((entry) => entry.pathname === 'sidebar.footer.action' && entry.id === 'remote-web');
     assert.ok(registration, '没有注册电脑图标');
-    const { t } = registration.inject();
+    const { t, tf } = registration.inject();
     hooks.begin(preset);
-    return registration.component({ wide: true, ...props, t });
+    return registration.component({ wide: true, ...props, t, tf });
   }
 
   function renderSettings(preset) {
