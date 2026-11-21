@@ -1,5 +1,10 @@
 /**
- * 「赞助」按钮，点开弹 USDT 收款二维码。
+ * 「赞助」按钮，点开弹赞助窗：USDT 收款二维码 + 爱发电入口。
+ *
+ * 2026-11-21：USDT 那块下面并列加「爱发电」，一颗链接按钮开系统浏览器到主页
+ * （`AFDIAN_URL`），用户过去自己选档位付；面板不接 API、不绑订单、不给权益，与官网口径一致。
+ * 与 App 那版赞助页不同，这里不给爱发电做地区判断：面板跑在桌面壳里，没有 App 商店的
+ * 国家字段可用，硬做只会误伤。
  *
  * 与「加入交流群」「给个 Star」同一排：2026-11-17 从页面悬浮挪进控制台顶栏左侧，
  * 三颗横排，由 `FloatingActions` 统一编排，这里只管自己这颗按钮与那扇窗。
@@ -20,7 +25,7 @@
  * 触发件是图标加文字的 ghost 按钮：不带胶囊外形，文字与图标都走主题 token，日夜间自动跟着变。
  */
 
-import { Button } from '@appica/ui-react/button'
+import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Chip } from '@appica/ui-react/chip'
 import { CopyButton } from '@appica/ui-react/copy-button'
 import {
@@ -35,6 +40,7 @@ import { useState } from 'react'
 
 import sponsorQr from '../assets/sponsor-usdt-qr.png'
 import { t } from '../lib/i18n/index.ts'
+import { AFDIAN_URL } from '../lib/links.ts'
 
 /** 收款地址：全小写、不带任何链前缀。改地址时连同二维码一起换（那张图是按这个串生成的）。 */
 const SPONSOR_ADDRESS = '0x62744c084c272ddba4680920edc3239cb7180718'
@@ -146,6 +152,26 @@ function SponsorDialog({
                   {t('panel.links.sponsorCopyFailed')}
                 </p>
               ) : null}
+            </div>
+
+            {/* 爱发电：与 USDT 并列的第二种方式。链接按钮开系统浏览器到主页（见 links.ts），
+                带人过去自己选档位；面板里不收钱、不接 API、不带下单参数。用 `<a>` 而不是
+                `window.open`：桌面壳只把 http(s) 交给系统浏览器，新标签页由浏览器自己开。 */}
+            <div className="flex flex-col items-center gap-2 border-t border-border-muted pt-4">
+              <p className="text-sm font-medium text-foreground-strong">
+                {t('panel.links.sponsorAfdianTitle')}
+              </p>
+              <p className="text-center text-xs leading-5 text-foreground-muted">
+                {t('panel.links.sponsorAfdianIntro')}
+              </p>
+              <a
+                href={AFDIAN_URL}
+                target="_blank"
+                rel="noreferrer noopener"
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                {t('panel.links.sponsorAfdianAction')}
+              </a>
             </div>
           </DialogBody>
 
