@@ -73,13 +73,19 @@ export function inboxAgeText(at: number | null, now = Date.now()): string {
   return t('panel.inbox.ageDays', { days: Math.floor(hours / 24) })
 }
 
-export function InboxCard({ framed = true }: { framed?: boolean }) {
+export function InboxCard({ framed = true, busy = '' }: { framed?: boolean; busy?: string }) {
   const notify = useNotify()
   const [status, setStatus] = useState<InboxStatus | null>(null)
   const [settled, setSettled] = useState(false)
-  const [busy, setBusy] = useState(false)
+  /** 本卡自己的清理请求在不在飞。 */
+  const [clearing, setClearing] = useState(false)
   /** 正在写自动清理开关。只锁那颗开关，不锁清理按钮。 */
   const [savingAuto, setSavingAuto] = useState(false)
+  /**
+   * 全局 busy（来自控制台）也并进来：别的卡有写操作在飞时，这张卡的写操作同样禁用，
+   * 免得两处同时改宿主。见 `Console.act` 那层统一 busy。
+   */
+  const locked = busy !== '' || clearing || savingAuto
 
   const load = useCallback(async () => {
     try {
@@ -101,7 +107,7 @@ export function InboxCard({ framed = true }: { framed?: boolean }) {
 
   /** 切自动清理开关。失败就弹胶囊并保留旧值，不假装已经改好了。 */
   async function flipAuto(next: boolean) {
-    if (savingAuto) return
+    if (savingAuto || clearing || busy !== '') return
     setSavingAuto(true)
     try {
       const result = await apiPost<{ ok: boolean; data: { autoClear: boolean } }>('/api/relay/inbox/auto', { enabled: next })
@@ -114,7 +120,7 @@ export function InboxCard({ framed = true }: { framed?: boolean }) {
   }
 
   async function clear() {
-    if (busy) return
+    if (clearing || savingAuto || busy !== '') return
     // 与配对卡里「吊销全部设备授权」同一条口径：不可逆的删除先过一道 `window.confirm`。
     // 这里**不用 notify/Alert 代替**：胶囊会自己走掉，而这一步要的是「停一下、看清再按」。
     const detail = deletable > 0
@@ -125,7 +131,7 @@ export function InboxCard({ framed = true }: { framed?: boolean }) {
       })
       : t('panel.inbox.confirmNothing', { hours: status?.keepHours ?? 24 })
     if (!window.confirm(`${t('panel.inbox.confirmTitle')}\n\n${detail}\n\n${t('panel.inbox.confirmIrreversible')}`)) return
-    setBusy(true)
+    setClearing(true)
     try {
       const result = await apiPost<InboxClearResult>('/api/relay/inbox/clear')
       const freed = formatInboxBytes(result.freedBytes)
@@ -139,7 +145,7 @@ export function InboxCard({ framed = true }: { framed?: boolean }) {
     } catch (error) {
       notify('error', t('panel.inbox.clearFailed', { message: errorText(error) }))
     } finally {
-      setBusy(false)
+      setClearing(false)
     }
   }
 
@@ -204,7 +210,7 @@ export function InboxCard({ framed = true }: { framed?: boolean }) {
               <Switch
                 size="md"
                 checked={status.autoClear === true}
-                disabled={busy || savingAuto}
+                disabled={locked}
                 onCheckedChange={(next) => void flipAuto(next)}
                 aria-label={t('panel.inbox.autoA11y')}
               />
@@ -212,8 +218,8 @@ export function InboxCard({ framed = true }: { framed?: boolean }) {
           </label>
 
           <div className="mt-3 flex justify-center">
-            <Button variant={deletable > 0 ? 'primary' : 'outline'} size="md" disabled={busy} onClick={() => void clear()}>
-              {busy ? t('panel.inbox.clearing') : t('panel.inbox.clear')}
+            <Button variant={deletable > 0 ? 'primary' : 'outline'} size="md" disabled={locked} onClick={() => void clear()}>
+              {clearing ? t('panel.inbox.clearing') : t('panel.inbox.clear')}
             </Button>
           </div>
         </>

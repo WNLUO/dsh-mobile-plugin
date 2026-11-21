@@ -103,14 +103,24 @@ export function RemoteComputersCard() {
   const [invitation, setInvitation] = useState<RemoteComputerInvite | null>(null)
   const [inviteText, setInviteText] = useState('')
   const [manualCopy, setManualCopy] = useState(false)
+  /** 生成一次性绑定信息失败的原因：弹窗里就地显示并给「重试」，别停在一片空白上。 */
+  const [inviteError, setInviteError] = useState('')
   const [modeDevice, setModeDevice] = useState<RemoteComputer | null>(null)
   const [mode, setMode] = useState('auto')
   const [diagnoseRoutes, setDiagnoseRoutes] = useState<RemoteComputerDiagnoseRoute[] | null>(null)
-  const [diagnosing, setDiagnosing] = useState(false)
+  /** 正在检测线路的那台设备 id（null = 没在检测）：按设备区分，结果不会串到另一台。 */
+  const [diagnosing, setDiagnosing] = useState<string | null>(null)
   const [now, setNow] = useState(0)
   const clockOffset = useRef(0)
   const loading = useRef(false)
   const mounted = useRef(false)
+  /** 当前「选择线路」弹窗对着的那台设备 id：异步回来的检测结果只认它，变了就丢弃。 */
+  const modeDeviceIdRef = useRef<string | null>(null)
+
+  // 弹窗对着的设备一变，异步回来的检测结果就作废（见 `diagnose`）。
+  useEffect(() => {
+    modeDeviceIdRef.current = modeDevice?.id ?? null
+  }, [modeDevice])
 
   const load = useCallback(async () => {
     if (loading.current) return
@@ -180,24 +190,54 @@ export function RemoteComputersCard() {
     }
   }
 
-  /** 逐条探活当前设备的线路；只读探测，不改选中状态。 */
+  /**
+   * 逐条探活当前设备的线路；只读探测，不改选中状态。
+   *
+   * 检测是异步的，回来时用户可能已经切到另一台设备的线路弹窗。所以结果回来时对一下当前
+   * 弹窗对着的设备 id：不是同一台就丢掉，别把 A 的线路图显示到 B 头上。
+   */
   async function diagnose(device: RemoteComputer) {
-    if (diagnosing) return
-    setDiagnosing(true)
+    if (diagnosing !== null) return
+    const id = device.id
+    setDiagnosing(id)
     try {
-      setDiagnoseRoutes((await remoteComputers.diagnose(device.id)).routes)
+      const routes = (await remoteComputers.diagnose(id)).routes
+      if (modeDeviceIdRef.current === id) setDiagnoseRoutes(routes)
     } catch (error) {
-      notify('error', remoteErrorText(error))
+      if (modeDeviceIdRef.current === id) notify('error', remoteErrorText(error))
     } finally {
-      setDiagnosing(false)
+      setDiagnosing(null)
     }
   }
 
-  function generateInvite() {
+  /** 生成一次性绑定信息：失败时把原因留在弹窗里并可重试，生成过程可关窗。 */
+  async function generateInvite() {
     setInvitation(null)
+    setInviteError('')
     setManualCopy(false)
     setDialog('invite')
-    void act('invite', async () => { setInvitation(await remoteComputers.invite()) })
+    // 不并进 `act`：那条会在失败时只弹胶囊、把弹窗留成一片空白；这里要就地显示错误与重试。
+    await runInvite()
+  }
+
+  async function runInvite() {
+    if (isBusy('invite')) return
+    setBusy((keys) => [...keys, 'invite'])
+    setInviteError('')
+    try {
+      setInvitation(await remoteComputers.invite())
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        setLocalOnly(true)
+        setList(null)
+        setDialog(null)
+        setInvitation(null)
+      } else {
+        setInviteError(remoteErrorText(error))
+      }
+    } finally {
+      setBusy((keys) => keys.filter((item) => item !== 'invite'))
+    }
   }
 
   async function copyInvite() {
@@ -323,7 +363,7 @@ export function RemoteComputersCard() {
         </>
       ) : null}
 
-      <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open && !dialogBusy) { setDialog(null); setInvitation(null) } }}>
+      <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open) { setDialog(null); setInvitation(null); setInviteError('') } }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{t(dialog === 'invite' ? 'panel.remote.createInvite' : 'panel.remote.add')}</DialogTitle></DialogHeader>
           <DialogBody className="flex flex-col gap-3">
@@ -340,7 +380,16 @@ export function RemoteComputersCard() {
                   <p className="text-xs text-foreground-muted">{t(inviteExpired ? 'panel.remote.inviteExpired' : 'panel.remote.inviteRemaining', { minutes: Math.max(0, Math.ceil((invitation.expiresAt - now) / 60_000)) })}</p>
                   {manualCopy ? <p role="status" className="text-xs text-foreground-muted">{t('panel.remote.manualCopy')}</p> : null}
                 </>
-              ) : dialogBusy ? <Spinner /> : null
+              ) : dialogBusy ? (
+                <Spinner />
+              ) : inviteError ? (
+                <div className="flex flex-col items-center gap-2 py-2 text-center">
+                  <p role="alert" className="text-xs text-error">{inviteError}</p>
+                  <Button variant="ghost" size="sm" onClick={() => void runInvite()}>
+                    {t('panel.remote.retryGenerate')}
+                  </Button>
+                </div>
+              ) : null
             ) : (
               <Field>
                 <FieldLabel htmlFor="remote-computer-add">{t('panel.remote.inviteLabel')}</FieldLabel>
@@ -349,7 +398,7 @@ export function RemoteComputersCard() {
             )}
           </DialogBody>
           <DialogFooter className="flex justify-end gap-2">
-            <Button variant="outline" disabled={dialogBusy} onClick={() => { setDialog(null); setInvitation(null) }}>{t('panel.common.close')}</Button>
+            <Button variant="outline" onClick={() => { setDialog(null); setInvitation(null); setInviteError('') }}>{t('panel.common.close')}</Button>
             {dialog === 'invite' ? (
               <Button variant="primary" disabled={dialogBusy || !invitation || inviteExpired} onClick={() => void copyInvite()}>{t('panel.remote.copy')}</Button>
             ) : (
@@ -380,11 +429,11 @@ export function RemoteComputersCard() {
             <div className="border-t border-border-muted pt-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-foreground-muted">{t('panel.remote.diagnoseHint')}</span>
-                <Button variant="ghost" size="sm" className="px-2 text-xs" disabled={diagnosing} onClick={() => { if (modeDevice) void diagnose(modeDevice) }}>
+                <Button variant="ghost" size="sm" className="px-2 text-xs" disabled={diagnosing !== null} onClick={() => { if (modeDevice) void diagnose(modeDevice) }}>
                   {t('panel.remote.diagnose')}
                 </Button>
               </div>
-              {diagnosing ? <Spinner /> : null}
+              {diagnosing === modeDevice?.id ? <Spinner /> : null}
               {diagnoseRoutes ? (
                 <ul className="mt-1 flex flex-col gap-1">
                   {diagnoseRoutes.map((route) => (

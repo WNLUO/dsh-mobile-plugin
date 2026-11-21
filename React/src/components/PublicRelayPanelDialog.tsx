@@ -90,7 +90,9 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
       if (!alive || inFlightRef.current) return
       inFlightRef.current = true
       try {
-        const res = await apiPost<{ ok: boolean; results: ProbeResult[] }>('/api/relay/probe-relays', { urls })
+        // 短超时：一次挂住的探测不能让面板静默冻结。超时就当这一拍采样为 null（下面的 catch
+        // 会补一个 null 点并清掉 inFlight，下一拍照常继续）。
+        const res = await apiPost<{ ok: boolean; results: ProbeResult[] }>('/api/relay/probe-relays', { urls }, { timeoutMs: 8_000 })
         if (!alive) return
         const byUrl = new Map((res.results || []).map((item) => [item.url, item.ms]))
         setHistory((previous) => {
@@ -116,6 +118,8 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
     timerRef.current = setInterval(() => { void probe() }, PROBE_INTERVAL_MS)
     return () => {
       alive = false
+      // 在飞标记留给那一发的 finally 清：探测带了超时，挂住的请求最终会落地并复位，
+      // 不会把下一轮永久挡住；这里若提前复位，会让上一发还没回来就并发再发一次，破坏「同一时刻只一个在飞」。
       if (timerRef.current !== null) {
         clearInterval(timerRef.current)
         timerRef.current = null

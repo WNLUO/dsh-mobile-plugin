@@ -51,6 +51,7 @@ import {
   pairingRenewIn,
   type AddressBook,
   type ConfigPatch,
+  type FrpStatus,
   type PairingInfo,
   type PairingPolicy,
   type StatusView,
@@ -248,13 +249,22 @@ export function Console() {
     void loadAddresses()
   }, [configOpen, status?.enabled, loadPairing, loadAddresses])
 
+  /**
+   * 全局 busy 的真相放在 ref 里：`busy` 状态给界面渲染用，但并发进来的第二个 `act`
+   * 读不到还没生效的 `busy`，会把手上的操作覆盖掉、再提前清空。用 `busyRef` 挡住并发，
+   * 并保证只有发起的那一次才把 busy 清回空串。
+   */
+  const busyRef = useRef('')
   const act = useCallback(async (label: string, run: () => Promise<void>) => {
+    if (busyRef.current !== '') return
+    busyRef.current = label
     setBusy(label)
     try {
       await run()
     } catch (err) {
       notify('error', errorText(err))
     } finally {
+      busyRef.current = ''
       setBusy('')
     }
   }, [notify])
@@ -285,12 +295,28 @@ export function Console() {
       notify('soft', t(enabled ? 'panel.webAccess.opened' : 'panel.webAccess.closedNotice'))
     })
 
+  /**
+   * 保存网络配置。带 FRP 导入时先拉起本地 frpc，再落配置：
+   * 任一后续步骤失败（导入没起来、或配置没存上）就 `stopFrp` 回滚，别把一条界面说没保存、
+   * 后台却在跑的隧道留在那儿。控制面那条路由不改，进程的回滚只走已有的 `/frp/stop`。
+   */
   const saveConfig = (patch: ConfigPatch, frpConfig?: { config: string; field: 'tcp' | 'direct'; value: string }) =>
     act('config', async () => {
       const nextPatch = { ...patch }
+      let importedFrp = false
       if (frpConfig) {
-        const imported = await importFrp(frpConfig.config)
+        importedFrp = true
+        let imported: { ok: boolean; status: FrpStatus | null }
+        try {
+          imported = await importFrp(frpConfig.config)
+        } catch (error) {
+          // 导入那一步本身抛错（网络 / 超时）：把可能已拉起的 frpc 停掉再往上抛。
+          await stopFrp().catch(() => undefined)
+          throw error
+        }
         if (!imported.ok || !imported.status?.running || imported.status.error) {
+          // 导入没起来：回滚可能残留的 frpc，刷新状态后如实报错。
+          await stopFrp().catch(() => undefined)
           await loadStatus()
           throw new Error(imported.status?.error || t('panel.connection.tcpFailed'))
         }
@@ -299,7 +325,13 @@ export function Console() {
           nextPatch.manualTcpUrl = imported.status.remoteAddress || frpConfig.value
         }
       }
-      setStatus(await apiPost<StatusView>('/api/relay/config', nextPatch))
+      try {
+        setStatus(await apiPost<StatusView>('/api/relay/config', nextPatch, { timeoutMs: 60_000 }))
+      } catch (error) {
+        // 配置没存上：导入时拉起的 frpc 一并回滚，避免「界面像没保存、隧道还在跑」。
+        if (importedFrp) await stopFrp().catch(() => undefined)
+        throw error
+      }
       setConfigOpen(false)
       await Promise.all([loadPairing(), loadAddresses()])
       notify('soft', t('panel.shell.configSaved'))
@@ -319,7 +351,7 @@ export function Console() {
    */
   const postConfig = (patch: ConfigPatch, okKey: string) =>
     act('config', async () => {
-      const payload = await apiPost<StatusView & { applyError?: string }>('/api/relay/config', patch, { keepApplyError: true })
+      const payload = await apiPost<StatusView & { applyError?: string }>('/api/relay/config', patch, { keepApplyError: true, timeoutMs: 60_000 })
       setStatus(payload)
       if (payload.applyError) {
         notify('error', t('panel.shell.applyFailed', { message: payload.applyError }))
@@ -552,7 +584,7 @@ export function Console() {
             <DialogTitle>{t('panel.inbox.title')}</DialogTitle>
           </DialogHeader>
           <DialogBody>
-            <InboxCard framed={false} />
+            <InboxCard framed={false} busy={busy} />
           </DialogBody>
         </DialogContent>
       </Dialog>

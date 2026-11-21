@@ -71,11 +71,12 @@ export const REMOTE_LEASE_WARNING_MS = 5 * 60 * 1000
 
 export const remoteComputers = {
   list: () => apiGet<RemoteComputerList>(BASE),
-  invite: () => apiPost<RemoteComputerInvite>(`${BASE}/invite`, {}),
+  // 生成一次性绑定信息 / 线路检测都可能被宿主拖住：带上超时，免得弹窗停在一片空白或一直转圈。
+  invite: () => apiPost<RemoteComputerInvite>(`${BASE}/invite`, {}, { timeoutMs: 15_000 }),
   add: (invite: string) => apiPost<{ ok: boolean; device: RemoteComputer }>(`${BASE}/add`, { invite }),
   open: (id: string) => apiPost<RemoteComputerOpen>(`${BASE}/open`, { id }),
   openShell: (id: string) => apiPost<RemoteComputerOpen>(`${BASE}/open-shell`, { id }),
-  diagnose: (id: string) => apiPost<RemoteComputerDiagnose>(`${BASE}/diagnose`, { id }),
+  diagnose: (id: string) => apiPost<RemoteComputerDiagnose>(`${BASE}/diagnose`, { id }, { timeoutMs: 20_000 }),
   remove: (id: string) => apiPost<{ ok: boolean }>(`${BASE}/remove`, { id }),
   mode: (id: string, mode: string) => apiPost<{ ok: boolean }>(`${BASE}/mode`, { id, mode }),
   revoke: (deviceId: string) => apiPost<{ ok: boolean }>(`${BASE}/revoke`, { deviceId }),

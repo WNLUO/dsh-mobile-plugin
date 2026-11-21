@@ -125,7 +125,12 @@ export function applyShellTheme(theme: ShellTheme): void {
  * 返回一个撤销函数。观察器只盯两个属性，开销可以忽略；父窗口不可达时退化成系统监听。
  */
 export function watchShellTheme(): () => void {
-  const apply = () => applyShellTheme(resolveShellTheme())
+  // 应用之后通知订阅者：父窗口 / 系统切主题时，那一颗日夜按钮的图标与提示也要跟着刷新，
+  // 否则它停在「跟随」时看起来按了没反应（2026-11-21）。
+  const apply = () => {
+    applyShellTheme(resolveShellTheme())
+    for (const listener of listeners) listener()
+  }
   apply()
 
   const disposers: Array<() => void> = []

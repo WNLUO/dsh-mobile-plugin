@@ -1606,7 +1606,7 @@ test('切语言之后标题跟着换（插进那一行的按钮不吃旧文案�
   assert.match(SOURCE, /\}, \[wide, visible, url, openLabel, loadMissingLabel, pendingLabel, problem, panelScope, webAccess, hint, fault, restartPending, restartLabel\]\);/);
 });
 
-test('地址问不到时会自己再问，问到了就停（不再打宿主）', async () => {
+test('地址问不到时会自己再问；拿到地址后仍低频刷新现场', async () => {
   const sidebar = fakeSidebarRow();
   let statusCalls = 0;
   const env = materialize({
@@ -1629,10 +1629,10 @@ test('地址问不到时会自己再问，问到了就停（不再打宿主）',
   await env.hooks.flush();
   assert.equal(footerDomNode(sidebar).attrs.href, readyStatus().panelUrl);
 
-  // 取到地址之后定时器要收掉：再走一轮不该多打一次宿主。
-  const after = statusCalls;
+  // 拿到地址后**不许停**：设备台数 / 告警 / 需要重启都要跟着刷新（低频即可）。
+  const before = statusCalls;
   await env.timers.tick(20000);
-  assert.equal(statusCalls, after, '地址取到之后不该再轮询');
+  assert.ok(statusCalls > before, '地址取到之后仍要低频轮询现场');
 });
 
 /* ── 5a2. 那颗图标说得出「现在什么情况」─────────────────────────────────
@@ -1967,14 +1967,16 @@ test('变异：空白 load 直接就绪、失败页继续保活都会被回归�
   assert.throws(() => assert.notEqual(consoleFrame(cached.env), cached.frame), assert.AssertionError);
 });
 
-test('内容窗外壳不画按钮：页面顶栏那两颗发消息，外壳只执行', async () => {
+test('内容窗外壳只放一颗关闭角标：其它按钮由页面顶栏发消息', async () => {
   const { env } = clickEnv({ panelScope: 'loopback' });
   const icon = await railIcon(env);
   await icon.props.onClick({ preventDefault() {} });
   await settle();
   const dialog = diagnosisNode(env);
-  // 外壳自己一颗按钮都不画：标题行、图标行、底部文字按钮行全撤了。
-  assert.equal(elements(dialog).filter((node) => node.tag === 'button' || node.type === 'button').length, 0);
+  // 标题行、底部文字按钮行全撤了；compact 窗只在角上留一颗固定关闭角标（嵌页加载失败时也能收起）。
+  const buttons = elements(dialog).filter((node) => node.tag === 'button' || node.type === 'button');
+  assert.equal(buttons.length, 1, 'compact 外壳只该有那一颗关闭角标');
+  assert.ok(String(buttons[0].className || '').includes('dshm_shellClose'), '角标用 dshm_shellClose');
   for (const cls of ['dshm_dialogTitle', 'dshm_dialogTools', 'dshm_dialogActions']) {
     assert.equal(elements(dialog).filter((node) => String(node.className || '').includes(cls)).length, 0, `${cls} 不在外壳里`);
   }

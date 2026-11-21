@@ -111,6 +111,11 @@ export function PairingCard({
   bare = false,
 }: Props) {
   const idle = busy !== ''
+  /**
+   * 远程控制整条关掉了（`status.enabled === false`）。这时宿主不会回二维码，也不会有配对 /
+   * 地址可以取 —— 卡片要显示明确的「已关闭」空态，而不是一直转圈的「还没取到二维码」。
+   */
+  const remoteOff = status.enabled === false
   /** 「中转地址」那行的明文：默认遮上。 */
   const relayUrl = pairing?.relayUrl || status.relayUrl || '—'
   /**
@@ -156,7 +161,9 @@ export function PairingCard({
         >
           {!pairing?.svg || !qrCurrent ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle">
-              {error ? (
+              {remoteOff ? (
+                <span className="px-2 text-center text-xs leading-5">{t('panel.pairing.remoteOffHint')}</span>
+              ) : error ? (
                 <>
                   <span className="text-xs">{t('panel.pairing.qrFailed')}</span>
                   <Button variant="ghost" size="sm" disabled={idle} onClick={onRetryPairing}>
@@ -197,6 +204,7 @@ export function PairingCard({
                   on={shown.relay}
                   what={t('panel.connection.relayUrl')}
                   label={shown.relay ? t('panel.common.hide') : t('panel.common.show')}
+                  disabled={relayUrl === '—'}
                   onClick={() => toggle('relay')}
                 />
               </span>
@@ -250,6 +258,7 @@ export function PairingCard({
                   on={false}
                   what={t('panel.pairing.phoneAddress')}
                   label={t('panel.common.show')}
+                  disabled={!phoneAddress}
                   onClick={() => setAddressOpen(true)}
                 />
               </span>
@@ -386,7 +395,7 @@ export function PairingPolicyRows({
             type="button"
             aria-label={t('panel.pairing.controlReportInfo')}
             title={t('panel.pairing.controlReportInfo')}
-            className="shrink-0 cursor-pointer rounded text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            className="-m-1 inline-flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             onClick={() => setControlReportInfoOpen(true)}
           >
             <InfoMark />

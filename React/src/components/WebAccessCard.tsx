@@ -40,11 +40,11 @@ export function WebAccessCard({ webAccess, busy, onToggle }: Props) {
       <p className="mt-2 text-xs leading-5 text-foreground-muted">{t('panel.webAccess.hint')}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         {enabled ? (
-          <Button variant="outline" size="sm" disabled={busy === 'webAccess'} onClick={() => onToggle(false)}>
+          <Button variant="outline" size="sm" disabled={busy !== ''} onClick={() => onToggle(false)}>
             {t('panel.webAccess.close')}
           </Button>
         ) : (
-          <Button variant="outline" size="sm" disabled={busy === 'webAccess'} onClick={() => onToggle(true)}>
+          <Button variant="outline" size="sm" disabled={busy !== ''} onClick={() => onToggle(true)}>
             {t('panel.webAccess.open')}
           </Button>
         )}

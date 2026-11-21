@@ -9,7 +9,7 @@
  * 同源，路径一个字都不用改。
  */
 
-// 状态与二维码读取各有超时；取码校验 SVG，管理写操作保持原有等待语义。
+// 状态与二维码读取各有超时；取码校验 SVG，管理写操作也带一份兜底超时（调用方可覆盖）。
 import { t } from './i18n/index.ts'
 
 export type PairingPolicy = 'code' | 'deny'
@@ -596,6 +596,20 @@ async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(t('panel.net.requestFailed', { status: response.status }), `http_${response.status}`, response.status)
 }
 
+/**
+ * 定时器兼容层：浏览器里走 `window.setTimeout`，无 window 计时器的环境（node 单测的沙箱）退回全局
+ * `setTimeout`。两条都用 `typeof` 探一下，避免在不提供某一侧的环境里直接引用未声明的标识符。
+ */
+function scheduleTimeout(fn: () => void, ms: number): number {
+  if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') return window.setTimeout(fn, ms)
+  return setTimeout(fn, ms) as unknown as number
+}
+
+function cancelTimeout(id: number): void {
+  if (typeof window !== 'undefined' && typeof window.clearTimeout === 'function') window.clearTimeout(id)
+  else clearTimeout(id as unknown as ReturnType<typeof setTimeout>)
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const pairingRequest = path.split('?')[0] === '/api/relay/pairing'
   // 配对助手自身最多等待 20 秒，再留出生成二维码与转发回程的时间。
@@ -624,18 +638,42 @@ export async function apiGet<T>(path: string): Promise<T> {
   }
 }
 
-export async function apiPost<T>(path: string, body?: unknown, options?: { keepApplyError?: boolean }): Promise<T> {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  })
-  if (!response.ok) throw await toApiError(response)
-  const payload = await response.json()
-  // 配置保存这一类调用要连回包里的新状态一起用（即使下发失败，配置也已落盘），
-  // 所以这里允许调用方自己读 applyError；默认仍当场抛，老口径不变。
-  if (!options?.keepApplyError) throwIfApplyFailed(payload)
-  return payload as T
+/**
+ * 管理写请求可选的兜底超时（毫秒）：`timeoutMs` 不给就不设超时，保持原有等待语义
+ * （首屏状态读取的那套时限不该套到配置保存 / 解绑这类慢请求上）。
+ *
+ * 需要防「挂住不回」的调用方自己传一个：解绑 / 清空历史、配置保存、公用中转探测
+ * （见 `DevicesCard`、`Console.saveConfig`、`PublicRelayPanelDialog`）。
+ */
+export async function apiPost<T>(
+  path: string,
+  body?: unknown,
+  options?: { keepApplyError?: boolean; timeoutMs?: number },
+): Promise<T> {
+  const timeout = options?.timeoutMs ?? 0
+  const controller = timeout > 0 ? new AbortController() : null
+  const timer = controller ? scheduleTimeout(() => controller.abort(), timeout) : null
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body ?? {}),
+      ...(controller ? { signal: controller.signal } : {}),
+    })
+    if (!response.ok) throw await toApiError(response)
+    const payload = await response.json()
+    // 配置保存这一类调用要连回包里的新状态一起用（即使下发失败，配置也已落盘），
+    // 所以这里允许调用方自己读 applyError；默认仍当场抛，老口径不变。
+    if (!options?.keepApplyError) throwIfApplyFailed(payload)
+    return payload as T
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new ApiError(t('panel.net.requestFailedNoStatus'), 'request_timeout', 0)
+    }
+    throw error
+  } finally {
+    if (timer !== null) cancelTimeout(timer)
+  }
 }
 
 /**

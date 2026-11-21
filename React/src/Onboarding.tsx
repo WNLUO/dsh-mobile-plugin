@@ -32,6 +32,9 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
 import { FeedbackButton } from './components/FeedbackButton.tsx'
+import { LanguageMenu } from './components/LanguageMenu.tsx'
+import { PanelWindowActions } from './components/PanelWindowActions.tsx'
+import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { connectionFeedbackFacts } from './lib/feedback-diagnostics.ts'
 import { DownloadChannelsGrid } from './components/DownloadAppButton.tsx'
 import { FirewallDialog } from './components/FirewallDialog.tsx'
@@ -88,6 +91,12 @@ export function Onboarding({ onDone }: Props) {
   const [fatal, setFatal] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  /**
+   * 从按下「连接中转 / 打开直连」到 20 秒观察窗口结束之间都为真：独立于 `busy`，
+   * 因为写配置那几步很快、`busy` 会先落回 false，而观察连接是否起来的 20 秒还得继续。
+   * 这一档同时让按钮显示「进行中」并禁用，避免重复下发。
+   */
+  const [connecting, setConnecting] = useState(false)
   const [connectionAttemptSettled, setConnectionAttemptSettled] = useState(false)
   const [addresses, setAddresses] = useState<AddressBook | null>(null)
   const [pairing, setPairing] = useState<PairingInfo | null>(null)
@@ -290,9 +299,12 @@ export function Onboarding({ onDone }: Props) {
    * 二维码里于是同时有两条路。设备名与端口都不写，宿主自己会填宿主机名和默认端口。
    */
   async function applyAuto(toggle: boolean) {
-    if (busy) return
+    if (busy || connecting) return
     setBusy(true)
-    if (toggle) setConnectionAttemptSettled(false)
+    if (toggle) {
+      setConnecting(true)
+      setConnectionAttemptSettled(false)
+    }
     setError('')
     const patch: ConfigPatch = {
       relayUrls: PUBLIC_RELAYS.map((r) => r.url),
@@ -310,15 +322,17 @@ export function Onboarding({ onDone }: Props) {
       }
       await loadPairing()
       if (toggle) {
-        void watch().finally(() => {
-          if (alive.current) setConnectionAttemptSettled(true)
-        })
+        // 等整个观察窗口走完（最多 20 秒）再放开按钮：期间 `connecting` 保持为真，
+        // 按钮显示进行中并禁用，重复点不会重复下发。
+        await watch()
+        if (alive.current) setConnectionAttemptSettled(true)
       }
     } catch (err) {
       if (toggle && alive.current) setConnectionAttemptSettled(true)
       setError(errorText(err))
     } finally {
       setBusy(false)
+      if (toggle) setConnecting(false)
     }
   }
 
@@ -478,7 +492,14 @@ export function Onboarding({ onDone }: Props) {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 pt-6 pb-24">
-      <div className="flex w-full max-w-4xl justify-end"><FeedbackButton /></div>
+      {/* 引导页顶部也补齐「语言 + 日夜 + 窗口按钮」：此前这几样只挂在控制台那一窗，
+          第一次装的人与从浏览器打开引导页的人都拿不到。 */}
+      <div className="flex w-full max-w-4xl flex-wrap items-center justify-end gap-1">
+        <LanguageMenu />
+        <ConsoleThemeToggle />
+        <PanelWindowActions />
+        <FeedbackButton />
+      </div>
       {fatal ? (
         <Alert className="w-full max-w-4xl" variant="error">
           <AlertIcon />
@@ -640,8 +661,8 @@ export function Onboarding({ onDone }: Props) {
               {t('panel.onboarding.enterPlugin')}
             </Button>
           ) : (
-            <Button variant="primary" disabled={busy || fatal !== ''} onClick={() => void connect()}>
-              {busy ? t('panel.onboarding.opening') : t('panel.onboarding.connectRelay')}
+            <Button variant="primary" disabled={busy || connecting || fatal !== ''} onClick={() => void connect()}>
+              {busy || connecting ? t('panel.onboarding.opening') : t('panel.onboarding.connectRelay')}
             </Button>
           )}
         </div>

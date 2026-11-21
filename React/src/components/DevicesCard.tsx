@@ -309,7 +309,8 @@ export function DevicesCard({ busy, fill = false }: Props) {
   async function revoke(device: RelayDevice) {
     setRevoking(true)
     try {
-      const result = await apiPost<DeviceRevokeResult>('/api/relay/devices/revoke', { deviceId: device.deviceId })
+      // 带超时：别处重启 sidecar 时宿主可能迟迟不回，别让确认框 / 按钮一直转圈。
+      const result = await apiPost<DeviceRevokeResult>('/api/relay/devices/revoke', { deviceId: device.deviceId }, { timeoutMs: 20_000 })
       setPending(null)
       // 吊销之后立刻重拉：等下一轮 3 秒会让「点了没反应」多停留一会儿。
       await load()
@@ -380,6 +381,7 @@ export function DevicesCard({ busy, fill = false }: Props) {
                   size="icon-md"
                   aria-label={t('panel.devices.unbind')}
                   title={t('panel.devices.unbind')}
+                  disabled={busy !== ''}
                   onClick={() => setPending(device)}
                 >
                   <UnlinkIcon />
@@ -476,8 +478,9 @@ export function DevicesCard({ busy, fill = false }: Props) {
       <AlertDialog
         open={pending !== null}
         onOpenChange={(open) => {
-          // 正在发请求时不许靠点遮罩 / Esc 关掉：关了一半再打开会看到两条文案混在一起。
-          if (!open && !revoking) setPending(null)
+          // 请求中也要留一个可关闭的出口：宿主不响应时（比如别处正在重启 sidecar）用户不该被
+          // 锁在弹窗里。请求本身有超时兜底（见 `apiPost`）。
+          if (!open) setPending(null)
         }}
       >
         <AlertDialogContent>
@@ -494,7 +497,7 @@ export function DevicesCard({ busy, fill = false }: Props) {
             </p>
           </AlertDialogBody>
           <AlertDialogFooter className="flex justify-end gap-2">
-            <Button variant="outline" disabled={revoking} onClick={() => setPending(null)}>
+            <Button variant="outline" onClick={() => setPending(null)}>
               {t('panel.devices.cancel')}
             </Button>
             <Button
@@ -521,6 +524,8 @@ export function DevicesCard({ busy, fill = false }: Props) {
       <AlertDialog
         open={historyConfirm}
         onOpenChange={(open) => {
+          // 遮罩 / Esc 在请求中不直接关（避免看着关掉、请求还在写）；但「取消」按钮始终可点，
+          // 用户随时能从这里退出去。
           if (!open && !historyClearing) setHistoryConfirm(false)
         }}
       >
@@ -535,7 +540,7 @@ export function DevicesCard({ busy, fill = false }: Props) {
             <p className="text-foreground-muted">{t('panel.devices.historyClearHint')}</p>
           </AlertDialogBody>
           <AlertDialogFooter className="flex justify-end gap-2">
-            <Button variant="outline" disabled={historyClearing} onClick={() => setHistoryConfirm(false)}>
+            <Button variant="outline" onClick={() => setHistoryConfirm(false)}>
               {t('panel.devices.cancel')}
             </Button>
             <Button

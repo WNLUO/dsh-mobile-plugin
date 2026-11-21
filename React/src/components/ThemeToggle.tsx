@@ -18,7 +18,7 @@
 import { Button } from '@appica/ui-react/button'
 import { t } from '../lib/i18n/index.ts'
 import { useTheme } from '@appica/ui-react/hooks/use-theme'
-import { setShellThemeOverride, useShellTheme } from '../lib/shell-theme.ts'
+import { setShellThemeOverride, shellThemeOverride, useShellTheme, type ShellTheme } from '../lib/shell-theme.ts'
 
 function SunIcon() {
   return (
@@ -82,10 +82,38 @@ export function ThemeToggle() {
  * 单独一颗而不是给上面那颗加开关：上面那颗在**每一条别的页**上都要有 `ThemeProvider` 才
  * 拿得到 `setTheme`，而控制台那一页刻意没挂它（见 `main.tsx` 里那段说明）。
  */
+/** 三档里的「跟随 DSH」：半亮半暗的圆，表示让父窗口 / 系统决定。 */
+function FollowIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
+/**
+ * 控制台那一窗用的日夜按钮（三档轮换）：跟随 DSH → 日间 → 夜间 → 跟随 DSH。
+ *
+ * 之前只有「日间 / 夜间」两档：按过一次就写下手动选择，再也回不到「跟随 DSH」。
+ * 现在把那颗「跟随」补成一档，按到它就把手动覆盖清掉（`setShellThemeOverride(null)`）。
+ * 图标表示**下一次按下去会变成什么**，配同样意思的提示，所以三档都点得回来。
+ */
 export function ConsoleThemeToggle() {
   const theme = useShellTheme()
-  const dark = theme === 'dark'
-  const label = dark ? t('panel.theme.toDay') : t('panel.theme.toNight')
+  const override = shellThemeOverride()
+  // 下一档：跟随中 → 切到「当前的另一档」（立刻看到变化）；手动日间 → 夜间；手动夜间 → 跟随。
+  const next: 'follow' | ShellTheme = override === null ? (theme === 'dark' ? 'light' : 'dark') : override === 'light' ? 'dark' : 'follow'
+  const label =
+    next === 'follow' ? t('panel.theme.follow') : next === 'light' ? t('panel.theme.toDay') : t('panel.theme.toNight')
 
   return (
     <Button
@@ -94,9 +122,9 @@ export function ConsoleThemeToggle() {
       className="pointer-events-auto"
       aria-label={label}
       title={label}
-      onClick={() => setShellThemeOverride(dark ? 'light' : 'dark')}
+      onClick={() => setShellThemeOverride(next === 'follow' ? null : next)}
     >
-      {dark ? <SunIcon /> : <MoonIcon />}
+      {next === 'follow' ? <FollowIcon /> : next === 'light' ? <SunIcon /> : <MoonIcon />}
     </Button>
   )
 }

@@ -55,7 +55,13 @@ export function PortDialog({ open, onOpenChange, port, busy, fixed, forwarding, 
   const text = portText.trim()
   const value = Number(text)
   const valid = text !== '' && Number.isInteger(value) && value >= PORT_MIN && value <= PORT_MAX
-  const canSave = valid && busy === ''
+  /**
+   * 配了穿透 / 固定地址时端口会被宿主锁定为原端口（`lanPortLockReason === 'forwarding'`）。
+   * 这时让输入框不可改、保存按不可用，和下面那句「会自动保留原端口」保持一致 —— 不给一个
+   * 改了也不生效的输入框。
+   */
+  const portLocked = forwarding
+  const canSave = valid && busy === '' && !portLocked
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -70,13 +76,14 @@ export function PortDialog({ open, onOpenChange, port, busy, fixed, forwarding, 
             <Input
               inputProps={{ id: 'relay-lan-port', inputMode: 'numeric' }}
               value={portText}
+              disabled={portLocked || busy !== ''}
               onChange={(event) => setPortText(event.target.value)}
             />
           </Field>
           <p className="text-xs text-foreground-muted">{t('panel.pairing.portHint')}</p>
           <Field>
             <FieldLabel htmlFor="relay-port-fixed">{t('panel.pairing.portFixed')}</FieldLabel>
-            <Switch id="relay-port-fixed" size="md" checked={fixedPort} disabled={busy !== ''}
+            <Switch id="relay-port-fixed" size="md" checked={fixedPort} disabled={busy !== '' || portLocked}
               onCheckedChange={setFixedPort} aria-label={t('panel.pairing.portFixed')} />
           </Field>
           <p className="text-xs text-foreground-muted">{t(forwarding ? 'panel.pairing.portForwarding' : 'panel.pairing.portFixedHint')}</p>

@@ -11,6 +11,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@appica/ui-react/dropdown-menu'
 import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
+import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
 import type { AddressBook, ConfigPatch, StatusView } from '../lib/api.ts'
@@ -279,7 +280,9 @@ export function RelayConfigDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={(next) => { if (busy !== 'config') onOpenChange(next) }}>
+      {/* 保存中也可以关窗：请求本身会跑完（失败时回滚已拉起的 frpc，见 Console.saveConfig），
+          用户不必被锁在弹窗里等宿主。落盘成功后 Console 那边也会把窗关掉。 */}
+      <Dialog open={open} onOpenChange={onOpenChange}>
         {/* `initialFocus` 指向弹窗容器本身：Base UI 默认会把焦点放到第一个可聚焦元素上，
             这里就是「设备名」那个输入框——一打开就选中了、光标在闪，用户想先点别的地方
             还得先把它点掉。焦点仍旧进到弹窗里（读屏与 Esc 都靠它），只是不落在输入框。 */}
@@ -464,8 +467,15 @@ export function RelayConfigDialog({
             </DialogBody>
           </div>
 
-          <DialogFooter className="flex justify-end gap-2">
-            <Button variant="outline" disabled={busy === 'config'} onClick={() => onOpenChange(false)}>
+          <DialogFooter className="flex items-center justify-end gap-2">
+            {/* 保存期间给一条进度（含 FRP 导入最多等 8 秒），并可随时取消 / 关窗。 */}
+            {busy === 'config' ? (
+              <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-foreground-muted">
+                <Spinner />
+                {t('panel.shell.busy')}
+              </span>
+            ) : null}
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
               {t('panel.common.cancel')}
             </Button>
             <Button variant="primary" disabled={!canSave} onClick={submit}>

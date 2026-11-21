@@ -58,11 +58,12 @@ export function InfoRow({ label, hint, labelExtra, tone, mono, nowrap, children 
                 <TooltipTrigger
                   delay={250}
                   render={
+                    // 悬停提示由 `Tooltip` 负责，别再同时挂原生 `title`（会出现两个提示）。
+                    // 14px 图标本体太窄，用内边距撑出可点热区，再用负外边距抵消占位、不动版式。
                     <button
                       type="button"
                       aria-label={hint}
-                      title={hint}
-                      className="shrink-0 cursor-pointer text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none motion-reduce:transition-none"
+                      className="-m-1 inline-flex shrink-0 cursor-pointer items-center justify-center p-1 text-foreground-muted transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
                     >
                       <QuestionMark />
                     </button>

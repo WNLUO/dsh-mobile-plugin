@@ -179,7 +179,7 @@ test('钩子上的 displayReason 会升级到卡上（与桌面同一句中文�
   assert.match(shown[1].reason, /允许本次操作使用 danger-full-access 权限/, '第二帧应是宿主给的 tz 化文案');
 });
 
-test('钩子先到也不丢：后到的 approval/asked 把真实 approvalId 补进同一张卡', async () => {
+test('钩子先到也不丢：后到的 approval/asked 补真 id 但不改卡上的 approvalId', async () => {
   const { ctx, cards, watch } = setup();
   void runHook(ctx, escalation(), HOLD);
   watch('s-1');
@@ -190,7 +190,9 @@ test('钩子先到也不丢：后到的 approval/asked 把真实 approvalId 补�
   const shown = cards.filter((frame) => frame.type === 'approval/requested');
   assert.equal(shown.length, 2, '补 id 只该换内容，不该再多一张卡');
   assert.equal(shown[1].rpcId, shown[0].rpcId, 'rpcId 不变，已经打开的卡照样答得动');
-  assert.equal(shown[1].approvalId, 'ap-1');
+  // approvalId 一经下发不再变：App 的审批队列按 approvalId 去重，换成真 id 就会排成两张卡
+  // （其中一张回答必然 409）。宿主真 id 另存在挂起项上，只用于认领 approval/decided。
+  assert.equal(shown[1].approvalId, shown[0].approvalId, 'approvalId 保持不变，App 就地更新同一张卡');
 });
 
 // ── 回答 ────────────────────────────────────────────────────────────────────

@@ -176,7 +176,7 @@ export function IssueMark({ issue }: { issue: Issue }) {
         type="button"
         aria-label={issue.title}
         title={issue.title}
-        className="shrink-0 cursor-pointer rounded text-error transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        className="-m-1 inline-flex shrink-0 cursor-pointer items-center justify-center rounded p-1 text-error transition-colors duration-200 hover:text-foreground-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
         onClick={() => setOpen(true)}
       >
         <InfoMark />
