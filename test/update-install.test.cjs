@@ -36,7 +36,7 @@ const test = require('node:test');
 const PLUGIN = 'dsh-mobile-plugin';
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-install-'));
 
-const { installLatest, installLatestIfNeeded, declaredSource, toolSearchDirs, normalizeInvocation, runningAgentIds, profileRegistry, cmdInvocation, runCommand, DEFAULT_NAME } = require('../lib/update-install.cjs');
+const { installLatest, installLatestIfNeeded, declaredSource, toolSearchDirs, normalizeInvocation, runningAgentIds, profileRegistry, cmdInvocation, runCommand, withProfileLock, DEFAULT_NAME } = require('../lib/update-install.cjs');
 
 /** 造一个假 profile：`<tmp>/profiles/desktop/node_modules/<插件>` 里放一个版本号。 */
 function makeProfile(label, version) {
@@ -1006,4 +1006,77 @@ test('装的时候走哪条路：Windows 的 .cmd 包一层 cmd，别的照旧�
   await runCommand('/usr/local/bin/pnpm', ['--version'], { platform: 'darwin', env: {}, spawnImpl: fakeSpawn });
   assert.equal(seen[2].command, '/usr/local/bin/pnpm');
   assert.deepEqual(seen[2].args, ['--version']);
+});
+
+// → 这一组盯「和 DSH 的插件管理抢同一把 profile 写锁」：两边同时改盘会把依赖树/锁文件装坏，
+//   轻则更新没生效，重则插件起不来、手机断连。锁不协作、只靠同一个锁文件排队。
+
+test('profile 写锁：后一个操作等前一个放锁，不会并发改盘', async () => {
+  const dir = path.join(TMP, 'lock-serialize');
+  fs.mkdirSync(dir, { recursive: true });
+  const order = [];
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const first = withProfileLock(dir, async () => {
+    order.push('first-in');
+    await gate;
+    order.push('first-out');
+  });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const second = withProfileLock(dir, async () => { order.push('second-in'); });
+  release();
+  await Promise.all([first, second]);
+  assert.deepEqual(order, ['first-in', 'first-out', 'second-in'], '第二个不能挤到第一个中间跑');
+  assert.equal(fs.existsSync(path.join(dir, 'package.json.lock')), false, '跑完要把锁放掉');
+});
+
+test('profile 写锁：别人握着活锁时让路（PROFILE_BUSY），不硬装', async () => {
+  const dir = path.join(TMP, 'lock-busy');
+  fs.mkdirSync(dir, { recursive: true });
+  // pid 1 永远在跑（或至少探不到 ESRCH），模拟「DSH 正握着锁在装东西」。
+  fs.writeFileSync(path.join(dir, 'package.json.lock'), '1\n');
+  let ran = false;
+  await assert.rejects(
+    () => withProfileLock(dir, async () => { ran = true; }, { waitMs: 120 }),
+    error => { assert.equal(error.code, 'PROFILE_BUSY'); return true; },
+  );
+  assert.equal(ran, false, '抢不到锁就一次盘都不许碰');
+});
+
+test('profile 写锁：持有者进程已经没了，就清掉残留锁接着装', async () => {
+  const dir = path.join(TMP, 'lock-stale');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'package.json.lock'), '2000000000\n'); // 不存在的 pid
+  let ran = false;
+  await withProfileLock(dir, async () => { ran = true; }, { waitMs: 300 });
+  assert.equal(ran, true, '崩溃遗留的锁不能把自动更新永久挡住');
+  assert.equal(fs.existsSync(path.join(dir, 'package.json.lock')), false);
+});
+
+test('安装时全程握着 profile 写锁，装完立即放掉', async () => {
+  const label = 'lock-hold';
+  const profile = makeProfile(label, '0.1.60');
+  const binDir = path.join(TMP, `bin-${label}`);
+  fs.mkdirSync(binDir, { recursive: true });
+  const marker = path.join(binDir, 'saw-lock.txt');
+  const file = path.join(binDir, 'pnpm');
+  fs.writeFileSync(file, [
+    '#!/bin/sh',
+    'if [ "$1" = "--version" ]; then echo "11.7.0"; exit 0; fi',
+    `if [ -f package.json.lock ]; then echo yes > "${marker}"; else echo no > "${marker}"; fi`,
+    `mkdir -p node_modules/${PLUGIN}`,
+    `printf '{"name":"${PLUGIN}","version":"%s"}\\n' "$FAKE_PNPM_VERSION" > node_modules/${PLUGIN}/package.json`,
+    'exit 0',
+    '',
+  ].join('\n'));
+  fs.chmodSync(file, 0o755);
+  const result = await installLatest({
+    profileNodeModules: profile.nodeModules,
+    version: '0.2.0',
+    dirs: [binDir],
+    env: isolatedEnv(binDir, { FAKE_PNPM_VERSION: '0.2.0' }),
+  });
+  assert.equal(result.installed, true);
+  assert.equal(fs.readFileSync(marker, 'utf8').trim(), 'yes', 'pnpm 真正跑那一刻必须已经握着锁');
+  assert.equal(fs.existsSync(path.join(profile.profileDir, 'package.json.lock')), false, '装完要把锁放掉');
 });
