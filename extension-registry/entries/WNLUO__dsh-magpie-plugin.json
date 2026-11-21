@@ -33,5 +33,19 @@
   "version": "0.1.1",
   "icon": "https://raw.githubusercontent.com/WNLUO/dsh-magpie-plugin/master/extensions/magpie/icons/icon-512.png",
   "capabilities": ["host.data"],
-  "added": "2026-11-18"
+  "added": "2026-11-18",
+  "purpose": "在手机上管理电脑上的 magpie 智能体、服务商、路由与用量，数据经已配对宿主读取。",
+  "ageRating": null,
+  "publicUrl": "https://ai-hub.wnluo.com/extensions/dsh-magpie-plugin.magpie/",
+  "extensions": [
+    {
+      "slug": "dsh-magpie-plugin.magpie",
+      "name": "Magpie",
+      "purpose": "在手机上管理电脑上的 magpie 智能体、服务商、路由与用量，数据经已配对宿主读取。",
+      "sourceUrl": "https://github.com/WNLUO/dsh-magpie-plugin",
+      "publicUrl": "https://ai-hub.wnluo.com/extensions/dsh-magpie-plugin.magpie/",
+      "ageRating": null,
+      "capabilities": ["content.read", "card.write", "host.data"]
+    }
+  ]
 }

@@ -35,6 +35,22 @@ function text(value, max = 400) {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : null;
 }
 
+/** 只认 https 地址；非法或非 https 一律当作没有（与 extension-metadata.cjs 同口径）。 */
+function httpsOrNull(value) {
+  const clean = text(value, 1000);
+  if (!clean) return null;
+  try { return new URL(clean).protocol === 'https:' ? clean : null; } catch { return null; }
+}
+
+/** 年龄声明只透传作者事实，不推断评级；system/value 缺一即视为没有（同 extension-metadata.cjs）。 */
+function ageRatingOf(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const system = text(value.system, 100);
+  const rating = text(value.value, 100);
+  const minAge = Number.isInteger(value.minAge) && value.minAge >= 0 && value.minAge <= 21 ? value.minAge : null;
+  return system && rating ? { system, value: rating, minAge, url: httpsOrNull(value.url) } : null;
+}
+
 /** 收一门多语言表，缺任何一门都抛错；顺带拒绝多出来的语言标签（拼错 zh-TW 之类）。 */
 function requiredLocalized(value, field, file) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -93,6 +109,25 @@ function normalize(entry, file) {
       : [],
     added: typeof entry.added === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.added) ? entry.added : null,
     version,
+    // 用途、公开详情、年龄声明与实际扩展登记由维护者随条目登记；缺失保持已知的“没有”，不推断。
+    purpose: text(entry.purpose, 600),
+    ageRating: ageRatingOf(entry.ageRating),
+    publicUrl: httpsOrNull(entry.publicUrl),
+    extensions: Array.isArray(entry.extensions)
+      ? entry.extensions
+          .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+          .map((item) => ({
+            slug: text(item.slug, 64),
+            name: text(item.name, 200),
+            purpose: text(item.purpose, 600),
+            sourceUrl: httpsOrNull(item.sourceUrl),
+            publicUrl: httpsOrNull(item.publicUrl),
+            ageRating: ageRatingOf(item.ageRating),
+            capabilities: Array.isArray(item.capabilities)
+              ? item.capabilities.filter((capability) => typeof capability === 'string' && capability.trim()).slice(0, 12)
+              : [],
+          }))
+      : [],
   };
 }
 

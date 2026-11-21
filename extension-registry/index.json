@@ -75,7 +75,11 @@
           "sourceUrl": "https://github.com/WNLUO/dsh-magpie-plugin",
           "publicUrl": "https://ai-hub.wnluo.com/extensions/dsh-magpie-plugin.magpie/",
           "ageRating": null,
-          "capabilities": ["content.read", "card.write", "host.data"]
+          "capabilities": [
+            "content.read",
+            "card.write",
+            "host.data"
+          ]
         }
       ]
     }
