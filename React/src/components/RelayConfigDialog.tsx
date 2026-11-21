@@ -316,6 +316,10 @@ export function RelayConfigDialog({
                         disabled={!canSave || publicRelayBlocked}
                         onClick={() => {
                           if (publicActive) {
+                            // 没有配任何公网直连入口时停用公用中转，新手机在蜂窝网络下就没有
+                            // 可用于首次配对的地址了：先确认一次，别让用户一脚踩空。
+                            const hasDirectEntry = trimUrl(manualLanUrl) !== '' || trimUrl(manualTcpUrl) !== ''
+                            if (!hasDirectEntry && !window.confirm(t('panel.relay.disablePublicConfirm'))) return
                             setPublicDisabled(true)
                             setRelayUrl('')
                           } else {
