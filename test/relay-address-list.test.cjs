@@ -1,4 +1,5 @@
 // 验证容灾配置完整保留，而移动端只获得当前注册线路。
+// 2026-11-21：TCP 目标同时进 lanUrls，让现网 App 扫码配对时能拨它。
 'use strict';
 
 /**
@@ -234,6 +235,26 @@ test('配对二维码 payload 两格都在：老手机读 relayUrl，新手机�
   assert.ok(none.relayUrls === undefined || none.relayUrls.length === 0,
     '真的没有中转时两格都空，别造一条假地址出来');
   assert.ok(!none.lanUrls.length, '局域网关着时也不该冒出地址');
+});
+
+test('配对二维码把 TCP 目标同时写进 lanUrls（过渡桥）', () => {
+  const base = {
+    name: 'host', instanceId: 'i1', pairingCode: '123456', pairingTicket: 't'.repeat(43),
+    lanEnabled: false, lanPort: 18787, relayUrl: A, relayUrls: [],
+    preferredLanAddress: '', manualLanUrl: '', manualIpv6Url: '',
+  };
+  const { payload } = pairingPayload({ ...base, manualTcpUrl: '103.40.14.14:18787' }, 18787);
+  assert.equal(payload.tcpUrl, '103.40.14.14:18787', '原来那格照旧给 App 当配对后的直连目标');
+  assert.ok(payload.lanUrls.includes('http://103.40.14.14:18787'), '扫码配对也得以拨到这条 TCP');
+
+  const v6 = pairingPayload({ ...base, manualTcpUrl: '[240e::1]:18787' }, 18787).payload;
+  assert.ok(v6.lanUrls.includes('http://[240e::1]:18787'), '方括号 IPv6 原样落进候选');
+
+  const dedup = pairingPayload({ ...base, lanEnabled: true, manualLanUrl: 'http://103.40.14.14:18787', manualTcpUrl: '103.40.14.14:18787' }, 18787).payload;
+  assert.equal(dedup.lanUrls.filter(url => url === 'http://103.40.14.14:18787').length, 1, '手动直连已经写进去时不重复');
+
+  const none = pairingPayload(base, 18787).payload;
+  assert.ok(!none.lanUrls.length, '没配 TCP 时不凭空造候选');
 });
 
 /** 装一次移动端路由表，取出指定的那一条。 */
