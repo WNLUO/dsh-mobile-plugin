@@ -8,6 +8,7 @@
  *  2. 收件箱按 cid 去重、按 `since` 读、TTL 过期读不到；读坏盘时 write 绝不覆盖。
  *  3. 一次写超过 16 条整条请求被拒；inbox 那条按 method 分派，其它方法 405。
  *  4. 路由表里真的注册了三条端点、配对 handler 拿到同一份券表。
+ *  5. 新凭据读收件箱时跳过配对前的旧记录（旧 App 删除同步的临时桥）。
  *
  * 运行：node --test test/sync.test.cjs
  */
@@ -255,6 +256,33 @@ test('收件箱 handler：POST 写 → GET 读；超 16 条整条 400；其它�
   const bad = fakeRes();
   await syncH.handleInbox(null, fakeReq(undefined, { method: 'PUT' }), bad);
   assert.equal(bad.status, 405);
+});
+
+test('收件箱读取：新凭据跳过配对前的记录，老凭据照常读', async () => {
+  const file = tmpFile('bridge.json');
+  const beforeStore = createSyncInboxStore({ file, now: () => 1_000_000 });
+  const beforeSync = makeSync({ ticketStore: createTransferTickets(), inboxStore: beforeStore });
+  const writtenBefore = fakeRes();
+  await beforeSync.handleInbox(null, fakeReq({ records: [{ cid: 'before', blob: 'AAA' }] }), writtenBefore);
+  assert.equal(writtenBefore.status, 200);
+
+  const afterStore = createSyncInboxStore({ file, now: () => 2_000_000 });
+  const afterSync = makeSync({ ticketStore: createTransferTickets(), inboxStore: afterStore });
+  const writtenAfter = fakeRes();
+  await afterSync.handleInbox(null, fakeReq({ records: [{ cid: 'after', blob: 'BBB' }] }), writtenAfter);
+  assert.equal(writtenAfter.status, 200);
+
+  const fresh = fakeReq(undefined, { method: 'GET', url: '/api/mobile/v1/sync/inbox?since=0' });
+  fresh.__dshRecord = { createdAt: 1_500_000 };
+  const freshRes = fakeRes();
+  await afterSync.handleInbox(null, fresh, freshRes);
+  assert.deepEqual(freshRes.body.records.map((record) => record.cid), ['after'], '刚配上的手机不该读到配对前的删除记录');
+
+  const older = fakeReq(undefined, { method: 'GET', url: '/api/mobile/v1/sync/inbox?since=0' });
+  older.__dshRecord = { createdAt: 500_000 };
+  const olderRes = fakeRes();
+  await afterSync.handleInbox(null, older, olderRes);
+  assert.deepEqual(olderRes.body.records.map((record) => record.cid), ['before', 'after'], '老凭据仍读全部记录');
 });
 
 test('路由表注册了同步端点，且配对 handler 拿到同一份券表', () => {
