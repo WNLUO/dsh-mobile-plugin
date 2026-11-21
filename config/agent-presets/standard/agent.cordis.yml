@@ -27,6 +27,11 @@
       # `pnpm` 的虚拟仓里时位置每台机器都不一样。
       customSkillDirs:
         - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-agent-preset/package.json')), 'skills')
+        # 移动端常见问题知识库，随本包发布、放在预设这一层的 `skills/` 下。用相对
+        # `baseUrl` 的 `createRequire(...).resolve('./skills/.../SKILL.md')` 再退两层取
+        # 技能根：`baseUrl` 无论是路径还是 file URL 都成立，宿主把预设复制到可写区后
+        # 这个相对关系也不变；别按包名 resolve —— 无头宿主里本包按绝对路径挂，裸名可能解析不到。
+        - !!js process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('./skills/dsh-mobile-kb/SKILL.md')))
   - id: tool-skill
     name: '@deepseek-ai/dsh-tool-skill'
   - id: command-goal

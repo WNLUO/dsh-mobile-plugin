@@ -44,6 +44,7 @@
     "cordis.patch.yml",
     "cordis.mobile-host.yml",
     "config/**/*.yml",
+    "config/**/skills/**",
     "lib/**/*.js",
     "lib/**/*.cjs",
     "lib/**/*.html",
