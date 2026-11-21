@@ -29,11 +29,9 @@ const CONTROL_PLANE = path.join(__dirname, '..', 'lib', 'routes', 'control-plane
 const { pairingPayload } = require(path.join(__dirname, '..', 'lib', 'relay', 'pairing-payload.cjs'));
 const {
   WEB_ACCESS_ROUTES,
-  LOCAL_OPERATOR_ROUTES,
   WEB_ACCESS_WINDOW_MS,
   panelScopeOf,
   createWebAccessWindow,
-  createWebAccessLocalOnly,
   registerControlPlaneRoutes,
 } = require(CONTROL_PLANE);
 
@@ -281,23 +279,22 @@ test('反馈读写：返回线程本身、续回复共用提交服务，来源�
     assert.equal(method.status, 405);
     await table.get('/api/relay/web-access')({ ...networkRequest('/api/relay/web-access', '127.0.0.1', '127.0.0.1:19387', { method: 'POST' }), body: { enabled: true } }, {});
     for (const method of ['GET', 'POST']) {
-      // 2026-11-21：控制面不再按跨站来源拒绝，origin 不同源不再算越界；只留转发来的请求。
+      // 2026-11-21：控制面不按来源拦截，只拦经中转 / 局域网代理转发来的请求。
       for (const headers of [{ 'x-dsh-via': 'relay' }, { 'x-dsh-via': 'lan' }, { 'x-dsh-instance': 'phone' }]) {
         const denied = networkResponse();
         await handler(networkRequest('/api/relay/feedback?thread_key=thread-1', '127.0.0.1', '127.0.0.1:19387', { method, headers }), denied);
         assert.equal(denied.status, 403);
       }
-      const remote = {};
-      await handler(networkRequest('/api/relay/feedback?thread_key=thread-1', '203.0.113.2', 'public.example', { method }), remote);
-      assert.equal(remote.status, 403, '公网开窗也不能读取或续回复');
     }
-    assert.equal(calls.length, 2, '无效输入和越界请求不触发上游');
+    const remote = {};
+    await handler(networkRequest('/api/relay/feedback?thread_key=thread-1', '203.0.113.2', 'public.example'), remote);
+    assert.equal(remote.status, 200, '公网来源照常读取');
+    assert.equal(calls.length, 3, '无效输入和转发来的请求不触发上游');
     globalThis.fetch = async () => ({ status: 404, json: async () => ({ error: '平台说线程不存在' }) });
     const missing = {};
     await handler(networkRequest('/api/relay/feedback?thread_key=missing', '127.0.0.1', '127.0.0.1:19387'), missing);
     assert.equal(missing.status, 404);
     assert.equal(missing.body.error.message, '平台说线程不存在');
-    assert.ok(LOCAL_OPERATOR_ROUTES.has('/api/relay/feedback'));
     assert.ok(WEB_ACCESS_ROUTES.has('/api/relay/feedback'));
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -419,8 +416,8 @@ function networkResponse() {
     end(raw) { this.body = JSON.parse(String(raw)); } };
 }
 
-test('局域网部署：窗口关闭也能读取二维码和保存配置，公网及转发限制保留', async () => {
-  // 同一局域网的另一台电脑是受支持的管理入口，不能要求宿主先在本机开窗口。
+test('局域网与公网部署：不按来源拦截，只拒绝转发来的请求', async () => {
+  // 同一局域网的另一台电脑、公网域名、反代后面都是受支持的管理入口，不能要求宿主先在本机开窗口。
   const state = { enabled: true, instanceId: 'i1', pairingCode: '123456', pairingTicket: 't'.repeat(43),
     relayUrl: 'https://relay.example.com', name: 'host', lanEnabled: false, lanPort: 18787 };
   const table = controlRoutes({ state, localOnly: routing.localOnly, trustedLocalUi: routing.trustedLocalUi });
@@ -442,18 +439,26 @@ test('局域网部署：窗口关闭也能读取二维码和保存配置，公�
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     assert.equal(state.name, 'LAN host');
   }
-  for (const [peer, host, headers, code] of [
-    ['203.0.113.2', '203.0.113.20:19387', {}, 'local_operator_only'],
-    ['203.0.113.2', '192.168.1.20:19387', {}, 'local_operator_only'],
-    ['192.168.1.2', '203.0.113.20:19387', {}, 'local_operator_only'],
-    ['192.168.1.2', 'dsh.example.com:19387', {}, 'local_operator_only'],
-    ['192.168.1.2', '192.168.1.20:19387', { 'x-forwarded-for': '192.168.1.3' }, 'local_operator_only'],
-    ...['lan', 'relay', 'tunnel'].map(via => ['127.0.0.1', '127.0.0.1:19387', { 'x-dsh-via': via }, 'local_only']),
+  // 公网直连、Host 与来源不一致、带普通反代头都不再拒绝：面板从哪儿打开都能用。
+  for (const [peer, host, headers] of [
+    ['203.0.113.2', '203.0.113.20:19387', {}],
+    ['203.0.113.2', '192.168.1.20:19387', {}],
+    ['192.168.1.2', '203.0.113.20:19387', {}],
+    ['192.168.1.2', 'dsh.example.com:19387', {}],
+    ['192.168.1.2', '192.168.1.20:19387', { 'x-forwarded-for': '192.168.1.3' }],
   ]) {
     const qr = networkResponse();
     await table.get('/api/relay/pairing')(networkRequest('/api/relay/pairing', peer, host, { headers }), qr);
+    assert.equal(qr.status, 200, `${host} 不再按来源拒绝`);
+    assert.match(qr.body.svg, /<svg/);
+  }
+  // 经中转 / 局域网代理转发来的照旧拒绝：那条链路是手机的能力面。
+  for (const via of ['lan', 'relay', 'tunnel']) {
+    const qr = networkResponse();
+    await table.get('/api/relay/pairing')(networkRequest('/api/relay/pairing', '127.0.0.1', '127.0.0.1:19387',
+      { headers: { 'x-dsh-via': via } }), qr);
     assert.equal(qr.status, 403, JSON.stringify(qr.body));
-    assert.equal(qr.body.error.code, code);
+    assert.equal(qr.body.error.code, 'local_only');
   }
   // 2026-11-21 需求变更：控制面不再按跨站来源拒绝，局域网直连带 cross-site 也照常出码。
   const crossSiteLan = networkResponse();
@@ -464,44 +469,6 @@ test('局域网部署：窗口关闭也能读取二维码和保存配置，公�
   await table.get('/api/relay/status')(networkRequest('/api/relay/status', '203.0.113.2', '203.0.113.20:19387'), publicStatus);
   // 2026-11-21 需求变更：只读管理面不再限制来源，公网也直接能读状态、进面板。
   assert.equal(publicStatus.status, 200, '公网读接口不再要求两小时窗口');
-});
-
-test('变异：反馈退出本机操作清单后，公网拒绝断言会失败', async () => {
-  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
-  const changed = source.replace(/(const LOCAL_OPERATOR_ROUTES = new Set\(\[[\s\S]*?)  '\/api\/relay\/feedback',\n/, '$1');
-  assert.notEqual(changed, source);
-  const mod = { exports: {} };
-  vm.runInNewContext(changed, { module: mod, exports: mod.exports, require: createRequire(CONTROL_PLANE), __dirname: path.dirname(CONTROL_PLANE) });
-  const rejectsPublic = async factory => {
-    const guard = factory({ localOnly: routing.localOnly, trustedLocalUi: routing.trustedLocalUi,
-      webAccessWindow: { isOpen: () => true }, sendJson: routing.sendJson });
-    for (const method of ['GET', 'POST']) {
-      const res = networkResponse();
-      await guard(['GET', 'POST'], async () => {})(networkRequest('/api/relay/feedback?thread_key=key', '203.0.113.2', 'public.example', { method }), res);
-      assert.equal(res.status, 403, '反馈不能因公网窗口开放而泄露对话或允许续回复');
-    }
-  };
-  await rejectsPublic(createWebAccessLocalOnly);
-  await assert.rejects(() => rejectsPublic(mod.exports.createWebAccessLocalOnly), assert.AssertionError);
-});
-
-test('变异：退回仅信任回环来源，会被同一个局域网配对断言拒绝', async () => {
-  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
-  const changed = source.replace('trustedLocalUi(req) || trustedLocalNetworkUi(req)', 'trustedLocalUi(req)');
-  assert.notEqual(changed, source, '变异必须命中实际来源判断');
-  const mod = { exports: {} };
-  vm.runInNewContext(changed, { module: mod, exports: mod.exports, require: createRequire(CONTROL_PLANE),
-    __dirname: path.dirname(CONTROL_PLANE) });
-  const assertLanPairing = async (factory) => {
-    const guard = factory({ localOnly: routing.localOnly, trustedLocalUi: routing.trustedLocalUi,
-      webAccessWindow: { isOpen: () => false }, sendJson: routing.sendJson });
-    let reached = false;
-    await guard('GET', async () => { reached = true; })(
-      networkRequest('/api/relay/pairing', '192.168.1.2', '192.168.1.20:19387'), networkResponse());
-    assert.equal(reached, true, '局域网必须能进入配对处理');
-  };
-  await assertLanPairing(createWebAccessLocalOnly);
-  await assert.rejects(() => assertLanPairing(mod.exports.createWebAccessLocalOnly), assert.AssertionError);
 });
 
 test('行为：地址库回显手填的 IPv6，并把它缀进 ipv6 候选最后', async () => {
@@ -571,17 +538,6 @@ test('网页管理访问窗口只保护管理面板路由，例外路由逐条�
     assert.ok(routes.includes(route), `NO_WEB_ACCESS 里的 ${route} 已不存在，请删除豁免`);
     assert.ok(reason.length > 20, `${route} 的豁免理由要写清楚`);
   }
-});
-
-test('危险动作清单没腐化：每条都还在，且都仍受窗口白名单覆盖', () => {
-  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
-  const routes = new Set(registrations(source).map((route) => route.path));
-  for (const route of LOCAL_OPERATOR_ROUTES) {
-    assert.ok(routes.has(route), `LOCAL_OPERATOR_ROUTES 里的 ${route} 已经不存在，请删掉`);
-    assert.ok(WEB_ACCESS_ROUTES.has(route), `${route} 收紧了只认本机，但仍应留在窗口白名单里保持语义统一`);
-  }
-  // 清空已解绑历史是删数据的动作：必须收紧到本机 / 局域网，不能让公网两小时窗口碰到。
-  assert.ok(LOCAL_OPERATOR_ROUTES.has('/api/relay/devices/history/clear'), '清空历史要在危险动作清单里');
 });
 
 test('网页管理窗口默认关闭、固定两小时且访问不续期', () => {
@@ -715,75 +671,36 @@ test('行为：DNS 重绑定页面（域名 Host）不能自己把管理窗口�
   assert.equal(loop.status, 200, '回环本机照旧能开');
 });
 
-test('只读管理面不再按来源拦截：远端、可信本机、窗口开关都放行', async () => {
-  const window = createWebAccessWindow({ now: () => 10_000, monotonicNow: () => 0 });
-  const sent = [];
-  const guard = createWebAccessLocalOnly({
-    localOnly: (_method, handler) => handler,
-    trustedLocalUi: (req) => req.trusted === true,
-    sendJson: (res, status, body) => { res.status = status; res.body = body; sent.push(status); },
-  });
-  let reached = 0;
-  const handler = guard('GET', async () => { reached += 1; });
-  // 2026-11-21 需求变更：只读管理面不再限制来源，远端未开窗也照放行。
-  await handler({ url: '/api/relay/status?from=web', trusted: false }, {});
-  assert.equal(reached, 1, '远端读取不再要求两小时窗口');
-  await handler({ url: '/api/relay/status', trusted: true }, {});
-  assert.equal(reached, 2, '本机照旧放行');
-  window.enable();
-  await handler({ url: '/api/relay/status?from=web', trusted: false }, {});
-  assert.equal(reached, 3, '开不开窗都放行');
-  const sync = guard('GET', async () => { reached += 1; });
-  await sync({ url: '/api/relay/read-receipt', trusted: false }, {});
-  assert.equal(reached, 4, '桌面同步通道照常放行');
-  assert.deepEqual(sent, [], '不再有 423');
-});
-
-test('管理操作允许本机和局域网直连，公网开窗后仍然拒绝', async () => {
-  // 局域网部署支持同网段管理；公网窗口不放行配对票据与配置写入。
-  const window = createWebAccessWindow({ now: () => 10_000, monotonicNow: () => 0 });
-  window.enable();
-  const sent = [];
-  const guard = createWebAccessLocalOnly({
-    localOnly: (_method, handler) => handler,
-    trustedLocalUi: (req) => req.trusted === true,
-    webAccessWindow: window,
-    sendJson: (res, status, body) => { res.status = status; res.body = body; sent.push(status); },
-  });
-  let reached = 0;
-  for (const route of LOCAL_OPERATOR_ROUTES) {
-    const handler = guard('POST', async () => { reached += 1; });
-    const res = {};
-    await handler({ url: route, trusted: false }, res);
-    assert.equal(res.status, 403, `${route} 开窗后也必须拒绝公网来源`);
-    assert.equal(res.body.error.code, 'local_operator_only');
-    const okRes = {};
-    await handler({ url: route, trusted: true }, okRes);
-    assert.equal(okRes.status, undefined, `${route} 本机来源要放行`);
-    const lanRes = {};
-    await handler(networkRequest(route, '192.168.1.2', '192.168.1.20:19387', { method: 'POST' }), lanRes);
-    assert.equal(lanRes.status, undefined, `${route} 局域网直连要放行`);
+test('管理操作不按来源拦截：公网、局域网、本机都放行，只拒绝转发来的请求', async () => {
+  const state = { enabled: true, instanceId: 'i1', pairingCode: '123456', pairingTicket: 't'.repeat(43),
+    relayUrl: 'https://relay.example.com', name: 'host', lanEnabled: false, lanPort: 18787 };
+  const table = controlRoutes({ state, localOnly: routing.localOnly });
+  const cases = [
+    ['/api/relay/pairing', 'GET'], ['/api/relay/devices', 'GET'],
+    ['/api/relay/devices/history/clear', 'POST'], ['/api/relay/inbox/clear', 'POST'],
+  ];
+  for (const [route, method] of cases) {
+    const publicRes = networkResponse();
+    await table.get(route)(networkRequest(route, '203.0.113.2', 'public.example', { method }), publicRes);
+    assert.notEqual(publicRes.status, 403, `${route} 不再按来源拒绝公网`);
+    const forwarded = networkResponse();
+    await table.get(route)(networkRequest(route, '127.0.0.1', '127.0.0.1:19387',
+      { method, headers: { 'x-dsh-via': 'relay' } }), forwarded);
+    assert.equal(forwarded.status, 403, `${route} 转发来的必须拒绝`);
+    assert.equal(forwarded.body.error.code, 'local_only');
   }
-  assert.equal(reached, LOCAL_OPERATOR_ROUTES.size * 2, '每条管理操作都放行本机与局域网两种来源');
-  // 只读路由即使不是本机、只要窗口开着就照旧放行，不能被这条收紧误伤。
-  const read = guard('GET', async () => {});
-  const readRes = {};
-  await read({ url: '/api/relay/status', trusted: false }, readRes);
-  assert.equal(readRes.status, undefined, '只读面板开窗后对远程放行');
 });
 
-test('二维码与管理操作共用本机及局域网来源判断，不在路由内另造判据', async () => {
+test('二维码不另造来源判据：与其它路由共用同一个包装层', () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
   const at = source.indexOf("'/api/relay/pairing'");
   assert.notEqual(at, -1);
   const end = source.indexOf('registerRoute', at + 1);
   const route = source.slice(at, end < 0 ? at + 1200 : end);
-  // 二维码携带一次性票据，与配置等操作共用包装层的本机及局域网来源判断；
-  // handler 不另造第二套规则。
-  assert.ok(LOCAL_OPERATOR_ROUTES.has('/api/relay/pairing'), '二维码必须进危险动作清单');
-  assert.ok(WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '仍留在窗口白名单里，让本机面板的窗口语义统一');
-  assert.ok(!/trustedLocalUi\(req\)/.test(route), '别在路由 handler 里另造一套更严的判据，判据统一在包装层');
-  assert.ok(!/pairing_local_only/.test(route), '路由里不自己造 423，统一由包装层的 local_operator_only 处理');
+  // 二维码携带一次性票据，来源判断统一在包装层；handler 不另造第二套规则。
+  assert.ok(WEB_ACCESS_ROUTES.has('/api/relay/pairing'), '仍留在路由清单里');
+  assert.ok(!/trustedLocalUi\(req\)/.test(route), '别在路由 handler 里另造一套更严的判据');
+  assert.ok(!/local_operator_only/.test(route), '路由里不自己造来源拒绝');
 });
 
 test('控制面不再有「按来源放开」的逐路由参数（来源统一不拦）', () => {
