@@ -28,6 +28,10 @@
  * `prune` 更彻底——一次把所有已结束的都清掉，包括超出窗口、原本要等下次写入才被 prune 的
  * 残余；两者都不轮换密钥、不影响任何还能用的通行证。只读副本拒绝，与 `revoke` 同理：清了
  * 不落盘、下次重载复活。
+ *
+ * 换身份（`rotateIdentity`）时由宿主调 `reassignInstance`：把本机签发的**全部**记录整体换到
+ * 新实例号下。凭据串整串哈希查库、记录里的 `instanceId` 只是归属，所以改归属不动凭据串本身
+ * （手机上那枚照样验得过），换号对已配对设备完全透明，不需要重新扫码。
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -438,6 +442,39 @@ function revokeAllByInstance(instanceId) {
   return count;
 }
 
+/**
+ * 把本机签发的**全部**凭据整体迁到新实例号下（换身份时用）。
+ *
+ * 为什么是「全部」而不是「上一代那一个」：换号只认「当前号 + 上一代号」，换到第二次时，
+ * 挂在更早一代、又没来得及换过来的手机就会被甩下、只能重新扫码。这里不看记录当前挂在哪一代，
+ * 一律改成 `toInstanceId`——库里每条记录都是本机签发的，历史各代都是本机的旧身份，统一收到
+ * 新号下，换几次都对已配对设备透明。
+ *
+ * 只改归属那一格，凭据串（及其哈希）不动：手机上那枚照旧验得过，吊销/到期/密钥验签/设备清单
+ * 也都按新号对齐。只读副本拒绝，与 `revoke` 同理。
+ *
+ * @returns {number} 改了几条（已经是目标号的跳过）
+ */
+function reassignInstance(toInstanceId) {
+  load();
+  if (readOnly) {
+    const error = new Error('凭据库的只读副本不能换归属；旁路子进程请经 IPC 交给主进程');
+    error.code = 'READ_ONLY';
+    throw error;
+  }
+  const target = String(toInstanceId || '');
+  if (!target) return 0;
+  let count = 0;
+  for (const record of records) {
+    if (record.instanceId === target) continue;
+    record.instanceId = target;
+    count += 1;
+  }
+  // `byHash` 按整串摘要建索引，与 `instanceId` 无关，改归属不必重建；只有写盘。
+  if (count) save();
+  return count;
+}
+
 /** 本实例仍有效的电脑网页授权，只返回管理清单需要的公开字段。 */
 function listRemoteComputers(instanceId) {
   refresh();
@@ -772,5 +809,6 @@ module.exports = {
   revoke,
   revokeDevice,
   revokeAllByInstance,
+  reassignInstance,
   resetForTest,
 };
