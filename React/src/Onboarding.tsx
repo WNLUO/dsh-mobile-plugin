@@ -31,7 +31,6 @@ import {
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
-import { FeedbackButton } from './components/FeedbackButton.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
 import { PanelWindowActions } from './components/PanelWindowActions.tsx'
 import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
@@ -430,7 +429,6 @@ export function Onboarding({ onDone }: Props) {
         {key ? (
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs text-foreground-muted">{t('panel.feedback.receipt', { key })}</p>
-            <FeedbackButton threadKey={key} />
             <CopyButton
               value={key}
               label={t('panel.feedback.copyKey')}
@@ -498,7 +496,6 @@ export function Onboarding({ onDone }: Props) {
         <LanguageMenu />
         <ConsoleThemeToggle />
         <PanelWindowActions />
-        <FeedbackButton />
       </div>
       {fatal ? (
         <Alert className="w-full max-w-4xl" variant="error">

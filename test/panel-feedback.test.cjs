@@ -1,4 +1,5 @@
-// 验证插件反馈线程与脱敏连接事实，Tailcat 监听、启用和助手状态分别保留。
+// 验证插件反馈的脱敏连接事实：Tailcat 监听、启用和助手状态分别保留。
+// 面板的「我的反馈」历史界面已按需求下线（2026-11-21 用户要求），这里同时钉住它不再回潮。
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -30,46 +31,14 @@ function load(name, options = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const module = { exports: {} };
-  const saved = options.saved || new Map();
-  const events = [];
-  const calls = [];
   vm.runInNewContext(compiled, {
     module, exports: module.exports, URL, Date, Event,
-    CustomEvent: class extends Event { constructor(type, init) { super(type); this.detail = init.detail; } },
-    localStorage: { getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value) },
-    window: { dispatchEvent: event => events.push(event) },
-    require: () => ({
-      apiGet: async url => { calls.push({ method: 'GET', url }); return { thread_key: 'key', status: 'open', messages: [] }; },
-      apiPost: async (url, body) => { calls.push({ method: 'POST', url, body }); return { threadKey: body.threadKey }; },
-    }),
+    localStorage: { getItem: () => null, setItem: () => {} },
+    window: { dispatchEvent: () => {} },
+    require: () => ({}),
   }, { filename: file });
-  return { api: module.exports, saved, events, calls };
+  return { api: module.exports };
 }
-
-test('反馈编号持久保存、同一线程去重，重新加载后仍可打开', () => {
-  const { api, saved, events } = load('feedback');
-  api.rememberFeedbackThread('key-a', '中转连接失败\n522');
-  api.rememberFeedbackThread('key-b', '局域网发现超时');
-  api.rememberFeedbackThread('key-a', '中转连接失败');
-  const reloaded = load('feedback', { saved }).api.savedFeedbackThreads();
-  assert.equal(reloaded.length, 2);
-  assert.equal(reloaded[0].key, 'key-a');
-  assert.equal(reloaded[0].title, '中转连接失败');
-  assert.equal(events.length, 3);
-  assert.ok(![...saved.values()].join('').includes('522'), '只存标题与编号，不缓存反馈正文');
-});
-
-test('查看及续回复始终使用同一反馈编号，编号作查询值编码', async () => {
-  const { api, calls, events } = load('feedback');
-  await api.readFeedbackThread('key&x=1');
-  await api.replyFeedbackThread('key&x=1', '中转是公用线路');
-  assert.equal(calls[0].url, '/api/relay/feedback?thread_key=key%26x%3D1');
-  assert.equal(calls[1].body.threadKey, 'key&x=1');
-  assert.equal(calls[1].body.content, '中转是公用线路');
-  api.openFeedbackThread('key&x=1');
-  assert.equal(events[0].type, api.FEEDBACK_OPEN);
-  assert.equal(events[0].detail, 'key&x=1');
-});
 
 function status() {
   return {
@@ -144,24 +113,23 @@ test('变异证明：删掉 Tailcat 诊断或把缺失状态伪装成关闭，�
   }
 });
 
-test('入口接通：提交保存编号，引导与控制台可重开；补充成功后才清草稿', () => {
+test('面板不再有「我的反馈」历史入口与弹窗（2026-11-21 用户要求下线）', () => {
   const source = name => fs.readFileSync(path.join(SRC, name), 'utf8');
-  assert.match(source('components/IssueMark.tsx'), /rememberFeedbackThread\(threadKey, draft\.summary\)/);
-  assert.match(source('components/IssueMark.tsx'), /<FeedbackButton threadKey=\{threadKey\}/);
-  assert.match(source('components/FloatingActions.tsx'), /<FeedbackButton/);
-  assert.match(source('Onboarding.tsx'), /<FeedbackButton/);
-  assert.match(source('Shell.tsx'), /<FeedbackInbox \/>/);
-  assert.match(source('components/FeedbackInbox.tsx'), /await replyFeedbackThread\(target, content\)[\s\S]*?setDrafts/);
-  assert.match(source('components/ConnectionCard.tsx'), /facts: connectionFeedbackFacts\(status\)/);
-  assert.match(source('components/FeedbackInbox.tsx'), /DialogBody className="[^"]*overflow-y-auto/);
-  assert.match(source('components/IssueMark.tsx'), /feedbackFor === summary && threadKey/);
-  assert.match(source('Onboarding.tsx'), /const key = sameIssue \? feedbackKeys\[slot\]/);
+  const gone = ['components/FeedbackInbox.tsx', 'components/FeedbackButton.tsx', 'lib/feedback.ts', 'lib/i18n/messages/feedback.ts'];
+  for (const name of gone) {
+    assert.equal(fs.existsSync(path.join(SRC, name)), false, `${name} 应已删除`);
+  }
+  assert.doesNotMatch(source('Shell.tsx'), /FeedbackInbox/, '外壳不该再挂反馈弹窗');
+  assert.doesNotMatch(source('components/FloatingActions.tsx'), /FeedbackButton/, '控制台顶栏不该再有反馈入口');
+  assert.doesNotMatch(source('Onboarding.tsx'), /FeedbackButton|rememberFeedbackThread/, '引导页不该再有反馈历史入口');
+  assert.doesNotMatch(source('components/IssueMark.tsx'), /FeedbackButton|rememberFeedbackThread/, '报错卡片不该再连反馈历史');
+  assert.doesNotMatch(source('lib/i18n/index.ts'), /FEEDBACK/, '字典不该再登记反馈历史文案');
+  // 就地提交反馈（回执 + 复制编号）仍在，别被这条一起删掉。
+  assert.match(source('components/IssueMark.tsx'), /panel\.feedback\.receipt/);
+  assert.match(source('Onboarding.tsx'), /panel\.feedback\.receipt/);
 });
 
-test('变异证明：去掉编号持久化或错误脱敏会被对应回归发现', () => {
-  const brokenStore = load('feedback', { mutate: source => source.replace('localStorage.setItem(STORAGE_KEY, JSON.stringify([row, ...current.filter((item) => item.key !== key)]))', '') });
-  brokenStore.api.rememberFeedbackThread('key-a', '中转');
-  assert.throws(() => assert.equal(brokenStore.api.savedFeedbackThreads().length, 1));
+test('变异证明：错误脱敏被去掉会被回归发现', () => {
   const brokenFacts = load('feedback-diagnostics', { mutate: source => source.replace(".replace(/\\b(token|secret|key|password|passwd|lansecret|pairingcode|signingkey|registrykey)\\s*=\\s*[^\\s,;&\"'）)]+/gi, '$1=[redacted]')", '') });
   assert.throws(() => assert.doesNotMatch(JSON.stringify(brokenFacts.api.connectionFeedbackFacts(status())), /private/));
 });

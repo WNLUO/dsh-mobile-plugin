@@ -11,8 +11,6 @@
  *
  * 2026-11-20 用户要求：「下载 APP」挪到「加入交流群」右边，跟着这一组走。
  */
-// 反馈历史入口沿用顶栏现有按钮尺寸与排列。
-import { FeedbackButton } from './FeedbackButton.tsx'
 import { DownloadAppButton } from './DownloadAppButton.tsx'
 import { JoinGroupButton } from './JoinGroupButton.tsx'
 import { SponsorButton } from './SponsorButton.tsx'
@@ -30,7 +28,6 @@ export function FloatingActions({ compact = false }: Props) {
       <SponsorButton compact={compact} />
       <JoinGroupButton compact={compact} />
       <DownloadAppButton size="sm" variant="ghost" className="px-2" />
-      <FeedbackButton />
     </div>
   )
 }
