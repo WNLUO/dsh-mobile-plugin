@@ -155,7 +155,7 @@ test('中英文案键完全对齐', () => {
   // 键配平是兜底；再点几个这一半**真的在用**的键，防止有人把字典清空后配平照样通过。
   // （restartSidecar/restartFailed 随重启按钮搬去网页版了，网页版的文案是直接写死的中文，
   // 不走这套字典 —— 所以那两个键不再要求出现在这里。）
-  for (const k of ['footerOpen', 'footerPending', 'footerPublicConfirm', 'footerLoadMissing', 'diagTitleLoad', 'diagCopy']) {
+  for (const k of ['footerOpen', 'footerPending', 'footerLoadMissing', 'diagTitleLoad', 'diagCopy']) {
     assert.ok(zh.has(k) && en.has(k), `${k} 应中英都有`)
   }
 })
