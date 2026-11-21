@@ -1,3 +1,4 @@
+// 目录新增可空元数据；缺失评级与公开详情不能被当成已提供。
 'use strict';
 
 /**
@@ -217,6 +218,9 @@ test('主源收窄：字段逐格对，坏条目整条丢', async () => {
     category: 'workflow',
     title: { en: 'Plan Note', zh: '计划笔记' },
     description: { en: 'Notes for plans', zh: '给计划做笔记' },
+    purpose: null,
+    ageRating: null,
+    publicUrl: null,
     npm: 'dsh-plan-note',
     version: '0.1.2',
     stars: 12,
