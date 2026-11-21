@@ -58,6 +58,8 @@ const GRADLE_VERSION_CODE = /(\bversionCode\s+)(\d+)(\s*)$/m
 const GRADLE_VERSION_NAME = /(\bversionName\s+")([^"]*)(")/
 /** package.json 的顶层 "version" 字段：只认顶格两空格缩进的那一行，不碰依赖里的同名键。 */
 const PKG_VERSION_FIELD = /(^ {2}"version"\s*:\s*")([^"]*)(")/m
+/** 同一个 package.json 的构建号字段：发布元数据守卫要求它与 version.ts 的 APP_BUILD_NUMBER 一致。 */
+const PKG_BUILD_NUMBER_FIELD = /(^ {2}"buildNumber"\s*:\s*)(\d+)(,?)/m
 // iOS 的坐标在 pbxproj 里有**多处**（target 与 project 各一份 Debug/Release），值必须处处
 // 相同 —— 所以配 requireUniformField 而不是 requireUniqueField（后者要求恰好命中 1 处）。
 const PBX_MARKETING_VERSION = /(MARKETING_VERSION = )([^;]+)(;)/
@@ -282,7 +284,11 @@ export async function writeAppCoordinates({ version, buildNumber }, root = ROOT)
   await readAppCoordinates(root)
 
   const pkgPath = target('package.json')
-  await writeFile(pkgPath, replaceOnce(await readFile(pkgPath, 'utf8'), PKG_VERSION_FIELD, version, 'app/package.json 的 version'))
+  let pkgText = replaceOnce(await readFile(pkgPath, 'utf8'), PKG_VERSION_FIELD, version, 'app/package.json 的 version')
+  if (buildNumber !== undefined) {
+    pkgText = replaceOnce(pkgText, PKG_BUILD_NUMBER_FIELD, String(buildNumber), 'app/package.json 的 buildNumber')
+  }
+  await writeFile(pkgPath, pkgText)
   written.push(pkgPath)
 
   const versionTsPath = target('src/version.ts')

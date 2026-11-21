@@ -64,7 +64,7 @@ async function fixtureRoot() {
     dependencies: { ws: '8.18.0', qrcode: '1.5.4' },
   }, null, 2)}\n`)
   await writeFile(join(root, 'app', 'package.json'), `${JSON.stringify({
-    name: 'app', version: '0.2.64', dependencies: { react: '19.2.3' },
+    name: 'app', version: '0.2.64', buildNumber: 190, dependencies: { react: '19.2.3' },
   }, null, 2)}\n`)
   await writeFile(join(root, 'app', 'src', 'version.ts'), [
     "export const APP_VERSION = '0.2.64';",
@@ -202,6 +202,11 @@ test('App 三处坐标写回后仍然一致，且不碰构建元数据文件', a
     // 运行时版本是原生层的决定，抬版本号时绝不能顺手改。
     assert.match(versionTs, /RUNTIME_VERSION = '3'/)
 
+    // 发布元数据守卫要求这份构建号与 version.ts 同步，抬号时必须一起写。
+    const pkg = JSON.parse(await readFile(join(root, 'app', 'package.json'), 'utf8'))
+    assert.equal(pkg.version, '0.2.65')
+    assert.equal(pkg.buildNumber, 221)
+
     const gradle = await readFile(join(root, 'app', 'android', 'app', 'build.gradle'), 'utf8')
     assert.match(gradle, /versionCode 221/)
     assert.match(gradle, /versionName "0\.2\.65"/)
@@ -219,6 +224,7 @@ test('只抬版本名而不给构建号时，构建号必须原样不动', async
     const coords = await readAppCoordinates(root)
     assert.equal(coords.version, '0.3.0')
     assert.equal(coords.buildNumber, '190')
+    assert.equal(JSON.parse(await readFile(join(root, 'app', 'package.json'), 'utf8')).buildNumber, 190)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
