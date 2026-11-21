@@ -1,3 +1,4 @@
+// 会话清理覆盖 JSONL 启动删除与 SQLite 拒绝、留队及不解档。
 'use strict';
 
 /**
@@ -13,6 +14,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const Module = require('node:module');
 const { zstdCompressSync } = require('node:zlib');
 const {
   cleanupSessions,
@@ -422,3 +424,117 @@ test('启动收尾：队里的日志先删掉，宿主的 workspace 还没就绪
   assert.equal(logs.length, 2, '一行删队列、一行修剪最终失败');
   assert.match(logs[1], /宿主不在/);
 }));
+
+function sqliteCtx(sessionIds) {
+  const ctx = cleanupCtx(sessionIds);
+  ctx.sessionPersistence = {
+    identity: Symbol('sessionPersistence'),
+    list: async () => sessionIds.map((id) => ({ header: { id }, formatStatus: 'current', revision: 'head:5', eventCount: 5 })),
+    stat: async (id) => ({ header: { id }, formatStatus: 'current', revision: 'head:5', eventCount: 5 }),
+  };
+  return ctx;
+}
+
+test('SQLite删除工具明确拒绝，归档动作仍可用且不新增队列', withHome(async (home) => {
+  const directory = writeSession(home, 's1');
+  const ctx = sqliteCtx(['s1']);
+  await assert.rejects(() => cleanupSessions(ctx, { action: 'delete', confirm: true, sessionIds: ['s1'] }), /SQLite.*删除会话 API/);
+  assert.deepEqual(readPendingArchivedClearIds(), []);
+  assert.equal(fs.existsSync(directory), true);
+  assert.equal((await cleanupSessions(ctx, { action: 'archive', sessionIds: ['s1'] })).archived, 1);
+}));
+
+async function expectSqliteQueueKept(implementation = { deleteQueuedArchivedSessions, pruneOrphanedArchivedSessions }) {
+  await withHome(async (home) => {
+    const directory = writeSession(home, 'retained');
+    queueArchivedClearIds(['retained', 'sqlite-only']);
+    const ctx = sqliteCtx(['retained', 'sqlite-only']);
+    const unarchived = [];
+    ctx.apiProxy.workspace.unarchiveSession = async (request) => { unarchived.push(request.payload.sessionId); return envelope({}); };
+    const result = await implementation.deleteQueuedArchivedSessions(undefined, ctx);
+    assert.deepEqual(result.deleted, [], 'SQLite队列不能假报删除');
+    assert.deepEqual(result.kept, ['retained', 'sqlite-only'], '没有JSONL的SQLite条目同样保留');
+    assert.deepEqual(readPendingArchivedClearIds(), ['retained', 'sqlite-only']);
+    assert.equal(fs.existsSync(directory), true, '迁移保留源不能被当作真存储删掉');
+    assert.equal(await implementation.pruneOrphanedArchivedSessions(ctx), 0, 'SQLite跳过孤儿修剪');
+    assert.deepEqual(unarchived, [], '不能凭没有JSONL就解除SQLite归档');
+  })();
+}
+
+test('SQLite启动清理：旧JSONL与纯SQLite会话都留队，不擦归档', () => expectSqliteQueueKept());
+
+test('JSONL补采首次导入SQLite：启动删除前再次核对，队列和源文件保留', withHome(async (home) => {
+  const directory = writeSession(home, 's1');
+  const ctx = cleanupCtx(['s1']);
+  let migrated = false;
+  const snapshot = () => migrated
+    ? { header: { id: 's1' }, formatStatus: 'current', revision: 'head:0', eventCount: 0 }
+    : { header: { id: 's1' }, revision: 'log:1', location: { kind: 'jsonl', path: path.join(directory, 'session.v4.jsonl.zstd') } };
+  ctx.sessionPersistence = { identity: Symbol('sessionPersistence'), list: async () => [snapshot()], stat: async () => snapshot() };
+  ctx.apiProxy.sessions.history = async () => { migrated = true; return envelope({ events: [] }); };
+  ctx.apiProxy.sessions.projections = async () => envelope({ values: {} });
+  queueArchivedClearIds(['s1']);
+  const ledger = require('../lib/mobile/stats-ledger.cjs');
+  ledger.forgetLedger();
+  try {
+    const result = await deleteQueuedArchivedSessions(undefined, ctx);
+    assert.equal(migrated, true);
+    assert.deepEqual(result, { deleted: [], kept: ['s1'] });
+    assert.equal(fs.existsSync(directory), true);
+  } finally { ledger.forgetLedger(); }
+}));
+
+function cleanupMutant(changes) {
+  const file = require.resolve('../lib/session-cleanup.cjs');
+  let source = fs.readFileSync(file, 'utf8');
+  for (const [from, to] of changes) {
+    assert.ok(source.includes(from), '变异必须命中当前实现');
+    source = source.replace(from, to);
+  }
+  const mutant = new Module(file, module);
+  mutant.filename = file;
+  mutant.paths = Module._nodeModulePaths(path.dirname(file));
+  mutant._compile(source, file);
+  return mutant.exports;
+}
+
+test('权威JSONL服务：日志照删、不存在的会话照出队；非默认根不解档', withHome(async (home) => {
+  const directory = writeSession(home, 's1');
+  const ctx = cleanupCtx(['s1', 'gone']);
+  const entries = [{ header: { id: 's1' }, revision: 'log:1', location: { kind: 'jsonl', path: path.join(directory, 'session.v4.jsonl.zstd') } }];
+  ctx.sessionPersistence = { identity: Symbol('sessionPersistence'), list: async () => entries, stat: async (id) => entries.find((entry) => entry.header.id === id) };
+  queueArchivedClearIds(['s1', 'gone']);
+  assert.deepEqual(await deleteQueuedArchivedSessions(undefined, ctx), { deleted: ['s1', 'gone'], kept: [] });
+  assert.equal(fs.existsSync(directory), false);
+  const unarchived = [];
+  entries[0].location.path = path.join(home, 'other-root', 's1', 'session.v4.jsonl.zstd');
+  ctx.apiProxy.workspace.unarchiveSession = async (request) => { unarchived.push(request.payload.sessionId); return envelope({}); };
+  assert.equal(await pruneOrphanedArchivedSessions(ctx), 0);
+  assert.deepEqual(unarchived, [], '默认根没有日志不能证明其他根会话是孤儿');
+}));
+
+test('权威路由缺行故障：已有队列保留，不按不存在处理', withHome(async (home) => {
+  const directory = writeSession(home, 's1');
+  queueArchivedClearIds(['s1']);
+  const ctx = cleanupCtx(['s1']);
+  const snapshot = { header: { id: 's1' }, revision: 'log:1', location: { kind: 'jsonl', path: path.join(directory, 'session.v4.jsonl.zstd') } };
+  ctx.sessionPersistence = { list: async () => [snapshot], stat: async () => { throw Object.assign(new Error('SQLite routing row missing'), { name: 'SessionPersistenceNotFoundError' }); } };
+  assert.deepEqual(await deleteQueuedArchivedSessions(undefined, ctx), { deleted: [], kept: ['s1'] });
+  assert.deepEqual(readPendingArchivedClearIds(), ['s1']);
+  assert.equal(fs.existsSync(directory), true);
+}));
+
+test('变异证明：移除SQLite队列保护会被假删除断言抓住', async () => {
+  const mutant = cleanupMutant([
+    ['await assertSessionCleanupSupported(ctx, queued)', 'await Promise.resolve()'],
+    ['await assertSessionCleanupStillJsonl(ctx, queued)', 'await Promise.resolve()'],
+  ]);
+  await assert.rejects(() => expectSqliteQueueKept(mutant), (error) => error instanceof assert.AssertionError
+    && error.message.includes('SQLite队列不能假报删除'));
+});
+
+test('变异证明：移除SQLite孤儿保护会被不解档断言抓住', async () => {
+  const mutant = cleanupMutant([['try { await assertSessionCleanupSupported(ctx, archived) } catch { return 0 }', '']]);
+  await assert.rejects(() => expectSqliteQueueKept(mutant), (error) => error instanceof assert.AssertionError
+    && error.message.includes('SQLite跳过孤儿修剪'));
+});

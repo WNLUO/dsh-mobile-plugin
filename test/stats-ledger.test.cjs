@@ -1,3 +1,4 @@
+// 统计账本同时钉住 JSONL 文件水位与 SQLite 权威修订增量。
 'use strict';
 
 /**
@@ -14,6 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const Module = require('node:module');
 
 const ledger = require('../lib/mobile/stats-ledger.cjs');
 const { collectStats, diffUsage, hostUsageOf, foldSessionEvents } = require('../lib/mobile/stats-collect.cjs');
@@ -1557,4 +1559,68 @@ test('定期采集一轮只翻有限页，有人打开统计页那一轮才翻�
       `有人正等着看数字（短预算轮）必须用完整的 20 页上限，实际只翻了 ${paged()} 页`,
     );
   });
+});
+
+/** 真实旧JSONL保留不再变，SQLite事件继续追加；同一断言也用于内存变异。 */
+async function expectSqliteGrowth(collect = collectStats) {
+  await withHome(async (home) => {
+    const directory = path.join(home, 'sessions', '--tmp-proj--', 's1');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'session.v4.jsonl.zstd'), 'retained-prefix');
+    const start = Date.now() - 240_000;
+    const log = eventLog(start).turn().step({ input: 10, output: 1 });
+    const ctx = fakeCtx({ items: [{ sessionId: 's1', updatedAt: start }] });
+    let reads = 0;
+    let lists = 0;
+    let broken = false;
+    ctx.sessionPersistence = {
+      identity: Symbol('sessionPersistence'),
+      list: async () => {
+        lists += 1;
+        if (broken) throw new Error('storage unavailable');
+        return [{ header: { id: 's1' }, formatStatus: 'current', revision: `head:${log.events.length}`, eventCount: log.events.length }];
+      },
+      stat: () => { throw new Error('采集不逐条stat'); },
+      open: () => { throw new Error('探针不open导入'); },
+    };
+    ctx.apiProxy.sessions.history = () => { reads += 1; return { result: { ok: true, value: historyOf(log.events) } }; };
+    ctx.apiProxy.sessions.projections = () => ({ result: { ok: true, value: { values: projectionOf(log.events) } } });
+    const age = () => { ledger.readLedger().sessions.s1.collectedAt = Date.now() - 120_000; };
+    await collect(ctx, { force: true, skipPreview: true });
+    const first = reads;
+    age();
+    await collect(ctx, { skipPreview: true });
+    assert.equal(reads, first, '同一service同一revision不重读历史');
+    log.turn(2).step({ turn: 2, input: 70, output: 7 });
+    age();
+    await collect(ctx, { skipPreview: true });
+    assert.equal(ledger.readLedger().sessions.s1.billed.uncachedInputTokens, 80, 'SQLite增长不能被静态JSONL冻结');
+    const afterGrowth = reads;
+    ctx.sessionPersistence.identity = Symbol('replacement');
+    age();
+    await collect(ctx, { skipPreview: true });
+    assert.ok(reads > afterGrowth, 'service替换后相同revision不能复用');
+    broken = true;
+    log.turn(3).step({ turn: 3, input: 20, output: 2 });
+    age();
+    await collect(ctx, { skipPreview: true });
+    assert.equal(ledger.readLedger().sessions.s1.billed.uncachedInputTokens, 100, 'service故障不回落旧日志指纹跳过');
+    assert.equal(lists, 5, '每轮仅一次权威元数据列举');
+  });
+}
+
+test('SQLite统计：权威revision增长、服务换代与故障都不会冻结在旧JSONL', () => expectSqliteGrowth());
+
+test('变异证明：改回静态JSONL跳过会被SQLite增长断言抓住', async () => {
+  const file = require.resolve('../lib/mobile/stats-collect.cjs');
+  const source = fs.readFileSync(file, 'utf8');
+  const from = 'const logUnchanged = storage\n        ? !!(snapshot && observed && observed.revision === snapshot.revision';
+  const to = 'const logUnchanged = storage\n        ? !!(snapshot && observed && true';
+  assert.ok(source.includes(from), '变异必须命中权威修订比较');
+  const mutant = new Module(file, module);
+  mutant.filename = file;
+  mutant.paths = Module._nodeModulePaths(path.dirname(file));
+  mutant._compile(source.replace(from, to).replace('num(record?.lastSeq) >= snapshot.eventCount - 1', 'true'), file);
+  await assert.rejects(() => expectSqliteGrowth(mutant.exports.collectStats), (error) => error instanceof assert.AssertionError
+    && error.message.includes('SQLite增长不能被静态JSONL冻结'));
 });

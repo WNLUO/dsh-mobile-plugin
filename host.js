@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// 无头预设按 Web bundle 的实际声明挂载移动配置，兼容旧目录注册表。
 /**
  * Headless Cordis Host for the DSH mobile app.
  *
@@ -20,6 +21,7 @@ import { installProcessGuard } from './lib/host-guard.cjs'
 import { DIRECTORY_PICKER_ROW, TOOL_ROWS, pinInsertedRows, syncPresetDir } from './lib/host-compat.cjs'
 import { setCapabilityReport } from './lib/host-capabilities.cjs'
 import { dropBareNameSelfMounts } from './lib/host-patches.cjs'
+import { mobilePresetPatches } from './lib/host-preset-patches.cjs'
 import {
   auditStartupEntries as assertEntriesActivated,
   boot,
@@ -200,6 +202,8 @@ try {
   const entryByName = {}
   for (const hit of pinnedRows.values()) entryByName[hit.name] = hit.entry
 
+  const webLayer = profile.layers.find(layer => layer.packageName === '@deepseek-ai/dsh-web-app')
+  const presetPatches = mobilePresetPatches(webLayer?.patches ?? [], presetDir)
   const patches = [
     ...profile.layers.flatMap(layer => layer.patches),
     ...profile.patches,
@@ -221,21 +225,9 @@ try {
         config: { enabled: true },
       }],
     },
-    // The DSH Web bundle disables every agent-plane row (shell, files, search,
-    // skills, goals, planning, compaction, delegation) and lets each session
-    // mount a preset instead — but it leaves the roster's shipped root to
-    // `apps/cli`'s `composeProfile`, which a headless host never runs. Point
-    // the roster at this package's own `config/agent-presets` so `standard`
-    // resolves; without this the roster is composed but empty and every
-    // `session/new` fails with `agent-preset-not-found`, while disabling the
-    // roster instead would leave the agent with no tools at all.
-    {
-      id: 'agent-presets',
-      config: {
-        default: 'standard',
-        roots: [{ path: presetDir, trust: 'system' }],
-      },
-    },
+    // rc.5 的 registry 不再扫目录：覆盖随附 standard 的完整声明，子行由原生
+    // Include 从移动预设副本加载；旧版 Web 的目录注册表仍按实际挂载行提供 roots。
+    ...presetPatches,
   ]
 
   const pinnedPatches = pinInsertedRows(patches, entryByName)

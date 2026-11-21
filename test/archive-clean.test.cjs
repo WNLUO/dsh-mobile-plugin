@@ -1,3 +1,4 @@
+// 手机归档清理保留 JSONL 排队，并以既有错误响应拒绝 SQLite 永久删除。
 'use strict';
 
 /**
@@ -14,6 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const Module = require('node:module');
 const { Readable } = require('node:stream');
 const { zstdCompressSync } = require('node:zlib');
 const { handleClearArchived, CLEAR_ARCHIVED_COLLECT_BUDGET_MS } = require('../lib/mobile/archive-clean.js');
@@ -471,4 +473,64 @@ test('清理前补采的预算比统计页宽，且卡在 App 单发请求的 8 
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mobile', 'archive-clean.js'), 'utf8');
   assert.match(source, /budgetMs: CLEAR_ARCHIVED_COLLECT_BUDGET_MS/);
   assert.match(source, /skipPreview: true/);
+});
+
+async function expectSqliteRejected(handler = handleClearArchived, migrateDuringCollect = false) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-archive-clean-'));
+  const previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  ledger.forgetLedger();
+  try {
+    const directory = writeSession(home, 's1');
+    let migrated = !migrateDuringCollect;
+    let historyReads = 0;
+    const snapshot = () => migrated
+      ? { header: { id: 's1' }, formatStatus: 'current', revision: 'head:0', eventCount: 0 }
+      : { header: { id: 's1' }, revision: 'log:1', location: { kind: 'jsonl', path: path.join(directory, 'session.v4.jsonl.zstd') } };
+    const ctx = {
+      state: {},
+      sessionPersistence: { identity: Symbol('sessionPersistence'), list: async () => [snapshot()], stat: async () => snapshot() },
+      apiProxy: {
+        sessions: {
+          list: async () => ({ result: { ok: true, value: { items: [{ sessionId: 's1', updatedAt: Date.now() }] } } }),
+          history: async () => { migrated = true; historyReads += 1; return { result: { ok: true, value: { events: [] } } }; },
+          projections: async () => ({ result: { ok: true, value: { values: {} } } }),
+        },
+        workspace: { list: async () => ({ result: { ok: true, value: { archivedSessionIds: ['s1'] } } }) },
+      },
+    };
+    const req = makeReq({ confirm: true });
+    req.headers = {};
+    const res = makeRes();
+    await handler(ctx, req, res);
+    assert.equal(res.status, 409, 'SQLite永久清理必须返回明确失败');
+    assert.equal(res.body.ok, false);
+    assert.equal(res.body.error.code, 'session-cleanup-unsupported');
+    assert.match(res.body.error.message, /SQLite.*删除会话 API/);
+    assert.deepEqual(readPendingArchivedClearIds(), [], '失败不入队');
+    assert.deepEqual([...deletedSessionIdsOf(ctx)], [], '失败不记进移动删除集，归档行仍可见');
+    assert.equal(fs.existsSync(directory), true, '源JSONL保留');
+    assert.equal(historyReads > 0, migrateDuringCollect, '已知SQLite必须在补采前拒绝');
+  } finally {
+    if (previous === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previous;
+    ledger.forgetLedger();
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+test('SQLite手机清理：409既有错误信封、不入队、不隐藏归档行', () => expectSqliteRejected());
+test('补采首次导入SQLite后，手机清理仍明确失败、不入队', () => expectSqliteRejected(handleClearArchived, true));
+
+test('变异证明：移除手机SQLite拒绝会被明确失败断言抓住', async () => {
+  const file = require.resolve('../lib/mobile/archive-clean.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const from = 'try { await assertSessionCleanupSupported(ctx, selected); } catch (error) { return storageFailure(error); }';
+  assert.ok(source.includes(from), '变异必须命中入口保护');
+  const mutant = new Module(file, module);
+  mutant.filename = file;
+  mutant.paths = Module._nodeModulePaths(path.dirname(file));
+  mutant._compile(source.replace(from, '').replace('try { await assertSessionCleanupStillJsonl(ctx, selected); } catch (error) { return storageFailure(error); }', ''), file);
+  await assert.rejects(() => expectSqliteRejected(mutant.exports.handleClearArchived), (error) => error instanceof assert.AssertionError
+    && error.message.includes('SQLite永久清理必须返回明确失败'));
 });
