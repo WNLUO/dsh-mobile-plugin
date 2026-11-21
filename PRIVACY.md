@@ -9,8 +9,8 @@ AI-HUB 把手机连接到你配对的电脑上的 DeepSeek Harness。没有独�
 
 - **配对与连接**：手机保存设备标识、连接地址、备注及授权凭据。电脑、地址目录与中转处理定位、授权和连接所必需的记录。它们不是广告标识。系统钥匙串中的部分配对和试用记录可能在重装后保留。
 - **消息与 AI 服务**：文字、图片、文件先交给配对电脑。电脑代理可将这些内容及必要历史、身份提示、工作区资料和工具结果交给其配置的模型提供方或其他工具服务，可能包含个人或机密信息。远程服务与用户自建服务各自的保留、使用、删除规则独立适用。
-- **发送许可**：新消息发送前，App 显示已知提供方及端点并征求同意。宿主明确支持接收方校验且实际自建端点已知时，按电脑、提供方及端点保存许可；电脑接收提示前校验期望提供方和端点，变化后重新确认。实际端点未知或旧插件不支持校验时，只许可这一条消息及其离线重试，每条新消息均重新确认，并说明按电脑配置路由。接收后的排队执行及工具调用仍受电脑配置控制。电脑代理或 CLI 的进一步路由取决于电脑配置，用户应在同意前确认配置和相应服务条款。
-- **拒绝与撤回**：拒绝保留草稿。可在「设置 → 数据与隐私」撤回；新消息需重新确认，原生待发队列同步清空。清空失败时显示尚未确认并允许重试，回前台也继续同步。已在途或已送达数据不能追回，撤回也不会删除电脑或模型提供方的副本。
+- **路由与接收方**：消息交给配对电脑后，由电脑按其配置交给模型提供方或其他服务；接收方取决于电脑的实际配置，可能随配置变化。电脑接收后的排队执行、工具调用，以及代理或 CLI 的进一步路由，均受该电脑配置控制。
+- **已送达数据**：已经发送或在途的数据不能追回；要删除电脑或模型提供方持有的副本，需在电脑一侧或向相应提供方处理。
 - **传输**：局域网可直连，其他连接可能经中转或隧道。新加密配对保护手机与电脑之间的正文；旧未加密连接会在 App 提示，重新配对可升级。中转处理路由及运维元数据，具体保留方式取决于实际部署与运营方，不对所有自建中转作纯内存或不落盘承诺。端到端加密不阻止电脑把内容交给配置的 AI 服务。
 
 ## 2. 更新、诊断与反馈
@@ -46,7 +46,7 @@ AI-HUB 把手机连接到你配对的电脑上的 DeepSeek Harness。没有独�
 
 ## English summary
 
-AI-HUB connects a phone to a paired computer. The computer may send messages, files, history, identity instructions and tool context to its configured model providers or other services, including personal data. The app requests permission before sending and shows the actual provider and endpoint when available; unknown endpoints or older plugins without explicit recipient validation require confirmation for each new message. Remembered permission for custom endpoints requires validation support; the computer checks the expected recipient before accepting a prompt. Later queued execution remains governed by the computer configuration. Refusing keeps the draft. Permission can be revoked in Data & privacy, where native queue-clear failures remain visible and can be retried. Data already sent or in flight cannot be recalled.
+AI-HUB connects a phone to a paired computer. The computer may send messages, files, history, identity instructions and tool context to its configured model providers or other services, including personal data. Recipients depend on the computer’s actual configuration and may change with it; queued execution, tool calls and further routing by agents or CLI tools remain governed by that configuration. Data already sent or in flight cannot be recalled, and copies held on the computer or at a provider are handled there.
 
 Phone-to-computer encryption does not prevent onward AI processing. Relay retention depends on the deployment and operator; we do not promise memory-only storage for all relays. The distribution platform receives installation and update diagnostics. User-submitted feedback contains the material the user chooses to send.
 
