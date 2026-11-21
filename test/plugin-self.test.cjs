@@ -46,6 +46,7 @@ test('没有外壳：如实报不支持，不许假装能更新', () => {
   assert.equal(value.runningVersion, null);
   assert.equal(value.lastApply, null);
   assert.equal(value.autoUpdate, false);
+  assert.equal(value.firstInstallPendingRestart, false, '没有外壳就无从判断首次安装，不许凭空提示');
 });
 
 test('有外壳：版本、来源、回退结果都投影出来', () => {
@@ -59,6 +60,7 @@ test('有外壳：版本、来源、回退结果都投影出来', () => {
       shellChanged: false,
       autoUpdate: true,
       autoIntervalMs: 600000,
+      firstInstallPendingRestart: true,
       lastApply: {
         installed: true,
         skipped: false,
@@ -82,6 +84,7 @@ test('有外壳：版本、来源、回退结果都投影出来', () => {
   assert.equal(value.installedVersion, '1.2.4');
   assert.equal(value.source, 'npm');
   assert.equal(value.autoUpdate, true);
+  assert.equal(value.firstInstallPendingRestart, true, '首次安装待重启这一格必须原样透出给手机');
   assert.equal(value.lastApply.rolledBack, true);
   assert.equal(value.lastApply.runningAfterRollback, '1.2.3');
   assert.equal(value.lastApply.state, 'rolled-back');
