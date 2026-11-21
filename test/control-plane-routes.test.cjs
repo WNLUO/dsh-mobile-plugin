@@ -1,3 +1,4 @@
+// 二维码等待隧道窗口后读取当前票据与身份，换码期间出码仍可真实验票。
 // 网络控制动作必须真实执行；重连失败不报成功，FRP 重试受理与运行状态分开。
 'use strict';
 
@@ -202,7 +203,7 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  */
 function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
   localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0, getPluginRuntime = () => null,
-  reconnectTunnel, frp, registerRoutes = registerControlPlaneRoutes } = {}) {
+  reconnectTunnel, frp, tailcat, registerRoutes = registerControlPlaneRoutes } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
   const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
@@ -229,6 +230,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     syncSidecar: async () => {},
     reconnectTunnel,
     frp,
+    tailcat,
     sidecarToken: 'test',
     lanPortInUse: () => 18787,
     getLanPortAdjusted: () => false,
@@ -862,6 +864,86 @@ function networkRoutesModule(mutate = source => source, globals = {}) {
   });
   return module.exports.registerControlPlaneRoutes;
 }
+
+async function pairingWindowContract(mutate, change, phase = 'window') {
+  const core = require('../lib/relay/core.js');
+  const e2ee = require('../lib/shared/e2ee.js');
+  const { openSealedPairRequest } = require('../lib/shared/e2ee-pair.js');
+  const state = { enabled: true, instanceId: 'host-before', pairingCode: '123456',
+    pairingTicket: Buffer.alloc(32, 1).toString('base64url'),
+    relayUrl: 'https://relay.example.com', name: 'host', lanEnabled: false, lanPort: 18787 };
+  const nextPairing = { pairingCode: '654321', pairingTicket: Buffer.alloc(32, 2).toString('base64url') };
+  let reached, release, invite;
+  const waiting = new Promise(resolve => { reached = resolve; });
+  const pending = new Promise(resolve => { release = resolve; });
+  const pause = async () => { reached(); await pending; };
+  const nativeRequire = createRequire(CONTROL_PLANE);
+  const registerRoutes = networkRoutesModule(mutate, { require(id) {
+    if (id === '../relay/core.js') return { ...core, saveState() {},
+      rotatePairing(current) { Object.assign(current, nextPairing); return nextPairing; } };
+    if (id === 'qrcode') return { async toString(text) {
+      invite = JSON.parse(new URL(text).searchParams.get('data'));
+      if (phase === 'render') await pause();
+      return '<svg></svg>';
+    } };
+    return nativeRequire(id);
+  } });
+  const table = controlRoutes({ state, registerRoutes,
+    tailcat: { async openPairingWindow() { if (phase === 'window') await pause(); return null; } } });
+  const res = {};
+  const request = table.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, res);
+  await waiting;
+  try {
+    if (change === 'disabled') state.enabled = false;
+    else if (change === 'identity') Object.assign(state, nextPairing, { instanceId: 'host-after' });
+    else {
+      const changed = {};
+      const internal = change === 'paired';
+      await table.get(internal ? '/api/relay/internal/rotate-pairing' : '/api/relay/regenerate')({
+        method: 'POST', body: {}, headers: { authorization: 'Bearer test' },
+      }, changed);
+      assert.equal(changed.status, 200, '等待出码时，正常换码与配对成功回执仍可完成');
+      assert.equal(Boolean(state.lastPairingAt), internal, '仅成功配对回执记录完成时间');
+    }
+  } finally { release(); }
+  await request;
+  if (phase === 'render' || change === 'disabled') {
+    assert.equal(res.status, 409, '二维码渲染时换票、换身份或停用，必须拒绝返回过期码');
+    assert.equal(res.body.svg, undefined, '过期或停用状态不返回二维码');
+    return;
+  }
+  assert.equal(res.status, 200, '窗口打开后应生成当前可用的二维码');
+  assert.equal(invite.instanceId, state.instanceId, '扫码路由与宿主使用同一当前身份');
+  assert.equal(invite.code, state.pairingCode, '二维码与当前配对码一致');
+  assert.equal(res.body.pairingCode, invite.code, '面板的当前码标识与实际二维码一致');
+  const key = e2ee.derivePairKey(Buffer.from(invite.ticket, 'base64url'), invite.instanceId);
+  const sealed = e2ee.seal(key, Buffer.from(JSON.stringify({
+    deviceKey: Buffer.alloc(32, 3).toString('base64url'), keyId: '0102030405060708', device: { deviceId: 'phone' },
+  })), e2ee.pairAad(invite.instanceId)).toString('base64');
+  const open = (claimedInstanceId, ticket = state.pairingTicket) => openSealedPairRequest({
+    ticket, instanceId: state.instanceId, claimedInstanceId, sealed,
+  });
+  assert.equal(open(invite.instanceId).ok, true, '从新二维码加密的真实配对请求必须能被当前宿主解封');
+  assert.equal(open('different-host').ok, false, '宿主身份校验保持生效');
+  assert.equal(open(invite.instanceId, Buffer.alloc(32, 4).toString('base64url')).ok, false, '错误票据仍须被拒绝');
+}
+
+test('二维码等待隧道窗口期间换码、配对成功或换身份，取完成后的当前票据', async () => {
+  for (const change of ['regenerate', 'paired', 'identity']) await pairingWindowContract(undefined, change);
+});
+test('等待隧道窗口或二维码渲染时停用，不返回二维码；渲染中轮换票据和身份要求重新获取', async () => {
+  await pairingWindowContract(undefined, 'disabled');
+  for (const change of ['regenerate', 'paired', 'identity', 'disabled']) await pairingWindowContract(undefined, change, 'render');
+});
+test('变异：提前捕获票据或省略渲染完成复核，会被二维码验票流程拒绝', async () => {
+  const snapshot = '    const source = previewUrl ? { ...state, relayUrl: previewUrl, relayUrls: [previewUrl] } : state\n    const { payload } = pairingPayload(source, lanPortInUse())\n';
+  await assert.rejects(pairingWindowContract(source => source.replace(snapshot, '')
+    .replace('    const tailcat = deps.tailcat', `${snapshot}    const tailcat = deps.tailcat`), 'regenerate'), assert.AssertionError);
+  const currentCheck = "!state.enabled || payload.instanceId !== state.instanceId || payload.code !== state.pairingCode || payload.ticket !== (state.pairingTicket || '')";
+  for (const change of ['regenerate', 'identity', 'disabled']) {
+    await assert.rejects(pairingWindowContract(source => source.replace(currentCheck, 'false'), change, 'render'), assert.AssertionError);
+  }
+});
 
 async function reconnectContract(mutate) {
   const registerRoutes = networkRoutesModule(mutate);
