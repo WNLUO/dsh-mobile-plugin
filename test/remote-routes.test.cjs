@@ -1,5 +1,5 @@
 'use strict';
-// 管理动作只接受精确同源的本机请求，来访电脑清单与撤销响应不得包含密钥。
+// 管理动作只接受本机可信来源（来源端口 / 跨站不再校验），来访电脑清单与撤销响应不得包含密钥。
 // 桌面壳入口带专属标记，普通浏览器入口保持原样。
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -46,15 +46,18 @@ test('同源本机可查看来访电脑，结果不包含手机或凭据，能�
   assert.equal(revoked.body.revoked, 1);
   assert.deepEqual(calls, ['A:B', 'closed:B']);
 });
-test('其他localhost端口的远端页面、域名重绑定、转发标记和外部来源一律拒绝', async () => {
+test('域名重绑定、转发标记和外部来源一律拒绝（来源端口不再拦）', async () => {
   const { routes, calls } = setup();
   for (const patch of [
-    { headers: { host: '127.0.0.1:1234', origin: 'http://127.0.0.1:5678', 'content-type': 'application/json' } },
     { headers: { host: 'evil.example', origin: 'http://evil.example', 'content-type': 'application/json' } },
     { headers: { host: '127.0.0.1:1234', 'x-dsh-via': 'tunnel', 'content-type': 'application/json' } },
     { socket: { remoteAddress: '192.168.1.3' } },
   ]) assert.equal((await invoke(routes, '/open', { ...patch, body: { id: 'A' } })).status, 403);
   assert.deepEqual(calls, []);
+  // 2026-11-21 需求变更：控制面不再按跨站 / 来源拒绝，本机另一个端口的页面也不再算越界。
+  const otherPort = await invoke(routes, '/open', { headers: { host: '127.0.0.1:1234', origin: 'http://127.0.0.1:5678', 'content-type': 'application/json' }, body: { id: 'A' } });
+  assert.equal(otherPort.status, 200);
+  assert.deepEqual(calls, ['A']);
 });
 test('桌面壳入口带专属标记，普通浏览器入口不变，回包仍是不带标记的原地址', async () => {
   const { routes, launches } = setup();

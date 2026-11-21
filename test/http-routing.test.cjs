@@ -1,7 +1,7 @@
 'use strict';
 // 异常 500 的日志保留方法、无查询串路径和堆栈，并验证响应、鉴权与信封行为不变。
 
-/** HTTP 路由守卫约定：本机与局域网直连分开识别，转发与跨站仍受限。 */
+/** HTTP 路由守卫约定：本机与局域网直连分开识别，转发仍受限；来源（跨站）不再限制。 */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -144,50 +144,24 @@ test('网页管理入口：带转发标记的 loopback 请求不算本机界面'
   assert.equal(routing.trustedLocalUi(local), false, '否则经中转就能开启两小时窗口');
 });
 
-test('控制面：sec-fetch-site: cross-site 一律拒', async () => {
-  const res = fakeRes();
-  await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(fakeReq({ 'sec-fetch-site': 'cross-site' }), res);
-  assert.equal(res.status, 403);
-  assert.equal(res.body.error.code, 'cross_site');
-});
-
-test('控制面：只读面板页放行「人点开的一页」，页面里的 fetch 照旧拒', async () => {
-  // 社区桌面壳把设置页里的链接原地打开：从自定义协议页跳到 http 面板地址，Chromium
-  // 一定标 `sec-fetch-site: cross-site`。不放开这一种，用户看到的就是整屏一句 403 JSON。
-  const navigation = fakeReq({ 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' });
-  let reached = false;
-  await routing.localOnly('GET', async () => { reached = true; }, { allowDocumentNavigation: true })(navigation, fakeRes());
-  assert.equal(reached, true, '人点开的面板页必须能显示');
-
-  // 同一页里偷偷发的 fetch / 被嵌进 iframe 都不是「人点开的一页」，照旧拒。
+test('控制面：不再按来源拦截——跨站请求也放行（需求变更：不限制部署位置）', async () => {
+  // 2026-11-21 用户要求：控制面不再按跨站 / 来源拒绝，这台机器部署在哪儿都放行。
+  // 守卫只剩「谁转发的」和 method 两条；跨站、反代改写 Host、桌面壳自定义协议一律照常。
   for (const headers of [
+    { 'sec-fetch-site': 'cross-site' },
     { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'cors', 'sec-fetch-dest': 'empty' },
     { 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'iframe' },
-    { 'sec-fetch-site': 'cross-site' },
+    { origin: 'http://evil.test', host: '127.0.0.1:18787' },
+    { origin: 'http://evil.test' },
   ]) {
-    const res = fakeRes();
-    await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); }, { allowDocumentNavigation: true })(fakeReq(headers), res);
-    assert.equal(res.status, 403, `${JSON.stringify(headers)} 不是整页打开`);
-    assert.equal(res.body.error.code, 'cross_site');
+    let reached = false;
+    await routing.localOnly('GET', async () => { reached = true; })(fakeReq(headers), fakeRes());
+    assert.equal(reached, true, `${JSON.stringify(headers)} 应放行`);
   }
-
-  // 没显式放开的路由，整页打开也一样拒。
-  const other = fakeRes();
-  await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(navigation, other);
-  assert.equal(other.body.error.code, 'cross_site');
-});
-
-test('控制面：origin 与 host 不同源即拒', async () => {
-  const res = fakeRes();
-  await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(fakeReq({ origin: 'http://evil.test', host: '127.0.0.1:18787' }), res);
-  assert.equal(res.body.error.code, 'cross_site');
-  const same = fakeRes();
-  let reached = false;
-  await routing.localOnly('GET', async () => { reached = true; })(fakeReq({ origin: 'http://127.0.0.1:18787', host: '127.0.0.1:18787' }), same);
-  assert.equal(reached, true, '同源 origin 必须放行');
-  const hostless = fakeRes();
-  await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(fakeReq({ origin: 'http://evil.test' }), hostless);
-  assert.equal(hostless.body.error.code, 'cross_site', 'host 缺失时按拒绝处理');
+  // 经中转 / 局域网代理转发来的请求照旧按远程拦下，与上面那条互不影响。
+  const proxied = fakeRes();
+  await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(fakeReq({ 'x-dsh-via': 'relay' }), proxied);
+  assert.equal(proxied.body.error.code, 'local_only');
 });
 
 test('控制面：方法不匹配回 405，且文案列出全部允许方法', async () => {

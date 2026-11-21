@@ -281,7 +281,8 @@ test('反馈读写：返回线程本身、续回复共用提交服务，来源�
     assert.equal(method.status, 405);
     await table.get('/api/relay/web-access')({ ...networkRequest('/api/relay/web-access', '127.0.0.1', '127.0.0.1:19387', { method: 'POST' }), body: { enabled: true } }, {});
     for (const method of ['GET', 'POST']) {
-      for (const headers of [{ 'x-dsh-via': 'relay' }, { 'x-dsh-via': 'lan' }, { 'x-dsh-instance': 'phone' }, { origin: 'https://elsewhere.example' }]) {
+      // 2026-11-21：控制面不再按跨站来源拒绝，origin 不同源不再算越界；只留转发来的请求。
+      for (const headers of [{ 'x-dsh-via': 'relay' }, { 'x-dsh-via': 'lan' }, { 'x-dsh-instance': 'phone' }]) {
         const denied = networkResponse();
         await handler(networkRequest('/api/relay/feedback?thread_key=thread-1', '127.0.0.1', '127.0.0.1:19387', { method, headers }), denied);
         assert.equal(denied.status, 403);
@@ -447,7 +448,6 @@ test('局域网部署：窗口关闭也能读取二维码和保存配置，公�
     ['192.168.1.2', '203.0.113.20:19387', {}, 'local_operator_only'],
     ['192.168.1.2', 'dsh.example.com:19387', {}, 'local_operator_only'],
     ['192.168.1.2', '192.168.1.20:19387', { 'x-forwarded-for': '192.168.1.3' }, 'local_operator_only'],
-    ['192.168.1.2', '192.168.1.20:19387', { 'sec-fetch-site': 'cross-site' }, 'cross_site'],
     ...['lan', 'relay', 'tunnel'].map(via => ['127.0.0.1', '127.0.0.1:19387', { 'x-dsh-via': via }, 'local_only']),
   ]) {
     const qr = networkResponse();
@@ -455,9 +455,15 @@ test('局域网部署：窗口关闭也能读取二维码和保存配置，公�
     assert.equal(qr.status, 403, JSON.stringify(qr.body));
     assert.equal(qr.body.error.code, code);
   }
+  // 2026-11-21 需求变更：控制面不再按跨站来源拒绝，局域网直连带 cross-site 也照常出码。
+  const crossSiteLan = networkResponse();
+  await table.get('/api/relay/pairing')(networkRequest('/api/relay/pairing', '192.168.1.2', '192.168.1.20:19387',
+    { headers: { 'sec-fetch-site': 'cross-site' } }), crossSiteLan);
+  assert.equal(crossSiteLan.status, 200, '跨站来源不再拦，按局域网直连放行');
   const publicStatus = networkResponse();
   await table.get('/api/relay/status')(networkRequest('/api/relay/status', '203.0.113.2', '203.0.113.20:19387'), publicStatus);
-  assert.equal(publicStatus.status, 423, '公网读接口仍要求两小时窗口');
+  // 2026-11-21 需求变更：只读管理面不再限制来源，公网也直接能读状态、进面板。
+  assert.equal(publicStatus.status, 200, '公网读接口不再要求两小时窗口');
 });
 
 test('变异：反馈退出本机操作清单后，公网拒绝断言会失败', async () => {
@@ -709,35 +715,28 @@ test('行为：DNS 重绑定页面（域名 Host）不能自己把管理窗口�
   assert.equal(loop.status, 200, '回环本机照旧能开');
 });
 
-test('网页访问守卫：窗口关闭时拒绝公网、允许可信本机；开窗后放行只读管理 API', async () => {
-  let monotonic = 0;
-  const window = createWebAccessWindow({ now: () => 10_000, monotonicNow: () => monotonic });
+test('只读管理面不再按来源拦截：远端、可信本机、窗口开关都放行', async () => {
+  const window = createWebAccessWindow({ now: () => 10_000, monotonicNow: () => 0 });
   const sent = [];
   const guard = createWebAccessLocalOnly({
     localOnly: (_method, handler) => handler,
     trustedLocalUi: (req) => req.trusted === true,
-    webAccessWindow: window,
     sendJson: (res, status, body) => { res.status = status; res.body = body; sent.push(status); },
   });
   let reached = 0;
   const handler = guard('GET', async () => { reached += 1; });
-  // 只读路由（status）用来验证窗口语义：窗口关时远程拿不到、开窗后放行。
-  // 「会改本机状态或吐密钥」的动作另有一条更严的规矩，见下面「危险动作只认本机」用例。
-  const remote = { url: '/api/relay/status?from=web', trusted: false };
-  const denied = {};
-  await handler(remote, denied);
-  assert.equal(denied.status, 423);
-  assert.equal(denied.body.error.code, 'web_access_closed');
-  assert.equal(reached, 0);
+  // 2026-11-21 需求变更：只读管理面不再限制来源，远端未开窗也照放行。
+  await handler({ url: '/api/relay/status?from=web', trusted: false }, {});
+  assert.equal(reached, 1, '远端读取不再要求两小时窗口');
   await handler({ url: '/api/relay/status', trusted: true }, {});
-  assert.equal(reached, 1, '本机仍可管理，不必先开公网窗口');
+  assert.equal(reached, 2, '本机照旧放行');
   window.enable();
-  await handler(remote, {});
-  assert.equal(reached, 2, '开窗后公网同源管理请求才放行');
+  await handler({ url: '/api/relay/status?from=web', trusted: false }, {});
+  assert.equal(reached, 3, '开不开窗都放行');
   const sync = guard('GET', async () => { reached += 1; });
   await sync({ url: '/api/relay/read-receipt', trusted: false }, {});
-  assert.equal(reached, 3, '桌面同步通道不受面板窗口影响');
-  assert.deepEqual(sent, [423]);
+  assert.equal(reached, 4, '桌面同步通道照常放行');
+  assert.deepEqual(sent, [], '不再有 423');
 });
 
 test('管理操作允许本机和局域网直连，公网开窗后仍然拒绝', async () => {
@@ -787,17 +786,11 @@ test('二维码与管理操作共用本机及局域网来源判断，不在路�
   assert.ok(!/pairing_local_only/.test(route), '路由里不自己造 423，统一由包装层的 local_operator_only 处理');
 });
 
-test('只有面板页放开「人点开的一页」，别的控制面路由不放开跨站', () => {
+test('控制面不再有「按来源放开」的逐路由参数（来源统一不拦）', () => {
+  // 2026-11-21 需求变更：跨站来源不再拦，原先只给面板页的 allowDocumentNavigation 一并删掉，
+  // 免得留下一个看起来还在管来源、其实不该再管的死参数。
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
-  const allowed = registrations(source)
-    .filter((route) => route.path.startsWith('/api/relay/'))
-    .filter((route) => route.handler.includes('allowDocumentNavigation'))
-    .map((route) => route.path)
-    .sort();
-  // 社区桌面壳会把自己接住的链接原地打开，从自定义协议页跳到面板地址时必带
-  // `sec-fetch-site: cross-site`。这一种形态只对「只读的一页」放开（面板页、桌面画布页）；
-  // 放开别的就得先想清楚它是不是也能被别人的网页点开。
-  assert.deepEqual(allowed, ['/api/relay/panel', '/api/relay/panel/console', '/api/relay/panel/remote', '/api/relay/panel/settings', '/api/relay/panel/setup']);
+  assert.equal(source.includes('allowDocumentNavigation'), false);
 });
 
 test('行为：设备清单带「历史有几条」，同一个 handler 按 ?history=1 换成已解绑清单', async () => {
