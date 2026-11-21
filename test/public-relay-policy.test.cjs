@@ -1,4 +1,4 @@
-// 公用清单补齐只恢复已启用实例的空列表，不改变自建与禁用意图；退役地址只在读盘清理、写入不碰。
+// 公用清单补齐只恢复已启用实例的空列表，不改变自建与禁用意图；退役地址只在读盘且与现行公用同列时清理、写入不碰。
 'use strict';
 
 /**
@@ -207,8 +207,9 @@ test('退役地址混在自建列表里：只剔退役那条，自建原样保�
   assert.equal(state.relayUrl, self);
 });
 
-test('读盘清理退役地址：loadState 先剔退役，再补回现行公用', () => {
-  // 退役地址由 loadState 在读盘时清理（老配置残留的官方地址），这是保留的旧行为。
+test('prune 本体的旧行为：直接调用时把退役项剔空并可被 expand 补回', () => {
+  // 注意：loadState 现在只在「还有现行公用中转同列」时才调 prune（见下一条）；
+  // 这里只单测 prune/expand 两个纯函数本身。
   const onlyRetired = { enabled: true, relayUrl: 'https://dsh.iouf.cn', relayUrls: ['https://dsh.iouf.cn'] };
   assert.equal(core.pruneRetiredPublicRelays(onlyRetired), true);
   assert.equal(core.expandDefaultPublicRelays(onlyRetired), true);
@@ -218,6 +219,20 @@ test('读盘清理退役地址：loadState 先剔退役，再补回现行公用'
   core.pruneRetiredPublicRelays(mixed);
   core.expandDefaultPublicRelays(mixed);
   assert.deepEqual(mixed.relayUrls, [self], '只剔退役，自建原样留着');
+});
+
+test('读盘不误伤：只剩退役地址（用户显式自建）保留，混有现行公用才剔退役（issue #26）', () => {
+  fs.mkdirSync(path.dirname(core.STATE_FILE), { recursive: true });
+  // 只有退役地址、没有现行公用：当作用户显式配置，读盘原样保留，不被换回内置公用。
+  fs.writeFileSync(core.STATE_FILE, JSON.stringify({ enabled: true, relayUrl: 'https://dsh.iouf.cn', relayUrls: ['https://dsh.iouf.cn'] }));
+  const sole = core.loadState();
+  assert.deepEqual(sole.relayUrls, ['https://dsh.iouf.cn'], '显式自建（退役域名）读盘不被剔');
+  assert.equal(sole.relayUrl, 'https://dsh.iouf.cn');
+  // 混着现行公用：退役项才是老配置残留，剔掉、留现行公用。
+  fs.writeFileSync(core.STATE_FILE, JSON.stringify({ enabled: true, relayUrl: PUBLIC, relayUrls: [PUBLIC, 'https://dsh.iouf.cn'] }));
+  const mixed = core.loadState();
+  assert.deepEqual(mixed.relayUrls, [PUBLIC], '混有现行公用时剔掉退役项');
+  assert.equal(mixed.relayUrl, PUBLIC);
 });
 
 test('写入不清理退役地址：用户显式填的退役域名自建中转照存（issue #26）', () => {
