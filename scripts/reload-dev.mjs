@@ -23,6 +23,7 @@ import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { describeDrift, verifyReload } from './lib/reload-verdict.mjs'
+import { shellFiles } from '../lib/shell/loaded-files.js'
 
 const PLUGIN_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const PLUGIN_PKG = 'dsh-mobile-plugin'
@@ -210,14 +211,8 @@ function ensurePackable(files, packed) {
   if (bad.length) fail(`--only 里这几个路径不能用：\n  ${bad.join('\n  ')}`)
 }
 
-const SHELL_FILES = new Set([
-  'lib/index.js',
-  'lib/shell/runtime.js',
-  'lib/shell/manager.js',
-  'lib/shell/updater.js',
-  'lib/shell/device-ota.js',
-  'lib/shell/ota-package.js',
-])
+/** 「哪些文件算外壳」跟面板同一个来源：顺着入口的真实引用算，别在这里再手写一份（手写的会落后）。 */
+const SHELL_FILES = new Set(shellFiles(PLUGIN_ROOT))
 
 const isShellFile = rel => SHELL_FILES.has(rel)
 

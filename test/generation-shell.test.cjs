@@ -71,21 +71,6 @@ const updaterUrl = pathToFileURL(path.join(PKG_DIR, 'lib', 'shell', 'updater.js'
 /** 随包发布的那一代的版本号（外壳自己所在包）。 */
 const BUNDLED_VERSION = JSON.parse(fs.readFileSync(path.join(PKG_DIR, 'package.json'), 'utf8')).version;
 
-/**
- * 外壳文件及其持有的 Tailcat 静态依赖：换代只更新来源，不替换这些运行中的模块。
- * 外壳目录按磁盘枚举，Tailcat 的六项依赖明确列出，遗漏会让逐文件变更守卫变红。
- */
-function shellFilesOnDisk() {
-  const files = [path.join('lib', 'index.js')];
-  const shellDir = path.join(PKG_DIR, 'lib', 'shell');
-  for (const name of fs.readdirSync(shellDir).sort()) {
-    if (name.endsWith('.js')) files.push(path.join('lib', 'shell', name));
-  }
-  files.push('lib/tailcat/wiring.cjs', 'lib/tailcat/session.cjs', 'lib/tailcat/ingress.cjs',
-    'lib/tailcat/host-process.cjs', 'lib/relay/tunnel-forwarder.cjs', 'lib/shared/via-header.js');
-  return files;
-}
-
 test.after(() => {
   if (PREVIOUS_DSH_HOME === undefined) delete process.env.DSH_HOME;
   else process.env.DSH_HOME = PREVIOUS_DSH_HOME;
@@ -709,7 +694,7 @@ test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不�
   const { manager, updater } = await loadShellModules();
   const dir = makeGeneration('shellhash', '0.9.9', goodGeneration('shell-0.9.9'));
   const pkgDir = pkgDirOf(dir);
-  for (const rel of shellFilesOnDisk()) {
+  for (const rel of updater.shellFiles(PKG_DIR)) {
     fs.mkdirSync(path.dirname(path.join(pkgDir, rel)), { recursive: true });
     fs.copyFileSync(path.join(PKG_DIR, rel), path.join(pkgDir, rel));
   }
@@ -734,19 +719,26 @@ test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不�
 });
 
 /**
- * 指纹必须覆盖全部外壳文件和常驻 Tailcat 依赖。
+ * 指纹必须覆盖外壳真正加载的每一个文件。
  *
  * 漏掉的那几个同样在进程启动时被 Node 缓存、同样换不掉；只改它们时如果不报「外壳变了」，
  * 就是用户在界面上看着「更新成功」、跑的却是旧代码 —— 静默失效是最贵的失效。
  *
- * 守卫从**磁盘目录**枚举外壳文件全集，逐个改一个字节再算指纹：任何一个漏进清单，这一格
- * 就会红。这样以后往 lib/shell/ 里加新文件，不必记得同步指纹清单 —— 忘了守卫会提醒。
+ * 清单本身由外壳顺着入口的引用算（手写一份必然落后），所以这里钉的是三件别的事：清单确实
+ * 走到了 CJS 与多级引用（Tailcat、中转客户端那几份都在）、`lib/shell` 下没有逃过指纹的孤立
+ * 文件、以及逐个改一个字节指纹都会变。
  */
-test('换代：指纹盖住每个外壳文件和常驻 Tailcat 依赖（漏一个就必须报「外壳变了」）', async () => {
+test('换代：指纹盖住外壳实际加载的每个文件（漏一个就必须报「外壳变了」）', async () => {
   await resetProfile();
   const { updater } = await loadShellModules();
-  const shellFiles = shellFilesOnDisk();
-  assert.ok(shellFiles.length >= 8, `外壳文件数不对，目录枚举可能坏了：${shellFiles.length}`);
+  const shellFiles = updater.shellFiles(PKG_DIR);
+  assert.ok(shellFiles.length >= 8, `外壳文件数不对，引用走查可能坏了：${shellFiles.length}`);
+  for (const rel of ['lib/index.js', 'lib/shell/transport-host.js', 'lib/sidecar-lifecycle.cjs', 'lib/tailcat/wiring.cjs', 'lib/relay/control.js']) {
+    assert.ok(shellFiles.includes(rel), `清单没走到 ${rel}：多级引用或 CJS 的 require 没跟上`);
+  }
+  for (const name of fs.readdirSync(path.join(PKG_DIR, 'lib', 'shell'))) {
+    if (name.endsWith('.js')) assert.ok(shellFiles.includes(`lib/shell/${name}`), `lib/shell/${name} 不在清单里：它要么被入口引用，要么该删`);
+  }
   const copyShell = () => {
     const dir = fs.mkdtempSync(path.join(HOME_ROOT, 'shell-fingerprint-'));
     for (const rel of shellFiles) {

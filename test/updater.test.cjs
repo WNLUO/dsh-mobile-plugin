@@ -175,7 +175,7 @@ test('装上了但换不过来：账要落、也要抛给路由（不许静默�
 /** 把一代的外壳文件补齐，让 `shellFingerprint` 算得出指纹（真实包里必然有这些文件）。 */
 function addShellFiles(pkgDir) {
   fs.mkdirSync(path.join(pkgDir, 'lib', 'shell'), { recursive: true });
-  fs.writeFileSync(path.join(pkgDir, 'lib', 'index.js'), '// shell entry\n');
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'index.js'), "import './shell/runtime.js'\n");
   fs.writeFileSync(path.join(pkgDir, 'lib', 'shell', 'runtime.js'), '// shell runtime\n');
 }
 
@@ -228,6 +228,9 @@ function addTailcatHostFiles(pkgDir) {
     fs.mkdirSync(path.dirname(path.join(pkgDir, rel)), { recursive: true });
     fs.copyFileSync(path.join(__dirname, '..', rel), path.join(pkgDir, rel));
   }
+  // 外壳加载哪些文件是顺着入口的引用算的：入口得真的引用它们，否则这些文件不算外壳。
+  const imports = TAILCAT_HOST_FILES.map(rel => `import './${rel.slice('lib/'.length)}'`).join('\n');
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'index.js'), `import './shell/runtime.js'\n${imports}\n`);
 }
 
 function assertTailcatRestart(result, updateState) {
@@ -269,10 +272,11 @@ for (const [index, rel] of TAILCAT_HOST_FILES.entries()) {
 test('变异证明：指纹漏掉 Tailcat wiring 时，同一重启提示断言必须失败', async t => {
   const file = path.join(__dirname, '..', 'lib', 'shell', 'updater.js');
   const source = fs.readFileSync(file, 'utf8');
-  const marker = "'lib/tailcat/wiring.cjs', ";
-  assert.equal(source.split(marker).length, 2, '变异必须移除唯一指纹项');
-  const broken = source.replace(marker, '')
-    .replaceAll("'./manager.js'", JSON.stringify(pathToFileURL(path.join(path.dirname(file), 'manager.js')).href))
+  const marker = 'const files = shellFiles(pkgDir)';
+  assert.equal(source.split(marker).length, 2, '变异必须只命中那一处取清单的地方');
+  // 清单是顺着引用算的，漏项只能靠改取法来造：这里把 wiring 从清单里摘掉，看断言会不会红。
+  const broken = source.replace(marker, "const files = shellFiles(pkgDir).filter(rel => rel !== 'lib/tailcat/wiring.cjs')")
+    .replace(/from '(\.[^']+)'/g, (_match, spec) => `from ${JSON.stringify(pathToFileURL(path.join(path.dirname(file), spec)).href)}`)
     .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(pathToFileURL(file).href)})`);
   const updater = await import(`data:text/javascript;base64,${Buffer.from(broken).toString('base64')}`);
   const { result, updateState } = await tailcatHostUpdate(updater, t, 'lib/tailcat/wiring.cjs', 10);
@@ -333,7 +337,8 @@ test('变异证明：安装失败仍按盘上新版换代会被禁止加载断�
   const marker = '!outcome.failure && (outcome.installed === true || newerOnDisk)';
   assert.ok(source.includes(marker));
   const broken = source.replace(marker, '(outcome.installed === true || newerOnDisk)')
-    .replaceAll("'./manager.js'", JSON.stringify(pathToFileURL(path.join(path.dirname(file), 'manager.js')).href))
+    // data: 模块里没有目录可依，相对引用一律换成绝对路径（改到哪几个就换哪几个，不逐个点名）。
+    .replace(/from '(\.[^']+)'/g, (_match, spec) => `from ${JSON.stringify(pathToFileURL(path.join(path.dirname(file), spec)).href)}`)
     .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(pathToFileURL(file).href)})`);
   const updater = await import(`data:text/javascript;base64,${Buffer.from(broken).toString('base64')}`);
   const { reloads } = await failedInstallProbe(updater, t);
