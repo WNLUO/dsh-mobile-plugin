@@ -127,18 +127,27 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
     /const hasHostApiProxy = runtimeProvidesApiProxy\(\)/,
     '判据必须来自 runtimeProvidesApiProxy()，不能写死',
   );
+  // apiProxy 兼容服务必须**启动即提供**（不能压到宽限期里），否则 App 打开后第一批接口
+  // （会话列表）会撞上「服务还没提供」，抛 `cannot get property "apiProxy" without inject`。
   assert.match(
     IMPL,
-    /mount\('apiProxy 兼容桥', \(\) => ctx\.reflect\.provide\('apiProxy', createApiProxy\(ctx\)\)\)/,
-    '兼容桥必须注册在本代的隔离上下文，不能借用其它代即将卸载的服务',
+    /const provideApiProxy = \(\) => mount\('apiProxy 兼容桥', \(\) => ctx\.reflect\.provide\('apiProxy', createApiProxyService\(ctx, hostApiProxy\)\)\)/,
+    'apiProxy 兼容服务必须启动即提供，具体走宿主真服务还是网关兼容桥由 createApiProxyService 决定',
   );
+  assert.match(
+    IMPL,
+    /provideApiProxy\(\)\n/,
+    'apiProxy 提供必须在装配段无条件执行，不能加条件、也不能延后',
+  );
+  assert.match(BRIDGE, /function createApiProxyService\(ctx, hostProxyOf\)/,
+    '按需选择宿主服务 / 兼容桥的代理实现要落在 host-bridge，装配层只调用');
   assert.match(
     BRIDGE,
     /require\.resolve\('@deepseek-ai\/dsh-host-apiproxy\/package\.json'\)/,
     '判据是「解析得到这个包」——不能只看包名或版本号；桌面端插件装在 profile 里，够不到 asar',
   );
   assert.match(BRIDGE, /function runtimeProvidesApiProxy\(\)/);
-  assert.match(IMPL, /const \{ createApiProxy, runtimeProvidesApiProxy \} = require\('\.\/mobile\/host-bridge\.js'\)/);
+  assert.match(IMPL, /const \{ createApiProxyService, runtimeProvidesApiProxy \} = require\('\.\/mobile\/host-bridge\.js'\)/);
   // 光不 provide 还不够：旧运行时上读宿主的 apiProxy **必须声明 inject**，否则 cordis 的
   // get trap 抛 "cannot get property ... without inject"。
   //
@@ -153,11 +162,24 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
   );
   assert.ok(!/export const inject = [^\n]*'apiProxy'/.test(IMPL), 'apiProxy 不许再写进 inject');
   assert.ok(!/typertGateway'\]/.test(IMPL), '0.2.0 那一支不许再把 typertGateway 写进 inject');
-  // 宽限期之后仍没有真服务 → 按新版宿主装配（兼容桥 + 审批桥 + 提问桥一起）。
+  // 取宿主那份 apiProxy 必须判 `ctx.get` 在不在：老宿主上的 cordis 未必有它，裸调会在
+  // 延迟装配的定时器里抛出去（被进程级错误边界吞掉、进程不死），apiProxy 就永远补不上，
+  // 手机侧会永久报「without inject」。这一处曾经漏掉过这个判断。
   assert.match(
     IMPL,
-    /const hostProxy = hostContext\.get\('apiProxy'\)[\s\S]{0,180}ctx\.reflect\.provide\('apiProxy', hostProxy\)[\s\S]{0,140}warn\('等不到宿主的 apiProxy[\s\S]{0,120}installCompatBridges\(\)/,
-    '解析到包但服务一直不来的那支必须自己兜桥，否则这一代静默空转',
+    /typeof hostContext\.get === 'function' \? hostContext\.get\('apiProxy'\) : null/,
+    '取宿主 apiProxy 必须判 ctx.get 是否可用，不能裸调 ctx.get',
+  );
+  // 宽限期之后仍没有真服务 → 按新版宿主补两条帧桥（apiProxy 本身上面已提供）。
+  assert.match(
+    IMPL,
+    /if \(!hasHostApiProxy\) installFrameBridges\(\)/,
+    '两条帧桥仍只在没有宿主 apiProxy 时装，判据只此一处',
+  );
+  assert.match(
+    IMPL,
+    /if \(hostApiProxy\(\)\) return[\s\S]{0,120}warn\('等不到宿主的 apiProxy[\s\S]{0,120}installFrameBridges\(\)/,
+    '解析到包但服务一直不来的那支必须自己补两条帧桥，否则这一代静默空转',
   );
 });
 
@@ -168,7 +190,7 @@ function compatAssembly({ hasHostPackage = false, mutate = source => source } = 
   assert.ok(start >= 0 && end > start, '应能定位兼容桥装配段');
   const timers = [];
   const factory = new Function('deps', `
-    const { runtimeProvidesApiProxy, createApiProxy, installApprovalBridge, installQuestionBridge, setApprovalPushNotifier, setQuestionPushNotifier, setTimeout, clearTimeout, name, API_PROXY_GRACE_MS } = deps;
+    const { runtimeProvidesApiProxy, createApiProxy, createApiProxyService, installApprovalBridge, installQuestionBridge, setApprovalPushNotifier, setQuestionPushNotifier, setTimeout, clearTimeout, name, API_PROXY_GRACE_MS } = deps;
     ${mutate(IMPL.slice(start, end))}
       return ctx;
     }
@@ -177,6 +199,23 @@ function compatAssembly({ hasHostPackage = false, mutate = source => source } = 
   const apply = factory({
     runtimeProvidesApiProxy: () => hasHostPackage,
     createApiProxy: ctx => ({ ctx }),
+    // 与 lib/mobile/host-bridge.js 的 createApiProxyService 同形：宿主服务在就用它，否则用兼容假体。
+    createApiProxyService: (ctx, hostProxyOf) => {
+      const compat = { ctx };
+      return new Proxy(compat, {
+        get(target, prop, receiver) {
+          if (typeof prop !== 'symbol') {
+            const host = hostProxyOf();
+            if (host && prop in host) return host[prop];
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+        has(target, prop) {
+          const host = hostProxyOf();
+          return (host != null && prop in host) || prop in target;
+        },
+      });
+    },
     installApprovalBridge: () => {}, installQuestionBridge: () => {},
     setApprovalPushNotifier: () => {}, setQuestionPushNotifier: () => {},
     setTimeout: callback => {
@@ -260,16 +299,31 @@ test('旧宿主宽限期内卸载：取消延迟装配，不再向失效上下�
   assert.equal(root.get('apiProxy').who, 'host', '卸载本代不应影响宿主服务');
 });
 
-test('宽限期清理变异：移除取消定时器后能抓住卸载后的服务注册', async () => {
+test('启动即提供 apiProxy：宽限期内的请求不会再撞上「服务还没提供」', async t => {
   const { Context } = await import('@deepseek-ai/cordis');
-  const marker = 'ctx.effect(() => () => clearTimeout(timer), `${name}: host apiProxy grace timer`)';
-  assert.ok(IMPL.includes(marker), '宽限期定时器应随本代卸载清理');
-  const assembly = compatAssembly({ hasHostPackage: true, mutate: source => source.replace(marker, '') });
   const root = new Context();
-  root.provide('apiProxy', { who: 'host' });
+  const assembly = compatAssembly({ hasHostPackage: true });
   const generation = await assembly.mount(root);
-  await generation.fiber.dispose();
-  assert.throws(() => assembly.timers.forEach(callback => callback()), /cannot create effect on inactive context/);
+  t.after(() => generation.fiber.dispose());
+  // 宽限期定时器还没触发（插件刚启动的瞬间），读 apiProxy 必须拿到本代的兼容服务，不能抛
+  // `without inject`——「加载会话列表失败」就是 App 打开后第一批接口撞在这个空档里。
+  assert.doesNotThrow(() => void generation.ctx.apiProxy);
+  assert.equal(generation.ctx.apiProxy.ctx.fiber, generation.ctx.fiber, '宽限期内应拿到本代的兼容服务');
+});
+
+test('启动即提供的变异：把 apiProxy 提供压回宽限期就能抓住启动空档', async t => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const marker = '  provideApiProxy()\n';
+  assert.ok(IMPL.includes(marker), '装配段应无条件调用 provideApiProxy()');
+  const assembly = compatAssembly({
+    hasHostPackage: true,
+    mutate: source => source.replace(marker, '  // provideApiProxy() 被压回宽限期\n'),
+  });
+  const root = new Context();
+  const generation = await assembly.mount(root);
+  t.after(() => generation.fiber.dispose());
+  assert.throws(() => void generation.ctx.apiProxy, /without inject/,
+    '去掉启动即提供后，宽限期内读 apiProxy 必然抛 without inject');
 });
 
 test('解析不动就是「没有」：不能把插件带崩', () => {
