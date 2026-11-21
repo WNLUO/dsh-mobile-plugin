@@ -8,7 +8,19 @@ const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'React', 'src');
-const ts = createRequire(path.join(ROOT, 'React', 'package.json'))('typescript');
+// typescript 是 React 的 devDependency：主仓开发时装了它，这几条测试照常转译 React/src 执行；
+// 公开仓库单独检出只装插件根依赖、拿不到它（发版流水线就是这种检出），按仓库既有口径跳过，
+// 与 remote-route-policy 在缺 app/ 时自我跳过同一处理。
+let ts = null;
+try {
+  ts = createRequire(path.join(ROOT, 'React', 'package.json'))('typescript');
+} catch {
+  ts = null;
+}
+if (!ts) {
+  test('面板反馈测试（单独检出未装 typescript，跳过）', { skip: 'standalone checkout without typescript' }, () => {});
+  return;
+}
 
 function load(name, options = {}) {
   const file = path.join(SRC, 'lib', name + '.ts');
