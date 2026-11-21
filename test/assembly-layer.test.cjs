@@ -77,7 +77,10 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 2026-11-10 +9：推送出口接线（`createPushNotifier` 一 require 一实例化、晚绑定壳两行、
   // 传给镜像调度器一格、交给路由表一格、两个 `setPushNotifier` 各一行）；组帧、去重与
   // 投递都在 `mobile/push-notify.js`，装配层只是把它接上。
-  assert.ok(lines <= 480, `lib/impl.js 回到 ${lines} 代码行了；超过 480 说明实现又被搬回装配层`);
+  // 2026-11-22 +5：总控转达「请自检」时插件要回一份诊断 —— 一个取值器变量、一个闭包（转交
+  // `diagnostics`）、两处 `setProviders` 各一格、路由表一个 `bindRelayControl`。诊断内容是
+  // `mobile/relay-control.js` 里那一份，装配层只是把它接到总控客户端上。
+  assert.ok(lines <= 481, `lib/impl.js 回到 ${lines} 代码行了；超过 481 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {
