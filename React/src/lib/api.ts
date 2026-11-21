@@ -125,6 +125,11 @@ export type StatusView = {
    * 老宿主没有这一格，读成 undefined 时按未停用处理。
    */
   publicRelayBlocked?: boolean
+  /**
+   * 用户显式「停用公用中转」（issue #27）：为真时宿主不再补回公用地址，面板显示「已禁用」并给出「启用」。
+   * 老宿主没有这一格，读成 undefined 时按未停用处理。
+   */
+  publicRelayDisabled?: boolean
   /** 点对点隧道（P2P）的状态；老宿主没有这个字段时按「不可用」处理。 */
   p2p?: P2PStatus | null
   /** FRP 直连：本地 frpc 进程跑没跑（见 lib/frpc/runner.cjs）；老宿主没有这一格，按 null 处理。 */
@@ -465,6 +470,8 @@ export type ConfigPatch = {
   relayUrl?: string
   /** 整份内置公用中转清单（公用走整份 relayUrls、自建走单条 relayUrl）。 */
   relayUrls?: string[]
+  /** 显式「停用公用中转」（issue #27）：true 时宿主不再补回公用地址；重新启用时写回 false。 */
+  publicRelayDisabled?: boolean
   lanEnabled?: boolean
   lanPort?: number
   lanPortFixed?: boolean

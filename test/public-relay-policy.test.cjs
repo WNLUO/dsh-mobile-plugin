@@ -259,3 +259,44 @@ test('接线：退役清理只在 loadState，写入路径不带（issue #26）'
   const store = impl.slice(impl.indexOf('async update(patch, options = {})'), impl.indexOf('watch(listener)'));
   assert.doesNotMatch(store, /pruneRetiredPublicRelays/, '写入路径不许直接剔退役地址');
 });
+
+// ── 显式停用公用中转（issue #27）：能关、能跨重启、能再启用 ──
+
+test('显式停用：已启用 + 空列表 + disabled 时不再补回公用（这是「停用」现在的真行为）', () => {
+  const state = { enabled: true, relayUrl: '', relayUrls: [], publicRelayDisabled: true };
+  assert.equal(core.expandDefaultPublicRelays(state), false, '停用时不回补');
+  assert.deepEqual(state.relayUrls, [], '列表保持为空');
+});
+
+test('显式停用：落盘里残留的公用地址会被剔掉，自建与直连保留', () => {
+  const onlyPublic = { enabled: true, relayUrl: PUBLIC, relayUrls: [PUBLIC], publicRelayDisabled: true };
+  assert.equal(core.expandDefaultPublicRelays(onlyPublic), true, '剔掉了公用项');
+  assert.deepEqual(onlyPublic.relayUrls, []);
+  assert.equal(onlyPublic.relayUrl, '');
+  const keepsSelf = { enabled: true, relayUrl: SELF, relayUrls: [SELF], publicRelayDisabled: true };
+  assert.equal(core.expandDefaultPublicRelays(keepsSelf), false, '自建项不动');
+  assert.deepEqual(keepsSelf.relayUrls, [SELF]);
+});
+
+test('显式停用：loadState 读盘不把公用补回（跨重启持久）', () => {
+  fs.mkdirSync(path.dirname(core.STATE_FILE), { recursive: true });
+  fs.writeFileSync(core.STATE_FILE, JSON.stringify({ enabled: true, relayUrl: '', relayUrls: [], publicRelayDisabled: true }));
+  const loaded = core.loadState();
+  assert.deepEqual(loaded.relayUrls, [], '重启读盘也不回补公用');
+  assert.equal(loaded.publicRelayDisabled, true);
+});
+
+test('显式停用：defaultState 带这一格且默认未停用', () => {
+  assert.equal(core.defaultState().publicRelayDisabled, false);
+});
+
+test('显式停用接线：schema、configOf、控制面/手机 status 都带上这一格', () => {
+  const store = fs.readFileSync(path.join(__dirname, '..', 'lib', 'relay', 'config-store.js'), 'utf8');
+  assert.match(store, /publicRelayDisabled: z\.boolean\(\)/, 'schema 收这一格');
+  assert.match(store, /publicRelayDisabled: state\.publicRelayDisabled === true/, 'configOf 投影这一格');
+  const cp = fs.readFileSync(path.join(__dirname, '..', 'lib', 'routes', 'control-plane.js'), 'utf8');
+  assert.match(cp, /patch\.publicRelayDisabled = body\.publicRelayDisabled/, '控制面配置口认这一格');
+  assert.match(cp, /publicRelayDisabled: state\.publicRelayDisabled === true/, '面板 status 带这一格');
+  const mobile = fs.readFileSync(path.join(__dirname, '..', 'lib', 'routes', 'mobile-api.js'), 'utf8');
+  assert.match(mobile, /publicRelayDisabled: state\.publicRelayDisabled === true/, '手机心跳也带这一格');
+});

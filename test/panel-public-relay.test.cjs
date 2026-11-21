@@ -78,8 +78,11 @@ test('网络配置：公用中转内置只读排第一，自建可编辑，清�
   assert.match(config, /readOnly: true/, '内置地址只读、用户改不了');
   const first = config.slice(config.indexOf('第一栏：公用中转'), config.indexOf('第二栏：自建中转'));
   assert.ok(first.indexOf('FieldLabel') < first.indexOf('<Button'), '启用/停用按钮要在标题右侧');
-  assert.match(first, /onClick=\{\(\) => setRelayUrl\(activePublicRelay \? '' : PUBLIC_RELAYS\[0\]\.url\)\}/, '启用写入内置地址、停用清空');
-  assert.match(first, /activePublicRelay \? 'panel\.relay\.disablePublic' : 'panel\.relay\.enablePublic'/, '当前用公用时显示停用，否则显示启用');
+  // 2026-11-21 需求变更（issue #27）：停用不再只是清空输入框（那样保存会被宿主补回），
+  // 而是置显式停用标志，保存后跨重启生效；启用则清掉标志并写回内置地址。
+  assert.match(first, /setPublicDisabled\(true\)[\s\S]*?setRelayUrl\(''\)/, '停用：置位显式停用并清空地址');
+  assert.match(first, /setPublicDisabled\(false\)[\s\S]*?setRelayUrl\(PUBLIC_RELAYS\[0\]\.url\)/, '启用：清掉停用标志并写回内置地址');
+  assert.match(first, /publicActive \? 'panel\.relay\.disablePublic' : 'panel\.relay\.enablePublic'/, '当前公用生效时显示停用，否则显示启用');
   assert.ok(!/t\('panel\.relay\.usePublic'\)/.test(config), '原「使用公用中转」按钮已撤');
   // 第二栏：自建地址可编辑；用公用时留空。
   assert.match(config, /value=\{activePublicRelay \? '' : relayUrl\}/, '用公用时自建栏留空');
@@ -105,7 +108,9 @@ test('网络配置：公用被强制停用时只显「已禁用」、禁用启�
   // 按钮：被停用时禁用「启用」（与正在保存一起做或）。
   assert.match(first, /disabled=\{!canSave \|\| publicRelayBlocked\}/, '被停用时启用按钮要禁用');
   // 2026-11-19 用户口径：停用时输入框只摆一句「已禁用」，不再列链接、也不划删除线。
-  assert.match(first, /publicRelayBlocked \? \(/, '停用时走单独一个输入框');
+  // 2026-11-21（issue #27）：用户显式停用（publicDisabled）与自建强制停用一起走这个「已禁用」展示态。
+  assert.match(first, /publicOff \? \(/, '停用（强制或显式）时走单独一个输入框');
+  assert.match(config, /const publicOff = publicRelayBlocked \|\| publicDisabled/, '显式停用并进「已禁用」展示');
   assert.match(first, /t\('panel\.relay\.publicDisabled'\)/, '停用时显示「已禁用」提示');
   assert.ok(!/line-through/.test(first), '停用时不再给地址划删除线');
   // 用户 2026-11-18 要求删掉那段说明文字：组件不引用、字典也不留死键。
@@ -157,7 +162,7 @@ test('网络配置：公用栏「查看面板」在标题右侧、启用/停用�
   assert.match(first, /onClick=\{\(\) => setPublicPanelOpen\(true\)\}/, '点开另起面板弹窗');
   // 位置：在标题行那组按钮里，「查看面板」在前、「启用/停用」在后。
   assert.ok(
-    first.indexOf('setPublicPanelOpen(true)') < first.indexOf("activePublicRelay ? '' : PUBLIC_RELAYS[0].url"),
+    first.indexOf('setPublicPanelOpen(true)') < first.indexOf('setPublicDisabled('),
     '「查看面板」在启用/停用按钮左侧',
   );
   // 挂在主窗、接收当前在用的那条（标「使用中」）。

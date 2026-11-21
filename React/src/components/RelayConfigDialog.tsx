@@ -141,6 +141,8 @@ export function RelayConfigDialog({
   onSavePreferred,
 }: Props) {
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
+  /** 用户显式停用了公用中转（issue #27）：开窗时按宿主 status 灌，保存时把意图发回去。 */
+  const [publicDisabled, setPublicDisabled] = useState(status.publicRelayDisabled === true)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
   const [manualLanUrl, setManualLanUrl] = useState('')
   /** IPv6 直连地址（`manualIpv6Url`）：手填的公网 IPv6 入口；没填过时先显示探测到的那条。 */
@@ -179,6 +181,7 @@ export function RelayConfigDialog({
   useEffect(() => {
     if (!open) return
     setRelayUrl(status.relayUrl)
+    setPublicDisabled(status.publicRelayDisabled === true)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
 
@@ -227,6 +230,10 @@ export function RelayConfigDialog({
   const activePublicRelay = PUBLIC_RELAYS.find((item) => item.url === relayUrl.trim()) ?? null
   /** 宿主判定公用被强制停用（用户配了公网自建）：地址划删除线、禁用「启用」，只如实展示。 */
   const publicRelayBlocked = status.publicRelayBlocked === true
+  /** 当前公用是否正被使用：可显示为「停用」按钮（被强制停用或用户已显式停用则否）。 */
+  const publicActive = !!activePublicRelay && !publicDisabled && !publicRelayBlocked
+  /** 公用整栏是否处于「已禁用」展示态：自建强制停用，或用户显式停用（issue #27）。 */
+  const publicOff = publicRelayBlocked || publicDisabled
   /** 直连那两条按宿主口径去掉尾部斜杠：它拼出来的是一条候选 URL，多一个 `/` 就多一条重复项。 */
   const trimUrl = (value: string) => value.trim().replace(/\/+$/, '')
 
@@ -238,6 +245,11 @@ export function RelayConfigDialog({
       patch.relayUrls = PUBLIC_RELAYS.map((r) => r.url)
     } else if (relayUrl.trim() !== status.relayUrl) {
       patch.relayUrl = relayUrl.trim()
+    }
+    // 「停用 / 启用公用中转」显式沿用用户的意图（issue #27）：只在这次和落盘的不一致时带上，
+    // 避免每次保存都写一遍。停用时宿主据此不再补回公用地址，跨重启生效。
+    if (publicDisabled !== (status.publicRelayDisabled === true)) {
+      patch.publicRelayDisabled = publicDisabled
     }
     // 手填地址：空串是合法值（= 清掉这一条），所以这里跟 `name` 不一样，只在**真的变了**时带上，
     // 而不是「非空才带」。
@@ -299,14 +311,22 @@ export function RelayConfigDialog({
                         variant="ghost"
                         size="sm"
                         disabled={!canSave || publicRelayBlocked}
-                        onClick={() => setRelayUrl(activePublicRelay ? '' : PUBLIC_RELAYS[0].url)}
+                        onClick={() => {
+                          if (publicActive) {
+                            setPublicDisabled(true)
+                            setRelayUrl('')
+                          } else {
+                            setPublicDisabled(false)
+                            setRelayUrl(PUBLIC_RELAYS[0].url)
+                          }
+                        }}
                       >
-                        {t(activePublicRelay ? 'panel.relay.disablePublic' : 'panel.relay.enablePublic')}
+                        {t(publicActive ? 'panel.relay.disablePublic' : 'panel.relay.enablePublic')}
                       </Button>
                     </div>
                   </div>
                   {/* 停用时只摆一句「已禁用」，不列链接（2026-11-19 用户要求）。 */}
-                  {publicRelayBlocked ? (
+                  {publicOff ? (
                     <Input
                       inputProps={{
                         className: 'text-foreground-muted',
