@@ -1,3 +1,4 @@
+// 主状态版本变化时重读外壳，磁盘版本与外壳当前实现比较。
 /**
  * 「插件更新」卡片：正式 npm 更新状态与手动更新。**自动更新开关不在这张卡里**：2026-11-20
  * 起它挪到顶卡右列（`AutoUpdateSection`），与「自动上报网络地址」同列。
@@ -32,7 +33,7 @@ import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { errorText } from '../lib/api.ts'
 import { useNotify } from '../lib/notify.ts'
@@ -57,7 +58,7 @@ import type { Issue } from './IssueMark.tsx'
 import { t } from '../lib/i18n/index.ts'
 
 type Props = {
-  /** 正在跑的插件版本（`/api/relay/status` 的 appVersion，进程启动时读进内存的）。 */
+  /** 主状态回报的插件版本（`/api/relay/status` 的 appVersion，该代实现加载时读取）。 */
   version: string
   busy: string
   onRestartSidecar: () => void
@@ -118,6 +119,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
   const [caps, setCaps] = useState<MarketCapabilities | null>(null)
   const [update, setUpdate] = useState<UpdateView | null>(null)
   const [working, setWorking] = useState('')
+  const hostRead = useRef(0)
   /**
    * 「某次动作的结果」一律走右上角的胶囊，**不在卡片里铺长条**：卡片里那条 `Alert` 会一直
    * 占着版面，还把「刚才成没成」和「这块的长期状态」混成一种东西。长期状态（没有可换代的
@@ -136,6 +138,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
    */
   const mergeHost = useCallback((next: UpdateStatusView | null) => {
     if (!next) return
+    hostRead.current += 1
     setHost((prev) => ({ ...next, available: next.available === true || prev?.available === true }))
   }, [])
 
@@ -144,8 +147,10 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
 
   /** 读一次宿主状态：能读就进宿主模式；读不到（老宿主没有这四条）就走降级那一半。 */
   const loadHost = useCallback(async () => {
+    const read = ++hostRead.current
     try {
       const next = await updateStatus()
+      if (read !== hostRead.current) return
       setHost(next)
       // 宿主回 `available: false` = 它自己说「这份实现是直接被挂载的，装完没法就地换代」。
       // **这时绝不能把用户往插件市场带**：服务器那台是无头 / 源码同步部署，更新走「同步源码
@@ -153,20 +158,22 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
       // 分支永远进不来，界面上剩下的是「去插件市场更新」。
       setNoShell(next.available !== true)
     } catch (err) {
+      if (read !== hostRead.current) return
       setHost(null)
       // 还剩一种要单独说的情况：宿主明说「这一版没有可换代的外壳」。其余读失败
       // （老宿主 404 / 读到别的错误页）都走降级那一半 —— 那一半自己能查到线上最新是几，
       // 不再需要把读失败的原因摊在界面上。
       setNoShell(updateUnavailable(err))
     } finally {
-      setSettled(true)
+      if (read === hostRead.current) setSettled(true)
     }
   }, [])
 
-  // 进页面读一次；之后换代期间靠轮询（见下）。
+  // 主状态由上层轮询；版本变了也要重读外壳，避免错过后台已经完成的换代。
   useEffect(() => {
     void loadHost()
-  }, [loadHost])
+    return () => { hostRead.current += 1 }
+  }, [loadHost, version])
 
   // 再静默问一次「线上最新是几」。这一格归插件自己（宿主直接问 npm 注册表），所以不管走
   // 哪一半都能填上，不再等外壳去问市场。**静默**：打开页面就弹红框太吵 —— 失败什么都不说，
@@ -174,11 +181,12 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
   useEffect(() => {
     if (!settled) return undefined
     let alive = true
+    const read = hostRead.current
     void updateCheck()
       .then((result) => {
         if (!alive) return
         if (result.update) setUpdate(result.update)
-        if (result.status) mergeHost(result.status)
+        if (result.status && read === hostRead.current) mergeHost(result.status)
       })
       .catch(() => {})
     return () => {
@@ -217,9 +225,10 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
 
   const check = useCallback(async () => {
     setWorking('check')
+    const read = hostRead.current
     try {
       const result = await updateCheck()
-      if (result.status) mergeHost(result.status)
+      if (result.status && read === hostRead.current) mergeHost(result.status)
       // 这一格归插件自己：拿不到就是拿不到（宿主那条会把原因带在 500 的 message 里，
       // 上面 catch 会如实显示）。**不再**借宿主的 marketLastError 说事 —— 那是市场的事。
       if (result.update) setUpdate(result.update)
@@ -268,9 +277,10 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
    */
   const marketOnlyCheck = useCallback(async () => {
     setWorking('check')
+    const read = hostRead.current
     try {
       const result = await updateCheck()
-      if (result.status) mergeHost(result.status)
+      if (result.status && read === hostRead.current) mergeHost(result.status)
       setUpdate(result.update)
     } catch (err) {
       if (!updateEndpointMissing(err)) {
@@ -302,12 +312,11 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
   const hasUpdate = update?.updateAvailable ?? host?.marketResult?.updateAvailable ?? false
   const summary = host?.lastApply ? applyText(host.lastApply) : null
   const shellVersion = host?.version ?? null
-  // 面板报的是进程启动时读进内存的版本，外壳报的是它实际装载的那一代。
+  // 主状态与外壳分别读取，两份快照可能暂时处在换代的两侧。
   const versionsDisagree = hostMode && !!shellVersion && !!version && shellVersion !== version
-  // 盘上装着的版本（市场装完立刻变）和实际跑的版本对不上，就是自动更新装到一半没切干净——
-  // 盘上写了新版、依赖却空着、跑的还是旧版，这种混态原先只看得到「运行中版本」一行。
+  // 盘上版本只与外壳实际装载的实现比较，主状态快照落后不代表安装未完成。
   const diskVersion = host?.installedVersion ?? null
-  const diskDisagree = hostMode && !!diskVersion && !!version && diskVersion !== version
+  const diskDisagree = hostMode && !!diskVersion && !!shellVersion && diskVersion !== shellVersion
 
   // 版本对不上不在正文里铺段落：报给上层，挂到「运行中版本」那行的感叹号上。
   useEffect(() => {
@@ -322,7 +331,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
     if (diskDisagree) {
       issues.push({
         title: t('panel.update.diskVersion'),
-        detail: t('panel.update.diskDrift', { disk: diskVersion ?? '', running: version ?? '' }),
+        detail: t('panel.update.diskDrift', { disk: diskVersion ?? '', running: shellVersion ?? '' }),
       })
     }
     onIssues(issues)
