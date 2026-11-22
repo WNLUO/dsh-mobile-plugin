@@ -17,7 +17,7 @@ import { Input } from '@appica/ui-react/input'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
-import { frpConfig, importFrp, probeDirect, probeRelays, stopFrp, zeroNewsConnect, zeroNewsDisconnect, zeroNewsEndpoints, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
+import { frpConfig, importFrp, probeDirect, probeRelays, stopFrp, zeroNewsConnect, zeroNewsDisconnect, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
@@ -163,10 +163,8 @@ export function RelayConfigDialog({
   const [selfProbe, setSelfProbe] = useState<{ state: 'idle' | 'checking' | 'ok' | 'not-relay' | 'fail'; ms?: number; version?: string }>({ state: 'idle' })
   /** 直连地址的回环检测：打回 service=dsh-mobile-plugin 且 instanceId 与本机一致才算「绕回本机」。 */
   const [directProbe, setDirectProbe] = useState<{ state: 'idle' | 'checking' | 'ok' | 'other' | 'fail' }>({ state: 'idle' })
-  /** 「从 ZeroNews 读取」的结果提示：读到了 / 没装 / 没有隧道，三种都如实说。 */
+  /** ZeroNews 线路操作的结果提示（连接成功 / 失败原因）。 */
   const [zeroNewsNote, setZeroNewsNote] = useState('')
-  /** ZeroNews 读取中：按钮转圈并禁用，避免连点。 */
-  const [zeroNewsBusy, setZeroNewsBusy] = useState(false)
   /** ZeroNews 线路连接 / 断开进行中（整条链要下载+登录+建隧道，可能几分钟）。 */
   const [zeroNewsLinkBusy, setZeroNewsLinkBusy] = useState(false)
   /** 用户「添加地址」自己加进来的局域网候选（网卡没扫到时用）。 */
@@ -238,7 +236,6 @@ export function RelayConfigDialog({
       setSelfProbe({ state: 'idle' })
       setDirectProbe({ state: 'idle' })
       setZeroNewsNote('')
-      setZeroNewsBusy(false)
       setExtraLan([])
       setAddOpen(null)
       setAddDraft('')
@@ -309,34 +306,6 @@ export function RelayConfigDialog({
       }
     } catch {
       setDirectProbe({ state: 'fail' })
-    }
-  }
-
-  /**
-   * 「从 ZeroNews 读取」：让宿主问本机 ZeroNews 客户端已建好的 HTTPS 隧道，把第一条填进直连栏。
-   * 只读、不建隧道、不碰账号。多条时取第一条并在提示里说明有几条；读不到按宿主给的 error 显示。
-   */
-  async function readFromZeroNews() {
-    setZeroNewsBusy(true)
-    setZeroNewsNote('')
-    try {
-      const res = await zeroNewsEndpoints()
-      if (res.ok && Array.isArray(res.urls) && res.urls.length > 0) {
-        editedLanRef.current = true
-        setManualLanUrl(res.urls[0])
-        setDirectProbe({ state: 'idle' })
-        setZeroNewsNote(res.urls.length > 1
-          ? t('panel.zeronews.readOkMultiple', { count: res.urls.length })
-          : t('panel.zeronews.readOk'))
-      } else if (!res.available) {
-        setZeroNewsNote(res.error || t('panel.zeronews.notAvailable'))
-      } else {
-        setZeroNewsNote(t('panel.zeronews.noTunnel'))
-      }
-    } catch (error) {
-      setZeroNewsNote(error instanceof Error ? error.message : String(error))
-    } finally {
-      setZeroNewsBusy(false)
     }
   }
 
@@ -617,10 +586,6 @@ export function RelayConfigDialog({
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
                     <div className="flex items-center gap-1">
-                      {/* 从本机 ZeroNews 客户端读取已建隧道的公网地址填进来；不建隧道、不碰账号。 */}
-                      <Button variant="ghost" size="sm" disabled={!canSave || zeroNewsBusy} onClick={readFromZeroNews}>
-                        {t(zeroNewsBusy ? 'panel.zeronews.reading' : 'panel.zeronews.read')}
-                      </Button>
                       <Button variant="ghost" size="sm" disabled={!canSave || directProbe.state === 'checking'} onClick={checkDirect}>
                         {t(directProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.address.detectLoop')}
                       </Button>

@@ -109,3 +109,10 @@ test('customRoutesOf 归一形状并被 configOf / schema 接纳', () => {
   assert.deepEqual(RemoteControlSettingsSchema({ ...config, name: '' }).customRoutes, rows);
   assert.equal(customRoutesOf(Array.from({ length: 20 }, (_, i) => ({ url: `https://${i}.example.com` }))).length, 16);
 });
+
+test('心跳 /status 也下发通用线路，手机端才能平时看到', () => {
+  const fs = require('node:fs');
+  const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'lib', 'routes', 'mobile-api.js'), 'utf8');
+  assert(/customRoutes: \(\(\) =>/.test(src), '心跳响应带 customRoutes 计算');
+  assert(/state\.zeroNewsUrl/.test(src), '从 zeroNewsUrl 取 ZeroNews 线路');
+});
