@@ -789,3 +789,24 @@ export function frpConfig(): Promise<{ ok: boolean; config: string }> {
 export function probeDirect(url: string): Promise<{ ok: boolean; ms: number | null; service?: string; instanceId?: string; apiVersion?: number }> {
   return apiPost('/api/relay/probe-direct', { url }, { timeoutMs: 6_000 })
 }
+
+/**
+ * 从本机 ZeroNews 客户端读取已建好的 HTTPS 隧道公网地址（`GET /api/relay/zeronews/endpoints`）。
+ *
+ * 宿主是本机 node 进程，读它本地 API 没有面板的跨域问题。只读、不建隧道、不碰账号：
+ * `available=false` 表示本机客户端连不上（没装 / 没起），`ok=true` 但 urls 为空表示客户端在跑、
+ * 只是还没有可用的 HTTPS 隧道。两种情况的提示文案不同，交给调用方区分。
+ */
+export function zeroNewsEndpoints(): Promise<{
+  ok: boolean
+  urls: string[]
+  available: boolean
+  error: string
+}> {
+  return fetch('/api/relay/zeronews/endpoints', { headers: { accept: 'application/json' } })
+    .then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return response.json()
+    })
+    .then((payload) => payload as { ok: boolean; urls: string[]; available: boolean; error: string })
+}

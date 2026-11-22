@@ -870,6 +870,26 @@ test('Cloudflare 停止成功回 ok 并带上当前状态', async () => {
   assert.equal(res.body.running, false);
 });
 
+test('ZeroNews 公网地址路由：本机客户端在跑时回可用隧道，读不到也按 200 如实回', async () => {
+  const nativeRequire = createRequire(CONTROL_PLANE);
+  const registerRoutes = networkRoutesModule(source => source, {
+    require(id) {
+      // 探针结果由注入假体给，测试不依赖本机是否真的装了 ZeroNews。
+      if (id === '../zeronews/probe.cjs') return {
+        readZeroNewsEndpoints: async () => ({ ok: true, urls: ['https://zn.takin.cc'], available: true, error: '' }),
+      };
+      return nativeRequire(id);
+    },
+  });
+  const table = controlRoutes({ state: {}, registerRoutes });
+  const res = {};
+  await table.get('/api/relay/zeronews/endpoints')({}, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.deepEqual(res.body.urls, ['https://zn.takin.cc']);
+  assert.equal(res.body.available, true);
+});
+
 async function probeCleanupContract(mutate) {
   const timers = new Set();
   const registerRoutes = networkRoutesModule(mutate, {
