@@ -132,12 +132,49 @@ DeepSeek Harness 跑在电脑上，但我不是一直坐在电脑前。出门、
 
 公司或产品想支持这个项目的长期维护，见 [赞助与合作页](https://ai-hub.wnluo.com/sponsor)（也可直接发邮件到 <admin@wnluo.com> 说明合作意向）。赞助用于持续的维护与发版；它换来的是鸣谢与沟通渠道，不会解锁功能、不带来特权，也不表示与深度求索存在隶属或背书关系。个人想支持的话，仓库点个 star、App 设置页里的「赞助」入口，或者在[爱发电](https://ifdian.net/a/AI-HUB)支持（微信 / 支付宝都可以）。
 
+## 仓库地图
+
+这一节写给「用 AI 读这个仓库」的人，也写给要改插件的开发者：先在这里定位，再读具体文件，别从仓库根一路翻。把这一节和对应文件一起交给 AI，比让它自己从根目录开始找快得多。
+
+### 目录分工
+
+- `host.js`、`lib/index.js` —— 插件入口与 Cordis 装配。
+- `lib/impl.js` —— 运行时总装：状态、本机服务、各条线路模块都在这儿挂上去。
+- `lib/routes/` —— HTTP 接口。`mobile-api.js` 是手机用的 `/api/mobile/v1/*` 路由表与心跳；`control-plane.js` 是电脑面板用的本机接口。改端点时两端契约要一起看。
+- `lib/mobile/` —— 手机要的数据怎么裁：流式事件、会话投影、审批、推送、配对。
+- `lib/relay/` —— 中转注册、地址上报总控、线路清单、配置与状态落盘。
+- `lib/remote/` —— 远程电脑：绑定、选路、窗口。
+- `lib/zeronews/`、`lib/jdxb/`、`lib/frpc/`、`lib/cloudflared/` —— 已经接好的线路，加新线路照它们的形状写。
+- `lib/panel/` —— 桌面面板的构建产物；源码在 `React/`，只改源码，产物与源码一起提交。
+- `config/` —— 预设、随包技能、扩展清单。
+- `test/` —— `node --test` 的测试，一个文件对一个领域，文件名可以直接当搜索关键词。
+- `docs/` —— 契约与接入文档，见下。
+
+### 文档
+
+- [移动端接口契约](docs/mobile-api-contract.md)：自己实现一个客户端时读这份，配对、加密信封、端点清单。
+- [把一条线路接进插件](docs/line-integration.md)：加新线路要改哪几处、老版本 App 怎么兼容。
+- [手机扩展作者须知](docs/extension-authoring.md)：写手机里的扩展页，包怎么放、怎么和 App 通信。
+- [无头部署](docs/headless-deploy.md)：没有屏幕的服务器上怎么跑、本机接口怎么用。
+- [聊天嵌入页顶部栏](docs/chat-embed.md)：网页插件怎样在手机聊天页保留顶部栏。
+- [远程电脑](docs/remote-computer.md)：从另一台电脑打开这台电脑的完整网页。
+- [更新连续性](docs/update-continuity.md)：自更新时各平台、各线路的行为与验证清单。
+
+### 排查从哪下手
+
+- 手机连不上、选路不对：先看 `lib/relay/` 报给总控的清单和候选顺序，再对照手机上的线路状态；总控只存密文，看不到内容，别从那边猜。
+- 某个接口 404 或参数对不上：对照 `lib/routes/mobile-api.js` 与 App 侧的路径常量，两边同时改。
+- 手机上少了内容、或者流量异常：看 `lib/mobile/` 的裁剪口径，事件里哪些字段不下发都在那儿。
+- 面板上看不到某条线路或某个开关：本机路由和 `React/` 面板都要改，只加状态面板不会出现。
+
 ## 开发
 
 ```sh
 pnpm install --frozen-lockfile
 npm test
 ```
+
+要接一条新线路，先读[把一条线路接进插件](docs/line-integration.md)；它同时写着老版本 App 的兼容口径。
 
 改过 `React/` 面板源码，先在该目录跑 `pnpm run build`，并把生成的 `lib/panel/index.html` 和源码一起提交。
 

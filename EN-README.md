@@ -128,12 +128,49 @@ Privacy policy: [PRIVACY.md](PRIVACY.md). Support and FAQ: [SUPPORT.md](SUPPORT.
 
 Companies or products that want to support the project's long-term maintenance can see the [sponsorship & partnership page](https://ai-hub.wnluo.com/sponsor) — or email <admin@wnluo.com> about working together. Sponsorship funds ongoing maintenance and releases; it buys acknowledgement and a channel to talk, not feature unlocks and not special privileges, and it does not imply any affiliation with, or endorsement by, DeepSeek. Individuals who want to help can star the repository, use the "Donate" entry in the app's settings, or support via [Afdian](https://ifdian.net/a/AI-HUB) (WeChat Pay / Alipay).
 
+## Repository map
+
+For people (and AI) reading this repository: locate things here first, then open the file that matters.
+
+### Layout
+
+- `host.js`, `lib/index.js` — plugin entry and Cordis wiring.
+- `lib/impl.js` — runtime assembly: state, host services and each transport module are mounted here.
+- `lib/routes/` — HTTP endpoints. `mobile-api.js` is the phone-facing `/api/mobile/v1/*` route table and heartbeat; `control-plane.js` is the local API behind the desktop panel. Endpoint changes touch both sides of the contract.
+- `lib/mobile/` — what the phone receives: streaming events, session projection, approvals, push, pairing.
+- `lib/relay/` — relay registration, address reporting to the directory, the route list, config and state on disk.
+- `lib/remote/` — remote computers: binding, route selection, windows.
+- `lib/zeronews/`, `lib/jdxb/`, `lib/frpc/`, `lib/cloudflared/` — the routes already wired in; copy their shape for a new one.
+- `lib/panel/` — built desktop panel; the source lives in `React/`. Change the source and commit both.
+- `config/` — presets, bundled skills, extension catalog.
+- `test/` — `node --test`, one file per area; filenames work as search keywords.
+- `docs/` — contracts and integration guides, listed below.
+
+### Docs
+
+- [Mobile API contract](docs/mobile-api-contract.md): read this before writing your own client — pairing, sealed envelopes, endpoint list.
+- [Integrating a route](docs/line-integration.md): what to change for a new route and how old App versions stay compatible.
+- [Mobile extension authoring](docs/extension-authoring.md): writing an extension page, how the package is laid out, how it talks to the App.
+- [Headless deployment](docs/headless-deploy.md): running on a server with no display, and the local endpoints.
+- [Keeping the chat top bar](docs/chat-embed.md): how a web plugin keeps the top bar on the phone's chat page.
+- [Remote computers](docs/remote-computer.md): opening this machine's full web UI from another computer.
+- [Update continuity](docs/update-continuity.md): what each platform and route does during a self-update.
+
+### Where to start debugging
+
+- Phone cannot connect, or route selection looks wrong: start with what `lib/relay/` reports to the directory and how candidates are ordered; the directory only stores ciphertext, so do not try to read the addresses there.
+- An endpoint returns 404 or rejects a parameter: compare `lib/routes/mobile-api.js` with the App's path constants and change both.
+- The phone is missing content, or traffic looks wrong: see the trimming rules under `lib/mobile/` for which event fields are not sent.
+- A route or toggle does not show up in the panel: the local route and the `React/` panel both need the change; state alone does not render.
+
 ## Development
 
 ```sh
 pnpm install --frozen-lockfile
 npm test
 ```
+
+Adding a route? Read [Integrating a route](docs/line-integration.md) first; it also covers old App versions.
 
 If you changed anything under `React/`, run `pnpm run build` there first and commit the generated `lib/panel/index.html` together with the source.
 
