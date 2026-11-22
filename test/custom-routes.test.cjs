@@ -56,6 +56,16 @@ test('坏线路、重复地址不进信；transport 只认 tcp，其余按 http'
   assert.equal(custom[1].transport, 'http', '不认识的 transport 按 http');
 });
 
+test('ZeroNews 隧道作为通用线路上报，同时保留 direct 给老手机', () => {
+  const url = 'https://tunnel.example.takin.cc';
+  const state = { ...bare, lanEnabled: true, manualLanUrl: url, zeroNewsUrl: `${url}/` };
+  const list = controlAddresses(state, 18787, '');
+  const custom = list.filter((a) => a.kind === 'custom');
+  assert.equal(custom.length, 1);
+  assert.deepEqual({ ...custom[0] }, { kind: 'custom', url, name: 'ZeroNews', transport: 'http' });
+  assert(list.some((a) => a.kind === 'direct' && a.url === url), '老的 direct 那格仍在，未升级的手机照旧能读');
+});
+
 test('customRoutesOf 归一形状并被 configOf / schema 接纳', () => {
   const rows = customRoutesOf([
     { url: 'https://a.example.com', name: '  名字  ', transport: 'tcp' },
