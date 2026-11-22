@@ -848,14 +848,10 @@ export function RelayConfigDialog({
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                       <FieldLabel htmlFor="relay-frp">{t('panel.frp.manageTitle')}</FieldLabel>
-                      <span className="text-xs text-foreground-muted">
-                        {status.frp?.running ? t('panel.frp.statusRun') : t('panel.frp.statusStop')}
-                        {status.frp?.error ? ` · ${status.frp.error}` : ''}
-                      </span>
                       {probeNote(frpProbe)}
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="outline" size="sm" onClick={() => { void loadFrpConfig(); setFrpDialogOpen(true) }}>
+                      <Button variant="ghost" size="sm" onClick={() => { void loadFrpConfig(); setFrpDialogOpen(true) }}>
                         {t('panel.frp.import')}
                       </Button>
                       <Button
