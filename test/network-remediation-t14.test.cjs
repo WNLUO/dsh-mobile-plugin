@@ -86,32 +86,16 @@ const button = (root, key) => nodes(root, 'Button').find((item) => JSON.stringif
 const STATUS = { enabled: true, relayUrl: '', name: 'host', tunnel: { state: 'off' }, lan: { state: 'listening', port: 18787 }, sidecar: {}, mirror: {}, pairingPolicy: 'code' };
 const BOOK = { port: 18787, lan: [], public: [], ipv6: [], manualTcp: '' };
 
-async function parentDraftContract(mutate) {
-  const calls = [];
-  const env = component('components/RelayConfigDialog.tsx', 'RelayConfigDialog', {}, {}, mutate);
-  let props = { open: true, status: STATUS, addressBook: BOOK, lanUrls: [], busy: '', onOpenChange() {}, onSave: (...args) => calls.push(args), onSavePreferred() {} };
-  let tree = env.render(props); env.flush(); tree = env.render(props);
-  nodes(tree, 'FrpImportDialog')[0].props.onImport({ field: 'tcp', value: 'example.com:22', config: 'CONFIG' });
-  tree = env.render(props);
-  assert.equal(calls.length, 0, '子窗填入不可调用父保存');
-  props = { ...props, open: false }; env.render(props); env.flush();
-  props = { ...props, open: true }; env.render(props); env.flush(); tree = env.render(props);
-  button(tree, 'panel.relay.saveConfig').props.onClick();
-  assert.equal(calls[0][1], undefined, '取消后重开保存不得带旧导入');
-  nodes(tree, 'FrpImportDialog')[0].props.onImport({ field: 'tcp', value: 'example.com:22', config: 'CONFIG' });
-  tree = env.render(props);
-  nodes(tree, 'Input').find((item) => item.props.inputProps?.id === 'relay-manual-tcp').props.onChange({ target: { value: 'example.com:6001' } });
-  tree = env.render(props);
-  button(tree, 'panel.relay.saveConfig').props.onClick();
-  assert.equal(calls[1][1]?.config, 'CONFIG', '手改推断端口仍须启动已导入配置');
-  assert.equal(calls[1][0].manualTcpUrl, 'example.com:6001');
-}
-test('PLUG-30 父窗取消丢弃导入，只有保存才提交配置', runtimeOptions, () => parentDraftContract());
-test('变异：去掉父窗关闭清理会被取消契约拒绝', runtimeOptions, async () => {
-  await assert.rejects(parentDraftContract((source) => source.replace('setPendingFrp(undefined)', 'void 0')), assert.AssertionError);
-});
-test('变异：手改地址清导入会被父保存启动契约拒绝', runtimeOptions, async () => {
-  await assert.rejects(parentDraftContract((source) => source.replace('setManualTcpUrl(event.target.value)', 'setPendingFrp(undefined); setManualTcpUrl(event.target.value)')), assert.AssertionError);
+test('PLUG-30 合约变更：FRP 改独立「导入」弹窗，保存即时启动（不再暂存父窗）', runtimeOptions, () => {
+  // 2026-11-22 需求变更：FRP 从「TCP 栏的导入 + 父窗保存才启动」改成独立分区的「导入」弹窗，
+  // 弹窗里粘贴配置并点「保存并启动」即调用 importFrp；不再有 pendingFrp / FrpImportDialog 那套
+  // 暂存到父窗保存的链路。
+  const dialog = text('components/RelayConfigDialog.tsx');
+  assert.match(dialog, /setFrpDialogOpen\(true\)/, '导入按钮打开 FRP 弹窗');
+  assert.match(dialog, /<textarea[\s\S]*?value=\{frpText\}/, '弹窗内粘贴 frpc 配置');
+  assert.match(dialog, /saveFrp/, '保存并启动走 saveFrp');
+  assert.ok(!/pendingFrp/.test(dialog), '不再把导入结果暂存到父窗保存');
+  assert.ok(!/<FrpImportDialog/.test(dialog), '父窗不再渲染解析式导入弹窗');
 });
 
 test('PLUG-29/30 子窗执行纯解析，INI 提示且不回填，JSON 保留到父保存', runtimeOptions, () => {

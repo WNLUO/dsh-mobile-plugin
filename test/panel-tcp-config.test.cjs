@@ -53,27 +53,24 @@ test('TCP 那两栏文案在十门语言里都有', () => {
   }
 });
 
-test('TCP 栏右侧有「FRP 导入」按钮，能开导入弹窗并回填地址', () => {
+test('TCP 栏右侧是「检测」：回环命中本机才算通', () => {
+  // 2026-11-22 需求变更：TCP 那栏原来放「FRP 导入」，现在 FRP 挪到独立分区走「导入」弹窗，
+  // TCP 栏改成一颗统一的「检测」按钮（跑回环探测，命中本机插件才算通）。
   const dialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
-  assert.match(dialog, /panel\.address\.frpImport/, 'TCP 栏右侧要有「FRP 导入」按钮');
-  assert.match(dialog, /setFrpImportOpen\(true\)/, '点按钮要能打开导入弹窗');
-  assert.match(dialog, /<FrpImportDialog/, '要渲染导入弹窗');
-  assert.match(dialog, /setManualTcpUrl\(result\.value\)/, 'tcp 结果回填「TCP 直连地址」');
-  assert.match(dialog, /setManualLanUrl\(result\.value\)/, 'https 结果回填「直连地址」');
+  assert.match(dialog, /probeLoop\(manualTcpUrl, setTcpProbe\)/, 'TCP 栏的检测按钮跑回环探测');
+  assert.ok(!/panel\.address\.frpImport/.test(dialog), 'TCP 栏不再有「FRP 导入」按钮');
 });
 
-test('导入弹窗用纯解析函数，并把结果交回调用方', () => {
-  const component = read('React', 'src', 'components', 'FrpImportDialog.tsx');
-  assert.match(component, /parseFrpConfig/, '解析走纯函数，不在这里手搓');
-  // PLUG-30 要求父窗取消可撤销：子窗不能再立即启动，启动只在父保存链路。
-  assert.doesNotMatch(component, /importFrp\(/, '子窗解析不得产生宿主副作用');
-  assert.match(component, /onImport\(\{ field: parsed\.field, value,/, '识别成功后把栏位、值及配置交回去');
-  assert.match(component, /panel\.frp\.iniUnsupported/, 'INI 明确提示不能运行');
-  const parent = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
-  assert.match(parent, /setPendingFrp\(undefined\)/, '父窗关闭清除暂存');
-  assert.match(parent, /onSave\(patch, pendingFrp\)/, '只有保存才交付暂存配置');
-  const consoleSrc = read('React', 'src', 'Console.tsx');
-  assert.match(consoleSrc, /if \(frpConfig\) \{[\s\S]*?await importFrp\(frpConfig\.config\)/, '父保存才调用启动');
+test('FRP 走「导入」弹窗：粘配置、保存并启动，父窗不再直接摊配置框', () => {
+  // 2026-11-22 需求变更：FRP 不再在主窗直接摊一大块编辑框，改成「导入」按钮开弹窗、粘配置保存。
+  const dialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(dialog, /panel\.frp\.import/, 'FRP 区要有「导入」按钮');
+  assert.match(dialog, /setFrpDialogOpen\(true\)/, '点导入开配置弹窗');
+  assert.match(dialog, /<textarea[\s\S]*?value=\{frpText\}/, '弹窗里粘 frpc 配置');
+  assert.match(dialog, /saveFrp/, '保存并启动走 saveFrp');
+  assert.match(dialog, /panel\.frp\.manageTitle/, 'FRP 区仍在');
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  assert.equal(panel.split("'panel.frp.import':").length - 1, 10, '导入文案十门齐');
 });
 
 test('连接状态卡里也有「TCP 直连」一行：配了显示已配置+地址，没配显示未配置', () => {

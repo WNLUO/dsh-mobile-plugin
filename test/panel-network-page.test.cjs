@@ -38,7 +38,8 @@ test('明文 http 的直连 / 自建中转给出 iPhone ATS 提醒', () => {
 
 test('直连地址回环检测：打回宿主自己（service=dsh-mobile-plugin 且 instanceId 一致）', () => {
   const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
-  assert.match(page, /async function checkDirect/, '要有直连回环检测函数');
+  // 2026-11-22：检测抽成通用 probeLoop（各栏共用同一套回环口径），判据不变。
+  assert.match(page, /async function probeLoop/, '要有回环检测函数');
   assert.match(page, /hit\.service === 'dsh-mobile-plugin'/, '要认宿主自己的服务标识');
   assert.match(page, /hit\.instanceId === status\.instanceId/, 'instanceId 与本机一致才算绕回本机');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
@@ -101,15 +102,17 @@ test('宿主把公网 IPv4 单列一格并缀进候选（地址库与手机候�
   assert.match(read('lib', 'relay', 'pairing-payload.cjs'), /withManualIpv4Candidate/, '二维码候选也要带上');
 });
 
-test('网络配置页按分组重构：中转 / 直连 / 局域网与 IPv6 / FRP / ZeroNews 分区', () => {
+test('网络配置页分区：不再分「中转 / 直连 / 局域网与 IPv6 / FRP」四段大标题，只留 ZeroNews 一段', () => {
+  // 2026-11-22 需求变更：用户要求去掉「中转 / 直连 / 局域网与 IPv6 / FRP 直连」这些会产生歧义的
+  // 大标题，字段直接平铺；ZeroNews 线路仍单独成段。区块容器仍是 5 个 section。
   const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
-  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp', 'panel.zeronews.section']) {
-    assert.ok(page.includes(`'${key}'`), `要有分组标题 ${key}`);
+  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp']) {
+    assert.ok(!page.includes(`'${key}'`), `不再渲染分组标题 ${key}`);
   }
-  // 五个分组：原有四段 + ZeroNews 线路（厂商现行流程浏览器登录，不用 token）。
-  assert.equal((page.match(/<section/g) || []).length, 5, '五个分组 section');
-  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
-  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp', 'panel.zeronews.section']) {
-    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+  assert.ok(page.includes("'panel.zeronews.section'"), 'ZeroNews 仍然单独一段');
+  assert.equal((page.match(/<section/g) || []).length, 5, '五个区块 section');
+  // 四入口标题改成不歧义的短名（直连 / TCP 直连 / IPv4 / IPv6）。
+  for (const key of ['panel.address.direct', 'panel.address.tcp', 'panel.address.ipv4Url', 'panel.address.ipv6Url']) {
+    assert.ok(page.includes(`'${key}'`), `要有字段 ${key}`);
   }
 });

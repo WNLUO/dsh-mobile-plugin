@@ -133,12 +133,10 @@ test('网络配置弹窗：两列一屏、公用中转内置清单、局域网�
   assert.match(dialog, /PUBLIC_RELAYS\.map\(/, '内置公用地址要在主窗第一栏列出来');
   assert.match(dialog, /readOnly: true/, '内置地址只读');
   assert.ok(!/relayPickerOpen/.test(dialog), '「选择公用中转」清单弹窗已撤，别留下状态');
-  // 局域网地址同样收进弹窗：一台机器可能好几条网卡地址，条数不许影响主窗尺寸。
-  assert.match(dialog, /onClick=\{\(\) => setLanPickerOpen\(true\)\}/, '局域网地址要有「选择地址」按钮');
-  assert.ok(
-    dialog.indexOf('setLanPickerOpen(true)') < dialog.indexOf('<AddressPicker'),
-    '地址选择器只能在弹窗里，不能直接摊在主窗',
-  );
+  // 2026-11-22 需求变更：局域网地址直接用栏内下拉（AddressCombo）选，用户要求撤掉多余的
+  // 「选择地址」按钮 —— 下拉本来就能选，那颗按钮纯占位。这里反过来钉「不再有那颗按钮」。
+  assert.ok(!/panel\.onboarding\.chooseAddress/.test(dialog), '局域网那栏不再有「选择地址」按钮');
+  assert.match(dialog, /id="relay-preferred-lan"/, '局域网地址仍走栏内下拉选择');
   // 局域网直连开关已撤（基本能力，不该是开关）；host 那份 lanEnabled 配置不动。
   assert.ok(!/setLanEnabled|checked=\{lanEnabled\}/.test(dialog), '网络配置弹窗里又出现了「局域网直连」开关');
   // 配对策略这颗开关已经搬到「配对与二维码」的「配对策略」那行（2026-11-02）：

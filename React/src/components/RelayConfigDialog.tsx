@@ -1,4 +1,7 @@
-// FRP 子窗结果暂存到父窗保存，地址错误可重取，健康探测包含当前自建中转。
+// 2026-11-22：网络配置页去掉「中转 / 直连 / 局域网与 IPv6 / FRP」大标题，字段平铺；各栏统一一颗
+// 「检测」按钮（回环命中本机才算通，http 与 主机:端口 两种目标都验 instanceId）；FRP 改「导入」弹窗；
+// ZeroNews 压缩成一行标题 + 右侧提示。地址错误可重取，健康探测包含当前自建中转。
+// FRP 配置在弹窗里粘贴后直接「保存并启动」，不再暂存到父窗保存。
 // 2026-11-22：网络配置由弹窗改为独立一页（用户要求）；TCP 那格只收「主机:端口」，填了 scheme 提示去「直连地址」并拦下保存。
 // Cloudflare 兜底的开关与状态行已挪到 ConnectionCard + CloudflareDialog，这里不再重复一份。
 import { Button, buttonVariants } from '@appica/ui-react/button'
@@ -21,10 +24,11 @@ import { frpConfig, importFrp, probeDirect, probeRelays, stopFrp, zeroNewsConnec
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
-import { FrpImportDialog } from './FrpImportDialog.tsx'
 import { PublicRelayPanelDialog } from './PublicRelayPanelDialog.tsx'
 
 type ComboOption = { value: string; label: string }
+/** 一颗「检测」按钮（回环命中本机）的结果状态。 */
+type ProbeState = { state: 'idle' | 'checking' | 'ok' | 'other' | 'fail' }
 
 /**
  * 带候选下拉的地址输入框。
@@ -162,7 +166,13 @@ export function RelayConfigDialog({
   /** 自建中转的检测结果：用宿主已有的 /api/relay/probe-relays 确认「是不是我们的中转」并取版本、延迟。 */
   const [selfProbe, setSelfProbe] = useState<{ state: 'idle' | 'checking' | 'ok' | 'not-relay' | 'fail'; ms?: number; version?: string }>({ state: 'idle' })
   /** 直连地址的回环检测：打回 service=dsh-mobile-plugin 且 instanceId 与本机一致才算「绕回本机」。 */
-  const [directProbe, setDirectProbe] = useState<{ state: 'idle' | 'checking' | 'ok' | 'other' | 'fail' }>({ state: 'idle' })
+  const [directProbe, setDirectProbe] = useState<ProbeState>({ state: 'idle' })
+  /** TCP 直连 / 局域网 / IPv4 / IPv6 / FRP 各自的回环检测结果（同一套判据）。 */
+  const [tcpProbe, setTcpProbe] = useState<ProbeState>({ state: 'idle' })
+  const [lanProbe, setLanProbe] = useState<ProbeState>({ state: 'idle' })
+  const [ipv4Probe, setIpv4Probe] = useState<ProbeState>({ state: 'idle' })
+  const [ipv6Probe, setIpv6Probe] = useState<ProbeState>({ state: 'idle' })
+  const [frpProbe, setFrpProbe] = useState<ProbeState>({ state: 'idle' })
   /** ZeroNews 线路操作的结果提示（连接成功 / 失败原因）。 */
   const [zeroNewsNote, setZeroNewsNote] = useState('')
   /** ZeroNews 线路连接 / 断开进行中（整条链要下载+登录+建隧道，可能几分钟）。 */
@@ -173,10 +183,11 @@ export function RelayConfigDialog({
   const [addOpen, setAddOpen] = useState<'lan' | 'ipv6' | null>(null)
   const [addDraft, setAddDraft] = useState('')
   const [addError, setAddError] = useState('')
-  /** FRP 直连管理：配置文本、忙、反馈。 */
+  /** FRP 管理：配置文本、忙、反馈，以及「导入配置」弹窗开关。 */
   const [frpText, setFrpText] = useState('')
   const [frpBusy, setFrpBusy] = useState('')
   const [frpNote, setFrpNote] = useState('')
+  const [frpDialogOpen, setFrpDialogOpen] = useState(false)
   /**
    * 局域网地址（`preferredLanAddress`）：**可手填**，不再只让用户从检测到的那几条里挑。
    * 机器有好几块网卡、想直接敲一条地址时用得上；填错了拦在保存那儿（见 `unknownLan`）。
@@ -186,9 +197,6 @@ export function RelayConfigDialog({
   const [lanHint, setLanHint] = useState('')
   /** 「选择局域网地址」弹窗开着没有。 */
   const [lanPickerOpen, setLanPickerOpen] = useState(false)
-  /** 「FRP 导入」弹窗开着没有。 */
-  const [frpImportOpen, setFrpImportOpen] = useState(false)
-  const [pendingFrp, setPendingFrp] = useState<{ config: string; field: 'tcp' | 'direct'; value: string } | undefined>()
   /** 「公用中转面板」弹窗开着没有：查看各条入口的延迟与心电图。 */
   const [publicPanelOpen, setPublicPanelOpen] = useState(false)
   /** 子弹窗的落焦目标：清单让焦点落在容器上，别一开窗就圈住第一行。 */
@@ -217,8 +225,7 @@ export function RelayConfigDialog({
   useEffect(() => {
     if (open) return
     setLanPickerOpen(false)
-    setFrpImportOpen(false)
-    setPendingFrp(undefined)
+    setFrpDialogOpen(false)
   }, [open])
 
   // 地址库是开窗之后才取回来的（App 那边是异步的），所以手填的两条单独跟它走：
@@ -235,6 +242,11 @@ export function RelayConfigDialog({
       setTcpHint('')
       setSelfProbe({ state: 'idle' })
       setDirectProbe({ state: 'idle' })
+      setTcpProbe({ state: 'idle' })
+      setLanProbe({ state: 'idle' })
+      setIpv4Probe({ state: 'idle' })
+      setIpv6Probe({ state: 'idle' })
+      setFrpProbe({ state: 'idle' })
       setZeroNewsNote('')
       setExtraLan([])
       setAddOpen(null)
@@ -292,21 +304,46 @@ export function RelayConfigDialog({
     }
   }
 
-  /** 探直连地址：它应当打回宿主自己（service=dsh-mobile-plugin 且 instanceId 与本机一致）。 */
-  async function checkDirect() {
-    const url = trimUrl(manualLanUrl)
-    if (!/^https?:\/\//i.test(url)) { setDirectProbe({ state: 'fail' }); return }
-    setDirectProbe({ state: 'checking' })
+  /** 回环探测：把地址打到「本机插件」上，只有 service=dsh-mobile-plugin 且 instanceId 一致才算通。 */
+  async function probeLoop(target: string, setter: (next: ProbeState) => void) {
+    const url = trimUrl(target)
+    if (!url) { setter({ state: 'fail' }); return }
+    setter({ state: 'checking' })
     try {
       const hit = await probeDirect(url)
       if (hit && typeof hit.ms === 'number' && hit.service === 'dsh-mobile-plugin') {
-        setDirectProbe({ state: hit.instanceId && hit.instanceId === status.instanceId ? 'ok' : 'other' })
+        setter({ state: hit.instanceId && hit.instanceId === status.instanceId ? 'ok' : 'other' })
       } else {
-        setDirectProbe({ state: 'fail' })
+        setter({ state: 'fail' })
       }
     } catch {
-      setDirectProbe({ state: 'fail' })
+      setter({ state: 'fail' })
     }
+  }
+
+  /** 局域网那栏存的是裸地址（如 192.168.1.20），探测前补成可拨的 URL。 */
+  function lanProbeTarget(value: string): string {
+    const v = value.trim()
+    if (!v) return ''
+    if (/^https?:\/\//i.test(v)) return v
+    const entry = pickableAddresses.find((item) => item.address === v)
+    if (entry?.url) return entry.url
+    if (/^\[?[0-9a-fA-F:.]+\]?:\d+$/.test(v)) return `http://${v}`
+    return `http://${v}:${status.lan.port}`
+  }
+
+  /** 一颗「检测」结论行的统一渲染（回环命中本机 / 连得上不是本机 / 连不上）。 */
+  function probeNote(probe: ProbeState) {
+    if (probe.state === 'idle') return null
+    const text = probe.state === 'checking'
+      ? t('panel.relay.detecting')
+      : probe.state === 'ok'
+        ? t('panel.address.detectLoopOk')
+        : probe.state === 'other'
+          ? t('panel.address.detectLoopOther')
+          : t('panel.address.detectLoopFail')
+    const tone = probe.state === 'ok' ? 'text-success' : probe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'
+    return <p className={`text-xs ${tone}`}>{text}</p>
   }
 
   /**
@@ -445,7 +482,7 @@ export function RelayConfigDialog({
       }
       patch.preferredLanAddress = wantedLan
     }
-    onSave(patch, pendingFrp)
+    onSave(patch)
   }
 
   if (!open) return null
@@ -468,7 +505,6 @@ export function RelayConfigDialog({
             每项增减都会自动重排、两列行数均衡；窄窗口自动收成一列。 */}
         <div className="flex flex-col gap-5 p-4">
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.network.secRelay')}</h3>
             <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
               {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。
                   标题右侧两颗文字按钮：「查看面板」在左、「启用 / 停用」在右（2026-11-19 用户要求）。
@@ -580,16 +616,18 @@ export function RelayConfigDialog({
           </section>
 
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.network.secDirect')}</h3>
             <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" disabled={!canSave || directProbe.state === 'checking'} onClick={checkDirect}>
-                        {t(directProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.address.detectLoop')}
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!canSave || directProbe.state === 'checking'}
+                      onClick={() => probeLoop(manualLanUrl, setDirectProbe)}
+                    >
+                      {t(directProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                    </Button>
                   </div>
                   <Input
                     inputProps={{ id: 'relay-manual-lan', className: 'font-mono' }}
@@ -604,29 +642,22 @@ export function RelayConfigDialog({
                   {/^http:\/\//i.test(trimUrl(manualLanUrl)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
-                  <p className="text-xs text-foreground-muted">{t('panel.address.directIpv4Hint')}</p>
                   {zeroNewsNote ? <p className="text-xs text-foreground-muted">{zeroNewsNote}</p> : null}
-                  {directProbe.state === 'idle' ? null : (
-                    <p className={`text-xs ${directProbe.state === 'ok' ? 'text-success' : directProbe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'}`}>
-                      {directProbe.state === 'checking'
-                        ? t('panel.relay.detecting')
-                        : directProbe.state === 'ok'
-                          ? t('panel.address.detectLoopOk')
-                          : directProbe.state === 'other'
-                            ? t('panel.address.detectLoopOther')
-                            : t('panel.address.detectLoopFail')}
-                    </p>
-                  )}
+                  {probeNote(directProbe)}
                 </Field>
 
                 <Field>
                   {/* TCP 直连：手机用裸 TCP 拨的目标（iOS 经本机回环绕 ATS、安卓直连）。
-                      与上面的直连地址是两条独立入口，互不覆盖。右侧「FRP 导入」把 frpc 配置里的
-                      公网入口解析出来直接填进来，省得用户自己算。 */}
+                      与上面的直连地址是两条独立入口，互不覆盖。 */}
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-manual-tcp">{t('panel.address.tcp')}</FieldLabel>
-                    <Button variant="ghost" size="sm" onClick={() => setFrpImportOpen(true)}>
-                      {t('panel.address.frpImport')}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!canSave || tcpProbe.state === 'checking'}
+                      onClick={() => probeLoop(manualTcpUrl, setTcpProbe)}
+                    >
+                      {t(tcpProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
                     </Button>
                   </div>
                   <Input
@@ -636,28 +667,34 @@ export function RelayConfigDialog({
                     onChange={(event) => {
                       editedTcpRef.current = true
                       setManualTcpUrl(event.target.value)
+                      setTcpProbe({ state: 'idle' })
                       // 填了带 scheme 的地址（尤其 https://）就当场提示：这格是明文通道，
-                      // 要走 TLS 得填到上面的「直连地址」。保存时还会再拦一次。
+                      // 要走 TLS 得填到上面的「直连」。保存时还会再拦一次。
                       setTcpHint(/^[a-z][a-z0-9+.-]*:\/\//i.test(event.target.value.trim())
                         ? t('panel.address.tcpSchemeHint')
                         : '')
                     }}
                   />
                   {tcpHint ? <p className="text-xs text-error">{tcpHint}</p> : null}
+                  {probeNote(tcpProbe)}
                 </Field>
             </div>
           </section>
 
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.network.secLocal')}</h3>
             <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
-                {/* 局域网地址：只能从检测到的地址里选（不手填），网卡取不到时可「添加地址」。 */}
+                {/* 局域网地址：下拉直接选（不手填），网卡取不到时可「添加地址」；可点「检测」回环验证。 */}
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => setLanPickerOpen(true)}>
-                        {t('panel.onboarding.chooseAddress')}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canSave || lanProbe.state === 'checking'}
+                        onClick={() => probeLoop(lanProbeTarget(preferredLan), setLanProbe)}
+                      >
+                        {t(lanProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('lan') }}>
                         {t('panel.address.add')}
@@ -688,10 +725,21 @@ export function RelayConfigDialog({
                       <Button variant="ghost" size="sm" onClick={onRetryAddresses}>{t('panel.address.retry')}</Button>
                     </p>
                   ) : null}
+                  {probeNote(lanProbe)}
                 </Field>
 
                 <Field>
-                  <FieldLabel htmlFor="relay-manual-ipv4">{t('panel.address.ipv4Url')}</FieldLabel>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <FieldLabel htmlFor="relay-manual-ipv4">{t('panel.address.ipv4Url')}</FieldLabel>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!canSave || ipv4Probe.state === 'checking'}
+                      onClick={() => probeLoop(manualIpv4Url, setIpv4Probe)}
+                    >
+                      {t(ipv4Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                    </Button>
+                  </div>
                   <Input
                     inputProps={{ id: 'relay-manual-ipv4', className: 'font-mono' }}
                     value={manualIpv4Url}
@@ -699,19 +747,31 @@ export function RelayConfigDialog({
                     onChange={(event) => {
                       editedIpv4Ref.current = true
                       setManualIpv4Url(event.target.value)
+                      setIpv4Probe({ state: 'idle' })
                     }}
                   />
                   {/^http:\/\//i.test(trimUrl(manualIpv4Url)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
+                  {probeNote(ipv4Probe)}
                 </Field>
 
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
-                    <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv6') }}>
-                      {t('panel.address.add')}
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canSave || ipv6Probe.state === 'checking'}
+                        onClick={() => probeLoop(manualIpv6Url, setIpv6Probe)}
+                      >
+                        {t(ipv6Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv6') }}>
+                        {t('panel.address.add')}
+                      </Button>
+                    </div>
                   </div>
                   {/* 探测到的 IPv6 挂成候选：点箭头挑一条，不能手敲；没有时用「添加地址」。 */}
                   <AddressCombo
@@ -728,65 +788,68 @@ export function RelayConfigDialog({
                     onChange={(value) => {
                       editedIpv6Ref.current = true
                       setManualIpv6Url(value)
+                      setIpv6Probe({ state: 'idle' })
                     }}
                   />
+                  {probeNote(ipv6Probe)}
                 </Field>
             </div>
           </section>
 
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.network.secFrp')}</h3>
-            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4">
-                {/* FRP 直连管理：把内置 frpc 的配置、启停、运行状态搬过来，替代只做一次导入。 */}
-                <Field className="col-span-full border-t border-border-muted pt-3">
-                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                    <FieldLabel>{t('panel.frp.manageTitle')}</FieldLabel>
-                    <span className="text-xs text-foreground-muted">
-                      {status.frp?.running ? t('panel.frp.statusRun') : t('panel.frp.statusStop')}
-                      {status.frp?.running && status.frp?.remoteAddress ? ` · ${status.frp.remoteAddress}` : ''}
-                      {status.frp?.error ? ` · ${status.frp.error}` : ''}
-                    </span>
-                  </div>
-                  <textarea
-                    className="min-h-24 w-full rounded-md border border-border bg-background p-2 font-mono text-xs text-foreground focus-visible:outline-none"
-                    value={frpText}
-                    placeholder={t('panel.frp.configLabel')}
-                    onChange={(event) => setFrpText(event.target.value)}
-                  />
-                  {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
-                  <div className="mt-2 flex justify-end gap-2">
-                    <Button variant="outline" size="sm" disabled={frpBusy !== '' || !frpText.trim()} onClick={saveFrp}>
-                      {t('panel.frp.saveStart')}
-                    </Button>
-                    <Button variant="ghost" size="sm" disabled={frpBusy !== ''} onClick={stopFrpNow}>
-                      {t('panel.frp.stop')}
-                    </Button>
-                  </div>
-                </Field>
-            </div>
-          </section>
-
-          <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.zeronews.section')}</h3>
-            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4">
-              {/* ZeroNews 线路：插件自动下载客户端、拉浏览器登录、建隧道；厂商现行流程不用 token。 */}
-              <Field className="col-span-full border-t border-border-muted pt-3">
-                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                  <FieldLabel>{t('panel.zeronews.linkTitle')}</FieldLabel>
+            <Field className="border-t border-border-muted pt-3">
+              {/* FRP 不再直接摊开配置框：状态一栏，配置走「导入」弹窗里粘（2026-11-22 用户要求）。 */}
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <div className="flex items-baseline gap-2">
+                  <FieldLabel>{t('panel.frp.manageTitle')}</FieldLabel>
                   <span className="text-xs text-foreground-muted">
-                    {status.zeroNews?.phase === 'connected'
-                      ? t('panel.zeronews.linkOn', { url: status.zeroNews.url })
-                      : status.zeroNews?.phase === 'error'
-                        ? t('panel.zeronews.linkError')
-                        : status.zeroNews?.phase && status.zeroNews.phase !== 'off'
-                          ? t('panel.zeronews.linkBusy')
-                          : t('panel.zeronews.linkOff')}
+                    {status.frp?.running ? t('panel.frp.statusRun') : t('panel.frp.statusStop')}
+                    {status.frp?.running && status.frp?.remoteAddress ? ` · ${status.frp.remoteAddress}` : ''}
+                    {status.frp?.error ? ` · ${status.frp.error}` : ''}
                   </span>
                 </div>
-                <p className="mb-2 text-xs text-foreground-muted">{t('panel.zeronews.linkHint')}</p>
-                {status.zeroNews?.error ? <p className="mb-2 text-xs text-error">{status.zeroNews.error}</p> : null}
-                {zeroNewsNote ? <p className="mb-2 text-xs text-error">{zeroNewsNote}</p> : null}
-                <div className="mt-2 flex justify-end gap-2">
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!canSave || frpProbe.state === 'checking' || !status.frp?.remoteAddress}
+                    onClick={() => probeLoop(status.frp?.remoteAddress || '', setFrpProbe)}
+                  >
+                    {t(frpProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => { void loadFrpConfig(); setFrpDialogOpen(true) }}>
+                    {t('panel.frp.import')}
+                  </Button>
+                </div>
+              </div>
+              {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
+              {probeNote(frpProbe)}
+            </Field>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <Field className="border-t border-border-muted pt-3">
+              {/* 标题 + 登录流程提示同一行，节省竖向空间（2026-11-22 用户要求）。 */}
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <FieldLabel>{t('panel.zeronews.section')}</FieldLabel>
+                <span className="max-w-[62%] text-right text-xs leading-tight text-foreground-muted">
+                  {t('panel.zeronews.linkHint')}
+                </span>
+              </div>
+              {status.zeroNews?.error ? <p className="mt-1 text-xs text-error">{status.zeroNews.error}</p> : null}
+              {zeroNewsNote ? <p className="mt-1 text-xs text-error">{zeroNewsNote}</p> : null}
+              {/* 已连接 / 地址左对齐，连接 / 断开两颗按钮靠右。 */}
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-foreground-muted">
+                  {status.zeroNews?.phase === 'connected'
+                    ? t('panel.zeronews.linkOn', { url: status.zeroNews.url })
+                    : status.zeroNews?.phase === 'error'
+                      ? t('panel.zeronews.linkError')
+                      : status.zeroNews?.phase && status.zeroNews.phase !== 'off'
+                        ? t('panel.zeronews.linkBusy')
+                        : t('panel.zeronews.linkOff')}
+                </span>
+                <div className="flex gap-2">
                   <Button variant="outline" size="sm" disabled={zeroNewsLinkBusy || status.zeroNews?.phase === 'connected'} onClick={connectZeroNews}>
                     {zeroNewsLinkBusy ? t('panel.zeronews.linkConnecting') : t('panel.zeronews.linkConnect')}
                   </Button>
@@ -794,8 +857,8 @@ export function RelayConfigDialog({
                     {t('panel.zeronews.linkDisconnect')}
                   </Button>
                 </div>
-              </Field>
-            </div>
+              </div>
+            </Field>
           </section>
         </div>
 
@@ -872,21 +935,38 @@ export function RelayConfigDialog({
         </DialogContent>
       </Dialog>
 
-      {/* FRP 导入：粘一段 frpc 配置，解析出公网入口填回地址栏（tcp 进 TCP 栏、https 进直连栏）。 */}
-      <FrpImportDialog
-        open={frpImportOpen}
-        onOpenChange={setFrpImportOpen}
-        onImport={(result) => {
-          setPendingFrp(result.config ? { config: result.config, field: result.field, value: result.value } : undefined)
-          if (result.field === 'tcp') {
-            editedTcpRef.current = true
-            setManualTcpUrl(result.value)
-          } else {
-            editedLanRef.current = true
-            setManualLanUrl(result.value)
-          }
-        }}
-      />
+      {/* FRP 配置：粘贴 frpc 配置，保存并启动本地 frpc（2026-11-22：从主窗挪进弹窗，少占版面）。 */}
+      <Dialog open={frpDialogOpen} onOpenChange={setFrpDialogOpen}>
+        <DialogContent className="w-[min(560px,92vw)]">
+          <DialogHeader>
+            <DialogTitle>{t('panel.frp.manageTitle')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <textarea
+              className="min-h-40 w-full rounded-md border border-border bg-background p-2 font-mono text-xs text-foreground focus-visible:outline-none"
+              value={frpText}
+              placeholder={t('panel.frp.configLabel')}
+              onChange={(event) => setFrpText(event.target.value)}
+            />
+            {status.frp?.running && status.frp?.remoteAddress ? (
+              <p className="mt-1 text-xs text-foreground-muted">{status.frp.remoteAddress}</p>
+            ) : null}
+            {status.frp?.error ? <p className="mt-1 text-xs text-error">{status.frp.error}</p> : null}
+            {frpNote ? <p className="mt-1 text-xs text-error">{frpNote}</p> : null}
+          </DialogBody>
+          <DialogFooter className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" disabled={frpBusy !== ''} onClick={stopFrpNow}>
+              {t('panel.frp.stop')}
+            </Button>
+            <Button variant="outline" onClick={() => setFrpDialogOpen(false)}>
+              {t('panel.common.cancel')}
+            </Button>
+            <Button variant="primary" disabled={frpBusy !== '' || !frpText.trim()} onClick={() => { void saveFrp() }}>
+              {t('panel.frp.saveStart')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* 公用中转面板：查看各条内置地址的延迟与心电图，定时重测。 */}
       <PublicRelayPanelDialog
         open={publicPanelOpen}
