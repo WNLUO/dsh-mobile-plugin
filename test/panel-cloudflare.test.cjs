@@ -1,5 +1,5 @@
-// Cloudflare 兜底隧道：ConnectionCard 入口行 + CloudflareDialog 开关/状态源码断言。
-// 接口与文案由 api.ts / panel.ts 钉住；网络配置弹窗里不再重复一份实现。
+// Cloudflare 兜底隧道：ConnectionCard 入口行 + CloudflarePanel 开关/状态源码断言。
+// 接口与文案由 api.ts / panel.ts 钉住；管理弹窗与国际线路页共用 CloudflarePanel，不写两份实现。
 'use strict';
 
 /**
@@ -36,35 +36,42 @@ test('ConnectionCard 在 TCP 行下面新起一行 Cloudflare 兜底，带「管
   assert.match(card, /t\('panel\.(cf|tailcat)\.manage'\)|panel\.cloudflare\.manage/, '「管理」按钮文案走字典');
 });
 
-test('CloudflareDialog 有开关，开→start、关→stop，请求中禁用', () => {
-  const dialog = read('React', 'src', 'components', 'CloudflareDialog.tsx');
-  assert.match(dialog, /from '@appica\/ui-react\/switch'/, '复用现有的 Switch 组件，别另造一个');
-  assert.match(dialog, /<Switch/, '要渲染 Switch');
-  assert.match(dialog, /next \? await cloudflareStart\(\) : await cloudflareStop\(\)/, '开走 start、关走 stop');
-  assert.match(dialog, /setBusy\(true\)/, '请求开始置忙');
-  assert.match(dialog, /setBusy\(false\)/, '请求结束清忙');
-  assert.match(dialog, /disabled=\{disabled\}/, '开关的禁用态要接上');
-  assert.match(dialog, /const disabled = busy \|\| cf\?\.available === false/, '忙 / 未安装时禁用开关');
+test('CloudflarePanel 有开关，开→start、关→stop，请求中禁用', () => {
+  const panel = read('React', 'src', 'components', 'CloudflarePanel.tsx');
+  assert.match(panel, /from '@appica\/ui-react\/switch'/, '复用现有的 Switch 组件，别另造一个');
+  assert.match(panel, /<Switch/, '要渲染 Switch');
+  assert.match(panel, /next \? await cloudflareStart\(\) : await cloudflareStop\(\)/, '开走 start、关走 stop');
+  assert.match(panel, /setBusy\(true\)/, '请求开始置忙');
+  assert.match(panel, /setBusy\(false\)/, '请求结束清忙');
+  assert.match(panel, /disabled=\{disabled\}/, '开关的禁用态要接上');
+  assert.match(panel, /const disabled = busy \|\| cf\?\.available === false/, '忙 / 未安装时禁用开关');
 });
 
-test('CloudflareDialog 状态行复用 InfoRow / 状态点，从传入的 status.cloudflare 读', () => {
-  const dialog = read('React', 'src', 'components', 'CloudflareDialog.tsx');
-  assert.match(dialog, /InfoRow/, '状态行复用现有的 InfoRow');
-  assert.match(dialog, /ToneValue/, '状态值复用现有的状态点组件');
-  assert.match(dialog, /status\.cloudflare/, '状态从传入的 status.cloudflare 读');
-  assert.match(dialog, /panel\.cloudflare\.available/, '要有「可用」态');
-  assert.match(dialog, /panel\.cloudflare\.running/, '要有「运行中」态');
-  assert.match(dialog, /panel\.cloudflare\.error/, '要有「错误 / 连不上」态');
-  assert.match(dialog, /panel\.cloudflare\.url/, '运行中要能显示当前地址');
-  assert.match(dialog, /cf\.running/, '运行态按 cf.running 判');
-  assert.match(dialog, /cf\.error/, '错误态按 cf.error 判');
+test('CloudflarePanel 状态行复用 InfoRow / 状态点，从传入的 status.cloudflare 读', () => {
+  const panel = read('React', 'src', 'components', 'CloudflarePanel.tsx');
+  assert.match(panel, /InfoRow/, '状态行复用现有的 InfoRow');
+  assert.match(panel, /ToneValue/, '状态值复用现有的状态点组件');
+  assert.match(panel, /status\.cloudflare/, '状态从传入的 status.cloudflare 读');
+  assert.match(panel, /panel\.cloudflare\.available/, '要有「可用」态');
+  assert.match(panel, /panel\.cloudflare\.running/, '要有「运行中」态');
+  assert.match(panel, /panel\.cloudflare\.error/, '要有「错误 / 连不上」态');
+  assert.match(panel, /panel\.cloudflare\.url/, '运行中要能显示当前地址');
+  assert.match(panel, /cf\.running/, '运行态按 cf.running 判');
+  assert.match(panel, /cf\.error/, '错误态按 cf.error 判');
 });
 
-test('CloudflareDialog 失败按现有方式在行下给红字提示', () => {
+test('CloudflarePanel 失败按现有方式在行下给红字提示', () => {
+  const panel = read('React', 'src', 'components', 'CloudflarePanel.tsx');
+  assert.match(panel, /error \? <p className="text-xs text-error">\{error\}<\/p> : null/, '失败沿用现有的红字提示');
+  assert.match(panel, /errorText\(err\)/, '网络层错误也要变成一句人话');
+  assert.match(panel, /reply\.error\?\.message/, '回包里的失败原因要透出来');
+});
+
+test('CloudflareDialog 只做窗口外壳，内容交给共用的 CloudflarePanel', () => {
   const dialog = read('React', 'src', 'components', 'CloudflareDialog.tsx');
-  assert.match(dialog, /error \? <p className="text-xs text-error">\{error\}<\/p> : null/, '失败沿用现有的红字提示');
-  assert.match(dialog, /errorText\(err\)/, '网络层错误也要变成一句人话');
-  assert.match(dialog, /reply\.error\?\.message/, '回包里的失败原因要透出来');
+  assert.match(dialog, /import \{ CloudflarePanel \} from '\.\/CloudflarePanel\.tsx'/, '内容来自共用组件');
+  assert.match(dialog, /<CloudflarePanel status=\{status\} onChanged=\{onChanged\} \/>/, '弹窗只把状态与回调传下去');
+  assert.doesNotMatch(dialog, /cloudflareStart|cloudflareStop/, '开关与请求逻辑只在 CloudflarePanel 一份');
 });
 
 test('网络配置弹窗不再重复一份 Cloudflare 开关', () => {

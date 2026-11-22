@@ -1,3 +1,4 @@
+// 装配层边界：实现不许搬回 apply()，行数上限只作兜底（2026-11-23 随 FRP 独立线路抬到 496）。
 'use strict';
 
 /**
@@ -89,7 +90,9 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 2026-11-22 +1：把 ZeroNews 的挂载结果交给控制面（const zeroNews 一行）；实现仍在 wiring/runner。
   // 2026-11-22 +1：把 Cloudflare 的挂载结果交给移动端路由（依赖表一行），心跳那一格才有值；
   // 实现仍在 cloudflared/wiring.cjs。
-  assert.ok(lines <= 492, `lib/impl.js 回到 ${lines} 代码行了；超过 492 说明实现又被搬回装配层`);
+  // 2026-11-23 +4：FRP 独立成一条线路后，地址回写要认「只写 `frpUrl`」这条口径（一个闭包三行 +
+  // 监听转接一行）；发现、重连与进程仍全在 `lib/frpc/runner.cjs`，装配层没有搬回实现。
+  assert.ok(lines <= 496, `lib/impl.js 回到 ${lines} 代码行了；超过 496 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

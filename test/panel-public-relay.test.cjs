@@ -1,4 +1,4 @@
-// 健康面板保留公用入口布局，同时覆盖当前自建和慢请求互斥。
+// 健康面板只列公用入口，慢请求互斥。
 'use strict';
 
 /**
@@ -130,7 +130,8 @@ test('网络配置：六个字段交给 grid 自动排版，不手动分左右�
   assert.match(config, /gap-y-4/, '两列之间要有行间距');
   assert.ok(!/flex flex-col gap-4/.test(config), '不许再把字段手动包进左右两个 flex 列');
   // 2026-11-22 需求扩展：新增「公网 IPv4」一栏，字段数变 7；都直接排在 grid 里。
-  assert.equal((config.match(/<Field>/g) || []).length, 7, '七个字段都要直接排在 grid 里');
+  // 2026-11-23 需求变更：FRP 从 TCP 直连里独立出来成自己一栏，字段数变 8。
+  assert.equal((config.match(/<Field>/g) || []).length, 8, '八个字段都要直接排在 grid 里');
   // 启用 / 停要是普通文字按钮（ghost），不抢主按钮的视觉份量。
   const first = config.slice(config.indexOf('第一栏：公用中转'), config.indexOf('第二栏：自建中转'));
   assert.match(first, /variant="ghost"/, '启用 / 停用是普通文字按钮');
@@ -175,7 +176,9 @@ test('网络配置：公用栏「查看面板」在标题右侧、启用/停用�
   assert.match(panel, /apiPost<\{ ok: boolean; results: ProbeResult\[\] \}>\('\/api\/relay\/probe-relays'/, '探测走宿主接口');
   assert.match(panel, /PUBLIC_RELAYS\.map\(\(item\) => item\.url\)/, '一次把所有内置地址送测');
   assert.match(config, /activeUrl=\{status\.relayUrl\}/, '只探测当前已配置地址，不探测未保存输入');
-  assert.match(panel, /currentUrl\) \? \[currentUrl\]/, '当前自建加入同一批健康探测');
+  // 2026-11-23 需求变更：公用面板只列内置公用地址，自建是不是活的归它自己那栏的「检测」管。
+  assert.match(panel, /const urls = PUBLIC_RELAYS\.map\(\(item\) => item\.url\)/, '只测内置公用地址');
+  assert.ok(!/currentUrl/.test(panel), '自建地址不再混进公用面板的清单');
   assert.match(panel, /if \(!alive \|\| inFlightRef\.current\) return/, '慢轮次不叠加');
   // 定时重测：开窗一轮、之后按间隔再跑；关窗停掉（不常驻打外网）。
   assert.match(panel, /setInterval\(/, '按间隔重复测');
