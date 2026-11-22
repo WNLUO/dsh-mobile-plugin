@@ -85,3 +85,14 @@ test('连接状态卡里也有「TCP 直连」一行：配了显示已配置+地
   const consoleSrc = read('React', 'src', 'Console.tsx');
   assert.match(consoleSrc, /<ConnectionCard[\s\S]*?addressBook=\{addresses\}/, '要把地址库传给连接状态卡');
 });
+
+test('TCP 那格只收「主机:端口」：带 scheme 的地址提示去直连地址并拦下保存', () => {
+  const dialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  // 这格是明文裸 TCP，只该填 host:port；填了带 scheme 的（尤其 https://）要当场提示并拦住保存，
+  // 而不是悄悄剥掉前缀当明文拨——那正是 issue #34/#35 的根。
+  assert.match(dialog, /setTcpHint\(t\('panel\.address\.tcpSchemeHint'\)\)/, '输入与保存两处都要给提示');
+  assert.match(dialog, /manualTcpUrl\.trim\(\)/, '保存前按实际输入判 scheme');
+  assert.match(dialog, /event\.target\.value\.trim\(\)/, '输入时按现场值判 scheme');
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  assert.equal(panel.split("'panel.address.tcpSchemeHint':").length - 1, 10, '提示文案十门齐');
+});

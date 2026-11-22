@@ -1,6 +1,8 @@
 // FRP 子窗结果暂存到父窗保存，地址错误可重取，健康探测包含当前自建中转。
+// 2026-11-22：网络配置由弹窗改为独立一页（用户要求）；TCP 那格只收「主机:端口」，填了 scheme 提示去「直连地址」并拦下保存。
 // Cloudflare 兜底的开关与状态行已挪到 ConnectionCard + CloudflareDialog，这里不再重复一份。
 import { Button, buttonVariants } from '@appica/ui-react/button'
+import { Card } from '@appica/ui-react/card'
 import {
   Dialog,
   DialogBody,
@@ -151,6 +153,8 @@ export function RelayConfigDialog({
   const [manualIpv6Url, setManualIpv6Url] = useState('')
   /** TCP 直连地址（`manualTcpUrl`）：用户手填的 `主机:端口`，手机用裸 TCP 拨它。 */
   const [manualTcpUrl, setManualTcpUrl] = useState('')
+  /** TCP 那栏的填写提示：这格只收「主机:端口」，填了带 scheme 的地址就提示去「直连地址」。 */
+  const [tcpHint, setTcpHint] = useState('')
   /**
    * 局域网地址（`preferredLanAddress`）：**可手填**，不再只让用户从检测到的那几条里挑。
    * 机器有好几块网卡、想直接敲一条地址时用得上；填错了拦在保存那儿（见 `unknownLan`）。
@@ -167,8 +171,6 @@ export function RelayConfigDialog({
   const [publicPanelOpen, setPublicPanelOpen] = useState(false)
   /** 子弹窗的落焦目标：清单让焦点落在容器上，别一开窗就圈住第一行。 */
   const lanPickerRef = useRef<HTMLDivElement | null>(null)
-  /** 弹窗打开时的落焦目标：容器自己，不是第一个输入框（见下面 `initialFocus`）。 */
-  const dialogRef = useRef<HTMLDivElement | null>(null)
   /** 这一次开窗里用户动过手填那两栏没有：动过就不再拿地址库去盖。 */
   const editedLanRef = useRef(false)
   const editedIpv6Ref = useRef(false)
@@ -205,6 +207,7 @@ export function RelayConfigDialog({
       editedTcpRef.current = false
       editedPreferredRef.current = false
       setLanHint('')
+      setTcpHint('')
       return
     }
     if (!editedLanRef.current) setManualLanUrl(addressBook?.manual ?? '')
@@ -242,6 +245,12 @@ export function RelayConfigDialog({
 
   function submit() {
     if (!canSave) return
+    // TCP 那格只收「主机:端口」的明文目标：填了带 scheme 的地址（尤其 https://）就别偷偷当明文存，
+    // 当场提示去「直连地址」那栏，并拦下这次保存。
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(manualTcpUrl.trim())) {
+      setTcpHint(t('panel.address.tcpSchemeHint'))
+      return
+    }
     const patch: ConfigPatch = {}
     // 公用走整份 `relayUrls`（电脑在几台内置中转之间选择 / 失败切换）；自建走单条 `relayUrl`。
     if (activePublicRelay) {
@@ -280,26 +289,25 @@ export function RelayConfigDialog({
     onSave(patch, pendingFrp)
   }
 
+  if (!open) return null
+
   return (
     <>
-      {/* 保存中也可以关窗：请求本身会跑完（失败时回滚已拉起的 frpc，见 Console.saveConfig），
-          用户不必被锁在弹窗里等宿主。落盘成功后 Console 那边也会把窗关掉。 */}
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        {/* `initialFocus` 指向弹窗容器本身：Base UI 默认会把焦点放到第一个可聚焦元素上，
-            这里就是「设备名」那个输入框——一打开就选中了、光标在闪，用户想先点别的地方
-            还得先把它点掉。焦点仍旧进到弹窗里（读屏与 Esc 都靠它），只是不落在输入框。 */}
-        <DialogContent className="w-[min(1100px,92vw)]" initialFocus={dialogRef}>
-          <DialogHeader>
-            <DialogTitle>{t('panel.pairing.openConfig')}</DialogTitle>
-          </DialogHeader>
+      {/* 「网络配置」改成独立一页（2026-11-22 用户要求：从弹窗换成页面，网络这块要放得下更多配置）。
+          还是同一套字段与控制台组件，只是整页排布；控制台打开它时把首页内容收起，这里给一颗返回与标题。
+          保存中也可以返回：请求本身会跑完（失败时回滚已拉起的 frpc，见 Console.saveConfig），
+          用户不必被锁在这一页等宿主；落盘成功后 Console 那边也会切回首页。 */}
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+          ← {t('panel.common.close')}
+        </Button>
+        <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
+      </div>
 
-          {/* `tabIndex={-1}` 让容器可以被程序聚焦（且不进 Tab 顺序）。
-              套一层 div 是因为 `DialogBody` 不接受 ref。
-              两列一屏：6 个 Field 不手动分左右列，交给 grid 按行自动填（grid-auto-flow: row），
-              这样每项增减都会自动重排、两列行数均衡，不会再出现左边 4 行右边 2 行。
-              `max-h` 只是给很矮的窗口兜底。 */}
-          <div ref={dialogRef} tabIndex={-1} className="outline-none">
-            <DialogBody className="grid max-h-[calc(100vh-13rem)] grid-cols-2 items-start gap-x-8 gap-y-4 overflow-y-auto">
+      <Card frame="solid">
+        {/* 一屏两列（宽够时）：6 个 Field 交给 grid 按行自动填（grid-auto-flow: row），
+            每项增减都会自动重排、两列行数均衡；窄窗口自动收成一列。 */}
+        <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 p-4 lg:grid-cols-2">
               {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。
                   标题右侧两颗文字按钮：「查看面板」在左、「启用 / 停用」在右（2026-11-19 用户要求）。
                   配了公网自建时宿主会把公用强制停用（status.publicRelayBlocked）：这一栏直接显示
@@ -415,8 +423,14 @@ export function RelayConfigDialog({
                     onChange={(event) => {
                       editedTcpRef.current = true
                       setManualTcpUrl(event.target.value)
+                      // 填了带 scheme 的地址（尤其 https://）就当场提示：这格是明文通道，
+                      // 要走 TLS 得填到上面的「直连地址」。保存时还会再拦一次。
+                      setTcpHint(/^[a-z][a-z0-9+.-]*:\/\//i.test(event.target.value.trim())
+                        ? t('panel.address.tcpSchemeHint')
+                        : '')
                     }}
                   />
+                  {tcpHint ? <p className="text-xs text-error">{tcpHint}</p> : null}
                 </Field>
 
                 {/* 局域网地址：地址可能好几条，可以从清单里挑，也可以直接敲一条。 */}
@@ -470,26 +484,24 @@ export function RelayConfigDialog({
                     }}
                   />
                 </Field>
-            </DialogBody>
-          </div>
+        </div>
 
-          <DialogFooter className="flex items-center justify-end gap-2">
-            {/* 保存期间给一条进度（含 FRP 导入最多等 8 秒），并可随时取消 / 关窗。 */}
-            {busy === 'config' ? (
-              <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-foreground-muted">
-                <Spinner />
-                {t('panel.shell.busy')}
-              </span>
-            ) : null}
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              {t('panel.common.cancel')}
-            </Button>
-            <Button variant="primary" disabled={!canSave} onClick={submit}>
-              {t('panel.relay.saveConfig')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
+          {/* 保存期间给一条进度（含 FRP 导入最多等 8 秒），并可随时取消。 */}
+          {busy === 'config' ? (
+            <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-foreground-muted">
+              <Spinner />
+              {t('panel.shell.busy')}
+            </span>
+          ) : null}
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t('panel.common.cancel')}
+          </Button>
+          <Button variant="primary" disabled={!canSave} onClick={submit}>
+            {t('panel.relay.saveConfig')}
+          </Button>
+        </div>
+      </Card>
 
       {/* 局域网地址：清单放在弹窗里，几条都不影响主窗。选中即存（与配对卡同一份口径）。 */}
       <Dialog open={lanPickerOpen} onOpenChange={setLanPickerOpen}>

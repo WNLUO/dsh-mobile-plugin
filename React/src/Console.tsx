@@ -1,4 +1,5 @@
 // 网络配置与立即更新共用主按钮样式。
+// 2026-11-22：网络配置由弹窗改为独立一页，Console 打开它时把首页内容收起。
 // 固定端口与端口号通过同一次配置保存。
 // Cloudflare 兜底的管理弹窗在这里挂载，连接卡那行「管理」打开它。
 /**
@@ -460,7 +461,8 @@ export function Console() {
         3. 其余维护类卡片按瀑布式几列铺开。
         整页滚动，不做单栏 sticky、也不套内滚动条。
       */}
-      <div className="grid grid-cols-1 gap-3">
+      {/* 「网络配置」现在是一整页（见 RelayConfigDialog）：打开时把首页内容收起，只留它那一页。 */}
+      <div className={configOpen ? 'hidden' : 'grid grid-cols-1 gap-3'}>
         <Card frame="solid">
           <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">
             <div className="lg:col-span-6">
