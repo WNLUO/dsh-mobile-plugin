@@ -13,7 +13,8 @@
  *   ① 口径本身（头优先、参数兜底、冲突拒）；
  *   ② 配对入口认查询参数、指向别的电脑的实例号被拒；
  *   ③ 隧道升级认查询参数，且浏览器带的 Origin 不会让它被拒；
- *   ④ CORS：只在 `/pair` 这一条精确路径上回预检与回显头，别的路径照旧未认证 JSON 401。
+ *   ④ CORS：只在 `/pair` 这一条精确路径上回预检与回显头，别的路径照旧落到未认证出口
+ *      （未出示凭据时是不带身份的 404）。
  */
 
 const test = require('node:test');
@@ -241,7 +242,7 @@ test('隧道升级认查询参数，浏览器带的 Origin 不使它被拒', dea
   } finally { await f.close(); }
 });
 
-test('CORS 只给配对那一条精确路径：预检 204 + 回显 Origin，别的路径照旧 JSON 401', deadline, async () => {
+test('CORS 只给配对那一条精确路径：预检 204 + 回显 Origin，别的路径照旧未认证出口', deadline, async () => {
   const f = await fixture();
   try {
     const preflight = await call(f.upstream.proxyPort, {
@@ -265,14 +266,15 @@ test('CORS 只给配对那一条精确路径：预检 204 + 回显 Origin，别�
     assert.equal(paired.status, 200, paired.body);
     assert.equal(paired.headers['access-control-allow-origin'], ORIGIN);
 
-    // 未认证的默认行为不许跟着变宽：同前缀下别的路径、以及同一个路径的别的动词，照旧 401。
+    // 未认证的默认行为不许跟着变宽：同前缀下别的路径、以及同一个路径的别的动词，
+    // 照旧落到未认证出口 —— 未出示凭据是 404，且拿不到任何 CORS 头。
     for (const target of ['/api/mobile/v1/status', '/api/mobile/v1/remote-computers/pairing']) {
       const res = await call(f.upstream.proxyPort, { path: target, headers: { origin: ORIGIN } });
-      assert.equal(res.status, 401, `${target} 仍必须是未认证 401`);
+      assert.equal(res.status, 404, `${target} 仍必须是未认证出口的 404`);
       assert.equal(res.headers['access-control-allow-origin'], undefined, `${target} 不该拿到 CORS 头`);
     }
     const other = await call(f.upstream.proxyPort, { method: 'OPTIONS', path: '/api/mobile/v1/status', headers: { origin: ORIGIN } });
-    assert.equal(other.status, 401, '别的路径上的 OPTIONS 不是预检，照旧未认证 401');
+    assert.equal(other.status, 404, '别的路径上的 OPTIONS 不是预检，照旧落到未认证出口');
   } finally { await f.close(); }
 });
 

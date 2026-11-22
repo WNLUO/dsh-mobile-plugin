@@ -39,10 +39,11 @@ const freePort = () => new Promise((resolve, reject) => {
 })
 
 // 只关心「有没有人应答」，所以只取状态码。
-// 局域网端口是否在监听：未认证时**任何**客户端（浏览器导航也一样）都只拿 JSON 401。
+// 局域网端口是否在监听：未出示凭据时**任何**客户端（浏览器导航也一样）都只拿一个不带身份的
+// 404（与中转同口径），不出产品名。
 //
 // 这里特意带上 `Accept: text/html` —— 网页版配对页 2026-10 已砍掉，浏览器导航
-// 也必须是 401，而不是一张 200 的页面（否则 App 的 api.ts 会把 200+HTML
+// 也必须是那个 404，而不是一张 200 的页面（否则 App 的 api.ts 会把 200+HTML
 // 当成成功，把连接通道钉死在局域网上）。
 const httpStatus = (port) => new Promise((resolve, reject) => {
   const req = http.get(
@@ -97,7 +98,7 @@ const refusesConnection = (port) => new Promise((resolve) => {
     const status = await facade.request('/status')
     assert.equal(status.lan.enabled, true)
     assert.equal(status.lan.port, lanPort)
-    assert.equal(await httpStatus(lanPort), 401, '局域网端口未认证时应答 401（不再有网页）')
+    assert.equal(await httpStatus(lanPort), 404, '局域网端口未出示凭据时应答不带身份的 404（不再有网页）')
 
     // --- 行为面 2：总开关关闭后不得继续监听 ---
     // 这是刻意的守卫（见 lib/sidecar-facade-worker.cjs startLan 的注释）：旧实现

@@ -5,8 +5,8 @@
  *
  * 这份测试**启动真实的 lan-proxy HTTP 监听**，用 App 实际发出的请求契约打进去，覆盖静态
  * 路由比对无法证明的三件事：
- *   1. 未认证的请求一律拿 JSON 401，**不给任何网页** —— 浏览器导航也一样，手机端只有 App
- *      一条路；
+ *   1. 未出示凭据的请求一律拿一个不带身份信息的 JSON 404，**不给任何网页、也不给产品身份**
+ *      —— 浏览器导航也一样，手机端只有 App 一条路；出示了凭据才回可识别的原因；
  *   2. `deny` 策略下「配对码错误」与「码对但被桌面端拒绝」返回完全一样的响应，配对码不可
  *      被逐位探测；
  *   3. 三条 App 侧鉴权路径（Bearer 宿主令牌 / dsh_lan cookie / dshc_ 设备凭据）都能打通到
@@ -78,15 +78,17 @@ function call(port, { method = 'GET', path: p, headers = {}, body } = {}) {
 
 const isProxied = (res) => res.status === 200 && res.body.includes('"upstream":true')
 const isHtml = (res) => /text\/html/.test(String(res.headers['content-type'])) || /<html/i.test(res.body)
-/** 未认证的请求必须是 JSON 401，绝不能是任何 HTML 页面。 */
-const isApiUnauthorized = (res) => {
-  if (res.status !== 401) return false
+/** 未出示凭据的请求必须回 404，且正文只有 `{"ok":false}` 这一种形状。 */
+const isAnonymousNotFound = (res) => {
+  if (res.status !== 404) return false
   if (!/application\/json/.test(String(res.headers['content-type']))) return false
   try {
     const body = JSON.parse(res.body)
-    return body.ok === false && body.error?.code === 'unauthorized'
+    return body.ok === false && body.error === undefined
   } catch { return false }
 }
+/** 回包里不得出现任何能指认产品 / 业务的词（公网扫描正是靠这些整片搜出来）。 */
+const leaksIdentity = (res) => /dsh|token|授权|配对|插件|移动/i.test(res.body)
 
 ;(async () => {
   const upstream = await startUpstream()
@@ -117,30 +119,42 @@ const isApiUnauthorized = (res) => {
     assert.equal(health.status, 200, 'healthz 应返回 200')
     assert.equal(health.body, 'ok')
 
-    // 2. 未认证的 API 请求 → JSON 401（**不能**是 200 + 任何网页）。
+    // 2. 未出示凭据的 API 请求 → 不带身份信息的 404（**不能**是 200 + 任何网页，也不能是
+    //    能认出产品的 401）。
     //
-    // 旧实现把 `/api/mobile/v1/*` 也答成 200 + 配对页，App 的 `app/src/api.ts`
-    // 会把它当成成功（`response.ok` 为真 → `publishRoute` 把连接通道钉在局域网
-    // 并重置局域网熔断），随后 `res.json()` 解析失败抛「请求失败 (HTTP 200)」。
-    // 结果是桌面端换过 lanSecret、或设备凭据被吊销之后，App 会永久卡在局域网
-    // 通道上：既不回退到中转，也不提示重新配对。
+    // 直连口会被用户直接放到公网（IPv6 / DDNS / 反代），旧实现回的是
+    // `{"error":{"code":"unauthorized","message":"缺少或无效的移动 token"}}`——扫一下就能认出
+    // 这是什么，进而整片搜出所有同类部署。现在与中转同一个口径：路径存不存在、是不是给外人的，
+    // 都不再是一个可探测的比特。
+    //
+    // 旧实现把 `/api/mobile/v1/*` 答成 200 + 配对页的那条危险另算：App 的 `response.ok` 会
+    // 为真、把连接通道钉在局域网并重置熔断，随后解析失败抛「请求失败 (HTTP 200)」。
     const anon = await call(LAN_PORT, { path: '/api/mobile/v1/status' })
-    assert.ok(isApiUnauthorized(anon), '未认证的 API 请求必须是 JSON 401')
-    assert.ok(!isHtml(anon), '未认证的 API 请求不得返回 HTML')
-    assert.ok(!isProxied(anon), '未认证不得被代理到宿主')
+    assert.ok(isAnonymousNotFound(anon), '未出示凭据的 API 请求必须是 404')
+    assert.ok(!leaksIdentity(anon), '404 里不得出现任何能指认产品 / 业务的词')
+    assert.ok(!isHtml(anon), '未出示凭据的 API 请求不得返回 HTML')
+    assert.ok(!isProxied(anon), '未出示凭据不得被代理到宿主')
 
-    // 2b. 浏览器导航（Accept 含 text/html）同样拿 JSON 401：网页版配对页与配对后
+    // 2b. 浏览器导航（Accept 含 text/html）同样拿那个 404：网页版配对页与配对后
     //     能进入的网页本体 2026-10 已整体砍掉，手机端只剩 App 一条路。
     const browse = await call(LAN_PORT, {
       path: '/',
       headers: { accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
     })
-    assert.ok(isApiUnauthorized(browse), '浏览器导航也不得拿到网页，只回 JSON 401')
+    assert.ok(isAnonymousNotFound(browse), '浏览器导航也不得拿到网页，只回不带身份的 404')
     assert.ok(!isHtml(browse), '浏览器导航不得返回 HTML 配对页')
 
     // 2c. 不带 Accept 的程序化请求（curl / RN fetch 默认）同理
     const bare = await call(LAN_PORT, { path: '/' })
-    assert.ok(isApiUnauthorized(bare), '非 HTML 客户端同样只拿 JSON 401')
+    assert.ok(isAnonymousNotFound(bare), '非 HTML 客户端同样只拿不带身份的 404')
+
+    // 2d. 出示了凭据但没通过 → 照旧是可识别的 401。老 App 靠这一档区分「凭据坏了」与
+    //     「地址不对」；扫描器手里没有凭据，走不到这里，所以它不构成指纹。
+    const badCredential = await call(LAN_PORT, {
+      path: '/api/mobile/v1/status', headers: { authorization: 'Bearer not-a-real-token' },
+    })
+    assert.equal(badCredential.status, 401, '出示了无效凭据仍必须是 401')
+    assert.equal(JSON.parse(badCredential.body).error?.code, 'unauthorized', '原因要能认出来')
 
     // 3. 配对码位数不符 → 400
     const malformed = await call(LAN_PORT, {
@@ -333,9 +347,9 @@ const isApiUnauthorized = (res) => {
     assert.equal(JSON.parse(cookieAfterRevoke.body).error?.code, 'device-revoked')
 
     // 14. 网页版配对入口的登出路由已随配对页一起删除：它现在只是一条未知路径，
-    //     未认证时与其它路径一样回 JSON 401，不再有任何清 cookie 的行为。
+    //     未出示凭据时与其它路径一样回不带身份的 404，不再有任何清 cookie 的行为。
     const logout = await call(LAN_PORT, { path: '/__lan_logout' })
-    assert.equal(logout.status, 401, '登出路由已删，应按未认证处理')
+    assert.ok(isAnonymousNotFound(logout), '登出路由已删，应按未知路径处理')
     assert.equal(logout.headers['set-cookie'], undefined, '不得再下发清 cookie 的响应头')
 
     console.log('lan direct e2e tests passed')
