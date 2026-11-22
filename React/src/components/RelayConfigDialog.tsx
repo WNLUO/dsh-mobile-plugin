@@ -797,9 +797,6 @@ export function RelayConfigDialog({
                       setIpv4Probe({ state: 'idle' })
                     }}
                   />
-                  {detectedIpv4 ? (
-                    <p className="text-xs text-foreground-muted">{t('panel.address.ipv4Detected', { ip: detectedIpv4 })}</p>
-                  ) : null}
                   {/^http:\/\//i.test(trimUrl(manualIpv4Url)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
@@ -849,18 +846,21 @@ export function RelayConfigDialog({
 
           <section className="flex flex-col gap-3">
             <Field className="border-t border-border-muted pt-3">
-              {/* FRP 不再直接摊开配置框：状态一栏，配置走「导入」弹窗里粘（2026-11-22 用户要求）。 */}
+              {/* FRP 与局域网 / IPv6 / IPv4 同一套：地址来自导入的配置，只读挑候选，
+                  手敲没有意义（敲了也不改 frpc 里的映射）。配置本身走「导入」弹窗。 */}
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <FieldLabel>{t('panel.frp.manageTitle')}</FieldLabel>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <FieldLabel htmlFor="relay-frp">{t('panel.frp.manageTitle')}</FieldLabel>
                   <span className="text-xs text-foreground-muted">
                     {status.frp?.running ? t('panel.frp.statusRun') : t('panel.frp.statusStop')}
-                    {status.frp?.running && status.frp?.remoteAddress ? ` · ${status.frp.remoteAddress}` : ''}
                     {status.frp?.error ? ` · ${status.frp.error}` : ''}
                   </span>
                   {probeNote(frpProbe)}
                 </div>
                 <div className="flex items-center gap-1">
+                  <Button variant="outline" size="sm" onClick={() => { void loadFrpConfig(); setFrpDialogOpen(true) }}>
+                    {t('panel.frp.import')}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -869,11 +869,18 @@ export function RelayConfigDialog({
                   >
                     {t(frpProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { void loadFrpConfig(); setFrpDialogOpen(true) }}>
-                    {t('panel.frp.import')}
-                  </Button>
                 </div>
               </div>
+              <AddressCombo
+                id="relay-frp"
+                value={status.frp?.remoteAddress ?? ''}
+                placeholder={t('panel.frp.remotePlaceholder')}
+                ariaLabel={t('panel.frp.manageTitle')}
+                readOnly
+                options={status.frp?.remoteAddress ? [{ value: status.frp.remoteAddress, label: status.frp.remoteAddress }] : []}
+                emptyText={t('panel.address.empty')}
+                onChange={() => { /* 只读：地址由导入的配置决定，点候选只是回显同一条 */ }}
+              />
               {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
             </Field>
           </section>
