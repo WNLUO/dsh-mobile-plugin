@@ -307,6 +307,15 @@ async function partialInstallProbe(label, mode, install = installLatest) {
     fs.writeFileSync('package.json', JSON.stringify(manifest));
     fs.writeFileSync('pnpm-lock.yaml', 'version: ' + version + '\\n');
     fs.writeFileSync(${JSON.stringify(pkg)}, JSON.stringify({ name: '${PLUGIN}', version, dependencies: { ws: '8.22.2' } }));
+    // 新版把插件内嵌套的 ws 换成 profile 顶层的 hoist：依赖还在，只是换了目录。
+    if (version !== '0.1.60' && process.env.FAKE_INSTALL_MODE === 'hoisted') {
+      fs.rmSync(${JSON.stringify(dependency)}, { recursive: true, force: true });
+      const hoisted = ${JSON.stringify(path.join(profile.nodeModules, 'ws'))};
+      fs.mkdirSync(hoisted, { recursive: true });
+      fs.writeFileSync(path.join(hoisted, 'package.json'), JSON.stringify({ name: 'ws', version: '8.22.2', main: 'index.js' }));
+      fs.writeFileSync(path.join(hoisted, 'index.js'), 'module.exports = {};');
+      process.exit(0);
+    }
     const entry = ${JSON.stringify(path.join(dependency, 'index.js'))};
     if (version === '0.1.60') { fs.writeFileSync(entry, 'module.exports = {};'); process.exit(0); }
     fs.unlinkSync(entry);
@@ -347,6 +356,15 @@ test('退出码零但必需依赖缺失：不激活半个新版，重新安装�
 
 test('pnpm 严格链接布局按插件真实目录核对依赖并恢复旧版', async () => {
   assertRestored(await partialInstallProbe('strict-layout', 'strict'));
+});
+
+test('pnpm 换成顶层 hoist 布局：依赖仍在，不判成安装不完整、不回退旧版', async () => {
+  const probe = await partialInstallProbe('hoisted-layout', 'hoisted');
+  assert.equal(probe.result.installed, true, `不该判失败：${JSON.stringify(probe.result.failure)}`);
+  assert.equal(probe.result.installedVersion, '0.2.0');
+  assert.equal(probe.result.failure, null);
+  assert.equal(probe.result.rollback, undefined, '不该有回退');
+  assert.equal(probe.calls.length, 1, '没有第二次 --force 回退');
 });
 
 test('旧版恢复也失败时如实保留盘上新版和失败原因', async () => {
