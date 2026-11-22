@@ -35,7 +35,10 @@ test('每条第三方线路单独上报，名字与传输类型一起带过去',
   assert.equal(custom.length, 2);
   assert.deepEqual(custom[0], { kind: 'custom', url: 'https://line-a.example.com', name: 'A 厂商', transport: 'http' });
   assert.deepEqual(custom[1], { kind: 'custom', url: 'line-b.example.com:9000', name: 'B 厂商', transport: 'tcp' });
-  assert(!list.some((a) => a.kind === 'lan' || a.kind === 'direct' || a.kind === 'cf'), '线路不混进其它格');
+  assert(!list.some((a) => a.kind === 'cf'), '线路不混进 Cloudflare 那格');
+  // 为老 APP 补的直连 / TCP 兜底是有意的；但它们排在线路之后之外的地方，不与线路本身混为一格。
+  assert(list.some((a) => a.kind === 'direct' && a.url === 'https://line-a.example.com'), 'http 线路有直连兜底');
+  assert(list.some((a) => a.kind === 'tcp' && a.url === 'line-b.example.com:9000'), 'tcp 线路有 TCP 兜底');
 });
 
 test('坏线路、重复地址不进信；transport 只认 tcp，其余按 http', () => {
@@ -56,14 +59,41 @@ test('坏线路、重复地址不进信；transport 只认 tcp，其余按 http'
   assert.equal(custom[1].transport, 'http', '不认识的 transport 按 http');
 });
 
+/** 老 APP 的分组口径：只认 relay/lan/ipv6/direct/cf/tcp，未知 kind 一律当 lan；按 url 去重、先到先得。 */
+function oldPhoneGroups(addresses) {
+  const seen = new Set();
+  const groups = { lan: [], direct: [] };
+  for (const row of addresses) {
+    if (!row.url || seen.has(row.url)) continue;
+    seen.add(row.url);
+    if (row.kind === 'direct') groups.direct.push(row.url);
+    else groups.lan.push(row.url);
+  }
+  return groups;
+}
+
 test('ZeroNews 隧道作为通用线路上报，同时保留 direct 给老手机', () => {
   const url = 'https://tunnel.example.takin.cc';
-  const state = { ...bare, lanEnabled: true, manualLanUrl: url, zeroNewsUrl: `${url}/` };
-  const list = controlAddresses(state, 18787, '');
+  // 关键：用户没点过「从 ZeroNews 读取」，manualLanUrl 为空——自动读到的线路仍要有直连兜底。
+  const state = { ...bare, zeroNewsUrl: `${url}/` };
+  const list = controlAddresses(state, 0, '');
   const custom = list.filter((a) => a.kind === 'custom');
   assert.equal(custom.length, 1);
   assert.deepEqual({ ...custom[0] }, { kind: 'custom', url, name: 'ZeroNews', transport: 'http' });
-  assert(list.some((a) => a.kind === 'direct' && a.url === url), '老的 direct 那格仍在，未升级的手机照旧能读');
+  const directAt = list.findIndex((a) => a.kind === 'direct' && a.url === url);
+  const customAt = list.findIndex((a) => a.kind === 'custom');
+  assert(directAt >= 0 && directAt < customAt, '直连兜底排在 custom 前面，老 APP 先认它');
+  const old = oldPhoneGroups(list);
+  assert.deepEqual(old.direct, [url], '老 APP 把它收进直连栏，不当局域网，不会判当前连接失效');
+  assert(!old.lan.includes(url), '老 APP 的局域网候选里没有这条地址');
+});
+
+test('tcp 线路补同址 TCP 条目，老 APP 也认得出', () => {
+  const state = { ...bare, customRoutes: [{ url: 'host.example:9000', name: 'B', transport: 'tcp' }] };
+  const list = controlAddresses(state, 0, '');
+  assert(list.some((a) => a.kind === 'tcp' && a.url === 'host.example:9000'), '老 APP 认 tcp 这一格');
+  assert(list.some((a) => a.kind === 'custom' && a.url === 'host.example:9000' && a.transport === 'tcp'));
+  assert(!list.some((a) => a.kind === 'tcp' && a.url === ''), '有线路自带目标时不发空 tcp 标记把目标清掉');
 });
 
 test('customRoutesOf 归一形状并被 configOf / schema 接纳', () => {
