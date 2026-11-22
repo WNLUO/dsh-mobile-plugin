@@ -86,7 +86,8 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 2026-11-22 +2：ZeroNews 线路的挂载（一个 require、一次 mountZeroNews）；观察器实现与启停
   // 都在 lib/zeronews/wiring.cjs + watcher.cjs，装配层只挂一下。额度此前已满，上限随这两行抬到 490；
   // 判据仍是「实现不许搬回装配层」，只是新功能本身要占两行接线。
-  assert.ok(lines <= 490, `lib/impl.js 回到 ${lines} 代码行了；超过 490 说明实现又被搬回装配层`);
+  // 2026-11-22 +1：把 ZeroNews 的挂载结果交给控制面（const zeroNews 一行）；实现仍在 wiring/runner。
+  assert.ok(lines <= 491, `lib/impl.js 回到 ${lines} 代码行了；超过 491 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

@@ -17,7 +17,7 @@ import { Input } from '@appica/ui-react/input'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
-import { frpConfig, importFrp, probeDirect, probeRelays, stopFrp, zeroNewsEndpoints, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
+import { frpConfig, importFrp, probeDirect, probeRelays, stopFrp, zeroNewsConnect, zeroNewsDisconnect, zeroNewsEndpoints, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
@@ -167,6 +167,8 @@ export function RelayConfigDialog({
   const [zeroNewsNote, setZeroNewsNote] = useState('')
   /** ZeroNews 读取中：按钮转圈并禁用，避免连点。 */
   const [zeroNewsBusy, setZeroNewsBusy] = useState(false)
+  /** ZeroNews 线路连接 / 断开进行中（整条链要下载+登录+建隧道，可能几分钟）。 */
+  const [zeroNewsLinkBusy, setZeroNewsLinkBusy] = useState(false)
   /** 用户「添加地址」自己加进来的局域网候选（网卡没扫到时用）。 */
   const [extraLan, setExtraLan] = useState<string[]>([])
   /** 添加地址弹窗：lan / ipv6 / null。 */
@@ -335,6 +337,41 @@ export function RelayConfigDialog({
       setZeroNewsNote(error instanceof Error ? error.message : String(error))
     } finally {
       setZeroNewsBusy(false)
+    }
+  }
+
+  /**
+   * ZeroNews 线路连接：插件自动下载客户端、拉浏览器登录（不用 token）、建隧道、拿域名上报。
+   * 可能要几分钟（等浏览器确认），期间按钮转圈；回包里的 error 原样显示，不吞原因。
+   */
+  async function connectZeroNews() {
+    setZeroNewsLinkBusy(true)
+    setZeroNewsNote('')
+    try {
+      const res = await zeroNewsConnect()
+      const note = typeof res.error === 'string' ? res.error : res.error?.message
+      if (!res.ok && note) setZeroNewsNote(note)
+      else if (res.phase === 'connected') setZeroNewsNote(t('panel.zeronews.linkOn', { url: res.url || '' }))
+      else if (note) setZeroNewsNote(note)
+    } catch (error) {
+      setZeroNewsNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setZeroNewsLinkBusy(false)
+    }
+  }
+
+  /** ZeroNews 线路断开：停客户端、撤域名。 */
+  async function disconnectZeroNews() {
+    setZeroNewsLinkBusy(true)
+    setZeroNewsNote('')
+    try {
+      const res = await zeroNewsDisconnect()
+      const note = typeof res.error === 'string' ? res.error : res.error?.message
+      if (!res.ok && note) setZeroNewsNote(note)
+    } catch (error) {
+      setZeroNewsNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setZeroNewsLinkBusy(false)
     }
   }
 
@@ -761,6 +798,38 @@ export function RelayConfigDialog({
                     </Button>
                   </div>
                 </Field>
+            </div>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.zeronews.section')}</h3>
+            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4">
+              {/* ZeroNews 线路：插件自动下载客户端、拉浏览器登录、建隧道；厂商现行流程不用 token。 */}
+              <Field className="col-span-full border-t border-border-muted pt-3">
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                  <FieldLabel>{t('panel.zeronews.linkTitle')}</FieldLabel>
+                  <span className="text-xs text-foreground-muted">
+                    {status.zeroNews?.phase === 'connected'
+                      ? t('panel.zeronews.linkOn', { url: status.zeroNews.url })
+                      : status.zeroNews?.phase === 'error'
+                        ? t('panel.zeronews.linkError')
+                        : status.zeroNews?.phase && status.zeroNews.phase !== 'off'
+                          ? t('panel.zeronews.linkBusy')
+                          : t('panel.zeronews.linkOff')}
+                  </span>
+                </div>
+                <p className="mb-2 text-xs text-foreground-muted">{t('panel.zeronews.linkHint')}</p>
+                {status.zeroNews?.error ? <p className="mb-2 text-xs text-error">{status.zeroNews.error}</p> : null}
+                {zeroNewsNote ? <p className="mb-2 text-xs text-error">{zeroNewsNote}</p> : null}
+                <div className="mt-2 flex justify-end gap-2">
+                  <Button variant="outline" size="sm" disabled={zeroNewsLinkBusy || status.zeroNews?.phase === 'connected'} onClick={connectZeroNews}>
+                    {zeroNewsLinkBusy ? t('panel.zeronews.linkConnecting') : t('panel.zeronews.linkConnect')}
+                  </Button>
+                  <Button variant="ghost" size="sm" disabled={zeroNewsLinkBusy || status.zeroNews?.phase !== 'connected'} onClick={disconnectZeroNews}>
+                    {t('panel.zeronews.linkDisconnect')}
+                  </Button>
+                </div>
+              </Field>
             </div>
           </section>
         </div>

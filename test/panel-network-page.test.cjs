@@ -101,14 +101,15 @@ test('宿主把公网 IPv4 单列一格并缀进候选（地址库与手机候�
   assert.match(read('lib', 'relay', 'pairing-payload.cjs'), /withManualIpv4Candidate/, '二维码候选也要带上');
 });
 
-test('网络配置页按分组重构：中转 / 直连 / 局域网与 IPv6 / FRP 分区', () => {
+test('网络配置页按分组重构：中转 / 直连 / 局域网与 IPv6 / FRP / ZeroNews 分区', () => {
   const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
-  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp']) {
+  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp', 'panel.zeronews.section']) {
     assert.ok(page.includes(`'${key}'`), `要有分组标题 ${key}`);
   }
-  assert.equal((page.match(/<section/g) || []).length, 4, '四个分组 section');
+  // 五个分组：原有四段 + ZeroNews 线路（厂商现行流程浏览器登录，不用 token）。
+  assert.equal((page.match(/<section/g) || []).length, 5, '五个分组 section');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
-  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp']) {
+  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp', 'panel.zeronews.section']) {
     assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
   }
 });

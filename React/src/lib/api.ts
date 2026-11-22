@@ -125,6 +125,30 @@ export type CloudflareActionReply = {
   error?: { code: string; message: string }
 } & Partial<Omit<CloudflareStatus, 'error'>>
 
+/**
+ * ZeroNews 线路此刻的状态（控制面 `/api/relay/status` 的 `zeroNews` 字段）。
+ * 厂商现行流程只用浏览器 login、不用 token：phase 走到 connected 时 url 才是可用域名。
+ * 老宿主没有这一格时按 null 处理。
+ */
+export type ZeroNewsStatus = {
+  available: boolean
+  running: boolean
+  /** off | installing | login | starting | connecting | connected | error */
+  phase: string
+  url: string
+  error: string
+}
+
+export type ZeroNewsActionReply = {
+  ok: boolean
+  phase?: string
+  url?: string
+  running?: boolean
+  available?: boolean
+  /** 成功回包摊开 runner 状态时是字符串；动作路由失败时是 `{code,message}`。 */
+  error?: string | { code: string; message: string }
+}
+
 export type StatusView = {
   enabled: boolean
   instanceId: string
@@ -169,6 +193,8 @@ export type StatusView = {
   frp?: FrpStatus | null
   /** Cloudflare 兜底隧道：cloudflared 装没装、跑没跑（见 lib/cloudflared/runner.cjs）；老宿主没有这一格，按 null 处理。 */
   cloudflare?: CloudflareStatus | null
+  /** ZeroNews 线路：本地客户端装没装、登没登录、隧道通没通；老宿主没有这一格，按 null 处理。 */
+  zeroNews?: ZeroNewsStatus | null
   lan: {
     enabled: boolean
     port: number
@@ -809,4 +835,14 @@ export function zeroNewsEndpoints(): Promise<{
       return response.json()
     })
     .then((payload) => payload as { ok: boolean; urls: string[]; available: boolean; error: string })
+}
+
+/** 连接 ZeroNews 线路：自动下载客户端、拉浏览器登录、建隧道；回包带此刻状态。 */
+export function zeroNewsConnect(): Promise<ZeroNewsActionReply> {
+  return apiPost('/api/relay/zeronews/connect')
+}
+
+/** 断开 ZeroNews 线路：停客户端、撤域名。 */
+export function zeroNewsDisconnect(): Promise<ZeroNewsActionReply> {
+  return apiPost('/api/relay/zeronews/disconnect')
 }
