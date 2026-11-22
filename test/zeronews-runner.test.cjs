@@ -103,6 +103,36 @@ test('已登录：跳过浏览器登录，起客户端→复用已有隧道→�
   assert(!calls.some((c) => c.cli && c.cli.includes('authtoken')), '全程不碰 authtoken');
 });
 
+test('给了 AuthToken：先写客户端配置，不再拉浏览器', async () => {
+  const { runner, calls } = harness({ loggedAfter: 0 });
+  const s = await runner.start({ token: 'demo-auth-token-123' });
+  assert.equal(s.phase, 'connected');
+  assert(calls.some((c) => c.cli === 'authtoken demo-auth-token-123'), '按官方 CLI 的 authtoken 子命令写入');
+  assert(!calls.some((c) => c.spawn === 'login'), '有 token 就不该再弹浏览器登录');
+});
+
+test('AuthToken 写失败：如实报错，不起隧道的后续步骤', async () => {
+  const calls = [];
+  const fetchImpl = async () => ({ ok: false });
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }),
+    portOf: () => 49906,
+    fetchImpl,
+    spawnImpl: (b, args) => { calls.push(args[0]); return { on() {}, unref() {} }; },
+    runImpl: async (bin, args) => {
+      calls.push(args.join(' '));
+      if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: false }), stderr: '' };
+      if (args[0] === 'authtoken') return { code: 1, stdout: '', stderr: 'invalid token' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start({ token: 'bad' });
+  assert.equal(s.phase, 'error');
+  assert.match(s.error, /invalid token/);
+  assert(!calls.includes('login'), '写 token 失败不该退回浏览器登录');
+});
+
 test('未登录：拉起浏览器 login，确认后继续', async () => {
   // 第一次 cliStatus（快路判断）返回未登录，之后返回已登录 —— 模拟用户点完浏览器确认。
   let statusCalls = 0;

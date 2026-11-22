@@ -854,8 +854,8 @@ export function zeroNewsEndpoints(): Promise<{
 }
 
 /** 连接 ZeroNews 线路：自动下载客户端、拉浏览器登录、建隧道；回包带此刻状态。 */
-export function zeroNewsConnect(): Promise<ZeroNewsActionReply> {
-  return apiPost('/api/relay/zeronews/connect')
+export function zeroNewsConnect(token?: string): Promise<ZeroNewsActionReply> {
+  return apiPost('/api/relay/zeronews/connect', token ? { token } : {})
 }
 
 /** 断开 ZeroNews 线路：停客户端、撤域名。 */
