@@ -35,6 +35,15 @@ const flush = async (turns = 20) => {
   for (let i = 0; i < turns; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
+/**
+ * 等条件成立：慢机器上「固定 20 拍」盖不住启动那次全量的异步链与落盘，
+ * 条件还没成就在断言里报成「没推出去」。等到截止时间仍不成立，同样交给断言报错。
+ */
+const waitFor = async (predicate, timeoutMs = 3000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) await delay(5);
+};
+
 const mkItem = ({ sessionId, title, running, updatedAt }) => ({
   sessionId,
   cwd: '/ws/a',
@@ -133,7 +142,7 @@ test('镜像载荷带本实例活凭据的 sha256：同口径、按签发倒序�
     run: async ({ pusher, pushed }) => {
       const stop = pusher.start();
       try {
-        await flush();
+        await waitFor(() => pushed.length > 0);
       } finally {
         stop();
       }
@@ -163,10 +172,11 @@ test('吊销一台设备后清单少一条，并且下一 tick 就推出去', as
     run: async ({ pusher, pushed, h }) => {
       const stop = pusher.start();
       try {
-        await flush();
+        await waitFor(() => pushed.length > 0);
         assert.equal(pushed[pushed.length - 1].creds.length, 2, '首份镜像应带两条摘要');
         // 先跑一轮后台 tick（轮转窗口还没走过，冷会话要补一份正文），把基准落定。
         h.tick();
+        await waitFor(() => pushed.length > 1);
         await flush();
         const settled = pushed.length;
         // 什么都没变：这一轮不许再推。否则下面那条「撤销后被推出去」就分不清是谁促成的。
@@ -176,7 +186,7 @@ test('吊销一台设备后清单少一条，并且下一 tick 就推出去', as
 
         assert.equal(credentials.revokeDevice(INSTANCE, 'phone-drop'), 1, '吊销应命中那条记录');
         h.tick();
-        await flush();
+        await waitFor(() => pushed.length > settled);
         assert.equal(pushed.length, settled + 1, '撤销设备后必须在一个 tick 内把新摘要推出去');
         const payload = pushed[pushed.length - 1];
         assert.equal(payload.creds.length, 1, '被吊销的那条不能再出现在镜像里');
