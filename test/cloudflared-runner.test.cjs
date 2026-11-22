@@ -17,6 +17,8 @@ const test = require('node:test');
 const { createCloudflaredRunner, extractTunnelUrl } = require('../lib/cloudflared/runner.cjs');
 
 const BANNER = '2026-11-22T10:00:00Z INF |  https://brave-lamp-trycloudflare.trycloudflare.com  |';
+const REGISTERED = '2026-11-22T10:00:02Z INF Registered tunnel connection connIndex=0 connection=abc event=1 ip=198.41.200.13 location=hkg12 protocol=quic';
+const DROPPED = '2026-11-22T10:05:00Z ERR Connection terminated error="failed to dial to edge with quic: timeout"';
 
 function tempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cloudflared-runner-'));
@@ -59,7 +61,7 @@ function retryClock() {
   };
 }
 
-function harness({ port = 49906, clock = {}, onAddress, ensure } = {}) {
+function harness({ port = 49906, clock = {}, onAddress, onAddressGone, ensure } = {}) {
   const children = [];
   const spawns = [];
   const runner = createCloudflaredRunner({
@@ -68,6 +70,7 @@ function harness({ port = 49906, clock = {}, onAddress, ensure } = {}) {
     ensureBin: ensure || (async () => ({ ok: true, path: '/fake/cloudflared' })),
     spawnImpl: (binary, args) => { spawns.push({ binary, args }); const child = fakeChild(); children.push(child); return child; },
     onAddress,
+    onAddressGone,
     ...clock,
   });
   return { runner, children, spawns };
@@ -96,14 +99,19 @@ test('start 起进程、从 stderr banner 解析地址、spawn 参数正确', as
   const published = [];
   const { runner, children, spawns } = harness({ onAddress: async (value, isCurrent) => { if (isCurrent()) published.push(value); } });
   const st = await runner.start();
-  assert.equal(st.running, true);
+  assert.equal(st.running, false, '进程起来不等于隧道通，边缘还没连上不能说运行中');
+  assert.equal(st.starting, true);
   assert.equal(st.pid, 4242);
   assert.equal(st.url, '');
   assert.equal(spawns.length, 1);
   assert.deepEqual(spawns[0].args, ['tunnel', '--url', 'http://127.0.0.1:49906', '--no-autoupdate']);
   children[0].stderr.emit('data', `${BANNER}\n`);
   assert.equal(runner.status().url, 'https://brave-lamp-trycloudflare.trycloudflare.com');
-  assert.deepEqual(published, ['https://brave-lamp-trycloudflare.trycloudflare.com']);
+  assert.deepEqual(published, [], '只有 banner 地址、还没连上边缘：这条地址先不交出去');
+  children[0].stderr.emit('data', `${REGISTERED}\n`);
+  assert.equal(runner.status().running, true, '连上边缘才算运行中');
+  assert.equal(runner.status().starting, false);
+  assert.deepEqual(published, ['https://brave-lamp-trycloudflare.trycloudflare.com'], '连上之后才上报地址');
 });
 
 test('同一 URL 只回调一次', async () => {
@@ -118,6 +126,7 @@ test('同一 URL 只回调一次', async () => {
   });
   await runner.start();
   child.stderr.emit('data', `${BANNER}\n`);
+  child.stderr.emit('data', `${REGISTERED}\n`);
   child.stderr.emit('data', `${BANNER}\n`);
   child.stdout.emit('data', `${BANNER}\n`);
   assert.equal(published.length, 1, '相同地址重复出现不重复回调');
@@ -134,6 +143,7 @@ test('setAddressListener 在已知地址时补发当前地址', async () => {
   });
   await runner.start();
   child.stderr.emit('data', `${BANNER}\n`);
+  child.stderr.emit('data', `${REGISTERED}\n`);
   const got = [];
   runner.setAddressListener(async (value, isCurrent) => { if (isCurrent()) got.push(value); });
   assert.deepEqual(got, ['https://brave-lamp-trycloudflare.trycloudflare.com']);
@@ -148,7 +158,7 @@ test('崩溃按退避有限重连（用户仍开启），封顶后不再重试',
     assert.equal(runner.status().retrying, true);
     assert.equal([...clock.timers.values()][0].ms, delay);
     await clock.tick();
-    assert.equal(runner.status().running, true);
+    assert.equal(runner.status().starting, true, '重连起的是一新进程，连上边缘之前不算运行中');
   }
   children.at(-1).emit('close', 1, null);
   assert.equal(clock.timers.size, 0, '重试必须封顶');
@@ -172,13 +182,16 @@ test('崩溃时 enabled 标记缺失则不重连', async () => {
 
 test('stop 后清地址、删标记、不复活', async () => {
   const clock = retryClock();
-  const { runner, children } = harness({ port: 18787, clock });
+  const gone = [];
+  const { runner, children } = harness({ port: 18787, clock, onAddressGone: () => gone.push(1) });
   await runner.start();
   children[0].stderr.emit('data', `${BANNER}\n`);
+  children[0].stderr.emit('data', `${REGISTERED}\n`);
   assert.equal(runner.status().url, 'https://brave-lamp-trycloudflare.trycloudflare.com');
   const stopped = await runner.stop();
   assert.equal(stopped.running, false);
   assert.equal(stopped.url, '');
+  assert.deepEqual(gone, [1], '停用要把上报过的地址撤回，总控不能再拿它发给手机');
   assert.equal(runner.shouldAutoStart(), false);
   children[0].emit('close', 1, null);
   assert.equal(runner.status().retrying, false, '用户 stop 后崩溃不能复活');
@@ -192,20 +205,24 @@ test('dispose 杀进程、清地址、解绑监听，但保留 enabled', async (
   let kills = 0;
   child.kill = () => { kills += 1; return true; };
   const got = [];
+  const gone = [];
   const runner = createCloudflaredRunner({
     root: tempDir(),
     portOf: () => 49906,
     ensureBin: async () => ({ ok: true, path: '/fake/cloudflared' }),
     spawnImpl: () => child,
     onAddress: async (value, isCurrent) => { if (isCurrent()) got.push(value); },
+    onAddressGone: () => gone.push(1),
     ...clock,
   });
   await runner.start();
   child.stderr.emit('data', `${BANNER}\n`);
+  child.stderr.emit('data', `${REGISTERED}\n`);
   const st = runner.dispose();
   assert.equal(st.running, false);
   assert.equal(st.url, '');
   assert.equal(kills, 1);
+  assert.deepEqual(gone, [1], '卸载时那条地址同样要撤回');
   assert.equal(runner.shouldAutoStart(), true, 'dispose 不删 enabled，下次宿主启动还能自动起');
   child.stderr.emit('data', `${BANNER}\n`);
   assert.equal(runner.status().url, '', '解绑后旧输出不再写地址');
@@ -260,11 +277,12 @@ test('起进程后迟迟拿不到地址：状态报「连不上 Cloudflare」，
     clearConnectTimerImpl: () => {},
   });
   const st0 = await runner.start();
-  assert.equal(st0.running, true);
+  assert.equal(st0.starting, true, '进程起了、边缘没连上：停在「正在启动」，不报运行中');
+  assert.equal(st0.running, false);
   assert.equal(typeof fireConnect, 'function');
   fireConnect();
   const st = runner.status();
-  assert.equal(st.running, true, '进程还在（会自己重试），不冒充已连上也不误报已退出');
+  assert.equal(st.running, false, '进程还在（会自己重试），但不冒充已连上');
   assert.match(st.error, /Cloudflare/, '要把「连不上 Cloudflare」这个真实原因写进状态');
 });
 
@@ -273,7 +291,58 @@ test('地址监听同步抛错或异步 reject 都不会反噬进程', async () 
     const { runner, children } = harness({ onAddress });
     await runner.start();
     assert.equal(children.length, 1);
-    assert.doesNotThrow(() => children[0].stderr.emit('data', BANNER), '监听抛错不许从流回调里冒出来把宿主带崩');
+    assert.doesNotThrow(() => children[0].stderr.emit('data', `${BANNER}\n${REGISTERED}\n`), '监听抛错不许从流回调里冒出来把宿主带崩');
     await new Promise((r) => setImmediate(r));
   }
+});
+
+test('只有地址、一直没连上边缘：不交地址，超时把真实原因写进状态', async () => {
+  let fireConnect = null;
+  const published = [];
+  const gone = [];
+  const { runner, children } = harness({
+    port: 18787,
+    onAddress: async (value, isCurrent) => { if (isCurrent()) published.push(value); },
+    onAddressGone: () => gone.push(1),
+    clock: {
+      connectTimerImpl: (fn) => { fireConnect = fn; return 111; },
+      clearConnectTimerImpl: () => { fireConnect = null; },
+    },
+  });
+  await runner.start();
+  children[0].stderr.emit('data', `${BANNER}\n`);
+  children[0].stderr.emit('data', '2026-11-22T10:00:05Z ERR Failed to dial a quic connection error="timeout: no recent network activity"\n');
+  assert.deepEqual(published, [], '还没连上边缘，不能把这条地址写进总控');
+  assert.equal(typeof fireConnect, 'function');
+  fireConnect();
+  const st = runner.status();
+  assert.equal(st.running, false);
+  assert.match(st.error, /7844/, '要指出最常见的拦截原因');
+  assert.match(st.error, /Failed to dial a quic/, '要把 cloudflared 的原话带出来');
+  assert.deepEqual(gone, [], '本来就没上报过地址，没有要撤的');
+});
+
+test('连上后掉线：先回到未连通，重连超时才撤回地址', async () => {
+  let fireConnect = null;
+  const published = [];
+  const gone = [];
+  const { runner, children } = harness({
+    port: 18787,
+    onAddress: async (value, isCurrent) => { if (isCurrent()) published.push(value); },
+    onAddressGone: () => gone.push(1),
+    clock: {
+      connectTimerImpl: (fn) => { fireConnect = fn; return 111; },
+      clearConnectTimerImpl: () => { fireConnect = null; },
+    },
+  });
+  await runner.start();
+  children[0].stderr.emit('data', `${BANNER}\n${REGISTERED}\n`);
+  assert.deepEqual(published, ['https://brave-lamp-trycloudflare.trycloudflare.com']);
+  children[0].stderr.emit('data', `${DROPPED}\n`);
+  assert.equal(runner.status().running, false, '掉线就不能再报运行中');
+  assert.deepEqual(gone, [], '先给它自己重连的余地（同一地址，地址没变）');
+  assert.equal(typeof fireConnect, 'function', '掉线后要重新计时');
+  fireConnect();
+  assert.deepEqual(gone, [1], '重连超时才把地址撤回');
+  assert.match(runner.status().error, /7844/);
 });
