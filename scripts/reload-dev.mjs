@@ -128,13 +128,13 @@ function installSpecVersion() {
 
 /** 把本机已编译助手放进正常开发包；没有原生产物时仍可安装其他线路。 */
 function prepareDevNative(root = PLUGIN_ROOT, dryRun = DRY_RUN, platform = `${process.platform}-${process.arch}`) {
-  if (!['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'].includes(platform)) return null
+  if (!['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64', 'win32-arm64'].includes(platform)) return null
   const workspace = path.dirname(root)
   const written = []
 
   // 本机隧道助手
   if (fs.existsSync(path.join(workspace, 'tailcat-host', 'runtime-version.json'))) {
-    const name = platform === 'win32-x64' ? 'dsh-tailcat-host.exe' : 'dsh-tailcat-host'
+    const name = platform.startsWith('win32-') ? 'dsh-tailcat-host.exe' : 'dsh-tailcat-host'
     const source = path.join(workspace, 'build', 'tailcat-runtime', platform, name)
     if (fs.existsSync(source)) {
       const target = path.join(root, 'native', platform, name)
@@ -158,7 +158,7 @@ function prepareDevNative(root = PLUGIN_ROOT, dryRun = DRY_RUN, platform = `${pr
       fs.cpSync(shellSource, shellRoot, { recursive: true })
       const relative = platform.startsWith('darwin-')
         ? path.join('dsh-mobile-shell.app', 'Contents', 'MacOS', 'dsh-mobile-shell')
-        : platform === 'win32-x64' ? 'dsh-mobile-shell.exe' : 'dsh-mobile-shell'
+        : platform.startsWith('win32-') ? 'dsh-mobile-shell.exe' : 'dsh-mobile-shell'
       const shellBinary = path.join(shellRoot, relative)
       if (fs.existsSync(shellBinary)) fs.chmodSync(shellBinary, 0o755)
     }

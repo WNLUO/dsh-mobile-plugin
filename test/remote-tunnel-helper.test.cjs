@@ -57,6 +57,17 @@ test('桌面助手按显式覆盖、包内产物、源码构建、平台包顺�
   assert.equal(resolveRemoteBinary({ ...options, env: { DSHM_REMOTE_TUNNEL_HELPER: '/missing-helper' } }), 'platform-helper');
 });
 
+test('Windows ARM64 上按 dsh-tailcat-host.exe 找包内助手', () => {
+  const root = path.resolve('remote-helper-fixture');
+  const packageRoot = path.join(root, 'dsh-mobile-plugin');
+  const expected = path.join(packageRoot, 'native', 'win32-arm64', 'dsh-tailcat-host.exe');
+  const got = resolveRemoteBinary({
+    root, packageRoot, env: {}, platformId: 'win32-arm64',
+    exists: file => file === expected, fallback: () => 'platform-helper',
+  });
+  assert.equal(got, expected, 'Win ARM64 的助手文件名要带 .exe');
+});
+
 test('并发调用按 requestId 关联，私钥错误不回显', async () => {
   const waiting = [];
   const proc = fakeProcess({ command(proc, command) {

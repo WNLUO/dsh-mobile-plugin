@@ -17,7 +17,7 @@ const { test } = require('node:test');
 const { EventEmitter } = require('node:events');
 const { PassThrough, Writable } = require('node:stream');
 
-const { createTailcatHost } = require('../lib/tailcat/host-process.cjs');
+const { createTailcatHost, platformId, binaryName } = require('../lib/tailcat/host-process.cjs');
 
 /** 造一个假的助手可执行文件：吐一行给定 JSON、然后假装还在跑。 */
 function fakeHelper(jsonLine) {
@@ -151,4 +151,15 @@ test('重启使用存储当前身份和名单，单peer停止带公钥且空状�
   assert.ok(events.some(event => event.event === 'p2pStopped' && event.peerKey === 'phone-b'));
   assert.deepEqual(events.at(-1), { event: 'p2pStatus', running: false, url: '', path: 'unknown', active: false, detail: '', candidates: [] });
   await host.close();
+});
+
+test('Windows ARM64 有独立平台包，助手文件名按 .exe 走', () => {
+  // 平台白名单漏掉 win32-arm64，就会把 ARM64 的 Windows 误判成「没装助手」——P2P/Tailcat
+  // 都起不来。这条把平台 id 与文件名钉死：改坏平台表或退回只认 win32-x64 都要红。
+  assert.equal(platformId('win32', 'arm64'), 'win32-arm64', 'Win ARM64 必须有自己的平台 id');
+  assert.equal(platformId('win32', 'x64'), 'win32-x64');
+  assert.equal(platformId('win32', 'ia32'), undefined, '32 位仍不支持');
+  assert.equal(binaryName('win32-arm64'), 'dsh-tailcat-host.exe');
+  assert.equal(binaryName('win32-x64'), 'dsh-tailcat-host.exe');
+  assert.equal(binaryName('linux-arm64'), 'dsh-tailcat-host');
 });
