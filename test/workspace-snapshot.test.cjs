@@ -140,6 +140,39 @@ test('Host 登记清单和归档字段形状异常仍失败，不生成权威空
   }
 });
 
+// 工作区 domain v1 的旧宿主没有 pinnedSessionIds 字段。置顶只影响画图，缺了顶多少几个图钉，
+// 不能让整份工作区清单读失败（与 session-flags.js 对同一字段的容错口径一致）。
+function legacyRegistryOf(items = [{ id: 'w1', path: '/ws/project', title: '项目', sessionIds: ['s2', 's1'], createdAt: '2026-11-01', updatedAt: '2026-11-21' }]) {
+  return { list: () => items, archivedSessionIds: ['archived'] };
+}
+
+async function expectLegacyPinnedSnapshot(read) {
+  const { ctx, calls } = runtime(legacyRegistryOf());
+  const response = await read(ctx);
+  assert.equal(response.result.ok, true, JSON.stringify(response.result.error));
+  assert.deepEqual(JSON.parse(JSON.stringify(response.result.value)), {
+    items: [{ workspaceId: 'w1', path: '/ws/project', title: '项目', sessionIds: ['s2', 's1'], createdAt: '2026-11-01', updatedAt: '2026-11-21' }],
+    archivedSessionIds: ['archived'],
+    pinnedSessionIds: [],
+  });
+  assert.deepEqual(calls, []);
+  const body = await buildWorkspacesBody(ctx);
+  assert.equal(body.ok, true, JSON.stringify(body.error));
+  assert.equal(body.items.length, 1);
+}
+
+test('旧宿主没有 pinnedSessionIds 时工作区清单照常返回，置顶按空集合', async () => {
+  await expectLegacyPinnedSnapshot((ctx) => ctx.apiProxy.workspace.list({ payload: {} }));
+});
+
+test('变异证明：把置顶字段改回必存在会被老宿主用例抓住', async () => {
+  const read = mutatedRead(
+    'Array.isArray(registry.pinnedSessionIds) ? [...registry.pinnedSessionIds] : []',
+    '[...registry.pinnedSessionIds]',
+  );
+  await assert.rejects(() => expectLegacyPinnedSnapshot(read), /registry\.pinnedSessionIds is not iterable/);
+});
+
 test('已取消的读取不访问 Host 登记服务', async () => {
   const controller = new AbortController();
   controller.abort(Object.assign(new Error('cancelled'), { code: 'cancelled' }));
