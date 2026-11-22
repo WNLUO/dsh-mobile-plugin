@@ -79,7 +79,9 @@ export const DOWNLOAD_CHANNELS: { platform: DownloadPlatform; channels: Download
       {
         name: 'App Store',
         hintKey: 'panel.links.appStore',
-        url: 'https://apps.apple.com/app/id6821681438',
+        // 走官网的地区跳转入口：不带地区的 apps.apple.com/app/id… 在桌面浏览器会被苹果
+        // 转到门店首页（Today 页），海外与国内的门店也不同，交给那一页按访问者地区落。
+        url: 'https://ai-hub.wnluo.com/ios',
       },
       {
         name: 'TestFlight',
