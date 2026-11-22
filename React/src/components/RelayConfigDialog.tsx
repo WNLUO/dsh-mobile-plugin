@@ -17,7 +17,7 @@ import { Input } from '@appica/ui-react/input'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
-import { apiPost, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
+import { frpConfig, importFrp, probeRelays, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
@@ -41,6 +41,7 @@ function AddressCombo({
   options,
   emptyText,
   onChange,
+  readOnly = false,
 }: {
   id: string
   value: string
@@ -49,10 +50,11 @@ function AddressCombo({
   options: ComboOption[]
   emptyText: string
   onChange: (value: string) => void
+  readOnly?: boolean
 }) {
   return (
     <Input
-      inputProps={{ id, className: 'font-mono' }}
+      inputProps={{ id, className: 'font-mono', readOnly }}
       value={value}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
@@ -157,6 +159,18 @@ export function RelayConfigDialog({
   const [tcpHint, setTcpHint] = useState('')
   /** 自建中转的检测结果：用宿主已有的 /api/relay/probe-relays 确认「是不是我们的中转」并取版本、延迟。 */
   const [selfProbe, setSelfProbe] = useState<{ state: 'idle' | 'checking' | 'ok' | 'not-relay' | 'fail'; ms?: number; version?: string }>({ state: 'idle' })
+  /** 直连地址的回环检测：打回 service=dsh-mobile-plugin 且 instanceId 与本机一致才算「绕回本机」。 */
+  const [directProbe, setDirectProbe] = useState<{ state: 'idle' | 'checking' | 'ok' | 'other' | 'fail' }>({ state: 'idle' })
+  /** 用户「添加地址」自己加进来的局域网候选（网卡没扫到时用）。 */
+  const [extraLan, setExtraLan] = useState<string[]>([])
+  /** 添加地址弹窗：lan / ipv6 / null。 */
+  const [addOpen, setAddOpen] = useState<'lan' | 'ipv6' | null>(null)
+  const [addDraft, setAddDraft] = useState('')
+  const [addError, setAddError] = useState('')
+  /** FRP 直连管理：配置文本、忙、反馈。 */
+  const [frpText, setFrpText] = useState('')
+  const [frpBusy, setFrpBusy] = useState('')
+  const [frpNote, setFrpNote] = useState('')
   /**
    * 局域网地址（`preferredLanAddress`）：**可手填**，不再只让用户从检测到的那几条里挑。
    * 机器有好几块网卡、想直接敲一条地址时用得上；填错了拦在保存那儿（见 `unknownLan`）。
@@ -188,6 +202,7 @@ export function RelayConfigDialog({
     if (!open) return
     setRelayUrl(status.relayUrl)
     setPublicDisabled(status.publicRelayDisabled === true)
+    void loadFrpConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
 
@@ -211,6 +226,11 @@ export function RelayConfigDialog({
       setLanHint('')
       setTcpHint('')
       setSelfProbe({ state: 'idle' })
+      setDirectProbe({ state: 'idle' })
+      setExtraLan([])
+      setAddOpen(null)
+      setAddDraft('')
+      setAddError('')
       return
     }
     if (!editedLanRef.current) setManualLanUrl(addressBook?.manual ?? '')
@@ -252,9 +272,7 @@ export function RelayConfigDialog({
     if (!/^https?:\/\//i.test(url)) { setSelfProbe({ state: 'fail' }); return }
     setSelfProbe({ state: 'checking' })
     try {
-      const res = await apiPost<{ ok: boolean; results?: Array<{ url: string; ms: number | null; service?: string; version?: string }> }>(
-        '/api/relay/probe-relays', { urls: [url] }, { timeoutMs: 9000 },
-      )
+      const res = await probeRelays([url])
       const hit = res?.results?.[0]
       if (hit && typeof hit.ms === 'number' && hit.service === 'dsh-mobile-relay') setSelfProbe({ state: 'ok', ms: hit.ms, version: hit.version })
       else if (hit && typeof hit.ms === 'number') setSelfProbe({ state: 'not-relay' })
@@ -262,6 +280,79 @@ export function RelayConfigDialog({
     } catch {
       setSelfProbe({ state: 'fail' })
     }
+  }
+
+  /** 探直连地址：它应当打回宿主自己（service=dsh-mobile-plugin 且 instanceId 与本机一致）。 */
+  async function checkDirect() {
+    const url = trimUrl(manualLanUrl)
+    if (!/^https?:\/\//i.test(url)) { setDirectProbe({ state: 'fail' }); return }
+    setDirectProbe({ state: 'checking' })
+    try {
+      const res = await probeRelays([url])
+      const hit = res?.results?.[0]
+      if (hit && typeof hit.ms === 'number' && hit.service === 'dsh-mobile-plugin') {
+        setDirectProbe({ state: hit.instanceId && hit.instanceId === status.instanceId ? 'ok' : 'other' })
+      } else {
+        setDirectProbe({ state: 'fail' })
+      }
+    } catch {
+      setDirectProbe({ state: 'fail' })
+    }
+  }
+
+  /** 读一次当前 frpc 配置，填进管理框（没接 frpc 能力就留空并提示）。 */
+  async function loadFrpConfig() {
+    try {
+      const res = await frpConfig()
+      setFrpText(res?.config || '')
+    } catch {
+      setFrpText('')
+    }
+  }
+
+  /** 保存并启动 frpc：导入接口会落盘并把 localPort 对齐到插件端口后起进程。 */
+  async function saveFrp() {
+    if (!frpText.trim()) return
+    setFrpBusy('save')
+    setFrpNote('')
+    try {
+      const res = await importFrp(frpText)
+      setFrpNote(res.ok ? '' : (res.status?.error || t('panel.frp.statusStop')))
+    } catch (error) {
+      setFrpNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setFrpBusy('')
+    }
+  }
+
+  /** 停掉 frpc。 */
+  async function stopFrpNow() {
+    setFrpBusy('stop')
+    setFrpNote('')
+    try {
+      await stopFrp()
+    } catch (error) {
+      setFrpNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setFrpBusy('')
+    }
+  }
+
+  /** 「添加地址」：校验形状后并入候选（IPv6 直接写 manualIpv6Url）。 */
+  function submitAdd() {
+    const value = addDraft.trim().replace(/\/+$/, '')
+    if (!/^(?:https?:\/\/[^\s]+|[^\s/:?#]+:\d+)$/i.test(value)) { setAddError(t('panel.address.addInvalid')); return }
+    if (addOpen === 'ipv6') {
+      editedIpv6Ref.current = true
+      setManualIpv6Url(value)
+    } else {
+      setExtraLan((prev) => (prev.includes(value) ? prev : [...prev, value]))
+      editedPreferredRef.current = true
+      setPreferredLan(value)
+    }
+    setAddOpen(null)
+    setAddDraft('')
+    setAddError('')
   }
 
   function submit() {
@@ -301,7 +392,7 @@ export function RelayConfigDialog({
     // 宿主只按「候选里有没有这条」排序，敲错等于白填，界面不能装作存上了。
     const wantedLan = preferredLan.trim()
     if (editedPreferredRef.current && wantedLan !== (addressBook?.preferred ?? '').trim()) {
-      if (wantedLan && !pickableAddresses.some((item) => item.address === wantedLan)) {
+      if (wantedLan && !pickableAddresses.some((item) => item.address === wantedLan) && !extraLan.includes(wantedLan)) {
         setLanHint(t('panel.address.lanUnknown'))
         return
       }
@@ -437,7 +528,12 @@ export function RelayConfigDialog({
                 </Field>
 
                 <Field>
-                  <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
+                    <Button variant="ghost" size="sm" disabled={!canSave || directProbe.state === 'checking'} onClick={checkDirect}>
+                      {t(directProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.address.detectLoop')}
+                    </Button>
+                  </div>
                   <Input
                     inputProps={{ id: 'relay-manual-lan', className: 'font-mono' }}
                     value={manualLanUrl}
@@ -445,11 +541,23 @@ export function RelayConfigDialog({
                     onChange={(event) => {
                       editedLanRef.current = true
                       setManualLanUrl(event.target.value)
+                      setDirectProbe({ state: 'idle' })
                     }}
                   />
                   {/^http:\/\//i.test(trimUrl(manualLanUrl)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
+                  {directProbe.state === 'idle' ? null : (
+                    <p className={`text-xs ${directProbe.state === 'ok' ? 'text-success' : directProbe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'}`}>
+                      {directProbe.state === 'checking'
+                        ? t('panel.relay.detecting')
+                        : directProbe.state === 'ok'
+                          ? t('panel.address.detectLoopOk')
+                          : directProbe.state === 'other'
+                            ? t('panel.address.detectLoopOther')
+                            : t('panel.address.detectLoopFail')}
+                    </p>
+                  )}
                 </Field>
 
                 <Field>
@@ -479,21 +587,29 @@ export function RelayConfigDialog({
                   {tcpHint ? <p className="text-xs text-error">{tcpHint}</p> : null}
                 </Field>
 
-                {/* 局域网地址：地址可能好几条，可以从清单里挑，也可以直接敲一条。 */}
+                {/* 局域网地址：只能从检测到的地址里选（不手填），网卡取不到时可「添加地址」。 */}
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
-                    <Button variant="ghost" size="sm" onClick={() => setLanPickerOpen(true)}>
-                      {t('panel.onboarding.chooseAddress')}
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setLanPickerOpen(true)}>
+                        {t('panel.onboarding.chooseAddress')}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('lan') }}>
+                        {t('panel.address.add')}
+                      </Button>
+                    </div>
                   </div>
-                  {/* 检测到的那几条挂成右侧常驻候选：想挑就点箭头挑，也可以直接手敲。 */}
                   <AddressCombo
                     id="relay-preferred-lan"
                     value={preferredLan}
                     placeholder={t('panel.address.lanPlaceholder')}
                     ariaLabel={t('panel.address.lan')}
-                    options={pickableAddresses.map((item) => ({ value: item.address, label: item.url }))}
+                    readOnly
+                    options={[
+                      ...pickableAddresses.map((item) => ({ value: item.address, label: item.url })),
+                      ...extraLan.map((address) => ({ value: address, label: address })),
+                    ]}
                     emptyText={t('panel.address.empty')}
                     onChange={(value) => {
                       editedPreferredRef.current = true
@@ -511,14 +627,19 @@ export function RelayConfigDialog({
                 </Field>
 
                 <Field>
-                  <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
-                  {/* 探测到的 IPv6 挂成右侧常驻候选：点箭头挑一条填进来，也可以直接手敲。
-                      框里默认先填探测到的那条（见上面回显那段），不会再空着。 */}
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
+                    <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv6') }}>
+                      {t('panel.address.add')}
+                    </Button>
+                  </div>
+                  {/* 探测到的 IPv6 挂成候选：点箭头挑一条，不能手敲；没有时用「添加地址」。 */}
                   <AddressCombo
                     id="relay-manual-ipv6"
                     value={manualIpv6Url}
                     placeholder={t('panel.address.ipv6Placeholder')}
                     ariaLabel={t('panel.address.ipv6Url')}
+                    readOnly
                     options={(addressBook?.ipv6 ?? []).map((item) => ({
                       value: item.url,
                       label: item.interface ? `${item.url} · ${item.interface}` : item.url,
@@ -530,6 +651,33 @@ export function RelayConfigDialog({
                     }}
                   />
                 </Field>
+
+                {/* FRP 直连管理：把内置 frpc 的配置、启停、运行状态搬过来，替代只做一次导入。 */}
+                <div className="col-span-full border-t border-border-muted pt-3">
+                  <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                    <FieldLabel>{t('panel.frp.manageTitle')}</FieldLabel>
+                    <span className="text-xs text-foreground-muted">
+                      {status.frp?.running ? t('panel.frp.statusRun') : t('panel.frp.statusStop')}
+                      {status.frp?.running && status.frp?.remoteAddress ? ` · ${status.frp.remoteAddress}` : ''}
+                      {status.frp?.error ? ` · ${status.frp.error}` : ''}
+                    </span>
+                  </div>
+                  <textarea
+                    className="min-h-24 w-full rounded-md border border-border bg-background p-2 font-mono text-xs text-foreground focus-visible:outline-none"
+                    value={frpText}
+                    placeholder={t('panel.frp.configLabel')}
+                    onChange={(event) => setFrpText(event.target.value)}
+                  />
+                  {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
+                  <div className="mt-2 flex justify-end gap-2">
+                    <Button variant="outline" size="sm" disabled={frpBusy !== '' || !frpText.trim()} onClick={saveFrp}>
+                      {t('panel.frp.saveStart')}
+                    </Button>
+                    <Button variant="ghost" size="sm" disabled={frpBusy !== ''} onClick={stopFrpNow}>
+                      {t('panel.frp.stop')}
+                    </Button>
+                  </div>
+                </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
@@ -577,6 +725,30 @@ export function RelayConfigDialog({
             <Button variant="outline" onClick={() => setLanPickerOpen(false)}>
               {t('panel.common.close')}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 添加地址：网卡扫不到局域网 / IPv6 地址时，手动补一条（保存前校验形状）。 */}
+      <Dialog open={addOpen !== null} onOpenChange={(next) => { if (!next) { setAddOpen(null); setAddDraft(''); setAddError('') } }}>
+        <DialogContent className="w-[min(520px,92vw)]">
+          <DialogHeader>
+            <DialogTitle>{t('panel.address.add')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <Input
+              inputProps={{ className: 'font-mono' }}
+              value={addDraft}
+              placeholder={addOpen === 'ipv6' ? t('panel.address.ipv6Placeholder') : t('panel.address.lanPlaceholder')}
+              onChange={(event) => { setAddDraft(event.target.value); setAddError('') }}
+            />
+            {addError ? <p className="mt-1 text-xs text-error">{addError}</p> : null}
+          </DialogBody>
+          <DialogFooter className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => { setAddOpen(null); setAddDraft(''); setAddError('') }}>
+              {t('panel.common.cancel')}
+            </Button>
+            <Button variant="primary" onClick={submitAdd}>{t('panel.common.save')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

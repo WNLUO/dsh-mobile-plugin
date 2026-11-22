@@ -753,3 +753,23 @@ export function errorText(error: unknown): string {
   if (error instanceof Error) return error.message || t('panel.net.requestFailedNoStatus')
   return String(error)
 }
+
+/** 宿主代测一组地址（`POST /api/relay/probe-relays`）：中转回 service=dsh-mobile-relay + version，
+ *  直连地址打回宿主自己时回 service=dsh-mobile-plugin + instanceId，用于回环检测。 */
+export type ProbeRelayResult = {
+  url: string
+  ms: number | null
+  service?: string
+  version?: string
+  instanceId?: string
+  apiVersion?: number
+}
+
+export function probeRelays(urls: string[]): Promise<{ ok: boolean; results: ProbeRelayResult[] }> {
+  return apiPost('/api/relay/probe-relays', { urls }, { timeoutMs: 12_000 })
+}
+
+/** 读当前 frpc 配置文本（`GET /api/relay/frp/config`），供面板管理/编辑。 */
+export function frpConfig(): Promise<{ ok: boolean; config: string }> {
+  return apiGet('/api/relay/frp/config')
+}

@@ -35,3 +35,47 @@ test('明文 http 的直连 / 自建中转给出 iPhone ATS 提醒', () => {
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   assert.equal(panel.split("'panel.address.plainHttpWarn':").length - 1, 10, '提示文案十门齐全');
 });
+
+test('直连地址回环检测：打回宿主自己（service=dsh-mobile-plugin 且 instanceId 一致）', () => {
+  const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(page, /async function checkDirect/, '要有直连回环检测函数');
+  assert.match(page, /hit\.service === 'dsh-mobile-plugin'/, '要认宿主自己的服务标识');
+  assert.match(page, /hit\.instanceId === status\.instanceId/, 'instanceId 与本机一致才算绕回本机');
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  for (const key of ['panel.address.detectLoop', 'panel.address.detectLoopOk', 'panel.address.detectLoopOther', 'panel.address.detectLoopFail']) {
+    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+  }
+});
+
+test('局域网 / IPv6 只选不手填，且能「添加地址」', () => {
+  const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(page, /readOnly/, '地址框设为只读（只能选）');
+  assert.match(page, /function submitAdd/, '要有添加地址的处理');
+  assert.match(page, /setAddOpen\('lan'\)/, '局域网能添加地址');
+  assert.match(page, /setAddOpen\('ipv6'\)/, 'IPv6 能添加地址');
+  assert.match(page, /extraLan/, '手动添加的局域网地址并入候选');
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  for (const key of ['panel.address.add', 'panel.address.addInvalid']) {
+    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+  }
+});
+
+test('FRP 直连管理：读当前配置、保存并启动、停止', () => {
+  const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(page, /frpConfig\(\)/, '打开时读取当前 frpc 配置');
+  assert.match(page, /async function saveFrp/, '保存并启动');
+  assert.match(page, /async function stopFrpNow/, '停止');
+  assert.match(page, /panel\.frp\.manageTitle/, '要有 FRP 管理区');
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  for (const key of ['panel.frp.manageTitle', 'panel.frp.configLabel', 'panel.frp.saveStart', 'panel.frp.statusRun', 'panel.frp.statusStop']) {
+    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+  }
+});
+
+test('宿主探测端点也认宿主自己的健康响应（供直连回环检测）', () => {
+  const cp = read('lib', 'routes', 'control-plane.js');
+  assert.match(cp, /who\.service === 'dsh-mobile-plugin'/, 'probe-relays 要识别宿主自身的健康响应');
+  assert.match(cp, /instanceId: who\.instanceId/, '要把 instanceId 带回面板做回环比对');
+  assert.match(cp, /path: '\/api\/relay\/frp\/config'/, '要有读取 frpc 配置的路由');
+  assert.ok(/readConfig/.test(read('lib', 'frpc', 'runner.cjs')), 'runner 要暴露 readConfig');
+});
