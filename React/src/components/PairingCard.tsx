@@ -1,12 +1,12 @@
-// 扫码绑定成功后收起二维码弹窗，收起那一刻不让二维码闪成空白或旧码；地址操作保留小号图标按钮与悬停提示。
+// 扫码绑定成功后收起二维码弹窗，收起那一刻不让二维码闪成空白或旧码；放大弹窗底部提供「刷新二维码」作废旧码换新码；地址操作保留小号图标按钮与悬停提示。
 /**
  * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
  *
  * 地址那串是宿主给的候选顺序（用户选过的排最前），手机也是按这个顺序挨个试的。
  *
  * 卡片上**不摆配对码**：普通用户拿 APP 扫一下码就配上了，码值在这儿只是多一处会被旁边的人
- * 看走眼的东西。「重新生成」那颗也一并去了 —— 宿主在配对成功那一刻就会换码换票据
- * （`rotatePairing`），二维码自己会变，不需要人来按。
+ * 看走眼的东西。二维码默认自己会变（配对成功那一刻宿主换码换票据，`rotatePairing`），
+ * 但用户仍可在放大弹窗里手动「刷新」换一张新码——那颗按钮跟着大图走，卡片入口不再多摆控件。
  *
  * 地址行操作是小号图标按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
  * 2026-11-20 用户要求：整卡按「左显示、右控件」重排——左列放连接信息与运行中版本，
@@ -51,6 +51,8 @@ type Props = {
   error: string
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
   onRetryPairing: () => void
+  /** 「刷新二维码」：作废当前这张码、换一张新的（放大弹窗底部那颗）。 */
+  onRefreshQr: () => void
   onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
   onEditPort: () => void
@@ -71,7 +73,7 @@ type Props = {
  * 维护动作（重新连接 / 吊销全部设备授权 / 网络配置）都挂这张卡：它们属于「连不上时怎么办」。
  * 吊销不可逆，走一次 window.confirm，这类确认不该藏在拖拽或长按里。
  * 「重启 sidecar」在「插件更新」卡（它跟更新是同一件事），这里只留「上次重启失败」的红字。
- * 「刷新」不设：配对信息在进页面、改配置、换码（配对成功）时刷新。
+ * 「刷新二维码」放在放大弹窗底部：作废当前码、换一张新的，与手机端「重新生成配对码」同一件事。
  */
 /** 二维码入口上的小图标。 */
 function QrGlyph() {
@@ -106,6 +108,7 @@ export function PairingCard({
   busy,
   error,
   onRetryPairing,
+  onRefreshQr,
   onSavePreferred,
   onEditPort,
   bare = false,
@@ -311,6 +314,14 @@ export function PairingCard({
               ) : null}
             </div>
           </DialogBody>
+          <DialogFooter className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setQrZoom(false)}>
+              {t('panel.common.close')}
+            </Button>
+            <Button variant="primary" disabled={idle} onClick={onRefreshQr}>
+              {t('panel.pairing.refreshQr')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

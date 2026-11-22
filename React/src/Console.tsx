@@ -399,6 +399,22 @@ export function Console() {
       notify('soft', address ? t('panel.shell.preferredAddress', { address }) : t('panel.shell.preferredAuto'))
     })
 
+  /**
+   * 刷新二维码：作废当前这张码、换一张新的（放大弹窗底部那颗）。
+   *
+   * 新码与状态**同一拍落**：先拿到新码再一起 set，弹窗里的图不会经历「先清空再重画」
+   * 的那一帧。旧码/旧截图的票据随 `rotatePairing` 一并作废。
+   */
+  const refreshQr = () =>
+    act('pairing', async () => {
+      const next = await apiPost<StatusView>('/api/relay/regenerate')
+      const info = await apiGet<PairingInfo>('/api/relay/pairing')
+      setPairing(info)
+      setPairingError('')
+      setStatus(next)
+      notify('soft', t('panel.pairing.qrRefreshed'))
+    })
+
   /** 顶栏那枚点：中转通了或局域网在听 = 正常；开着但都没通 = 琥珀；远程没开 = 灰。 */
   const tone: Tone | null = status
     ? status.tunnel.state === 'connected' || status.lan.state === 'listening'
@@ -503,6 +519,7 @@ export function Console() {
                 busy={busy}
                 error={pairingError}
                 onRetryPairing={() => void loadPairing()}
+                onRefreshQr={() => void refreshQr()}
                 onSavePreferred={(address) => void savePreferredLanAddress(address)}
                 onEditPort={() => setPortOpen(true)}
               />
