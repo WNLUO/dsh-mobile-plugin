@@ -188,3 +188,52 @@ test('stop 撤状态，可重复调用', async () => {
   assert.equal(s.url, '');
   assert.equal(runner.stop().phase, 'off');
 });
+
+test('重载 / 自动更新后有客户端已在跑：复用，不再重复起第二个', async () => {
+  const spawnCalls = [];
+  const runImpl = async (bin, args) => {
+    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, running: true }), stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'reuse.example.com', status: 'active' }] } }) };
+    if (key === '/healthz') return { ok: true, json: async () => ({}) };
+    return { ok: false };
+  };
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl, runImpl,
+    spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {}, kill() {} }; },
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'connected');
+  assert.ok(!spawnCalls.includes('start'), '已有客户端在跑就不再 spawn 第二个（重复拉起会自己退出，表现成崩溃）');
+  assert.equal(runner.status().running, true, '复用的客户端视为在跑');
+});
+
+test('连上后客户端意外退出：状态转 error 并回调交接线层自愈', async () => {
+  let exitHandler = null;
+  const exits = [];
+  const runImpl = async (bin, args) => {
+    if (args[0] === 'status') return { code: 0, stdout: '{"login":true}', stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'x.example.com', status: 'active' }] } }) };
+    if (key === '/healthz') return { ok: true, json: async () => ({}) };
+    return { ok: false };
+  };
+  const spawnImpl = () => ({ on(ev, fn) { if (ev === 'exit') exitHandler = fn; }, unref() {}, kill() {} });
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl, runImpl, spawnImpl,
+    sleepImpl: () => Promise.resolve(), onUnexpectedExit: (message) => exits.push(message),
+  });
+  await runner.start();
+  assert.equal(runner.status().phase, 'connected');
+  exitHandler(); // 模拟子进程退出
+  assert.equal(runner.status().phase, 'error');
+  assert.equal(runner.status().running, false);
+  assert.equal(exits.length, 1, '意外退出要回调交接线层，安排自愈重连');
+});
