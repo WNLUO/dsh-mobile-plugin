@@ -1,4 +1,4 @@
-/** 扫码成功后收起二维码并结束引导；首次读取、普通续码和重开弹窗不误触发。 */
+/** 扫码成功后收起二维码并结束引导，收起瞬间不让码闪一下；首次读取、普通续码和重开弹窗不误触发。 */
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -80,6 +80,29 @@ test('主页关闭二维码，引导页关闭二维码并进入主页，两处�
   assert.match(card, /const qrCurrent = pairing\?\.pairingCode === status\.pairingCode/);
   assert.match(card, /!pairing\?\.svg \|\| !qrCurrent/);
   assert.match(card, /pairing\?\.svg && qrCurrent/);
+});
+
+/**
+ * 关窗判定必须在渲染期就成立，不能等 effect：配对成功时 status 的新码先让 qrCurrent 失效
+ * （图消失）、重取的新码再把图画出，effect 最后才关窗 —— 这三步就是用户看到的闪烁。
+ * 放大弹窗的 open 必须与「绑定时间已越过开弹窗时的基线」绑在一起，当次渲染就关掉。
+ */
+function assertNoQrFlicker(cardSource) {
+  assert.match(cardSource, /const \[zoomBaseline, setZoomBaseline\] = React\.useState<number \| undefined>\(status\.lastPairingAt\)/);
+  assert.match(cardSource, /setZoomBaseline\(status\.lastPairingAt\)/);
+  assert.match(cardSource, /const pairingDone = \(status\.lastPairingAt \?\? 0\) > \(zoomBaseline \?\? 0\)/);
+  assert.match(cardSource, /open=\{qrZoom && !pairingDone\} onOpenChange=\{setQrZoom\}/);
+}
+
+test('放大弹窗按绑定时间基线在渲染期就关掉，不让二维码闪空白或旧码', () => {
+  assertNoQrFlicker(read('components/PairingCard.tsx'));
+});
+
+test('变异证明：把弹窗开合退回只看 qrZoom 会被抓到', () => {
+  const original = read('components/PairingCard.tsx');
+  const mutated = original.replace('open={qrZoom && !pairingDone} onOpenChange={setQrZoom}', 'open={qrZoom} onOpenChange={setQrZoom}');
+  assert.notEqual(mutated, original, '变异要真的改动源码');
+  assert.throws(() => assertNoQrFlicker(mutated), assert.AssertionError);
 });
 
 test('状态视图始终回出绑定成功时间，无历史时明确为零', () => {

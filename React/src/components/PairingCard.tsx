@@ -1,4 +1,4 @@
-// 扫码绑定成功后收起二维码弹窗；地址操作保留小号图标按钮与悬停提示。
+// 扫码绑定成功后收起二维码弹窗，收起那一刻不让二维码闪成空白或旧码；地址操作保留小号图标按钮与悬停提示。
 /**
  * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
  *
@@ -131,7 +131,20 @@ export function PairingCard({
   // 放大二维码：屏幕缩放、手机离得远时，卡片里那颗太小。它只是同一张码的另一个尺寸，
   // 揭开状态另算 —— 关掉弹窗回到卡片里的样子，不改变「默认遮着」那条。
   const [qrZoom, setQrZoom] = React.useState(false)
+  /**
+   * 配对成功那一刻宿主同时换码、写绑定成功时间。面板这边的表现原本是三步：
+   * status 里的新码一上来，`qrCurrent` 先变 false —— 弹窗里的二维码被清空；Console 重取
+   * 新码回来又把它画出来；`usePairingCompletion` 的 effect 最后才关窗。用户看到的就是
+   * 「码消失 → 冒出新码 → 才关窗」。把关窗判定提到渲染期：开弹窗时记下当时的绑定时间，
+   * 只要它变大，弹窗当次渲染就关闭，二维码来不及闪。effect 那条路保留做状态兜底。
+   */
+  const [zoomBaseline, setZoomBaseline] = React.useState<number | undefined>(status.lastPairingAt)
+  const openQrZoom = () => {
+    setZoomBaseline(status.lastPairingAt)
+    setQrZoom(true)
+  }
   usePairingCompletion(status.lastPairingAt, () => setQrZoom(false))
+  const pairingDone = (status.lastPairingAt ?? 0) > (zoomBaseline ?? 0)
   const qrCurrent = pairing?.pairingCode === status.pairingCode
   // 二维码占位的尺寸跟随右邻信息行：量它的实际高度，宽高都取这个值才是正方形。
   // 不靠 aspect-ratio 从高度反推宽度——高度由内容撑开时会塌成竖条，把文字挤成竖排。
@@ -181,7 +194,7 @@ export function PairingCard({
             <button
               type="button"
               className="absolute inset-0 flex cursor-zoom-in flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle transition-colors hover:bg-background-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => setQrZoom(true)}
+              onClick={openQrZoom}
               aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
             >
               <QrGlyph />
@@ -283,7 +296,7 @@ export function PairingCard({
         放大二维码：与卡片里那颗是同一份 SVG，只是给到能凑近扫的尺寸。
         屏幕缩放、显示器离得远、手机举着不方便时，这块比把卡片撑大管用。
       */}
-      <Dialog open={qrZoom} onOpenChange={setQrZoom}>
+      <Dialog open={qrZoom && !pairingDone} onOpenChange={setQrZoom}>
         <DialogContent className="w-[min(680px,94vw)] max-h-[90vh] max-w-none" closeLabel={t('panel.common.close')}>
           <DialogHeader>
             <DialogTitle>{t('panel.pairing.qr')}</DialogTitle>
