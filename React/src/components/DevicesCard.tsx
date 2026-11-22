@@ -1,4 +1,4 @@
-// 展示已绑定设备与服务端记下的真实传输通道。
+// 展示已绑定设备与服务端记下的真实传输通道；2026-11-22 起可去掉外框作为「设备列表」嵌入二维码放大弹窗。
 /**
  * 「已绑定的设备」卡片：谁被这台机器放进来过、最近一次什么时候来的、走哪条路、能不能踢。
  *
@@ -162,6 +162,12 @@ type Props = {
   busy: string
   /** 撑满父容器、列表在卡内滚动（与「连接状态」并排等高时用）。 */
   fill?: boolean
+  /**
+   * 嵌入模式：不带外框、自己限宽限高，竖排滚动。
+   * 给「二维码放大弹窗」把这份清单摆到码的旁边用 —— 同一份数据、同一套解绑 / 清空操作，
+   * 不在别处再画一份列表。空的时候照旧整块不渲染（见文件头「为什么整卡会消失」）。
+   */
+  bare?: boolean
 }
 
 /** 解除绑定：断开链条的图标。 */
@@ -185,7 +191,7 @@ function UnlinkIcon() {
   )
 }
 
-export function DevicesCard({ busy, fill = false }: Props) {
+export function DevicesCard({ busy, fill = false, bare = false }: Props) {
   const notify = useNotify()
   const [list, setList] = useState<DeviceList | null>(null)
   /** 正在等确认的那台设备：null = 确认框关着。 */
@@ -351,9 +357,9 @@ export function DevicesCard({ busy, fill = false }: Props) {
   // 只要历史里有记录就得摆：踢掉最后一台手机之后，那条记录正是这一段要回答的事。
   if (devices.length === 0 && revokedCount === 0) return null
 
-  return (
-    <Card frame="solid" className={fill ? 'flex h-full min-h-0 flex-col' : undefined}>
-      <div className={fill ? 'hvscroll mt-1 min-h-0 flex-1' : 'hscroll mt-1'}>
+  const content = (
+    <>
+      <div className={fill || bare ? 'hvscroll mt-1 min-h-0 flex-1' : 'hscroll mt-1'}>
         <div className="min-w-max">
         {devices.map((device) => {
           const online = isOnline(device.lastSeenAt, now)
@@ -560,6 +566,16 @@ export function DevicesCard({ busy, fill = false }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </>
+  )
+
+  // 嵌进二维码放大弹窗：去掉外框，自己限宽限高、竖排滚动；空的时候上面已整块返回 null。
+  if (bare) {
+    return <div className="flex h-[56vh] w-full shrink-0 flex-col sm:w-80">{content}</div>
+  }
+  return (
+    <Card frame="solid" className={fill ? 'flex h-full min-h-0 flex-col' : undefined}>
+      {content}
     </Card>
   )
 }

@@ -1,4 +1,4 @@
-// 扫码绑定成功后收起二维码弹窗，收起那一刻不让二维码闪成空白或旧码；放大弹窗底部提供「刷新二维码」作废旧码换新码；地址操作保留小号图标按钮与悬停提示。
+// 扫码绑定成功后收起二维码弹窗，收起那一刻不让二维码闪成空白或旧码；放大弹窗左侧放大码、右侧同框摆已绑定设备列表（含解绑与清空历史），地址操作保留小号图标按钮与悬停提示。
 /**
  * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
  *
@@ -31,6 +31,7 @@ import type { AddressBook, PairingInfo, PairingPolicy, StatusView } from '../lib
 import { isPublicRelayUrl } from '../lib/links.ts'
 import { usePairingCompletion } from '../lib/usePairingCompletion.ts'
 import { AddressPicker } from './AddressPicker.tsx'
+import { DevicesCard } from './DevicesCard.tsx'
 import { ALIGNED_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
 import { IssueMark, type Issue } from './IssueMark.tsx'
 import { InfoMark } from './InfoMark.tsx'
@@ -300,18 +301,24 @@ export function PairingCard({
         屏幕缩放、显示器离得远、手机举着不方便时，这块比把卡片撑大管用。
       */}
       <Dialog open={qrZoom && !pairingDone} onOpenChange={setQrZoom}>
-        <DialogContent className="w-[min(680px,94vw)] max-h-[90vh] max-w-none" closeLabel={t('panel.common.close')}>
+        <DialogContent className="w-[min(1040px,94vw)] max-h-[90vh] max-w-none" closeLabel={t('panel.common.close')}>
           <DialogHeader>
             <DialogTitle>{t('panel.pairing.qr')}</DialogTitle>
           </DialogHeader>
           <DialogBody>
-            <div className="flex items-center justify-center overflow-auto rounded-md bg-white p-2 sm:p-4">
-              {pairing?.svg && qrCurrent ? (
-                <div
-                  className="aspect-square h-[min(64vh,560px)] w-auto max-w-full [&_svg]:h-full [&_svg]:w-full"
-                  dangerouslySetInnerHTML={{ __html: pairing.svg }}
-                />
-              ) : null}
+            {/* 扫码这一刻顺手能看「这台电脑上还连着哪些手机」：码放左边，设备列表放右边；
+                窄屏收成上下两段。列表复用设备卡本身（同一份数据、同一套解绑 / 清空历史），
+                没有设备时它自己不渲染，这里就只剩居中的码。 */}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-stretch">
+              <div className="flex flex-1 items-center justify-center overflow-auto rounded-md bg-white p-2 sm:p-4">
+                {pairing?.svg && qrCurrent ? (
+                  <div
+                    className="aspect-square h-[min(64vh,560px)] w-auto max-w-full [&_svg]:h-full [&_svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: pairing.svg }}
+                  />
+                ) : null}
+              </div>
+              <DevicesCard busy={busy} bare />
             </div>
           </DialogBody>
           <DialogFooter className="flex justify-end gap-2">
