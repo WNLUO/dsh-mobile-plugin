@@ -898,6 +898,7 @@ test('节点小宝线路：设备端在跑时报安装与绑定状态，顺带�
       if (id === '../jdxb/probe.cjs') return {
         readStatus: async () => ({ supported: true, installed: true, bound: true, peerid: 'ABC', tun: 'fail', port: 2080, error: '' }),
         readBindUrl: async () => ({ ok: true, url: 'https://yc.iepose.com/bind', error: '' }),
+        lineOf: (value) => (value ? { url: 'nb.nblink.cc:15565', transport: 'tcp' } : null),
       };
       return nativeRequire(id);
     },
@@ -968,13 +969,21 @@ test('节点小宝线路地址：写「域名:端口」归一后落盘且不触�
   const state = {};
   const table = controlRoutes({ state, settingsCalls, notifyCalls });
   const ok = {};
-  await table.get('/api/relay/jdxb/url')({ body: { url: 'http://nb.nblink.cc:15565/' } }, ok);
+  await table.get('/api/relay/jdxb/url')({ body: { url: 'https://weadsad.iepose.cn/' } }, ok);
   assert.equal(ok.status, 200);
-  assert.equal(ok.body.url, 'nb.nblink.cc:15565');
+  assert.equal(ok.body.url, 'https://weadsad.iepose.cn');
+  assert.equal(ok.body.transport, 'http', '网页服务那条是 https 地址，按 http 线路报');
+  const tcp = {};
+  await table.get('/api/relay/jdxb/url')({ body: { url: 'nb.nblink.cc:15565' } }, tcp);
+  assert.equal(tcp.body.url, 'nb.nblink.cc:15565');
+  assert.equal(tcp.body.transport, 'tcp');
   assert.equal(notifyCalls.at(-1), false, '线路地址不进 sidecar 配置，别触发重配');
   const bad = {};
   await table.get('/api/relay/jdxb/url')({ body: { url: 'nb.nblink.cc' } }, bad);
   assert.equal(bad.status, 400, '缺端口的地址拨不通，必须挡住');
+  const badUrl = {};
+  await table.get('/api/relay/jdxb/url')({ body: { url: 'ftp://x' } }, badUrl);
+  assert.equal(badUrl.status, 400);
   const cleared = {};
   await table.get('/api/relay/jdxb/url')({ body: { url: '' } }, cleared);
   assert.equal(cleared.status, 200);

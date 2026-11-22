@@ -100,6 +100,12 @@ test('节点小宝那条线路按 tcp 通用线路上报，同时补一条老 AP
   assert.equal(bad.filter((a) => a.kind === 'custom').length, 0, '缺端口的地址拨不通，别当成线路');
 });
 
+test('节点小宝换成网页服务后按 http 线路上报，不再是 tcp', () => {
+  const list = controlAddresses({ ...bare, jdxbUrl: 'https://weadsad.iepose.cn' }, 0, '');
+  const custom = list.filter((a) => a.kind === 'custom');
+  assert.deepEqual({ ...custom[0] }, { kind: 'custom', url: 'https://weadsad.iepose.cn', name: '节点小宝', transport: 'http' });
+});
+
 test('tcp 线路补同址 TCP 条目，老 APP 也认得出', () => {
   const state = { ...bare, customRoutes: [{ url: 'host.example:9000', name: 'B', transport: 'tcp' }] };
   const list = controlAddresses(state, 0, '');

@@ -863,8 +863,10 @@ export type JdxbStatus = {
   tun: string
   port: number
   error: string
-  /** 用户填的外网地址（`域名:端口`，空 = 还没接）。 */
+  /** 用户填的外网地址（`https://域名` 或 `域名:端口`，空 = 还没接）。 */
   url: string
+  /** 这条地址按什么线路报：https 域名是 http，主机:端口是 tcp。 */
+  transport?: string
   /** 本机有没有装成系统服务（装了但没起也照样报 true，运行状态看上面的 installed）。 */
   service?: { installed: boolean }
 }

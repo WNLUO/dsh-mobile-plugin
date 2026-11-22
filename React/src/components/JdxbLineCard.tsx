@@ -62,6 +62,32 @@ export function JdxbLineCard() {
     }
   }
 
+  /**
+   * 绑定是用户在另一个页面完成的——插件这边只能轮询它的本地口。没绑成之前每 3 秒问一次，
+   * 一旦读到已绑定就把链接收掉，别让一条已经没用的链接一直挂在那儿（用户会以为没成功）。
+   * 只依赖两个布尔值：拿整个 status 当依赖会让这个 effect 每次轮询都重建一次。
+   */
+  const installed = Boolean(status?.installed)
+  const bound = Boolean(status?.bound)
+  useEffect(() => {
+    if (!installed || bound) return undefined
+    let cancelled = false
+    const timer = setInterval(async () => {
+      try {
+        const next = await jdxbStatus()
+        if (cancelled) return
+        setStatus(next)
+        if (next.bound) setBindLink('')
+      } catch {
+        // 设备端此刻问不到就等下一轮，别把上一次的好状态抹掉。
+      }
+    }, 3000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [installed, bound])
+
   async function takeBindLink() {
     setBindBusy(true)
     setNote('')

@@ -121,3 +121,13 @@ test('网络配置页分区：不再分「中转 / 直连 / 局域网与 IPv6 / 
     assert.ok(page.includes(`'${key}'`), `要有字段 ${key}`);
   }
 });
+
+test('节点小宝绑定成功要自己收掉链接：轮询设备端状态，读到已绑就清空', () => {
+  // 授权/绑定是在它自己的页面完成的，插件这边只有轮询这一条路。不轮询的话，用户明明绑好了，
+  // 链接还挂在面板上，看起来就像没成功（现场反馈）。
+  const card = read('React', 'src', 'components', 'JdxbLineCard.tsx');
+  assert.match(card, /setInterval\(/, '要定时问一次状态');
+  assert.match(card, /jdxbStatus\(\)/, '问的是宿主那条 status 路由');
+  assert.match(card, /next\.bound\) setBindLink\(''\)/, '读到已绑定就把链接收掉');
+  assert.match(card, /clearInterval\(/, '卸载时要停掉轮询');
+});
