@@ -24,6 +24,7 @@ import { frpConfig, importFrp, probeDirect, probeRelays, stopFrp, zeroNewsConnec
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
+import { JdxbLineCard } from './JdxbLineCard.tsx'
 import { PublicRelayPanelDialog } from './PublicRelayPanelDialog.tsx'
 
 type ComboOption = { value: string; label: string }
@@ -860,6 +861,9 @@ export function RelayConfigDialog({
               </div>
             </Field>
           </section>
+
+          {/* 节点小宝那条 TCP 线路：设备端装没装、绑没绑、地址写没写（见 JdxbLineCard.tsx）。 */}
+          <JdxbLineCard />
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">

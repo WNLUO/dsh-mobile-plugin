@@ -890,6 +890,112 @@ test('ZeroNews 公网地址路由：本机客户端在跑时回可用隧道，�
   assert.equal(res.body.available, true);
 });
 
+test('节点小宝线路：设备端在跑时报安装与绑定状态，顺带把已填的地址回给面板', async () => {
+  const nativeRequire = createRequire(CONTROL_PLANE);
+  const registerRoutes = networkRoutesModule(source => source, {
+    require(id) {
+      // 设备端状态由注入假体给，测试不依赖本机是否真的装了节点小宝。
+      if (id === '../jdxb/probe.cjs') return {
+        readStatus: async () => ({ supported: true, installed: true, bound: true, peerid: 'ABC', tun: 'fail', port: 2080, error: '' }),
+        readBindUrl: async () => ({ ok: true, url: 'https://yc.iepose.com/bind', error: '' }),
+      };
+      return nativeRequire(id);
+    },
+  });
+  const table = controlRoutes({ state: { jdxbUrl: 'nb.nblink.cc:15565' }, registerRoutes });
+  const res = {};
+  await table.get('/api/relay/jdxb/status')({}, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.installed, true);
+  assert.equal(res.body.bound, true);
+  assert.equal(res.body.url, 'nb.nblink.cc:15565');
+});
+
+test('节点小宝绑定链接：未绑时把设备端的跳转目标交出去，已绑不再去要', async () => {
+  let binds = 0;
+  const make = (bound) => {
+    const nativeRequire = createRequire(CONTROL_PLANE);
+    const registerRoutes = networkRoutesModule(source => source, {
+      require(id) {
+        if (id === '../jdxb/probe.cjs') return {
+          readStatus: async () => ({ supported: true, installed: true, bound, peerid: bound ? 'ABC' : '', tun: 'fail', port: 2080, error: '' }),
+          readBindUrl: async () => { binds += 1; return { ok: true, url: 'https://yc.iepose.com/bind', error: '' }; },
+        };
+        return nativeRequire(id);
+      },
+    });
+    return controlRoutes({ state: {}, registerRoutes });
+  };
+  const unbound = {};
+  await make(false).get('/api/relay/jdxb/bind')({}, unbound);
+  assert.equal(unbound.body.url, 'https://yc.iepose.com/bind');
+  assert.equal(unbound.body.bound, false);
+  const before = binds;
+  const bound = {};
+  await make(true).get('/api/relay/jdxb/bind')({}, bound);
+  assert.equal(bound.body.bound, true);
+  assert.equal(bound.body.url, '');
+  assert.equal(binds, before, '已绑的设备不该再去要绑定链接');
+});
+
+test('节点小宝一键安装：装成系统服务后如实回报，失败按 500 带回原因', async () => {
+  const nativeRequire = createRequire(CONTROL_PLANE);
+  const make = (result) => networkRoutesModule(source => source, {
+    require(id) {
+      if (id === '../jdxb/provision.cjs') return {
+        install: async () => result,
+        installedSync: () => Boolean(result.installed),
+      };
+      return nativeRequire(id);
+    },
+  });
+  const okTable = controlRoutes({ state: {}, registerRoutes: make({ ok: true, installed: true, started: true, error: '' }) });
+  const ok = {};
+  await okTable.get('/api/relay/jdxb/install')({}, ok);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.started, true);
+  assert.equal(ok.body.service.installed, true);
+  const badTable = controlRoutes({ state: {}, registerRoutes: make({ ok: false, installed: false, started: false, error: '授权被取消，设备端没有安装' }) });
+  const bad = {};
+  await badTable.get('/api/relay/jdxb/install')({}, bad);
+  assert.equal(bad.status, 500, '装不上不能回 200');
+  assert.match(bad.body.error, /取消/);
+});
+
+test('节点小宝线路地址：写「域名:端口」归一后落盘且不触发重配，坏地址与清空各有回法', async () => {
+  const settingsCalls = [];
+  const notifyCalls = [];
+  const state = {};
+  const table = controlRoutes({ state, settingsCalls, notifyCalls });
+  const ok = {};
+  await table.get('/api/relay/jdxb/url')({ body: { url: 'http://nb.nblink.cc:15565/' } }, ok);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.url, 'nb.nblink.cc:15565');
+  assert.equal(notifyCalls.at(-1), false, '线路地址不进 sidecar 配置，别触发重配');
+  const bad = {};
+  await table.get('/api/relay/jdxb/url')({ body: { url: 'nb.nblink.cc' } }, bad);
+  assert.equal(bad.status, 400, '缺端口的地址拨不通，必须挡住');
+  const cleared = {};
+  await table.get('/api/relay/jdxb/url')({ body: { url: '' } }, cleared);
+  assert.equal(cleared.status, 200);
+  assert.equal(state.jdxbUrl, '', '空串 = 撤掉这条线路');
+});
+
+test('节点小宝绑定链接：必须手动接管跳转，跟过去就只剩网页没有地址', async () => {
+  const { readBindUrl } = require('../lib/jdxb/probe.cjs');
+  let seen = null;
+  const result = await readBindUrl({
+    port: 2080,
+    fetchImpl: async (url, init) => {
+      seen = { url, init };
+      return { ok: false, headers: { get: (key) => (String(key).toLowerCase() === 'location' ? 'https://yc.iepose.com/jdxb_server_pc_v3/?pid=X' : '') } };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.url.startsWith('https://yc.iepose.com/'), true);
+  assert.equal(seen.init.redirect, 'manual', '跟着 302 跳过去就拿不到那个地址了');
+});
+
 async function probeCleanupContract(mutate) {
   const timers = new Set();
   const registerRoutes = networkRoutesModule(mutate, {

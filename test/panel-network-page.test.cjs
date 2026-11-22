@@ -102,15 +102,20 @@ test('宿主把公网 IPv4 单列一格并缀进候选（地址库与手机候�
   assert.match(read('lib', 'relay', 'pairing-payload.cjs'), /withManualIpv4Candidate/, '二维码候选也要带上');
 });
 
-test('网络配置页分区：不再分「中转 / 直连 / 局域网与 IPv6 / FRP」四段大标题，只留 ZeroNews 一段', () => {
+test('网络配置页分区：不再分「中转 / 直连 / 局域网与 IPv6 / FRP」四段大标题，ZeroNews 与节点小宝各单独成段', () => {
   // 2026-11-22 需求变更：用户要求去掉「中转 / 直连 / 局域网与 IPv6 / FRP 直连」这些会产生歧义的
   // 大标题，字段直接平铺；ZeroNews 线路仍单独成段。区块容器仍是 5 个 section。
+  // 2026-11-23 接入节点小宝：它那段在自己的组件里，这里钉「挂上了」与「它自己只有一段」。
   const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
   for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp']) {
     assert.ok(!page.includes(`'${key}'`), `不再渲染分组标题 ${key}`);
   }
   assert.ok(page.includes("'panel.zeronews.section'"), 'ZeroNews 仍然单独一段');
-  assert.equal((page.match(/<section/g) || []).length, 5, '五个区块 section');
+  assert.equal((page.match(/<section/g) || []).length, 5, '本文件内的五个区块 section');
+  assert.ok(page.includes('<JdxbLineCard />'), '节点小宝那段挂进网络配置页');
+  const jdxb = read('React', 'src', 'components', 'JdxbLineCard.tsx');
+  assert.ok(jdxb.includes("'panel.jdxb.section'"), '节点小宝有自己的段标题');
+  assert.equal((jdxb.match(/<section/g) || []).length, 1, '它自己只占一段');
   // 四入口标题改成不歧义的短名（直连 / TCP 直连 / IPv4 / IPv6）。
   for (const key of ['panel.address.direct', 'panel.address.tcp', 'panel.address.ipv4Url', 'panel.address.ipv6Url']) {
     assert.ok(page.includes(`'${key}'`), `要有字段 ${key}`);

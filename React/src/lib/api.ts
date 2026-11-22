@@ -846,3 +846,50 @@ export function zeroNewsConnect(): Promise<ZeroNewsActionReply> {
 export function zeroNewsDisconnect(): Promise<ZeroNewsActionReply> {
   return apiPost('/api/relay/zeronews/disconnect')
 }
+
+/**
+ * 节点小宝线路：本机设备端的安装 / 绑定状态（`GET /api/relay/jdxb/status`）。
+ *
+ * 它跟 ZeroNews 不一样的地方在于设备端是装进机器的系统服务，插件不启停它；这里只如实回答
+ * 「装没装、绑没绑」，以及用户已经填进来的那条线路地址（`url`）。
+ */
+export type JdxbStatus = {
+  ok: boolean
+  /** 这一版有没有接这个平台；false 时下面几格都不可信。 */
+  supported: boolean
+  installed: boolean
+  bound: boolean
+  peerid: string
+  tun: string
+  port: number
+  error: string
+  /** 用户填的外网地址（`域名:端口`，空 = 还没接）。 */
+  url: string
+  /** 本机有没有装成系统服务（装了但没起也照样报 true，运行状态看上面的 installed）。 */
+  service?: { installed: boolean }
+}
+
+export function jdxbStatus(): Promise<JdxbStatus> {
+  return apiGet<JdxbStatus>('/api/relay/jdxb/status')
+}
+
+/**
+ * 取设备端的绑定链接（`GET /api/relay/jdxb/bind`）。已经绑过的设备回 `bound:true`、`url` 为空，
+ * 面板据此不再给链接。设备端要等它去云端换短链，这个口比别的慢，最长等 30 秒。
+ */
+export function jdxbBind(): Promise<{ ok: boolean; url: string; bound: boolean; error: string }> {
+  return apiGet('/api/relay/jdxb/bind')
+}
+
+/**
+ * 一键安装 / 启动设备端（`POST /api/relay/jdxb/install`）。插件自己下载官方设备端、装成系统服务
+ * 并拉起；会弹一次系统的管理员授权框。装好之后它开机自启，重启 DSH 或插件自动更新都不受影响。
+ */
+export function jdxbInstall(): Promise<{ ok: boolean; installed: boolean; started: boolean; error: string; service?: { installed: boolean } }> {
+  return apiPost('/api/relay/jdxb/install', undefined, { timeoutMs: 180000 })
+}
+
+/** 写入那条线路的外网地址；空串 = 撤掉这条线路。 */
+export function jdxbSetUrl(url: string): Promise<{ ok: boolean; url: string; error?: { code: string; message: string } }> {
+  return apiPost('/api/relay/jdxb/url', { url })
+}
