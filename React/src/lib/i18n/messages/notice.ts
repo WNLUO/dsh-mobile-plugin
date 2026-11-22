@@ -1,13 +1,9 @@
-// 用途：一次性提示文案（公用中转通知、苹果测试版公告与反馈回执），十门语言逐键对齐。
+// 用途：一次性提示文案（公用中转通知与反馈回执），十门语言逐键对齐。
 /**
- * 面板「公用中转提示」弹窗与「苹果测试版公告」的文案（十门语言）。
+ * 面板「公用中转提示」弹窗与反馈回执的文案（十门语言）。
  *
  * 公用中转这扇只在用户还在用公用中转时进来弹一次，可关闭；正文是一整段带空行的长句，靠
  * `whitespace-pre-line` 还原分段，不拆成多条键。
- *
- * 2026-11-22：新增 `panel.announcement.*`（苹果测试版比正式版领先好几个版本，进来就弹，
- * 底部给一颗去 TestFlight 的按钮；末尾一句说明正式版审核通过且稳定后会在后续版本自动移除）。
- * 链接在 `lib/links.ts` 的 `TESTFLIGHT_URL`。
  */
 import type { PanelMessages } from './shell.ts'
 
@@ -16,10 +12,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': '关于使用公共网络的通知',
     'panel.publicRelayNotice.body': '公共网络（公用中转）是为了方便你第一次使用 App 时，能更快地绑定设备、直接开始体验。\n\n考虑到安全性和稳定性，长期使用建议你自行搭建网络，让连接和数据都掌握在自己手里。\n\n当你的设备不再使用公用网络时，此通知会自动消失。\n\n建议你自行询问你的 AI，为你定制合适的网络方案。',
     'panel.publicRelayNotice.action': '我已知晓',
-    'panel.announcement.title': '关于苹果测试版',
-    'panel.announcement.body': '目前苹果测试版比 App Store 正式版领先好几个版本。建议各位先使用测试版，抢先体验新功能。点下方按钮即可通过 TestFlight 安装。\n\n若苹果正式版审核通过且稳定，此公告会在后续的版本自动移除。',
-    'panel.announcement.betaAction': '去下载测试版',
-    'panel.announcement.dismiss': '我知道了',
     'panel.feedback.receipt': '已提交，反馈编号 {key}。请复制编号留档；这条先留在本机，不会写进 App 的反馈列表。',
     'panel.feedback.copyKey': '复制编号',
     'panel.feedback.keyCopied': '编号已复制。',
@@ -29,10 +21,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': '關於使用公共網路的通知',
     'panel.publicRelayNotice.body': '公共網路（公用中轉）是為了方便你第一次使用 App 時，能更快地綁定裝置、直接開始體驗。\n\n考量到安全性與穩定性，長期使用建議你自行架設網路，讓連線與資料都掌握在自己手裡。\n\n當你的裝置不再使用公共網路時，此通知會自動消失。\n\n建議你自行詢問你的 AI，為你量身打造合適的網路方案。',
     'panel.publicRelayNotice.action': '我已知曉',
-    'panel.announcement.title': '關於蘋果測試版',
-    'panel.announcement.body': '目前蘋果測試版比 App Store 正式版領先好幾個版本。建議各位先使用測試版，搶先體驗新功能。點下方按鈕即可透過 TestFlight 安裝。\n\n若蘋果正式版審核通過且穩定，此公告會在後續的版本自動移除。',
-    'panel.announcement.betaAction': '去下載測試版',
-    'panel.announcement.dismiss': '我知道了',
     'panel.feedback.receipt': '已提交，回饋編號 {key}。請複製編號留存；這則先留在本機，不會寫進 App 的回饋清單。',
     'panel.feedback.copyKey': '複製編號',
     'panel.feedback.keyCopied': '編號已複製。',
@@ -42,10 +30,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': 'About Using the Public Network',
     'panel.publicRelayNotice.body': 'The public network (public relay) exists to make it quicker to pair your device and start trying the App the first time you use it.\n\nFor security and stability, we recommend setting up your own network for long-term use, so your connections and data stay in your hands.\n\nThis notice will disappear automatically once your device no longer uses the public network.\n\nConsider asking your AI to tailor a suitable network setup for you.',
     'panel.publicRelayNotice.action': 'Got it',
-    'panel.announcement.title': 'About the Apple Beta',
-    'panel.announcement.body': 'The Apple beta is currently several versions ahead of the App Store release. We recommend trying the beta first to get the newest features. Tap the button below to install it through TestFlight.\n\nOnce the official App Store version passes review and proves stable, this notice will be removed automatically in a later version.',
-    'panel.announcement.betaAction': 'Get the beta',
-    'panel.announcement.dismiss': 'Got it',
     'panel.feedback.receipt': 'Submitted. Feedback key {key}. Copy it for your records; this stays local first and is not written into the in-app feedback list.',
     'panel.feedback.copyKey': 'Copy key',
     'panel.feedback.keyCopied': 'Key copied.',
@@ -55,10 +39,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': 'パブリックネットワークのご利用について',
     'panel.publicRelayNotice.body': 'パブリックネットワーク（公開リレー）は、App を初めて使うときにデバイスをより速くペアリングし、すぐに体験を始められるようにするためのものです。\n\nセキュリティと安定性の観点から、長期的に使う場合はご自身でのネットワーク構築をおすすめします。接続とデータを自分の手元で管理できます。\n\nデバイスがパブリックネットワークを使わなくなると、この通知は自動的に消えます。\n\nお使いの AI に相談して、最適なネットワーク構成を調整してもらうことをおすすめします。',
     'panel.publicRelayNotice.action': '了解しました',
-    'panel.announcement.title': 'Apple ベータ版について',
-    'panel.announcement.body': '現在、Apple のベータ版は App Store の正式版よりいくつも先のバージョンになっています。新しい機能をいち早く試せるよう、まずベータ版のご利用をおすすめします。下のボタンから TestFlight でインストールできます。\n\nApp Store の正式版が審査に通り、安定して動作するようになれば、このお知らせは今後のバージョンで自動的に削除されます。',
-    'panel.announcement.betaAction': 'ベータ版を入手',
-    'panel.announcement.dismiss': '了解しました',
     'panel.feedback.receipt': '送信しました。フィードバック番号 {key}。番号をコピーして控えてください。まずこのコンピューターに残され、App のフィードバック一覧には書き込まれません。',
     'panel.feedback.copyKey': '番号をコピー',
     'panel.feedback.keyCopied': '番号をコピーしました。',
@@ -68,10 +48,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': '공용 네트워크 사용에 관한 안내',
     'panel.publicRelayNotice.body': '공용 네트워크(공용 릴레이)는 App을 처음 사용할 때 기기를 더 빠르게 페어링하고 바로 체험할 수 있도록 돕기 위한 것입니다.\n\n보안과 안정성을 위해 장기적으로 사용하실 때는 직접 네트워크를 구축하시길 권장합니다. 연결과 데이터를 직접 관리할 수 있습니다.\n\n기기가 더 이상 공용 네트워크를 사용하지 않으면 이 안내는 자동으로 사라집니다.\n\n사용 중인 AI에게 물어보고 알맞은 네트워크 구성을 맞춤 설정하시길 권장합니다.',
     'panel.publicRelayNotice.action': '확인',
-    'panel.announcement.title': 'Apple 베타 버전 안내',
-    'panel.announcement.body': '현재 Apple 베타 버전은 App Store 정식 버전보다 여러 버전 앞서 있습니다. 새로운 기능을 먼저 써 보시려면 베타 버전을 사용하시길 권장합니다. 아래 버튼을 눌러 TestFlight로 설치할 수 있습니다.\n\nApp Store 정식 버전이 심사를 통과하고 안정화되면, 이 안내는 이후 버전에서 자동으로 제거됩니다.',
-    'panel.announcement.betaAction': '베타 버전 받기',
-    'panel.announcement.dismiss': '확인',
     'panel.feedback.receipt': '제출했습니다. 피드백 번호 {key}. 번호를 복사해 보관하세요. 이 내용은 먼저 이 컴퓨터에 남으며 App 피드백 목록에는 기록되지 않습니다.',
     'panel.feedback.copyKey': '번호 복사',
     'panel.feedback.keyCopied': '번호를 복사했습니다.',
@@ -81,10 +57,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': 'Hinweis zur Nutzung des öffentlichen Netzwerks',
     'panel.publicRelayNotice.body': 'Das öffentliche Netzwerk (öffentliches Relay) soll es erleichtern, dein Gerät beim ersten Einsatz der App schneller zu koppeln und direkt loszulegen.\n\nAus Gründen der Sicherheit und Stabilität empfehlen wir für die dauerhafte Nutzung, ein eigenes Netzwerk aufzubauen, damit Verbindungen und Daten in deiner Hand bleiben.\n\nDieser Hinweis verschwindet automatisch, sobald dein Gerät das öffentliche Netzwerk nicht mehr nutzt.\n\nFrag am besten deine KI, eine passende Netzwerklösung für dich einzurichten.',
     'panel.publicRelayNotice.action': 'Verstanden',
-    'panel.announcement.title': 'Über die Apple-Beta',
-    'panel.announcement.body': 'Die Apple-Beta ist der App-Store-Version derzeit um mehrere Versionen voraus. Wir empfehlen, zuerst die Beta auszuprobieren, um die neuesten Funktionen zu erhalten. Tippe auf die Schaltfläche unten, um sie über TestFlight zu installieren.\n\nSobald die offizielle App-Store-Version die Prüfung besteht und stabil läuft, wird dieser Hinweis in einer späteren Version automatisch entfernt.',
-    'panel.announcement.betaAction': 'Beta holen',
-    'panel.announcement.dismiss': 'Verstanden',
     'panel.feedback.receipt': 'Gesendet. Feedback-Schlüssel {key}. Kopiere ihn für deine Unterlagen; er bleibt zunächst auf diesem Rechner und wird nicht in die Feedback-Liste der App geschrieben.',
     'panel.feedback.copyKey': 'Schlüssel kopieren',
     'panel.feedback.keyCopied': 'Schlüssel kopiert.',
@@ -94,10 +66,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': 'Aviso sobre el uso de la red pública',
     'panel.publicRelayNotice.body': 'La red pública (relé público) existe para que la primera vez que uses la App puedas vincular el dispositivo más rápido y empezar a probarla enseguida.\n\nPor seguridad y estabilidad, para el uso a largo plazo te recomendamos montar tu propia red, para que las conexiones y los datos queden en tus manos.\n\nEste aviso desaparecerá automáticamente cuando tu dispositivo deje de usar la red pública.\n\nTe sugerimos preguntar a tu IA para que te configure una solución de red adecuada.',
     'panel.publicRelayNotice.action': 'Entendido',
-    'panel.announcement.title': 'Acerca de la beta de Apple',
-    'panel.announcement.body': 'La beta de Apple va actualmente varias versiones por delante de la versión de App Store. Te recomendamos probar primero la beta para acceder antes a las novedades. Pulsa el botón de abajo para instalarla mediante TestFlight.\n\nCuando la versión oficial de App Store supere la revisión y sea estable, este aviso se eliminará automáticamente en una versión posterior.',
-    'panel.announcement.betaAction': 'Obtener la beta',
-    'panel.announcement.dismiss': 'Entendido',
     'panel.feedback.receipt': 'Enviado. Clave de comentarios {key}. Cópiala para tus registros; primero se queda en este equipo y no se escribe en la lista de comentarios de la App.',
     'panel.feedback.copyKey': 'Copiar clave',
     'panel.feedback.keyCopied': 'Clave copiada.',
@@ -107,10 +75,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': 'À propos de l\'utilisation du réseau public',
     'panel.publicRelayNotice.body': 'Le réseau public (relais public) sert à faciliter l\'association de votre appareil et à démarrer rapidement la première fois que vous utilisez l\'App.\n\nPour des raisons de sécurité et de stabilité, nous vous recommandons de mettre en place votre propre réseau pour un usage durable, afin de garder les connexions et les données entre vos mains.\n\nCet avis disparaîtra automatiquement dès que votre appareil n\'utilisera plus le réseau public.\n\nPensez à demander à votre IA de vous configurer une solution réseau adaptée.',
     'panel.publicRelayNotice.action': 'Compris',
-    'panel.announcement.title': 'À propos de la bêta Apple',
-    'panel.announcement.body': 'La bêta Apple compte actuellement plusieurs versions d\'avance sur la version de l\'App Store. Nous vous recommandons d\'essayer d\'abord la bêta pour profiter plus tôt des nouveautés. Appuyez sur le bouton ci-dessous pour l\'installer via TestFlight.\n\nUne fois que la version officielle de l\'App Store aura passé la validation et sera stable, cet avis sera retiré automatiquement dans une version ultérieure.',
-    'panel.announcement.betaAction': 'Obtenir la bêta',
-    'panel.announcement.dismiss': 'Compris',
     'panel.feedback.receipt': 'Envoyé. Clé de retour {key}. Copiez-la pour vos archives ; elle reste d\'abord sur cet ordinateur et n\'est pas inscrite dans la liste de retours de l\'App.',
     'panel.feedback.copyKey': 'Copier la clé',
     'panel.feedback.keyCopied': 'Clé copiée.',
@@ -120,10 +84,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': 'Aviso sobre o uso da rede pública',
     'panel.publicRelayNotice.body': 'A rede pública (retransmissor público) serve para facilitar a vinculação do seu dispositivo e começar a experimentar mais rápido na primeira vez que você usa o App.\n\nPor segurança e estabilidade, para uso a longo prazo recomendamos montar a sua própria rede, para manter as conexões e os dados nas suas mãos.\n\nEste aviso desaparecerá automaticamente quando o seu dispositivo deixar de usar a rede pública.\n\nSugerimos que pergunte à sua IA para configurar uma solução de rede adequada para você.',
     'panel.publicRelayNotice.action': 'Entendi',
-    'panel.announcement.title': 'Sobre o beta da Apple',
-    'panel.announcement.body': 'O beta da Apple está atualmente várias versões à frente da versão da App Store. Recomendamos experimentar o beta primeiro para ter acesso mais cedo às novidades. Toque no botão abaixo para instalá-lo pelo TestFlight.\n\nAssim que a versão oficial da App Store passar na revisão e estiver estável, este aviso será removido automaticamente em uma versão futura.',
-    'panel.announcement.betaAction': 'Obter o beta',
-    'panel.announcement.dismiss': 'Entendi',
     'panel.feedback.receipt': 'Enviado. Chave de feedback {key}. Copie-a para seus registros; ela fica primeiro neste computador e não é gravada na lista de feedback do App.',
     'panel.feedback.copyKey': 'Copiar chave',
     'panel.feedback.keyCopied': 'Chave copiada.',
@@ -133,10 +93,6 @@ export const NOTICE: PanelMessages = {
     'panel.publicRelayNotice.title': 'Об использовании публичной сети',
     'panel.publicRelayNotice.body': 'Публичная сеть (публичный ретранслятор) нужна, чтобы при первом запуске App можно было быстрее привязать устройство и сразу начать работу.\n\nВ целях безопасности и стабильности при долгосрочном использовании рекомендуем развернуть собственную сеть, чтобы соединения и данные оставались под вашим контролем.\n\nЭто уведомление исчезнет автоматически, когда ваше устройство перестанет использовать публичную сеть.\n\nСоветуем спросить у своего ИИ, чтобы он подобрал подходящую схему сети.',
     'panel.publicRelayNotice.action': 'Понятно',
-    'panel.announcement.title': 'О бета-версии для Apple',
-    'panel.announcement.body': 'Сейчас бета-версия для Apple опережает версию в App Store на несколько версий. Рекомендуем сначала попробовать бету, чтобы раньше получить новые функции. Нажмите кнопку ниже, чтобы установить её через TestFlight.\n\nКак только официальная версия в App Store пройдёт проверку и станет стабильной, это уведомление будет автоматически удалено в последующем обновлении.',
-    'panel.announcement.betaAction': 'Получить бету',
-    'panel.announcement.dismiss': 'Понятно',
     'panel.feedback.receipt': 'Отправлено. Ключ обратной связи {key}. Скопируйте его для сохранения; сначала он остаётся на этом компьютере и не записывается в список отзывов App.',
     'panel.feedback.copyKey': 'Скопировать ключ',
     'panel.feedback.keyCopied': 'Ключ скопирован.',

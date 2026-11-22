@@ -34,8 +34,7 @@ export const PLUGIN_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-plugin'
 /**
  * 苹果测试版的 TestFlight 邀请链接。
  *
- * 两处消费：下载渠道弹窗里的「TestFlight」那条，以及进来就弹的公告弹窗（提示测试版比
- * 正式版领先好几个版本）。改地址只改这一行，别在两处各写一份。
+ * 唯一消费：下载渠道弹窗里的「TestFlight」那条。改地址只改这一行。
  */
 export const TESTFLIGHT_URL = 'https://testflight.apple.com/join/4fn5PCMD'
 

@@ -14,7 +14,6 @@
  */
 import { useEffect } from 'react'
 
-import { AnnouncementDialog } from './components/AnnouncementDialog.tsx'
 import { TopRightActions } from './components/TopRightActions.tsx'
 import { t } from './lib/i18n/index.ts'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
@@ -55,8 +54,6 @@ export function Shell() {
   return (
     <>
       <Root />
-      {/* 2026-11-22：苹果测试版公告，进来直接弹（用户要求不要入口）。演示页不弹。 */}
-      {consolePage ? <AnnouncementDialog /> : null}
       {/* 右上角那组（语言 + 日夜）：**控制台那一窗不挂**（2026-11-13 用户要求把它们放进
           顶栏、跟着窗口标题排），它自己那两行里就有同样两颗。演示页照旧。 */}
       {consolePage ? null : <TopRightActions />}
