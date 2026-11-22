@@ -546,6 +546,7 @@ export function RelayConfigDialog({
                   {/^http:\/\//i.test(trimUrl(manualLanUrl)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
+                  <p className="text-xs text-foreground-muted">{t('panel.address.directIpv4Hint')}</p>
                   {directProbe.state === 'idle' ? null : (
                     <p className={`text-xs ${directProbe.state === 'ok' ? 'text-success' : directProbe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'}`}>
                       {directProbe.state === 'checking'
