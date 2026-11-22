@@ -111,6 +111,13 @@ test('给了 AuthToken：先写客户端配置，不再拉浏览器', async () =
   assert(!calls.some((c) => c.spawn === 'login'), '有 token 就不该再弹浏览器登录');
 });
 
+test('写过 token 之后，状态里记住「这台机器有身份」', async () => {
+  const { runner } = harness({});
+  assert.equal(runner.status().configured, false, '一开始没有身份');
+  await runner.start({ token: 'demo-auth-token-123' });
+  assert.equal(runner.status().configured, true, '写成功之后要记住，面板才不用再要一次');
+});
+
 test('AuthToken 写失败：如实报错，不起隧道的后续步骤', async () => {
   const calls = [];
   const fetchImpl = async () => ({ ok: false });

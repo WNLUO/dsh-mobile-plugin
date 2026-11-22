@@ -47,6 +47,59 @@ test('启动失败会按退避自动重试，连上后把地址写回状态', as
   env.cleanup();
 });
 
+test('第一次接入：装好客户端并打开登录页；身份落盘后状态直接算已接好', async () => {
+  const opened = [];
+  const updates = [];
+  let cleanup = null;
+  const ctx = { effect: (fn) => { cleanup = fn(); return () => {}; } };
+  const runner = {
+    start: async () => ({ phase: 'off' }),
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'off', configured: false }),
+  };
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: { update: async (patch) => { updates.push(patch); } },
+    getState: () => ({ zeroNewsBound: true }),
+    control: {},
+    warn: () => {},
+    ctx,
+    name: 'test-prepare',
+    portOf: () => 18787,
+    runnerFactory: () => runner,
+    ensure: async () => ({ ok: true, path: '/x', source: 'downloaded' }),
+    openUrl: async (url) => { opened.push(url); return true; },
+  });
+  const result = await facade.prepare();
+  assert.equal(result.ok, true);
+  assert.equal(result.downloaded, true);
+  assert.equal(result.opened, true);
+  assert.deepEqual(opened, ['https://user.zeronews.cc/setup'], '打开的是控制台的快速开始页');
+  assert.equal(facade.status().configured, true, '落盘标记要并进状态，面板据此收起粘贴框');
+  cleanup();
+});
+
+test('浏览器没打开时如实说没打开，不假装成功', async () => {
+  const ctx = { effect: (fn) => { fn(); return () => {}; } };
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: { update: async () => {} },
+    getState: () => ({}),
+    control: {},
+    warn: () => {},
+    ctx,
+    name: 'test-prepare-fail',
+    portOf: () => 18787,
+    runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }) }),
+    ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
+    openUrl: async () => false,
+  });
+  const result = await facade.prepare();
+  assert.equal(result.ok, true);
+  assert.equal(result.opened, false);
+  assert.equal(result.url, 'https://user.zeronews.cc/setup');
+});
+
 test('客户端意外退出回调会触发自愈重连', async () => {
   let onExit = null;
   let calls = 0;

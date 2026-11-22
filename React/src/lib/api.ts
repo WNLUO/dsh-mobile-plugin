@@ -137,6 +137,8 @@ export type ZeroNewsStatus = {
   phase: string
   url: string
   error: string
+  /** 这台机器的客户端有没有账户身份（token 写过 / 以前登录过）：面板据此决定还显不显示粘贴框。 */
+  configured?: boolean
 }
 
 export type ZeroNewsActionReply = {
@@ -854,6 +856,16 @@ export function zeroNewsEndpoints(): Promise<{
 }
 
 /** 连接 ZeroNews 线路：自动下载客户端、拉浏览器登录、建隧道；回包带此刻状态。 */
+/**
+ * 第一次接入：让宿主把客户端装好，并把登录页丢给系统浏览器。
+ *
+ * 面板自己的 `window.open` 在桌面壳里不保证落到系统浏览器，所以这一步交给本机进程做；
+ * `opened` 为 false 时界面要把地址写出来，让人手动点。
+ */
+export function zeroNewsPrepare(): Promise<{ ok: boolean; downloaded?: boolean; opened?: boolean; url?: string; error?: string }> {
+  return apiPost('/api/relay/zeronews/prepare')
+}
+
 export function zeroNewsConnect(token?: string): Promise<ZeroNewsActionReply> {
   return apiPost('/api/relay/zeronews/connect', token ? { token } : {})
 }
