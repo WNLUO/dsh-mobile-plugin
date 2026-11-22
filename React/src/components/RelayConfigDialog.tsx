@@ -153,6 +153,8 @@ export function RelayConfigDialog({
   const [manualLanUrl, setManualLanUrl] = useState('')
   /** IPv6 直连地址（`manualIpv6Url`）：手填的公网 IPv6 入口；没填过时先显示探测到的那条。 */
   const [manualIpv6Url, setManualIpv6Url] = useState('')
+  /** 公网 IPv4 地址（`manualIpv4Url`）：只认 IPv4 字面量，与直连地址分栏。 */
+  const [manualIpv4Url, setManualIpv4Url] = useState('')
   /** TCP 直连地址（`manualTcpUrl`）：用户手填的 `主机:端口`，手机用裸 TCP 拨它。 */
   const [manualTcpUrl, setManualTcpUrl] = useState('')
   /** TCP 那栏的填写提示：这格只收「主机:端口」，填了带 scheme 的地址就提示去「直连地址」。 */
@@ -190,6 +192,7 @@ export function RelayConfigDialog({
   /** 这一次开窗里用户动过手填那两栏没有：动过就不再拿地址库去盖。 */
   const editedLanRef = useRef(false)
   const editedIpv6Ref = useRef(false)
+  const editedIpv4Ref = useRef(false)
   const editedTcpRef = useRef(false)
   const editedPreferredRef = useRef(false)
 
@@ -221,6 +224,7 @@ export function RelayConfigDialog({
     if (!open) {
       editedLanRef.current = false
       editedIpv6Ref.current = false
+      editedIpv4Ref.current = false
       editedTcpRef.current = false
       editedPreferredRef.current = false
       setLanHint('')
@@ -239,6 +243,7 @@ export function RelayConfigDialog({
     if (!editedIpv6Ref.current) {
       setManualIpv6Url(addressBook?.manualIpv6 || addressBook?.ipv6?.[0]?.url || '')
     }
+    if (!editedIpv4Ref.current) setManualIpv4Url(addressBook?.manualIpv4 ?? '')
     if (!editedTcpRef.current) setManualTcpUrl(addressBook?.manualTcp ?? '')
     if (!editedPreferredRef.current) {
       const candidates = addressBook ? (addressBook.lan.length > 0 ? addressBook.lan : addressBook.public) : []
@@ -383,6 +388,9 @@ export function RelayConfigDialog({
     // 免得保存一次就把当前探测结果钉成手填（IPv6 前缀会变，钉死了反而多一条陈旧候选）。
     const ipv6Baseline = trimUrl(addressBook?.manualIpv6 || addressBook?.ipv6?.[0]?.url || '')
     if (ipv6 !== ipv6Baseline) patch.manualIpv6Url = ipv6
+    // 公网 IPv4：同样只在真的变了才带上（空串 = 清掉这条）。
+    const ipv4 = trimUrl(manualIpv4Url)
+    if (ipv4 !== trimUrl(addressBook?.manualIpv4 ?? '')) patch.manualIpv4Url = ipv4
     // TCP 直连目标是 `主机:端口`（可带 http:// 前缀），空串合法（= 清掉这一条）。格式由宿主的
     // `tcpDirectTarget` 判，这里只去尾部斜杠，免得同一条存成两种写法。
     const tcp = trimUrl(manualTcpUrl)
@@ -623,6 +631,22 @@ export function RelayConfigDialog({
                       {t('panel.address.loadFailed')}
                       <Button variant="ghost" size="sm" onClick={onRetryAddresses}>{t('panel.address.retry')}</Button>
                     </p>
+                  ) : null}
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="relay-manual-ipv4">{t('panel.address.ipv4Url')}</FieldLabel>
+                  <Input
+                    inputProps={{ id: 'relay-manual-ipv4', className: 'font-mono' }}
+                    value={manualIpv4Url}
+                    placeholder={t('panel.address.ipv4Placeholder')}
+                    onChange={(event) => {
+                      editedIpv4Ref.current = true
+                      setManualIpv4Url(event.target.value)
+                    }}
+                  />
+                  {/^http:\/\//i.test(trimUrl(manualIpv4Url)) ? (
+                    <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
                 </Field>
 

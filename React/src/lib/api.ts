@@ -252,6 +252,13 @@ export type AddressBook = {
    */
   manualIpv6?: string
   /**
+   * 用户手填的**公网 IPv4**地址（设置项 `manualIpv4Url`，只认 IPv4 字面量，空串 = 没填）。
+   *
+   * 与 `manualIpv6` 对称的另一条公网直连候选：运营商分到公网 IPv4、但网卡上没挂着时用它。
+   * 域名 / 其它地址交给 `manual`（直连地址）。老宿主没有这个字段，读成空串。
+   */
+  manualIpv4?: string
+  /**
    * 用户手填的「TCP 直连」目标（设置项 `manualTcpUrl`，形如 `主机:端口`，空串 = 没填）。
    *
    * 与上面两条并列：它只决定手机用裸 TCP 拨哪个目标（iOS 经本机回环、安卓直连），不进候选
@@ -517,6 +524,10 @@ export type ConfigPatch = {
    * 手填的 IPv6 直连地址（公网 IPv6 域名或字面量）。空串同样合法，表示「清掉这一条」。
    */
   manualIpv6Url?: string
+  /**
+   * 手填的公网 IPv4 地址（只认 IPv4 字面量）。空串同样合法，表示「清掉这一条」。
+   */
+  manualIpv4Url?: string
   /**
    * 手填的「TCP 直连」目标（`主机:端口`，可带 `http://` 前缀）。空串同样合法，表示「清掉这一条」。
    */

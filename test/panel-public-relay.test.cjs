@@ -129,8 +129,8 @@ test('网络配置：六个字段交给 grid 自动排版，不手动分左右�
   assert.match(config, /grid-cols-2/, '地址几块要分两列排');
   assert.match(config, /gap-y-4/, '两列之间要有行间距');
   assert.ok(!/flex flex-col gap-4/.test(config), '不许再把字段手动包进左右两个 flex 列');
-  // 六个字段都直接排在 grid 里（以 Field 起头，不再多一层 div 包裹）。
-  assert.equal((config.match(/<Field>/g) || []).length, 6, '六个字段都要直接排在 grid 里');
+  // 2026-11-22 需求扩展：新增「公网 IPv4」一栏，字段数变 7；都直接排在 grid 里。
+  assert.equal((config.match(/<Field>/g) || []).length, 7, '七个字段都要直接排在 grid 里');
   // 启用 / 停要是普通文字按钮（ghost），不抢主按钮的视觉份量。
   const first = config.slice(config.indexOf('第一栏：公用中转'), config.indexOf('第二栏：自建中转'));
   assert.match(first, /variant="ghost"/, '启用 / 停用是普通文字按钮');

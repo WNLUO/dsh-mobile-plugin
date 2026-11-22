@@ -79,3 +79,24 @@ test('宿主探测端点也认宿主自己的健康响应（供直连回环检�
   assert.match(cp, /path: '\/api\/relay\/frp\/config'/, '要有读取 frpc 配置的路由');
   assert.ok(/readConfig/.test(read('lib', 'frpc', 'runner.cjs')), 'runner 要暴露 readConfig');
 });
+
+test('公网 IPv4 有独立一栏，写 manualIpv4Url', () => {
+  const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(page, /panel\.address\.ipv4Url/, '要有公网 IPv4 一栏');
+  assert.match(page, /patch\.manualIpv4Url\s*=/, '保存写 manualIpv4Url');
+  assert.match(page, /addressBook\?\.manualIpv4/, '现值从地址库 manualIpv4 预填');
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  for (const key of ['panel.address.ipv4Url', 'panel.address.ipv4Placeholder']) {
+    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+  }
+});
+
+test('宿主把公网 IPv4 单列一格并缀进候选（地址库与手机候选都覆盖）', () => {
+  const cp = read('lib', 'routes', 'control-plane.js');
+  assert.match(cp, /manualIpv4/, '地址库要带上公网 IPv4');
+  assert.match(cp, /withManualIpv4Candidate/, '公网候选要缀上手填 IPv4');
+  const lan = read('lib', 'relay', 'lan-network.cjs');
+  assert.match(lan, /function manualIpv4Candidate/, '要有 manualIpv4Candidate（只认 IPv4 字面量）');
+  assert.match(read('lib', 'routes', 'mobile-api.js'), /withManualIpv4Candidate/, '手机 connection-info 候选也要带上');
+  assert.match(read('lib', 'relay', 'pairing-payload.cjs'), /withManualIpv4Candidate/, '二维码候选也要带上');
+});
