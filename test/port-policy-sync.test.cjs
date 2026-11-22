@@ -75,7 +75,9 @@ test('固定开关进配置但不重建健康监听，实际监听状态驱动�
   const impl = fs.readFileSync(path.join(__dirname, '../lib/impl.js'), 'utf8');
   const worker = fs.readFileSync(path.join(__dirname, '../lib/sidecar-facade-worker.cjs'), 'utf8');
   assert.match(impl, /onLanState = lan => \{ lanPorts\.apply\(lan\); syncNetwork\(\) \}/);
-  assert.match(impl, /control\.sync\(\); void frpRunner\.syncLocalPort\?\.\(\)/);
+  // 监听状态变化时才同步：总控报地址、frp 与 cloudflare 各自同步端口。旧断言钉的是单行
+  // 写法，Cloudflare 接入后 syncNetwork 变为多行且多了 cloudflare 一路，这里按现状重钉。
+  assert.match(impl, /syncNetwork = \(\) => \{[\s\S]*?control\.sync\(\)[\s\S]*?frpRunner\.syncLocalPort\?\.\(\)[\s\S]*?cloudflare\.syncLocalPort\?\.\(\)/);
   assert.match(impl, /lanPortLockReason: portLock\(\)/);
   assert.match(worker, /lockReason: config\.lanPortLockReason/);
   const signature = worker.slice(worker.indexOf('function lanSignature'), worker.indexOf('function monitorSignature'));
