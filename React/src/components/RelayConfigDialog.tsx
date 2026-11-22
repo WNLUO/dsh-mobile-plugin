@@ -17,7 +17,7 @@ import { Input } from '@appica/ui-react/input'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
-import { frpConfig, importFrp, probeRelays, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
+import { frpConfig, importFrp, probeDirect, probeRelays, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
@@ -288,8 +288,7 @@ export function RelayConfigDialog({
     if (!/^https?:\/\//i.test(url)) { setDirectProbe({ state: 'fail' }); return }
     setDirectProbe({ state: 'checking' })
     try {
-      const res = await probeRelays([url])
-      const hit = res?.results?.[0]
+      const hit = await probeDirect(url)
       if (hit && typeof hit.ms === 'number' && hit.service === 'dsh-mobile-plugin') {
         setDirectProbe({ state: hit.instanceId && hit.instanceId === status.instanceId ? 'ok' : 'other' })
       } else {

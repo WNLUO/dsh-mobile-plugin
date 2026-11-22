@@ -773,3 +773,8 @@ export function probeRelays(urls: string[]): Promise<{ ok: boolean; results: Pro
 export function frpConfig(): Promise<{ ok: boolean; config: string }> {
   return apiGet('/api/relay/frp/config')
 }
+
+/** 宿主体检直连地址是否绕回本机（`POST /api/relay/probe-direct`）：回 service + instanceId。 */
+export function probeDirect(url: string): Promise<{ ok: boolean; ms: number | null; service?: string; instanceId?: string; apiVersion?: number }> {
+  return apiPost('/api/relay/probe-direct', { url }, { timeoutMs: 6_000 })
+}
