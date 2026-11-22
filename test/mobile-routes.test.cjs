@@ -20,7 +20,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { ROOT, readRouteTable } = require('./lib/wiring.cjs');
+const { ROOT, readRouteTable, readWiring } = require('./lib/wiring.cjs');
 
 const APP_PATHS = path.join(ROOT, '..', 'app', 'src', 'services', 'viewmodels', 'apiPaths.ts');
 
@@ -211,6 +211,29 @@ test('心跳里必须带 Cloudflare 兜底隧道那一格（独立线路自己�
   const body = statusBlock.slice(0, statusBlock.indexOf('}) })'));
   assert.match(body, /cloudflare\s*:/, '/status 的回包里必须有 cloudflare 这一格');
   assert.match(body, /deps\.cloudflare[\s\S]*?\.status\(\)/, '这一格要取 deps.cloudflare.status()，不要另算一套');
+});
+
+test('心跳里那一格 Cloudflare 必须真由装配层递进来（否则永远是 null）', () => {
+  // 2026-11-22 现场：电脑面板上 Cloudflare 显示「运行中」、还带着一条 trycloudflare 地址，
+  // 手机网络页却写「未配置」，用户以为同步坏了。根源不在路由表：`/status` 那格取的是
+  // `deps.cloudflare.status()`，而装配层递给 `registerMobileRoutes` 的依赖表里**没有**
+  // `cloudflare` —— 这一格永远落成 null，手机只能按「这台电脑没有这条线路」画。
+  // 上面几条只钉「路由表里的写法」，钉不住「这份依赖到底递没递进来」，所以单独读装配层。
+  const wiring = readWiring();
+  const at = wiring.indexOf('registerMobileRoutes({');
+  assert.ok(at > 0, '装配层找不到 registerMobileRoutes({');
+  const open = wiring.indexOf('{', at);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < wiring.length; i += 1) {
+    if (wiring[i] === '{') depth += 1;
+    else if (wiring[i] === '}') { depth -= 1; if (depth === 0) { end = i; break; } }
+  }
+  assert.ok(end > open, 'registerMobileRoutes 的依赖表没有闭合');
+  const deps = wiring.slice(open, end + 1);
+  assert.match(deps, /(^|[\s,{])p2p\s*,/m, '切错块了：依赖表里应该含 p2p 那一项');
+  assert.match(deps, /(^|[\s,{])cloudflare\s*,/m,
+    '依赖表必须把 cloudflare 递给移动端路由，否则 /status 的 cloudflare 永远是 null，手机永远写「未配置」');
 });
 
 test('connection-info 带回独立的 cloudflareUrl 字段（不塞 directUrl）', () => {
