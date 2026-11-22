@@ -320,9 +320,12 @@ async function recoveryAddressContract(mutate = (source) => source) {
   });
   const impl = fs.readFileSync(path.join(ROOT, 'lib/impl.js'), 'utf8');
   const binding = impl.slice(impl.indexOf("  mount('frpc 公网地址'"), impl.indexOf('  if (!(frpHost && frpHost.runner))'));
-  const state = { frpUrl: '', manualTcpUrl: '' };
+  // 「TCP 直连」这一格用户自己填了跟 FRP 相同的地址：整条链跑完它必须原样不动 ——
+  // 任何线路都不许往用户自己配的那格里写，连"顺手清掉重复"都不行（2026-11-23 用户口径）。
+  const state = { frpUrl: '', manualTcpUrl: 'example.com:6000' };
+  const patches = [];
   vm.runInNewContext(binding, { frpRunner: runner, state, name: 'test', mount: (_label, fn) => fn(),
-    ctx: { effect: (fn) => fn() }, settings: { async update(patch) { Object.assign(state, patch); published.push(patch.frpUrl); } } });
+    ctx: { effect: (fn) => fn() }, settings: { async update(patch) { Object.assign(state, patch); patches.push(patch); published.push(patch.frpUrl); } } });
   runner.saveConfig('webServer.port = 9000\nserverAddr = "example.com"\n[[proxies]]\nlocalPort = 22');
   try {
     await runner.start();
@@ -338,6 +341,8 @@ async function recoveryAddressContract(mutate = (source) => source) {
     const late = pending.shift();
     await runner.clear(); late('example.com:8000'); await settle();
     assert.deepEqual(published, ['example.com:6000', 'example.com:7000'], '停止后的发现不能回写');
+    assert.equal(state.manualTcpUrl, 'example.com:6000', '用户手填的 TCP 直连一个字都不能动');
+    assert(patches.every((patch) => !('manualTcpUrl' in patch)), 'FRP 的任何一次写回都不许带上 manualTcpUrl');
   } finally { await runner.clear(); }
 }
 test('B3 每代真实发现更新动态TCP，停止挡住迟到回写', () => recoveryAddressContract());
