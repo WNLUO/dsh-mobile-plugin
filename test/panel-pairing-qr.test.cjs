@@ -79,7 +79,7 @@ test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () =
   // 2026-11-20 需求变更：宽屏占位尺寸量右邻信息行的实际高度，宽高都取它才是正方形；
   // 不能拉伸高度（会变长方形），也不能靠 aspect-ratio 反推宽度（会塌成竖条）。
   // 窄屏单列没有可参照高度，退回限宽 200 的正方形。
-  assert.match(card, /onClick=\{\(\) => setQrZoom\(true\)\}/);
+  assert.match(card, /onClick=\{openQrZoom\}/);
   assert.match(card, /new ResizeObserver\(measure\)/, '信息行高度变化时重新量');
   assert.match(card, /ref=\{infoRef\}/, '量的正是右邻信息行');
   assert.match(card, /sm:h-\[var\(--qr-size\)\] sm:w-\[var\(--qr-size\)\]/, '宽高都取实测高度，正方形');
@@ -132,9 +132,11 @@ test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且
   // 主页：点码本身开弹窗（2026-11-02 起不再单独摆一颗「看大图」按钮），弹窗里按视口高度
   // 放大（600px 上限，2026-11-09 从 440 抬高），白底。
   assert.match(card, /const \[qrZoom, setQrZoom\] = React\.useState\(false\)/);
-  assert.match(card, /onClick=\{\(\) => setQrZoom\(true\)\}/);
+  assert.match(card, /onClick=\{openQrZoom\}/);
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
-  assert.match(card, /<Dialog open=\{qrZoom\} onOpenChange=\{setQrZoom\}>/);
+  // 2026-11-22 起点码走 openQrZoom（先记当前配对时间基线再开），弹窗 open 多一个“配对已完成就关”的
+  // 判断（避免关窗瞬间闪旧码/空白）。断言对齐到这个新行为，原意（点码开同一份 SVG 的放大弹窗）不变。
+  assert.match(card, /<Dialog open=\{qrZoom && !pairingDone\} onOpenChange=\{setQrZoom\}>/);
   assert.match(card, /aspect-square h-\[min\(64vh,560px\)\][^\n]*\[&_svg\]:h-full/);
   // 那颗按钮撤了：码本身就够点，遮着的时候也不该有一处点了只看见空白的地方。
   // 现在 `panel.pairing.qrZoom` 只剩码自己那个 `aria-label` 一处。
