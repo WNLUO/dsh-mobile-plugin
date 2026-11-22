@@ -668,10 +668,15 @@ function cancelTimeout(id: number): void {
   else clearTimeout(id as unknown as ReturnType<typeof setTimeout>)
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+/**
+ * 读请求。`timeoutMs` 只给「宿主那边可能要跑几秒」的那几条自己设（如公网 IP 识别要挨个问
+ * 回显服务）；不传就沿用原有语义，别把首屏状态那套时限套到别处去。
+ */
+export async function apiGet<T>(path: string, options?: { timeoutMs?: number }): Promise<T> {
   const pairingRequest = path.split('?')[0] === '/api/relay/pairing'
   // 配对助手自身最多等待 20 秒，再留出生成二维码与转发回程的时间。
-  const timeout = pairingRequest ? 30000 : path === '/api/relay/status' ? 12000 : 0
+  const wanted = options?.timeoutMs ?? 0
+  const timeout = wanted > 0 ? wanted : pairingRequest ? 30000 : path === '/api/relay/status' ? 12000 : 0
   const controller = timeout ? new AbortController() : null
   const timer = controller ? window.setTimeout(() => controller.abort(), timeout) : null
   try {
@@ -804,6 +809,17 @@ export type ProbeRelayResult = {
 
 export function probeRelays(urls: string[]): Promise<{ ok: boolean; results: ProbeRelayResult[] }> {
   return apiPost('/api/relay/probe-relays', { urls }, { timeoutMs: 12_000 })
+}
+
+/**
+ * 宿主识别到的本机公网 IPv4（`GET /api/relay/public-ip`）。
+ *
+ * 家庭宽带多半是「网卡上只有私网地址、公网地址在运营商 NAT 后面」，网卡枚举里根本没有它；
+ * 宿主去问公共回显服务拿到出口地址，面板把它当 IPv4 那栏的一条候选。没识别到就是 null
+ * （离线、全被墙、或者出口不是 IPv4）。
+ */
+export function publicIp(): Promise<{ ok: boolean; ip: string | null; source?: string | null; ms?: number | null }> {
+  return apiGet('/api/relay/public-ip', { timeoutMs: 12_000 })
 }
 
 /** 读当前 frpc 配置文本（`GET /api/relay/frp/config`），供面板管理/编辑。 */

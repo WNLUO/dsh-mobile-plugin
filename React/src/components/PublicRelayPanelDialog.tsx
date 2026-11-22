@@ -30,7 +30,7 @@ import { latencyLevel, latencySparklinePath } from '../lib/latency-sparkline.ts'
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** 当前已配置的中转地址，包含自建；未保存的输入不会发起探测。 */
+  /** 当前已配置的中转地址：命中内置清单时标出「使用中」，自建地址不在这份清单里，自然不出现。 */
   activeUrl: string
 }
 
@@ -68,8 +68,7 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
   const [error, setError] = useState('')
   /** 开窗期间在飞的一轮用 ref 串起来，关窗时把定时器清掉、让在飞的那一轮作废。 */
   const inFlightRef = useRef(false)
-  const currentUrl = activeUrl.trim().replace(/\/+$/, '')
-  const targets = [...new Set([...PUBLIC_RELAYS.map((item) => item.url), ...(/^https?:\/\//i.test(currentUrl) ? [currentUrl] : [])])]
+  const targets = PUBLIC_RELAYS.map((item) => item.url)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -82,7 +81,9 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
     }
     let alive = true
     setError('')
-    const urls = [...new Set([...PUBLIC_RELAYS.map((item) => item.url), ...(/^https?:\/\//i.test(currentUrl) ? [currentUrl] : [])])]
+    // 只测内置公用地址：自建中转是不是活的，归它自己那一栏的「检测」管，混进这张清单
+    // 会让「公用中转面板」显示一条并不公用的地址。
+    const urls = PUBLIC_RELAYS.map((item) => item.url)
     // 开窗先画一条空基线（每个地址一个 null 占位），探测回来再填。
     setHistory(Object.fromEntries(urls.map((url) => [url, [null]])))
 
@@ -125,7 +126,7 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
         timerRef.current = null
       }
     }
-  }, [open, currentUrl])
+  }, [open])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

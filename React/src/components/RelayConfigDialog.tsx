@@ -4,6 +4,8 @@
 // FRP 配置在弹窗里粘贴后直接「保存并启动」，不再暂存到父窗保存。
 // 2026-11-22：网络配置由弹窗改为独立一页（用户要求）；TCP 那格只收「主机:端口」，填了 scheme 提示去「直连地址」并拦下保存。
 // Cloudflare 兜底的开关与状态行已挪到 ConnectionCard + CloudflareDialog，这里不再重复一份。
+// 2026-11-23：线路按地区分页（国内 / 国际入口卡在本页底部）；IPv4 那栏补自动识别与候选下拉；
+// 各栏的检测结论挪进标题行、不再另占一行；自建中转那颗仓库按钮靠右。
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import {
@@ -20,11 +22,12 @@ import { Input } from '@appica/ui-react/input'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
-import { frpConfig, importFrp, probeDirect, probeRelays, stopFrp, zeroNewsConnect, zeroNewsDisconnect, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
+import { frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
+import type { NetworkRegion } from '../lib/network-region.ts'
 import { AddressPicker } from './AddressPicker.tsx'
-import { JdxbLineCard } from './JdxbLineCard.tsx'
+import { NetworkRegions } from './NetworkRegions.tsx'
 import { PublicRelayPanelDialog } from './PublicRelayPanelDialog.tsx'
 
 type ComboOption = { value: string; label: string }
@@ -104,6 +107,8 @@ type Props = {
   onSave: (patch: ConfigPatch, frpConfig?: { config: string; field: 'tcp' | 'direct'; value: string }) => void
   /** 「手机优先用这条」：点了就存、不关窗，所以和上面那个带保存按钮的 `onSave` 分开。 */
   onSavePreferred: (address: string) => void
+  /** 点地区入口卡：换到那一页（国内 / 国际，地址由 Console 写进 hash）。 */
+  onOpenRegion: (region: NetworkRegion) => void
 }
 
 /**
@@ -150,6 +155,7 @@ export function RelayConfigDialog({
   busy,
   onSave,
   onSavePreferred,
+  onOpenRegion,
 }: Props) {
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
   /** 用户显式停用了公用中转（issue #27）：开窗时按宿主 status 灌，保存时把意图发回去。 */
@@ -174,14 +180,14 @@ export function RelayConfigDialog({
   const [ipv4Probe, setIpv4Probe] = useState<ProbeState>({ state: 'idle' })
   const [ipv6Probe, setIpv6Probe] = useState<ProbeState>({ state: 'idle' })
   const [frpProbe, setFrpProbe] = useState<ProbeState>({ state: 'idle' })
-  /** ZeroNews 线路操作的结果提示（连接成功 / 失败原因）。 */
-  const [zeroNewsNote, setZeroNewsNote] = useState('')
-  /** ZeroNews 线路连接 / 断开进行中（整条链要下载+登录+建隧道，可能几分钟）。 */
-  const [zeroNewsLinkBusy, setZeroNewsLinkBusy] = useState(false)
+  /** 宿主识别到的公网 IPv4（`/api/relay/public-ip`），空串 = 没识别到。 */
+  const [detectedIpv4, setDetectedIpv4] = useState('')
   /** 用户「添加地址」自己加进来的局域网候选（网卡没扫到时用）。 */
   const [extraLan, setExtraLan] = useState<string[]>([])
-  /** 添加地址弹窗：lan / ipv6 / null。 */
-  const [addOpen, setAddOpen] = useState<'lan' | 'ipv6' | null>(null)
+  /** 用户自己加进来的 IPv4 候选（运营商给的不是网卡上挂着的那条时用）。 */
+  const [extraIpv4, setExtraIpv4] = useState<string[]>([])
+  /** 添加地址弹窗：lan / ipv6 / ipv4 / null。 */
+  const [addOpen, setAddOpen] = useState<'lan' | 'ipv6' | 'ipv4' | null>(null)
   const [addDraft, setAddDraft] = useState('')
   const [addError, setAddError] = useState('')
   /** FRP 管理：配置文本、忙、反馈，以及「导入配置」弹窗开关。 */
@@ -248,8 +254,8 @@ export function RelayConfigDialog({
       setIpv4Probe({ state: 'idle' })
       setIpv6Probe({ state: 'idle' })
       setFrpProbe({ state: 'idle' })
-      setZeroNewsNote('')
       setExtraLan([])
+      setExtraIpv4([])
       setAddOpen(null)
       setAddDraft('')
       setAddError('')
@@ -269,6 +275,17 @@ export function RelayConfigDialog({
     }
     // 只认 open 与地址库：`pickableAddresses` 每次渲染都是新数组，拿它当依赖会让这个 effect 每帧跑。
   }, [open, addressBook])
+
+  // 公网 IPv4 自动识别：开页问一次宿主，识别不到就只留网卡候选 + 手填，不挡别的栏。
+  // 宿主那边有缓存（成功 5 分钟、失败 1 分钟），所以反复开关这一页不会反复打外网。
+  useEffect(() => {
+    if (!open) return undefined
+    let alive = true
+    publicIp()
+      .then((res) => { if (alive && typeof res.ip === 'string') setDetectedIpv4(res.ip) })
+      .catch(() => { /* 识别不出来就当没有，界面照常可填 */ })
+    return () => { alive = false }
+  }, [open])
 
   const canSave = busy === ''
 
@@ -333,7 +350,12 @@ export function RelayConfigDialog({
     return `http://${v}:${status.lan.port}`
   }
 
-  /** 一颗「检测」结论行的统一渲染（回环命中本机 / 连得上不是本机 / 连不上）。 */
+  /**
+   * 一颗「检测」的结论（回环命中本机 / 连得上不是本机 / 连不上）。
+   *
+   * 渲染成行内的一段小字，放在标题那一行里：它另起一行会把整页撑出几道空档，而结论本身
+   * 只有几个字（2026-11-23 用户要求）。
+   */
   function probeNote(probe: ProbeState) {
     if (probe.state === 'idle') return null
     const text = probe.state === 'checking'
@@ -344,42 +366,7 @@ export function RelayConfigDialog({
           ? t('panel.address.detectLoopOther')
           : t('panel.address.detectLoopFail')
     const tone = probe.state === 'ok' ? 'text-success' : probe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'
-    return <p className={`text-xs ${tone}`}>{text}</p>
-  }
-
-  /**
-   * ZeroNews 线路连接：插件自动下载客户端、拉浏览器登录（不用 token）、建隧道、拿域名上报。
-   * 可能要几分钟（等浏览器确认），期间按钮转圈；回包里的 error 原样显示，不吞原因。
-   */
-  async function connectZeroNews() {
-    setZeroNewsLinkBusy(true)
-    setZeroNewsNote('')
-    try {
-      const res = await zeroNewsConnect()
-      const note = typeof res.error === 'string' ? res.error : res.error?.message
-      if (!res.ok && note) setZeroNewsNote(note)
-      else if (res.phase === 'connected') setZeroNewsNote(t('panel.zeronews.linkOn', { url: res.url || '' }))
-      else if (note) setZeroNewsNote(note)
-    } catch (error) {
-      setZeroNewsNote(error instanceof Error ? error.message : String(error))
-    } finally {
-      setZeroNewsLinkBusy(false)
-    }
-  }
-
-  /** ZeroNews 线路断开：停客户端、撤域名。 */
-  async function disconnectZeroNews() {
-    setZeroNewsLinkBusy(true)
-    setZeroNewsNote('')
-    try {
-      const res = await zeroNewsDisconnect()
-      const note = typeof res.error === 'string' ? res.error : res.error?.message
-      if (!res.ok && note) setZeroNewsNote(note)
-    } catch (error) {
-      setZeroNewsNote(error instanceof Error ? error.message : String(error))
-    } finally {
-      setZeroNewsLinkBusy(false)
-    }
+    return <span className={`text-xs ${tone}`}>{text}</span>
   }
 
   /** 读当前 frpc 配置，填进管理框（没接 frpc 能力就留空并提示）。 */
@@ -420,9 +407,21 @@ export function RelayConfigDialog({
     }
   }
 
-  /** 「添加地址」：校验形状后并入候选（IPv6 直接写 manualIpv6Url）。 */
+  /** 「添加地址」：校验形状后并入候选（IPv6 / IPv4 直接写进各自那一格）。 */
   function submitAdd() {
     const value = addDraft.trim().replace(/\/+$/, '')
+    // 公网 IPv4 只收字面量（可带 scheme、端口与反代路径）：域名归「直连」那格，别在这里混。
+    const ipv4Shape = /^(?:https?:\/\/)?(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?(?:\/[^\s]*)?$/i.test(value)
+    if (addOpen === 'ipv4') {
+      if (!ipv4Shape) { setAddError(t('panel.address.addInvalid')); return }
+      editedIpv4Ref.current = true
+      setManualIpv4Url(value)
+      setExtraIpv4((prev) => (prev.includes(value) ? prev : [...prev, value]))
+      setAddOpen(null)
+      setAddDraft('')
+      setAddError('')
+      return
+    }
     if (!/^(?:https?:\/\/[^\s]+|[^\s/:?#]+:\d+)$/i.test(value)) { setAddError(t('panel.address.addInvalid')); return }
     if (addOpen === 'ipv6') {
       editedIpv6Ref.current = true
@@ -485,6 +484,30 @@ export function RelayConfigDialog({
     }
     onSave(patch)
   }
+
+  /**
+   * IPv4 那栏的候选：网卡上的公网 IPv4、宿主识别到的出口地址、用户自己加的。
+   *
+   * 出口地址按当前局域网端口拼成 URL —— 家庭宽带多半要自己把端口映射出去，所以这里给的
+   * 是一条候选而不是「已经可用」的承诺，点「检测」才知道通不通。
+   */
+  const ipv4Options: ComboOption[] = (() => {
+    const list: ComboOption[] = []
+    for (const item of addressBook?.public ?? []) {
+      if (!list.some((option) => option.value === item.url)) list.push({ value: item.url, label: item.interface ? `${item.url} · ${item.interface}` : item.url })
+    }
+    if (detectedIpv4) {
+      const url = `http://${detectedIpv4}:${status.lan.port}`
+      const label = `${url} · ${t('panel.address.ipv4Auto')}`
+      const hit = list.findIndex((option) => option.value === url)
+      if (hit >= 0) list[hit] = { value: url, label }
+      else list.unshift({ value: url, label })
+    }
+    for (const url of extraIpv4) {
+      if (!list.some((option) => option.value === url)) list.push({ value: url, label: url })
+    }
+    return list
+  })()
 
   if (!open) return null
 
@@ -574,23 +597,39 @@ export function RelayConfigDialog({
                     系统浏览器，新标签页由浏览器自己开，脚本被拦也不影响（同 StarButton）。 */}
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel htmlFor="relay-url">{t('panel.relay.selfKind')}</FieldLabel>
-                    <a
-                      href={RELAY_REPO_URL}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-                    >
-                      {t('panel.relay.selfRepo')}
-                    </a>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!canSave || selfProbe.state === 'checking'}
-                      onClick={checkSelfRelay}
-                    >
-                      {t(selfProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                    </Button>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <FieldLabel htmlFor="relay-url">{t('panel.relay.selfKind')}</FieldLabel>
+                      {selfProbe.state === 'idle' ? null : (
+                        <span className={`text-xs ${selfProbe.state === 'ok' ? 'text-success' : selfProbe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'}`}>
+                          {selfProbe.state === 'checking'
+                            ? t('panel.relay.detecting')
+                            : selfProbe.state === 'ok'
+                              ? `${t('panel.relay.detectOk')}${selfProbe.version ? ` · v${selfProbe.version}` : ''}${typeof selfProbe.ms === 'number' ? ` · ${selfProbe.ms} ms` : ''}`
+                              : selfProbe.state === 'not-relay'
+                                ? t('panel.relay.detectNotOurs')
+                                : t('panel.relay.detectFail')}
+                        </span>
+                      )}
+                    </div>
+                    {/* 仓库链接与「检测」一起贴右边：三颗散在中间会看不出哪边是标题、哪边是动作。 */}
+                    <div className="ml-auto flex items-center gap-1">
+                      <a
+                        href={RELAY_REPO_URL}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                      >
+                        {t('panel.relay.selfRepo')}
+                      </a>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canSave || selfProbe.state === 'checking'}
+                        onClick={checkSelfRelay}
+                      >
+                        {t(selfProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                      </Button>
+                    </div>
                   </div>
                   <Input
                     inputProps={{ id: 'relay-url', className: 'font-mono' }}
@@ -601,17 +640,6 @@ export function RelayConfigDialog({
                   {!activePublicRelay && /^http:\/\//i.test(trimUrl(relayUrl)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
-                  {selfProbe.state === 'idle' ? null : (
-                    <p className={`text-xs ${selfProbe.state === 'ok' ? 'text-success' : selfProbe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'}`}>
-                      {selfProbe.state === 'checking'
-                        ? t('panel.relay.detecting')
-                        : selfProbe.state === 'ok'
-                          ? `${t('panel.relay.detectOk')}${selfProbe.version ? ` · v${selfProbe.version}` : ''}${typeof selfProbe.ms === 'number' ? ` · ${selfProbe.ms} ms` : ''}`
-                          : selfProbe.state === 'not-relay'
-                            ? t('panel.relay.detectNotOurs')
-                            : t('panel.relay.detectFail')}
-                    </p>
-                  )}
                 </Field>
             </div>
           </section>
@@ -620,7 +648,10 @@ export function RelayConfigDialog({
             <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
+                      {probeNote(directProbe)}
+                    </div>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -643,15 +674,16 @@ export function RelayConfigDialog({
                   {/^http:\/\//i.test(trimUrl(manualLanUrl)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
-                  {zeroNewsNote ? <p className="text-xs text-foreground-muted">{zeroNewsNote}</p> : null}
-                  {probeNote(directProbe)}
                 </Field>
 
                 <Field>
                   {/* TCP 直连：手机用裸 TCP 拨的目标（iOS 经本机回环绕 ATS、安卓直连）。
                       与上面的直连地址是两条独立入口，互不覆盖。 */}
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel htmlFor="relay-manual-tcp">{t('panel.address.tcp')}</FieldLabel>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <FieldLabel htmlFor="relay-manual-tcp">{t('panel.address.tcp')}</FieldLabel>
+                      {probeNote(tcpProbe)}
+                    </div>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -677,7 +709,6 @@ export function RelayConfigDialog({
                     }}
                   />
                   {tcpHint ? <p className="text-xs text-error">{tcpHint}</p> : null}
-                  {probeNote(tcpProbe)}
                 </Field>
             </div>
           </section>
@@ -687,8 +718,14 @@ export function RelayConfigDialog({
                 {/* 局域网地址：下拉直接选（不手填），网卡取不到时可「添加地址」；可点「检测」回环验证。 */}
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
+                      {probeNote(lanProbe)}
+                    </div>
                     <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('lan') }}>
+                        {t('panel.address.add')}
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -696,9 +733,6 @@ export function RelayConfigDialog({
                         onClick={() => probeLoop(lanProbeTarget(preferredLan), setLanProbe)}
                       >
                         {t(lanProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('lan') }}>
-                        {t('panel.address.add')}
                       </Button>
                     </div>
                   </div>
@@ -726,41 +760,61 @@ export function RelayConfigDialog({
                       <Button variant="ghost" size="sm" onClick={onRetryAddresses}>{t('panel.address.retry')}</Button>
                     </p>
                   ) : null}
-                  {probeNote(lanProbe)}
                 </Field>
 
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel htmlFor="relay-manual-ipv4">{t('panel.address.ipv4Url')}</FieldLabel>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!canSave || ipv4Probe.state === 'checking'}
-                      onClick={() => probeLoop(manualIpv4Url, setIpv4Probe)}
-                    >
-                      {t(ipv4Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                    </Button>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <FieldLabel htmlFor="relay-manual-ipv4">{t('panel.address.ipv4Url')}</FieldLabel>
+                      {probeNote(ipv4Probe)}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv4') }}>
+                        {t('panel.address.add')}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canSave || ipv4Probe.state === 'checking'}
+                        onClick={() => probeLoop(manualIpv4Url, setIpv4Probe)}
+                      >
+                        {t(ipv4Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                      </Button>
+                    </div>
                   </div>
-                  <Input
-                    inputProps={{ id: 'relay-manual-ipv4', className: 'font-mono' }}
+                  {/* 与局域网、IPv6 同一套：候选点箭头挑，手写的走「添加地址」。 */}
+                  <AddressCombo
+                    id="relay-manual-ipv4"
                     value={manualIpv4Url}
                     placeholder={t('panel.address.ipv4Placeholder')}
-                    onChange={(event) => {
+                    ariaLabel={t('panel.address.ipv4Url')}
+                    readOnly
+                    options={ipv4Options}
+                    emptyText={t('panel.address.empty')}
+                    onChange={(value) => {
                       editedIpv4Ref.current = true
-                      setManualIpv4Url(event.target.value)
+                      setManualIpv4Url(value)
                       setIpv4Probe({ state: 'idle' })
                     }}
                   />
+                  {detectedIpv4 ? (
+                    <p className="text-xs text-foreground-muted">{t('panel.address.ipv4Detected', { ip: detectedIpv4 })}</p>
+                  ) : null}
                   {/^http:\/\//i.test(trimUrl(manualIpv4Url)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
-                  {probeNote(ipv4Probe)}
                 </Field>
 
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
+                      {probeNote(ipv6Probe)}
+                    </div>
                     <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv6') }}>
+                        {t('panel.address.add')}
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -768,9 +822,6 @@ export function RelayConfigDialog({
                         onClick={() => probeLoop(manualIpv6Url, setIpv6Probe)}
                       >
                         {t(ipv6Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv6') }}>
-                        {t('panel.address.add')}
                       </Button>
                     </div>
                   </div>
@@ -792,7 +843,6 @@ export function RelayConfigDialog({
                       setIpv6Probe({ state: 'idle' })
                     }}
                   />
-                  {probeNote(ipv6Probe)}
                 </Field>
             </div>
           </section>
@@ -801,13 +851,14 @@ export function RelayConfigDialog({
             <Field className="border-t border-border-muted pt-3">
               {/* FRP 不再直接摊开配置框：状态一栏，配置走「导入」弹窗里粘（2026-11-22 用户要求）。 */}
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                <div className="flex items-baseline gap-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <FieldLabel>{t('panel.frp.manageTitle')}</FieldLabel>
                   <span className="text-xs text-foreground-muted">
                     {status.frp?.running ? t('panel.frp.statusRun') : t('panel.frp.statusStop')}
                     {status.frp?.running && status.frp?.remoteAddress ? ` · ${status.frp.remoteAddress}` : ''}
                     {status.frp?.error ? ` · ${status.frp.error}` : ''}
                   </span>
+                  {probeNote(frpProbe)}
                 </div>
                 <div className="flex items-center gap-1">
                   <Button
@@ -824,46 +875,16 @@ export function RelayConfigDialog({
                 </div>
               </div>
               {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
-              {probeNote(frpProbe)}
             </Field>
           </section>
 
+          {/* 国内 / 国际两条线路各自的入口（2026-11-23 用户要求）：点开是独立一页，
+              线路越加越多也不会把这一页撑长，海外用户也不必看国内服务商。 */}
           <section className="flex flex-col gap-3">
-            <Field className="border-t border-border-muted pt-3">
-              {/* 标题 + 登录流程提示同一行，节省竖向空间（2026-11-22 用户要求）。 */}
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <FieldLabel>{t('panel.zeronews.section')}</FieldLabel>
-                <span className="max-w-[62%] text-right text-xs leading-tight text-foreground-muted">
-                  {t('panel.zeronews.linkHint')}
-                </span>
-              </div>
-              {status.zeroNews?.error ? <p className="mt-1 text-xs text-error">{status.zeroNews.error}</p> : null}
-              {zeroNewsNote ? <p className="mt-1 text-xs text-error">{zeroNewsNote}</p> : null}
-              {/* 已连接 / 地址左对齐，连接 / 断开两颗按钮靠右。 */}
-              <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-foreground-muted">
-                  {status.zeroNews?.phase === 'connected'
-                    ? t('panel.zeronews.linkOn', { url: status.zeroNews.url })
-                    : status.zeroNews?.phase === 'error'
-                      ? t('panel.zeronews.linkError')
-                      : status.zeroNews?.phase && status.zeroNews.phase !== 'off'
-                        ? t('panel.zeronews.linkBusy')
-                        : t('panel.zeronews.linkOff')}
-                </span>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" disabled={zeroNewsLinkBusy || status.zeroNews?.phase === 'connected'} onClick={connectZeroNews}>
-                    {zeroNewsLinkBusy ? t('panel.zeronews.linkConnecting') : t('panel.zeronews.linkConnect')}
-                  </Button>
-                  <Button variant="ghost" size="sm" disabled={zeroNewsLinkBusy || status.zeroNews?.phase !== 'connected'} onClick={disconnectZeroNews}>
-                    {t('panel.zeronews.linkDisconnect')}
-                  </Button>
-                </div>
-              </div>
-            </Field>
+            <div className="border-t border-border-muted pt-3">
+              <NetworkRegions onOpen={onOpenRegion} />
+            </div>
           </section>
-
-          {/* 节点小宝那条 TCP 线路：设备端装没装、绑没绑、地址写没写（见 JdxbLineCard.tsx）。 */}
-          <JdxbLineCard />
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
@@ -919,13 +940,17 @@ export function RelayConfigDialog({
       <Dialog open={addOpen !== null} onOpenChange={(next) => { if (!next) { setAddOpen(null); setAddDraft(''); setAddError('') } }}>
         <DialogContent className="w-[min(520px,92vw)]">
           <DialogHeader>
-            <DialogTitle>{t('panel.address.add')}</DialogTitle>
+            <DialogTitle>{addOpen === 'ipv6' ? t('panel.address.ipv6Url') : addOpen === 'ipv4' ? t('panel.address.ipv4Url') : t('panel.address.lan')}</DialogTitle>
           </DialogHeader>
           <DialogBody>
             <Input
               inputProps={{ className: 'font-mono' }}
               value={addDraft}
-              placeholder={addOpen === 'ipv6' ? t('panel.address.ipv6Placeholder') : t('panel.address.lanPlaceholder')}
+              placeholder={addOpen === 'ipv6'
+                ? t('panel.address.ipv6Placeholder')
+                : addOpen === 'ipv4'
+                  ? t('panel.address.ipv4Placeholder')
+                  : t('panel.address.lanPlaceholder')}
               onChange={(event) => { setAddDraft(event.target.value); setAddError('') }}
             />
             {addError ? <p className="mt-1 text-xs text-error">{addError}</p> : null}

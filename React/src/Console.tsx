@@ -28,7 +28,9 @@ import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@a
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { AutoUpdateSection } from './components/AutoUpdateSection.tsx'
+import { ChinaLinesPage } from './components/ChinaLinesPage.tsx'
 import { CloudflareDialog } from './components/CloudflareDialog.tsx'
+import { GlobalLinesPage } from './components/GlobalLinesPage.tsx'
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
 import { PanelWindowActions } from './components/PanelWindowActions.tsx'
@@ -62,6 +64,7 @@ import { Dot, ALIGNED_ROWS, InfoList } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
 import { isPublicRelayUrl } from './lib/links.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
+import { hashOfPage, pageFromHash, type NetworkPage, type NetworkRegion } from './lib/network-region.ts'
 import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
 import { useNotify } from './lib/notify.ts'
@@ -116,30 +119,37 @@ export function Console() {
   const [addressError, setAddressError] = useState('')
   /** 更新卡报上来的版本对不上详情，挂到左列「运行中版本」那行。 */
   const [versionIssues, setVersionIssues] = useState<Issue[]>([])
-  /** 网络配置是独立子页：用地址栏 hash（#network）承载，刷新后仍停在这一页。 */
-  const networkFromHash = () => (typeof window !== 'undefined' && window.location
-    ? window.location.hash.replace(/^#/, '') === 'network'
-    : false)
-  const [configOpen, setConfigOpen] = useState(networkFromHash)
+  /**
+   * 网络配置是一组独立页：主配置页 `#network`，国内 / 国际线路各一页（`#network/cn`、
+   * `#network/global`）。地址进 hash，刷新与前进后退都停在同一页。
+   */
+  const pageFromLocation = (): NetworkPage => (typeof window !== 'undefined' && window.location
+    ? pageFromHash(window.location.hash)
+    : 'home')
+  const [page, setPage] = useState<NetworkPage>(pageFromLocation)
   // 浏览器前进 / 后退或手改 hash 时，让视图跟着地址走。
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
-    const sync = () => setConfigOpen(networkFromHash())
+    const sync = () => setPage(pageFromLocation())
     window.addEventListener('hashchange', sync)
     return () => window.removeEventListener('hashchange', sync)
   }, [])
-  const openNetwork = () => {
-    if (typeof window !== 'undefined' && window.location && window.location.hash !== '#network') window.location.hash = 'network'
-    setConfigOpen(true)
+  /** 换页只写 hash 一处，地址栏与视图不会各说各的。`replace` 用于「返回上一层」，别堆历史。 */
+  const showPage = (next: NetworkPage, replace = false) => {
+    setPage(next)
+    if (typeof window === 'undefined' || !window.location) return
+    const hash = hashOfPage(next)
+    const base = window.location.pathname + window.location.search
+    const url = hash ? `${base}#${hash}` : base
+    if (replace && typeof history !== 'undefined' && typeof history.replaceState === 'function') history.replaceState(null, '', url)
+    else if (hash) window.location.hash = hash
+    else window.location.hash = ''
   }
-  const closeNetwork = () => {
-    if (typeof window !== 'undefined' && window.location && window.location.hash) {
-      const base = window.location.pathname + window.location.search
-      if (typeof history !== 'undefined' && typeof history.replaceState === 'function') history.replaceState(null, '', base)
-      else window.location.hash = ''
-    }
-    setConfigOpen(false)
-  }
+  const openNetwork = () => showPage('network')
+  const closeNetwork = () => showPage('home', true)
+  /** 进地区子页：地址栏留一层历史，浏览器返回键就回主配置页。 */
+  const openRegion = (region: NetworkRegion) => showPage(region)
+  const backToNetwork = () => showPage('network', true)
   const [portOpen, setPortOpen] = useState(false)
   const [tailcatOpen, setTailcatOpen] = useState(false)
   const [p2pOpen, setP2POpen] = useState(false)
@@ -269,10 +279,10 @@ export function Console() {
   }, [status?.enabled, pairing, loadAddresses])
 
   useEffect(() => {
-    if (!configOpen || !status?.enabled) return
+    if (page !== 'network' || !status?.enabled) return
     void loadPairing()
     void loadAddresses()
-  }, [configOpen, status?.enabled, loadPairing, loadAddresses])
+  }, [page, status?.enabled, loadPairing, loadAddresses])
 
   /**
    * 全局 busy 的真相放在 ref 里：`busy` 状态给界面渲染用，但并发进来的第二个 `act`
@@ -443,7 +453,7 @@ export function Console() {
     <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-4 sm:p-5">
       {/* 顶上一条窄栏：只剩「现在怎么样」与两个出口。没有大标题、没有说明段 ——
           那一屏的空间要留给二维码和设备。 */}
-      {configOpen ? null : (
+      {page !== 'home' ? null : (
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {tone ? <Dot tone={tone} /> : null}
@@ -503,7 +513,7 @@ export function Console() {
         整页滚动，不做单栏 sticky、也不套内滚动条。
       */}
       {/* 「网络配置」现在是一整页（见 RelayConfigDialog）：打开时把首页内容收起，只留它那一页。 */}
-      <div className={configOpen ? 'hidden' : 'grid grid-cols-1 gap-3'}>
+      <div className={page !== 'home' ? 'hidden' : 'grid grid-cols-1 gap-3'}>
         <Card frame="solid">
           <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">
             <div className="lg:col-span-6">
@@ -587,7 +597,7 @@ export function Console() {
       </div>
 
       <RelayConfigDialog
-        open={configOpen}
+        open={page === 'network'}
         onOpenChange={(next) => (next ? openNetwork() : closeNetwork())}
         status={status}
         addressBook={addresses}
@@ -597,6 +607,21 @@ export function Console() {
         busy={busy}
         onSave={(patch, frpConfig) => void saveConfig(patch, frpConfig)}
         onSavePreferred={(address) => void savePreferredLanAddress(address)}
+        onOpenRegion={openRegion}
+      />
+
+      <ChinaLinesPage
+        open={page === 'cn'}
+        onOpenChange={(next) => (next ? openRegion('cn') : backToNetwork())}
+        status={status}
+        busy={busy}
+      />
+
+      <GlobalLinesPage
+        open={page === 'global'}
+        onOpenChange={(next) => (next ? openRegion('global') : backToNetwork())}
+        status={status}
+        onChanged={() => void loadStatus()}
       />
 
       <TailcatDialog open={tailcatOpen} onOpenChange={setTailcatOpen} onChanged={() => void loadStatus()} />
