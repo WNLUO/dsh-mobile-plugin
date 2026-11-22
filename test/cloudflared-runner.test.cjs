@@ -247,3 +247,33 @@ test('全新机器：available 反映平台能否跑 cloudflared，与二进制�
   assert.equal(st.running, false);
   assert.equal(st.available, expected);
 });
+
+test('起进程后迟迟拿不到地址：状态报「连不上 Cloudflare」，不崩、不假装运行中', async () => {
+  let fireConnect = null;
+  const runner = createCloudflaredRunner({
+    root: tempDir(),
+    portOf: () => 49906,
+    ensureBin: async () => ({ path: '/fake/cloudflared' }),
+    spawnImpl: () => fakeChild(),
+    connectTimeoutMs: 1000,
+    connectTimerImpl: (fn) => { fireConnect = fn; return 111; },
+    clearConnectTimerImpl: () => {},
+  });
+  const st0 = await runner.start();
+  assert.equal(st0.running, true);
+  assert.equal(typeof fireConnect, 'function');
+  fireConnect();
+  const st = runner.status();
+  assert.equal(st.running, true, '进程还在（会自己重试），不冒充已连上也不误报已退出');
+  assert.match(st.error, /Cloudflare/, '要把「连不上 Cloudflare」这个真实原因写进状态');
+});
+
+test('地址监听同步抛错或异步 reject 都不会反噬进程', async () => {
+  for (const onAddress of [() => { throw new Error('boom'); }, async () => { throw new Error('boom'); }]) {
+    const { runner, children } = harness({ onAddress });
+    await runner.start();
+    assert.equal(children.length, 1);
+    assert.doesNotThrow(() => children[0].stderr.emit('data', BANNER), '监听抛错不许从流回调里冒出来把宿主带崩');
+    await new Promise((r) => setImmediate(r));
+  }
+});
