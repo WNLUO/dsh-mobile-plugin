@@ -93,52 +93,76 @@ test('域名识别只认 active 的 HTTPS', () => {
   assert.equal(pickEndpoint({ data: { items: [{ type: 'HTTPS', public_url: 'https://c.example.com', status: 'active' }] } }), 'https://c.example.com');
 });
 
-test('完整链路：登录→起客户端→复用已有隧道→拿到域名', async () => {
+test('已登录：跳过浏览器登录，起客户端→复用已有隧道→拿到域名', async () => {
   const { runner, calls } = harness({ loggedAfter: 0 });
   const s = await runner.start();
   assert.equal(s.phase, 'connected');
   assert.equal(s.url, 'https://abc.hn.takin.cc');
-  assert(calls.some((c) => c.spawn === 'login'), '走了浏览器登录，没用 token/authtoken');
   assert(calls.some((c) => c.spawn === 'start'), '起了本地客户端');
-  assert(!calls.some((c) => c.url && c.url.includes('authtoken')), '全程不碰 token');
-  assert(!calls.some((c) => c.method === 'POST' && c.url.includes('tunnels')), '已有隧道就不重复建');
+  assert(!calls.some((c) => c.spawn === 'login'), '已登录不必再拉浏览器');
+  assert(!calls.some((c) => c.cli && c.cli.includes('authtoken')), '全程不碰 authtoken');
 });
 
-test('没有隧道时才建一条，指向本机端口', async () => {
-  let made = false;
-  const fetchImpl = async (url, init) => {
+test('未登录：拉起浏览器 login，确认后继续', async () => {
+  // 第一次 cliStatus（快路判断）返回未登录，之后返回已登录 —— 模拟用户点完浏览器确认。
+  let statusCalls = 0;
+  const runImpl = async (bin, args) => {
+    if (args[0] === 'status') { statusCalls += 1; return { code: 0, stdout: JSON.stringify({ login: statusCalls > 1 }), stderr: '' }; }
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const spawnCalls = [];
+  const fetchImpl = async (url) => {
     const key = url.replace(/^https?:\/\/[^/]+/, '');
-    if (key === '/api/v1/endpoints') return { ok: true, json: async () => made ? { data: { items: [{ type: 'HTTPS', domain: 'new.example.com', status: 'active' }] } } : { data: { items: [] } } };
-    if (key === '/api/v1/tunnels') { made = true; return { ok: true, json: async () => ({ code: 200 }) }; }
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'ok.example.com', status: 'active' }] } }) };
     if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
     return { ok: false };
   };
-  const runImpl = async (bin, args) => (args[0] === 'status'
-    ? { code: 0, stdout: JSON.stringify({ login: true }), stderr: '' }
-    : { code: 0, stdout: '', stderr: '' });
+  const runner = createZeroNewsRunner({ ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl, runImpl, spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {} }; }, sleepImpl: () => Promise.resolve() });
+  const s = await runner.start();
+  assert.equal(s.phase, 'connected');
+  assert(spawnCalls.includes('login'), '未登录时要拉起浏览器登录');
+});
+
+test('没有隧道时用 CLI add 建一条，解析 public_url', async () => {
+  let added = false;
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [] } }) };
+    if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
+    return { ok: false };
+  };
+  const runImpl = async (bin, args) => {
+    if (args[0] === 'status') return { code: 0, stdout: '{"login":true}', stderr: '' };
+    if (args[0] === 'add') { added = true; return { code: 0, stdout: JSON.stringify({ public_url: 'https://new.example.com' }), stderr: '' }; }
+    return { code: 0, stdout: '', stderr: '' };
+  };
   const runner = createZeroNewsRunner({ ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
     fetchImpl, runImpl, spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve() });
   const s = await runner.start();
   assert.equal(s.phase, 'connected');
-  assert.equal(made, true, '没有隧道时建了一条');
-  assert.equal(s.url, 'https://new.example.com');
+  assert.equal(added, true, '用 CLI add 建了隧道');
+  assert.equal(s.url, 'https://new.example.com', '从 add 的 public_url 拿到域名');
 });
 
 test('已有隧道不重复建（免费档只有一条额度）', async () => {
-  let posted = false;
-  const fetchImpl = async (url, init) => {
+  let added = false;
+  const fetchImpl = async (url) => {
     const key = url.replace(/^https?:\/\/[^/]+/, '');
     if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'exists.example.com', status: 'active' }] } }) };
-    if (key === '/api/v1/tunnels') { posted = true; return { ok: true, json: async () => ({ code: 200 }) }; }
     if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
     return { ok: false };
   };
-  const runImpl = async (bin, args) => (args[0] === 'status' ? { code: 0, stdout: '{"login":true}', stderr: '' } : { code: 0, stdout: '', stderr: '' });
+  const runImpl = async (bin, args) => {
+    if (args[0] === 'status') return { code: 0, stdout: '{"login":true}', stderr: '' };
+    if (args[0] === 'add') { added = true; return { code: 0, stdout: '{}', stderr: '' }; }
+    return { code: 0, stdout: '', stderr: '' };
+  };
   const runner = createZeroNewsRunner({ ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
     fetchImpl, runImpl, spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve() });
   const s = await runner.start();
   assert.equal(s.phase, 'connected');
-  assert.equal(posted, false, '已有隧道绝不重复建');
+  assert.equal(added, false, '已有隧道绝不重复建');
 });
 
 test('登录超时与下载失败都给出明确错误，不假装连上', async () => {
