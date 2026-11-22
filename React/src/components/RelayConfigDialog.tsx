@@ -653,7 +653,7 @@ export function RelayConfigDialog({
                 </Field>
 
                 {/* FRP 直连管理：把内置 frpc 的配置、启停、运行状态搬过来，替代只做一次导入。 */}
-                <div className="col-span-full border-t border-border-muted pt-3">
+                <Field className="col-span-full border-t border-border-muted pt-3">
                   <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                     <FieldLabel>{t('panel.frp.manageTitle')}</FieldLabel>
                     <span className="text-xs text-foreground-muted">
@@ -677,7 +677,7 @@ export function RelayConfigDialog({
                       {t('panel.frp.stop')}
                     </Button>
                   </div>
-                </div>
+                </Field>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
