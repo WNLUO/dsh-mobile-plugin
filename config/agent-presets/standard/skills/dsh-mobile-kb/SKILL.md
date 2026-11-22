@@ -1,6 +1,6 @@
 ---
 name: dsh-mobile-kb
-description: DSH 手机版（移动端插件）连不上电脑、配对失败、设备离线/失联、中转与局域网不通、自建公网入口（IPv4 公网/端口映射、IPv6、frp、DDNS、Nginx 反代、域名）等常见问题的排查知识库。用户说「帮我部署一个网络」「不知道该用什么网络」「你帮我看看我能怎么连」「隧道是不是关的」「怎么开内置隧道」时也用。「配对没成功」「扫二维码没反应」「显示离线」「连不上」「中转连不上」「局域网不通」「IPv6 直连连不上」「家里光猫/路由器 IPv6 没开」「IPv6 防火墙」「有公网 IPv4 / 端口映射 / 路由器映射」「frp / frps / frpc / 自建 TCP 隧道」「dsh-relay / 自建中转服务器 / 部署中转 / 中转体检口」「ddns / 域名绑定 / 动态解析」「nginx 反代 / NAS 部署」「外网拨不进来」「海外 IPv6 / 运营商不给 IPv6 / 网关锁死」「路由器后台密码/超级管理」「stage: auth」「怎么回这条反馈」时也用。先按这里分好类，再读对应参考，别从头猜。
+description: DSH 手机版（移动端插件）连不上电脑、配对失败、设备离线/失联、中转与局域网不通、自建公网入口（IPv4 公网/端口映射、IPv6、frp、DDNS、Nginx 反代、域名）等常见问题的排查知识库。用户说「帮我部署一个网络」「不知道该用什么网络」「你帮我看看我能怎么连」「隧道是不是关的」「怎么开内置隧道」时也用。「配对没成功」「扫二维码没反应」「显示离线」「连不上」「中转连不上」「局域网不通」「IPv6 直连连不上」「家里光猫/路由器 IPv6 没开」「IPv6 防火墙」「有公网 IPv4 / 端口映射 / 路由器映射」「frp / frps / frpc / 自建 TCP 隧道」「dsh-relay / 自建中转服务器 / 部署中转 / 中转体检口」「ddns / 域名绑定 / 动态解析」「nginx 反代 / NAS 部署」「外网拨不进来」「海外 IPv6 / 运营商不给 IPv6 / 网关锁死」「路由器后台密码/超级管理」「apiProxy 未注入 / 电脑插件没加载 / 加载会话或工作区失败 / 电脑服务处理失败」「归档或改名成功却弹加载失败 / 动作成功却报请求超时（GET /sessions）」「HTTP 522 / 注册超时」「stage: auth」「怎么回这条反馈」时也用。先按这里分好类，再读对应参考，别从头猜。
 ---
 
 # DSH 手机版常见问题（dsh-mobile-kb）
@@ -28,7 +28,9 @@ description: DSH 手机版（移动端插件）连不上电脑、配对失败、
    - 用户说不清要什么网络、不知道自己有什么条件、问「能不能帮我部署一个网络」、问隧道是不是关的 → `references/network-guide.md`（先检测分析，含三条内置隧道的开关检查，再按条件推荐，别甩清单）
    - 配对扫码、换凭据阶段失败（含 `stage: auth / parse / cleartext / credential / save / reset`）→ `references/pairing.md`
    - 设备显示离线 / 连上又断 / 失联 → `references/offline.md`
-   - 中转地址、公用中转、自建中转、退役域名 → `references/relay.md`（地址与开关）
+   - 中转地址、公用中转、自建中转、退役域名、HTTP 522 / 注册超时 → `references/relay.md`（地址与开关，522 看"识别与取证"节）
+   - 连得上但读会话/工作区失败、报 apiProxy 未注入或宿主插件没加载 → `references/plugin-not-loaded.md`（电脑端插件未装载）
+   - 归档 / 改名成功后目标确实变了，却马上弹「加载失败 · 请求超时（GET /sessions）」→ `references/load-error-after-action.md`（动作成功后的后台对账误报，不是动作失败、不是数据丢失）
    - 自己架中转服务器 / dsh-relay / 部署中转 / 中转体检口 → `references/relay-server.md`（架一台中转程序）
    - 局域网 / 直连 / 只走公网 / 弱网切换等选路 → `references/network.md`
    - IPv6 直连连不上 / 光猫或路由器 IPv6 没开 / IPv6 防火墙 / 公网 IPv6 进不来 → `references/ipv6.md`
