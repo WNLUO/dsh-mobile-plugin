@@ -1,4 +1,4 @@
-// 装配 UDP 与 WireGuard；持续健康失效后刷新映射并有限重打洞。
+// 装配 UDP 与 WireGuard；会合新目标取消旧轮并从同一 socket 继续有限打洞。
 //
 // 关键在于**只有一块 socket、一个读者**。NAT 上的洞是按本地端口开的，WireGuard 要是
 // 自己再开一个 socket，出去的包换了源端口，洞立刻就不认了 —— 表现就是「打洞测通了、
@@ -159,7 +159,7 @@ func assemble(ctx context.Context, private, peerKey []byte, tunnel *Tunnel, serv
 	if len(peers) > 0 {
 		// 有对端候选：这半边在主动打洞。`Path()` 据此报 `punching` 而不是 `waiting`。
 		tunnel.markDialing()
-		go maintainPath(ctx, socket, peers, tunnel)
+		go maintainPath(ctx, socket, tunnel)
 	} else {
 		// 没有对端候选：只监听，等对端来打（「只听不打」）。
 		//
@@ -167,7 +167,7 @@ func assemble(ctx context.Context, private, peerKey []byte, tunnel *Tunnel, serv
 		// `path` 会一直空着。不标的话 `Path()` 只能报 `unknown`，界面就一直显示
 		// 「正在打洞」—— 而它其实只是在等人来。
 		tunnel.markListenOnly()
-		go maintainPath(ctx, socket, nil, tunnel)
+		go maintainPath(ctx, socket, tunnel)
 	}
 
 	var localURL string
@@ -310,25 +310,20 @@ func hole(ctx context.Context, socket *net.UDPConn, peers []netip.AddrPort, tunn
 }
 
 // maintainPath 每次失联只启动一组有限重试；失败后等新会合或认证握手，不空转。
-func maintainPath(ctx context.Context, socket *net.UDPConn, peers []netip.AddrPort, tunnel *Tunnel) {
+func maintainPath(ctx context.Context, socket *net.UDPConn, tunnel *Tunnel) {
 	for ctx.Err() == nil {
-		select {
-		case <-tunnel.wake:
-		default:
-		}
 		if tunnel.Path() == "direct" {
 			keepHoleAlive(ctx, socket, tunnel)
 			continue
-		} else {
-			targets := append([]netip.AddrPort(nil), peers...)
-			if peer, err := netip.ParseAddrPort(tunnel.Peer()); err == nil {
-				targets = append([]netip.AddrPort{peer}, targets...)
-			}
-			if len(targets) > 0 {
-				punch(ctx, socket, targets, tunnel)
-			}
 		}
-		if tunnel.Path() == "direct" {
+		round, cancel := context.WithCancel(ctx)
+		targets, revision := tunnel.punchTargets(cancel)
+		if len(targets) > 0 {
+			punch(round, socket, targets, tunnel)
+		}
+		cancel()
+		updated := tunnel.finishPunch(revision)
+		if updated || tunnel.Path() == "direct" {
 			continue
 		}
 		select {
@@ -369,6 +364,9 @@ func punch(ctx context.Context, socket *net.UDPConn, peers []netip.AddrPort, tun
 			// 洞开了：等数据面拿到凭据。这里等不到就如实报失败，不冒充已连通 ——
 			// 然后按同一套退避再打一轮：洞开着而握手没成，多半是这一发的包丢了。
 			if waitHandshake(ctx, tunnel) {
+				return
+			}
+			if ctx.Err() != nil {
 				return
 			}
 			// 走到这里说明洞开了但握不上手：这一轮同样是「没通」，如实标出来。

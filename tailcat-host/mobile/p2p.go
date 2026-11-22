@@ -1,4 +1,4 @@
-// 手机侧的点对点隧道（P2P）：给安卓与苹果各一套可以直接调的入口。
+// 手机 P2P 桥在原句柄更新会合目标，本机候选继续来自同一 UDP socket。
 //
 // 形状与 tailcat 那半边一致：进去字符串、出来字符串，跨语言边界上只有基本类型，
 // 任何失败都回一个固定错误码，不回显输入、不带密钥材料。
@@ -46,6 +46,14 @@ func P2PStart(privateKey, peerKey, peerCandidates, peerLocalCandidates string, l
 		return `{"error":"` + p2p.ErrStart + `"}`
 	}
 	return string(raw)
+}
+
+// P2PUpdateCandidates 保留当前 socket 和句柄，只替换尚未打通的会合目标。
+func P2PUpdateCandidates(handle int64, peerCandidates, peerLocalCandidates string) string {
+	if code := p2p.UpdateCandidates(handle, splitList(peerCandidates), splitList(peerLocalCandidates)); code != "" {
+		return `{"error":"` + code + `"}`
+	}
+	return `{"updated":true}`
 }
 
 // P2PStop 收掉一条隧道；回 1 表示确实停了一条。

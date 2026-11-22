@@ -1,4 +1,4 @@
-// P2P 健康降级、映射时效与内层 MTU 的回归守卫。
+// P2P 原 socket 候选更新、健康直连保留、映射时效与 MTU 的行为回归。
 // 点对点隧道（P2P）的单元测试：STUN 解析、密钥、打洞。
 //
 // 这些测试**不需要外网**：STUN 用本地假的回声服务器，打洞用两个本地 socket 互相打。
@@ -7,6 +7,7 @@
 package p2p
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -726,22 +727,35 @@ func hasIPv6Loopback() bool {
 	return true
 }
 
-
 // PLUG-18：历史握手不能永久维持 direct；裸探测不延长认证窗口。
 func TestDirectExpiresAndAuthenticatedReceiveRecovers(t *testing.T) {
 	tunnel := &Tunnel{done: make(chan struct{}), stun: newStunWaiter(), wake: make(chan struct{}, 1), refresh: make(chan struct{}, 1)}
 	dev := &fakeDevice{ipc: "last_handshake_time_sec=1762500000\nrx_bytes=20\n"}
 	tunnel.device = dev
-	if tunnel.Path() != "direct" { t.Fatal("首次认证证据没有建立 direct") }
+	if tunnel.Path() != "direct" {
+		t.Fatal("首次认证证据没有建立 direct")
+	}
 	tunnel.mu.Lock()
 	tunnel.healthAt = time.Now().Add(-directLifetime - time.Second)
 	tunnel.mu.Unlock()
 	tunnel.noteHoleOpen(netip.MustParseAddrPort("127.0.0.1:5000"))
-	if tunnel.Path() == "direct" { t.Fatal("旧握手或裸探测延长了 direct") }
-	select { case <-tunnel.refresh: default: t.Fatal("失联没有触发真实映射刷新") }
-	select { case <-tunnel.wake: default: t.Fatal("失联没有唤醒重打洞") }
+	if tunnel.Path() == "direct" {
+		t.Fatal("旧握手或裸探测延长了 direct")
+	}
+	select {
+	case <-tunnel.refresh:
+	default:
+		t.Fatal("失联没有触发真实映射刷新")
+	}
+	select {
+	case <-tunnel.wake:
+	default:
+		t.Fatal("失联没有唤醒重打洞")
+	}
 	dev.ipc = "last_handshake_time_sec=1762500000\nrx_bytes=21\n"
-	if tunnel.Path() != "direct" { t.Fatal("新认证接收没有恢复 direct") }
+	if tunnel.Path() != "direct" {
+		t.Fatal("新认证接收没有恢复 direct")
+	}
 }
 
 func TestExpiredMappingDoesNotHideFreshLocalCandidates(t *testing.T) {
@@ -750,31 +764,122 @@ func TestExpiredMappingDoesNotHideFreshLocalCandidates(t *testing.T) {
 	before := tunnel.Candidates()
 	public := netip.MustParseAddrPort("203.0.113.9:49511")
 	tunnel.setLocalEndpoint(public)
-	if !containsEndpoint(tunnel.Candidates(), public.String()) { t.Fatal("新映射未通告") }
+	if !containsEndpoint(tunnel.Candidates(), public.String()) {
+		t.Fatal("新映射未通告")
+	}
 	tunnel.mu.Lock()
 	tunnel.localAt = time.Now().Add(-stunLifetime - time.Second)
 	tunnel.mu.Unlock()
 	after := tunnel.Candidates()
-	if containsEndpoint(after, public.String()) { t.Fatal("过期公网映射仍在通告") }
+	if containsEndpoint(after, public.String()) {
+		t.Fatal("过期公网映射仍在通告")
+	}
 	for _, local := range before {
-		if !containsEndpoint(after, local) { t.Fatalf("过期公网映射清掉了本地候选 %s", local) }
+		if !containsEndpoint(after, local) {
+			t.Fatalf("过期公网映射清掉了本地候选 %s", local)
+		}
 	}
 }
 func containsEndpoint(values []string, want string) bool {
-	for _, value := range values { if value == want { return true } }
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
 	return false
+}
+
+func TestUpdateCandidatesUsesCurrentSocket(t *testing.T) {
+	handle := startLocalTunnel(t)
+	defer Stop(handle)
+	registryMu.Lock()
+	tunnel := running[handle]
+	registryMu.Unlock()
+	beforeURL, beforeSocket := LocalURL(handle), tunnel.conn.LocalAddr().String()
+	beforeCandidates := Candidates(handle)
+	fresh, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	target := fresh.LocalAddr().String()
+	if code := UpdateCandidates(handle, []string{target}, nil); code != "" {
+		t.Fatal(code)
+	}
+	if err := fresh.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 256)
+	n, from, err := fresh.ReadFromUDPAddrPort(buffer)
+	if err != nil {
+		t.Fatalf("新会合目标未及时收到打洞包：%v", err)
+	}
+	if string(buffer[:n]) != holePayload {
+		t.Fatalf("收到的不是打洞包：%q", buffer[:n])
+	}
+	if from.Port() != uint16(tunnel.localPort) {
+		t.Fatal("候选更新更换了本机UDP端口")
+	}
+	if LocalURL(handle) != beforeURL || tunnel.conn.LocalAddr().String() != beforeSocket {
+		t.Fatal("候选更新重建了隧道")
+	}
+	for _, candidate := range beforeCandidates {
+		if !containsEndpoint(Candidates(handle), candidate) {
+			t.Fatalf("更新目标改变本机候选 %s", candidate)
+		}
+	}
+	if code := UpdateCandidates(handle, []string{"invalid"}, nil); code != ErrInvalid {
+		t.Fatalf("无效目标回 %q", code)
+	}
+	if code := UpdateCandidates(-1, []string{target}, nil); code != ErrNoPeer {
+		t.Fatalf("无句柄回 %q", code)
+	}
+}
+
+func TestUpdateCandidatesCancelsOnlyOldPunch(t *testing.T) {
+	tunnel := &Tunnel{wake: make(chan struct{}, 1), peerTargets: []netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:1")}}
+	round, cancel := context.WithCancel(context.Background())
+	_, revision := tunnel.punchTargets(cancel)
+	fresh := netip.MustParseAddrPort("127.0.0.1:2")
+	tunnel.replacePeerTargets([]netip.AddrPort{fresh})
+	if round.Err() == nil {
+		t.Fatal("仍在执行的旧目标打洞未被取消")
+	}
+	if !tunnel.finishPunch(revision) {
+		t.Fatal("维护循环未发现目标换代")
+	}
+	peers, _ := tunnel.punchTargets(nil)
+	if len(peers) != 1 || peers[0] != fresh {
+		t.Fatal("下一轮没有读取最新目标")
+	}
+	tunnel.path = "direct"
+	tunnel.replacePeerTargets([]netip.AddrPort{netip.MustParseAddrPort("127.0.0.1:3")})
+	if tunnel.path != "direct" {
+		t.Fatal("候选抖动踢掉健康直连")
+	}
+	select {
+	case <-tunnel.wake:
+		t.Fatal("候选抖动打断健康直连保活")
+	default:
+	}
 }
 
 func TestDiagnoseExportsCurrentCandidatesAndBudgets(t *testing.T) {
 	handle := startLocalTunnel(t)
 	defer Stop(handle)
 	var value struct {
-		Candidates []string `json:"candidates"`
-		CandidateMaxAgeMS int64 `json:"candidateMaxAgeMs"`
-		HealthMaxAgeMS int64 `json:"healthMaxAgeMs"`
-		MTU int `json:"mtu"`
+		Candidates        []string `json:"candidates"`
+		CandidateMaxAgeMS int64    `json:"candidateMaxAgeMs"`
+		HealthMaxAgeMS    int64    `json:"healthMaxAgeMs"`
+		MTU               int      `json:"mtu"`
 	}
-	if err := json.Unmarshal([]byte(Diagnose(handle)), &value); err != nil { t.Fatal(err) }
-	if value.CandidateMaxAgeMS != stunLifetime.Milliseconds() || value.HealthMaxAgeMS != directLifetime.Milliseconds() { t.Fatal("诊断预算漂移") }
-	if value.MTU != 1200 || tunnelMTU + 80 > 1280 { t.Fatal("IPv6 外层最小路径的封装余量不足") }
+	if err := json.Unmarshal([]byte(Diagnose(handle)), &value); err != nil {
+		t.Fatal(err)
+	}
+	if value.CandidateMaxAgeMS != stunLifetime.Milliseconds() || value.HealthMaxAgeMS != directLifetime.Milliseconds() {
+		t.Fatal("诊断预算漂移")
+	}
+	if value.MTU != 1200 || tunnelMTU+80 > 1280 {
+		t.Fatal("IPv6 外层最小路径的封装余量不足")
+	}
 }

@@ -1,4 +1,4 @@
-// 点对点隧道持续核对数据面健康，限时通告公网映射并统一回收网络资源。
+// 点对点隧道在原 socket 更新会合目标，保持认证直连与本机候选端口一致。
 //
 // 与直连隧道（tailcat）的区别只在**怎么找到对方**：tailcat 借公共中继会合，这条借
 // 「此刻已经通着的那条通道」互换几个字节的地址，然后两端同时往对方打洞。数据面是标准
@@ -70,11 +70,11 @@ const (
 	handshakeWait = 12 * time.Second
 	// stunRefresh 是隧道活着时重问出口地址的周期。NAT 映射会随网络切换而变，问一次就
 	// 再也不问的后果是：重连时还在报上一个网络的地址，对端往那儿打永远打不到。
-	stunRefresh = 20 * time.Second
+	stunRefresh  = 20 * time.Second
 	stunLifetime = 30 * time.Second
 	// WireGuard 空闲连接也会重握手；留出其 120 秒周期与重传时间。
 	directLifetime = 3 * time.Minute
-	healthCheck = time.Second
+	healthCheck    = time.Second
 	// holeInterval 是往每个候选打洞的间隔。
 	holeInterval = 250 * time.Millisecond
 	// keepAlive 是打通之后保活 NAT 映射的周期。
@@ -136,14 +136,17 @@ type Tunnel struct {
 	holeOpen bool
 	// localAddr 是 STUN 报出来的「我从外面看是什么样」；localPort 是本端 socket 的端口。
 	// 两样合起来就是我要告诉对端的候选 —— 没有它，对端只能往空气里打洞。
-	localAddr netip.AddrPort
-	localAt   time.Time
-	localPort int
-	lastHandshake string
-	lastRx uint64
-	healthAt time.Time
-	wake chan struct{}
-	refresh chan struct{}
+	localAddr      netip.AddrPort
+	localAt        time.Time
+	localPort      int
+	lastHandshake  string
+	lastRx         uint64
+	healthAt       time.Time
+	wake           chan struct{}
+	refresh        chan struct{}
+	peerTargets    []netip.AddrPort
+	targetRevision uint64
+	punchCancel    context.CancelFunc
 
 	conn    *net.UDPConn
 	bind    *punchedBind
@@ -333,6 +336,58 @@ func (t *Tunnel) markDialing() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.dialPending = true
+}
+
+// replacePeerTargets 只换打洞目标，不换 socket、回环入口或本机候选。
+func (t *Tunnel) replacePeerTargets(peers []netip.AddrPort) {
+	t.mu.Lock()
+	same := len(peers) == len(t.peerTargets)
+	for index, peer := range peers {
+		if !same || peer != t.peerTargets[index] {
+			same = false
+			break
+		}
+	}
+	if same || t.lastErr == ErrClosed {
+		t.mu.Unlock()
+		return
+	}
+	t.peerTargets = append([]netip.AddrPort(nil), peers...)
+	t.targetRevision++
+	cancel := t.punchCancel
+	if t.path != "direct" {
+		select {
+		case t.wake <- struct{}{}:
+		default:
+		}
+	}
+	t.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// punchTargets 把目标与当前打洞取消口原子交接，更新不会漏掉刚启动的一轮。
+func (t *Tunnel) punchTargets(cancel context.CancelFunc) ([]netip.AddrPort, uint64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	select {
+	case <-t.wake:
+	default:
+	}
+	t.punchCancel = cancel
+	peers := append([]netip.AddrPort(nil), t.peerTargets...)
+	if peer, err := netip.ParseAddrPort(t.peerAddr); err == nil {
+		peers = append([]netip.AddrPort{peer}, peers...)
+	}
+	return peers, t.targetRevision
+}
+
+func (t *Tunnel) finishPunch(revision uint64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.punchCancel = nil
+	return revision != t.targetRevision
 }
 
 // setLocalEndpoint 记下 STUN 报出来的出口地址。
@@ -630,7 +685,7 @@ func Start(opts Options) (int64, string) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	tunnel := &Tunnel{cancel: cancel, done: make(chan struct{}), stun: newStunWaiter(),
-		wake: make(chan struct{}, 1), refresh: make(chan struct{}, 1)}
+		wake: make(chan struct{}, 1), refresh: make(chan struct{}, 1), peerTargets: append([]netip.AddrPort(nil), peers...)}
 
 	socket, bind, localURL, err := assemble(ctx, private, peerKey, tunnel, servers, peers, opts)
 	if err != nil {
@@ -695,6 +750,23 @@ func Path(handle int64) string {
 	return tunnel.Path()
 }
 
+// UpdateCandidates 在现有隧道上接纳会合目标，已认证的直连不被候选抖动打断。
+func UpdateCandidates(handle int64, candidates, localCandidates []string) string {
+	registryMu.Lock()
+	tunnel := running[handle]
+	registryMu.Unlock()
+	if tunnel == nil {
+		return ErrNoPeer
+	}
+	peers := append(parseEndpoints(localCandidates), parseEndpoints(candidates)...)
+	if len(peers) == 0 {
+		return ErrInvalid
+	}
+	tunnel.Path()
+	tunnel.replacePeerTargets(peers)
+	return ""
+}
+
 // Candidates 按句柄报「对端要往哪些地址打我」。前端拿到这份才能开始打洞。
 func Candidates(handle int64) []string {
 	registryMu.Lock()
@@ -718,14 +790,14 @@ func Diagnose(handle int64) string {
 	attempts := tunnel.attempts
 	tunnel.mu.Unlock()
 	payload := map[string]any{
-		"path":     tunnel.Path(),
-		"peer":     tunnel.Peer(),
-		"error":    tunnel.LastError(),
-		"attempts": attempts,
-		"candidates": tunnel.Candidates(),
+		"path":              tunnel.Path(),
+		"peer":              tunnel.Peer(),
+		"error":             tunnel.LastError(),
+		"attempts":          attempts,
+		"candidates":        tunnel.Candidates(),
 		"candidateMaxAgeMs": stunLifetime.Milliseconds(),
-		"healthMaxAgeMs": directLifetime.Milliseconds(),
-		"mtu": tunnelMTU,
+		"healthMaxAgeMs":    directLifetime.Milliseconds(),
+		"mtu":               tunnelMTU,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
