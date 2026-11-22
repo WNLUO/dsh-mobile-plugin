@@ -1,6 +1,6 @@
 ---
 name: dsh-mobile-kb
-description: DSH 手机版（移动端插件）连不上电脑、配对失败、设备离线/失联、中转与局域网不通、自建公网入口（IPv4 公网/端口映射、IPv6、frp、natapp、DDNS、Nginx 反代、域名）等常见问题的排查知识库。用户说「配对没成功」「扫二维码没反应」「显示离线」「连不上」「中转连不上」「局域网不通」「IPv6 直连连不上」「家里光猫/路由器 IPv6 没开」「IPv6 防火墙」「有公网 IPv4 / 端口映射 / 路由器映射」「frp / frps / frpc / 自建 TCP 隧道」「ddns / 域名绑定 / 动态解析」「nginx 反代 / NAS 部署」「外网拨不进来」「海外 IPv6 / 运营商不给 IPv6 / 网关锁死」「路由器后台密码/超级管理」「stage: auth」「怎么回这条反馈」时也用。先按这里分好类，再读对应参考，别从头猜。
+description: DSH 手机版（移动端插件）连不上电脑、配对失败、设备离线/失联、中转与局域网不通、自建公网入口（IPv4 公网/端口映射、IPv6、frp、natapp、DDNS、Nginx 反代、域名）等常见问题的排查知识库。用户说「配对没成功」「扫二维码没反应」「显示离线」「连不上」「中转连不上」「局域网不通」「IPv6 直连连不上」「家里光猫/路由器 IPv6 没开」「IPv6 防火墙」「有公网 IPv4 / 端口映射 / 路由器映射」「frp / frps / frpc / 自建 TCP 隧道」「natapp / 内网穿透 / authtoken / 免费域名」「ddns / 域名绑定 / 动态解析」「nginx 反代 / NAS 部署」「外网拨不进来」「海外 IPv6 / 运营商不给 IPv6 / 网关锁死」「路由器后台密码/超级管理」「stage: auth」「怎么回这条反馈」时也用。先按这里分好类，再读对应参考，别从头猜。
 ---
 
 # DSH 手机版常见问题（dsh-mobile-kb）
@@ -31,6 +31,7 @@ description: DSH 手机版（移动端插件）连不上电脑、配对失败、
    - IPv6 直连连不上 / 光猫或路由器 IPv6 没开 / IPv6 防火墙 / 公网 IPv6 进不来 → `references/ipv6.md`
    - 公网 IPv4 / 端口映射 / 路由器映射 / 有公网 IP 连不上 → `references/ipv4.md`
    - frp / frps / frpc / 自己架公网服务器做 TCP 直连 → `references/frp.md`
+   - natapp / 内网穿透 / 不养服务器 / 免费域名轮换 → `references/natapp.md`
    - 有域名 / DDNS 动态解析 / Nginx 反代 / NAS 部署 / 三栏填哪个 / 上手机前验收 → `references/selfhost-common.md`（自建公网入口的共用篇，IPv4、IPv6、frp、natapp 都先过这篇）
 2. 读对应参考，先看「症状对不对得上」，再按里面的顺序问用户要信息。自建公网入口这一类，先读共用篇对栏位和验收，再读具体那篇。
 3. 回答里说清：现象、版本与环境、是否已经确认、依据、下一步。确认不了的标「待补充」，不说「已复现」「已修复」。
