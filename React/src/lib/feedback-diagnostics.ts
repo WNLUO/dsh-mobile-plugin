@@ -1,4 +1,5 @@
 // 连接反馈投影线路及 Tailcat 运行事实，配对码、密钥与完整地址不进入诊断。
+// 2026-11-22：镜像 ok=true 时的「内容未变，跳过重复推送」是良性跳过，不作为镜像错误上报。
 import type { StatusView } from './api.ts'
 
 function safeError(value: string | null | undefined): string {
@@ -35,6 +36,6 @@ export function connectionFeedbackFacts(status: StatusView | null): Record<strin
     tailcat_target_port: String(status.tailcat?.targetPort ?? ''),
     tailcat_paired: String(status.tailcat?.paired ?? ''),
     tailcat_error: safeError(status.tailcat?.error),
-    mirror_error: safeError(status.mirror.error),
+    mirror_error: status.mirror.ok === false ? safeError(status.mirror.error) : '',
   }
 }

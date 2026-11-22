@@ -1,5 +1,6 @@
 // 复用现有状态行和按钮展示 FRP 运行、恢复与主动停用入口。
 // 2026-11-20 用户要求：去掉「设备名」「实例 ID」两行与 TCP 直连的地址。
+// 2026-11-22：会话镜像 ok=true 时带的「内容未变，跳过重复推送」是良性跳过，不再当错误挂感叹号。
 /**
  * 主页右栏「连接状态」卡：只读事实。
  *
@@ -194,7 +195,7 @@ export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageT
         </InfoRow>
         <InfoRow
           label={t('panel.connection.mirror')}
-          labelExtra={status.mirror.error ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.mirror'), detail: status.mirror.error }} /> : undefined}
+          labelExtra={status.mirror.ok === false ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.mirror'), detail: status.mirror.error || '' }} /> : undefined}
         >
           <ToneValue
             tone={status.mirror.ok ? 'ok' : status.mirror.error ? 'error' : 'warn'}

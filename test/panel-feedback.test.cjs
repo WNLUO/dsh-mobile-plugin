@@ -113,6 +113,25 @@ test('变异证明：删掉 Tailcat 诊断或把缺失状态伪装成关闭，�
   }
 });
 
+test('镜像 ok=true 的良性跳过不算镜像错误，只有 ok=false 才上报原因', () => {
+  const current = status();
+  current.mirror = { ok: true, error: '内容未变，跳过重复推送' };
+  assert.equal(load('feedback-diagnostics').api.connectionFeedbackFacts(current).mirror_error, '');
+  current.mirror = { ok: false, error: 'push timeout' };
+  assert.equal(load('feedback-diagnostics').api.connectionFeedbackFacts(current).mirror_error, 'push timeout');
+});
+
+test('变异证明：镜像不看 ok 只看 error，良性跳过会被误报成镜像错误', () => {
+  const broken = load('feedback-diagnostics', { mutate: source => {
+    const before = "mirror_error: status.mirror.ok === false ? safeError(status.mirror.error) : '',";
+    assert.equal(source.split(before).length, 2, '变异必须命中唯一实现');
+    return source.replace(before, 'mirror_error: safeError(status.mirror.error),');
+  } });
+  const current = status();
+  current.mirror = { ok: true, error: '内容未变，跳过重复推送' };
+  assert.throws(() => assert.equal(broken.api.connectionFeedbackFacts(current).mirror_error, ''), { code: 'ERR_ASSERTION' });
+});
+
 test('面板不再有「我的反馈」历史入口与弹窗（2026-11-21 用户要求下线）', () => {
   const source = name => fs.readFileSync(path.join(SRC, name), 'utf8');
   const gone = ['components/FeedbackInbox.tsx', 'components/FeedbackButton.tsx', 'lib/feedback.ts', 'lib/i18n/messages/feedback.ts'];

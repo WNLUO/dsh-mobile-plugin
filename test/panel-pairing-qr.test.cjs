@@ -65,6 +65,7 @@ test('异常走红色感叹号弹窗可复制，动作区独占一排', () => {
   // 动作区在整卡里独占一排，与上面三列之间有分隔，不受上面内容高度推动。
   assert.match(consoleSrc, /<div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">\s*<UpdateCard/, '动作区独占一排且垂直居中');
   assert.match(connection, /labelExtra=\{[^}]*IssueMark/, '连接状态各行把感叹号挂在标签旁');
+  assert.match(connection, /status\.mirror\.ok === false \? <IssueMark/, '会话镜像只在真推送失败（ok===false）挂感叹号，良性跳过不挂');
   // 2026-11-20 用户要求：不可用的长说明不铺在正文，行里只报短状态词，长文进感叹号；复制文案就是「复制」。
   assert.match(connection, /unavailableShort/, '不可用只显示短状态词');
   assert.match(mark, /t\('panel\.common\.copy'\)/, '复制按钮用通用「复制」文案，不借用「发给 AI」');
