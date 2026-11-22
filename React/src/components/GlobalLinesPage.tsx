@@ -1,29 +1,30 @@
-// 国际线路页：目前只有 Cloudflare 匿名隧道，不用注册，海外用户直接能用。
+// 国际线路页：先选服务商，再进它自己的配置页。目前只有 Cloudflare。
 /**
- * 「国际线路」子页（2026-11-23 用户要求：线路按地区分页）。
+ * 「国际」地区页（2026-11-23 用户要求：地区下面再按服务商分页）。
  *
- * 现在这里只有 Cloudflare 一条：它是匿名隧道，不用账号、不分地区。以后加别的国际服务商就
- * 往这一页里接，不用动主配置页。
+ * 现在这里只有 Cloudflare 一家：匿名隧道，不用账号、不分地区。以后加别的国际服务商就多
+ * 一张卡、多一页，不用动主配置页，也不用动这一页的结构。
  *
- * 内容本身与「连接状态」卡那行的管理弹窗共用 `CloudflarePanel`，两处说的是同一件事。
+ * 返回按钮回主配置页（`#network`），地址由外层 Console 换。
  */
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 
-import type { StatusView } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
-import { CloudflarePanel } from './CloudflarePanel.tsx'
+import { providersOfRegion } from '../lib/network-region.ts'
+import type { NetworkProvider } from '../lib/network-region.ts'
+import { ProviderCard } from './ProviderCard.tsx'
+import { PROVIDER_LOOK } from './ProviderLook.tsx'
 
 type Props = {
   open: boolean
-  /** 返回（false）；换页由外层按 hash 处理。 */
+  /** 返回（false）回主配置页；换页由外层按 hash 处理。 */
   onOpenChange: (open: boolean) => void
-  status: StatusView
-  /** 动作之后刷新一次宿主状态（连接状态卡那行也跟着变）。 */
-  onChanged: () => void
+  /** 点某一家服务商：进它自己的配置页。 */
+  onOpenProvider: (provider: NetworkProvider) => void
 }
 
-export function GlobalLinesPage({ open, onOpenChange, status, onChanged }: Props) {
+export function GlobalLinesPage({ open, onOpenChange, onOpenProvider }: Props) {
   if (!open) return null
 
   return (
@@ -36,9 +37,17 @@ export function GlobalLinesPage({ open, onOpenChange, status, onChanged }: Props
       </div>
 
       <Card frame="solid">
-        <div className="flex flex-col gap-4 p-4">
+        <div className="flex flex-col gap-3 p-4">
           <p className="text-xs leading-5 text-foreground-muted">{t('panel.region.globalPageHint')}</p>
-          <CloudflarePanel status={status} onChanged={onChanged} />
+          {providersOfRegion('global').map((provider) => (
+            <ProviderCard
+              key={provider}
+              icon={PROVIDER_LOOK[provider].icon}
+              title={t(PROVIDER_LOOK[provider].name)}
+              hint={t(PROVIDER_LOOK[provider].hint)}
+              onClick={() => onOpenProvider(provider)}
+            />
+          ))}
         </div>
       </Card>
     </>

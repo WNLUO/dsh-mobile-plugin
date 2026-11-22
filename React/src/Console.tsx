@@ -30,7 +30,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AutoUpdateSection } from './components/AutoUpdateSection.tsx'
 import { ChinaLinesPage } from './components/ChinaLinesPage.tsx'
 import { CloudflareDialog } from './components/CloudflareDialog.tsx'
+import { CloudflarePage } from './components/CloudflarePage.tsx'
 import { GlobalLinesPage } from './components/GlobalLinesPage.tsx'
+import { JdxbPage } from './components/JdxbPage.tsx'
+import { ZeroNewsPage } from './components/ZeroNewsPage.tsx'
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
 import { PanelWindowActions } from './components/PanelWindowActions.tsx'
@@ -64,7 +67,7 @@ import { Dot, ALIGNED_ROWS, InfoList } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
 import { isPublicRelayUrl } from './lib/links.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
-import { hashOfPage, pageFromHash, type NetworkPage, type NetworkRegion } from './lib/network-region.ts'
+import { hashOfPage, pageFromHash, PROVIDERS, type NetworkPage, type NetworkProvider, type NetworkRegion, type ProviderPage } from './lib/network-region.ts'
 import { reportPanelState } from './lib/panel-load.ts'
 import { t } from './lib/i18n/index.ts'
 import { useNotify } from './lib/notify.ts'
@@ -150,6 +153,10 @@ export function Console() {
   /** 进地区子页：地址栏留一层历史，浏览器返回键就回主配置页。 */
   const openRegion = (region: NetworkRegion) => showPage(region)
   const backToNetwork = () => showPage('network', true)
+  /** 进服务商页：地址栏留一层历史，浏览器返回键回地区页。 */
+  const openProvider = (provider: NetworkProvider) => showPage(`${PROVIDERS[provider].region}/${provider}` as ProviderPage)
+  /** 从服务商页退回它所属的地区页（不堆历史）。 */
+  const backToRegion = (region: NetworkRegion) => showPage(region, true)
   const [portOpen, setPortOpen] = useState(false)
   const [tailcatOpen, setTailcatOpen] = useState(false)
   const [p2pOpen, setP2POpen] = useState(false)
@@ -613,13 +620,30 @@ export function Console() {
       <ChinaLinesPage
         open={page === 'cn'}
         onOpenChange={(next) => (next ? openRegion('cn') : backToNetwork())}
+        onOpenProvider={openProvider}
+      />
+
+      <ZeroNewsPage
+        open={page === 'cn/zeronews'}
+        onOpenChange={(next) => (next ? openProvider('zeronews') : backToRegion('cn'))}
         status={status}
         busy={busy}
+      />
+
+      <JdxbPage
+        open={page === 'cn/jdxb'}
+        onOpenChange={(next) => (next ? openProvider('jdxb') : backToRegion('cn'))}
       />
 
       <GlobalLinesPage
         open={page === 'global'}
         onOpenChange={(next) => (next ? openRegion('global') : backToNetwork())}
+        onOpenProvider={openProvider}
+      />
+
+      <CloudflarePage
+        open={page === 'global/cloudflare'}
+        onOpenChange={(next) => (next ? openProvider('cloudflare') : backToRegion('global'))}
         status={status}
         onChanged={() => void loadStatus()}
       />

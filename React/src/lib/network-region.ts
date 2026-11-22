@@ -1,39 +1,76 @@
-// 网络配置这一组页面的地址与互相跳转：主配置页 #network，地区子页 #network/cn、#network/global。
+// 网络配置这一组页面的地址与互相跳转：主配置页 #network，地区页 #network/cn|global，
+// 地区下面每家服务商再各占一页（#network/cn/zeronews 之类）。
 /**
- * 网络配置拆成三页（2026-11-23 用户要求）：主配置页管公用 / 自建中转、直连、局域网与 IPv6、
- * FRP；线路按地区分页，国内（ZeroNews、节点小宝）与国际（Cloudflare）各一页。
+ * 网络配置拆成三层（2026-11-23 用户要求）：主配置页管公用 / 自建中转、直连、局域网与 IPv6、
+ * FRP；线路按地区分页；地区页里再按服务商分页 —— 后面加服务商只要往对应地区里加一页，
+ * 既不会把主配置页撑长，也不用把别人家的配置摆在自家页面上。
  *
- * 页面状态放在地址栏 hash 里，刷新、前进后退都还停在同一页 —— 与主配置页原来那条
- * `#network` 同一套口径，不引路由库（面板产物是单文件，多一层依赖只为三个地址不值）。
- *
- * 新增线路就加一个 region，不是往主配置页里再塞一段。
+ * 页面状态放在地址栏 hash 里，刷新、前进后退都还停在同一页 —— 不引路由库（面板产物是
+ * 单文件，多一层依赖只为几个地址不值）。
  */
 export type NetworkRegion = 'cn' | 'global'
 
-/** 面板当前停在哪一页：首页、网络配置、或某个地区子页。 */
-export type NetworkPage = 'home' | 'network' | NetworkRegion
+/** 地区下的服务商。国内是 ZeroNews 与节点小宝，国际目前只有 Cloudflare。 */
+export type NetworkProvider = 'zeronews' | 'jdxb' | 'cloudflare'
 
-/** 地区子页对应的 hash（不带 `#`）。 */
-const REGION_PATHS: Record<NetworkRegion, string> = { cn: 'network/cn', global: 'network/global' }
+/** 面板当前停在哪一页。 */
+export type NetworkPage = 'home' | 'network' | NetworkRegion | ProviderPage
+
+/** 服务商页的页面标识（地区/服务商）。写得实一点，别让类型放开到「国内 + Cloudflare」这种不存在的组合。 */
+export type ProviderPage = 'cn/zeronews' | 'cn/jdxb' | 'global/cloudflare'
+
+/** 每家服务商属于哪个地区、页面标题用哪个键。 */
+export const PROVIDERS: Record<NetworkProvider, { region: NetworkRegion }> = {
+  zeronews: { region: 'cn' },
+  jdxb: { region: 'cn' },
+  cloudflare: { region: 'global' },
+}
+
+/** 页面 → 地址栏 hash 里的路径（不含 `#`，首页是空串）。 */
+const PAGE_PATHS: Record<Exclude<NetworkPage, 'home'>, string> = {
+  network: 'network',
+  cn: 'network/cn',
+  global: 'network/global',
+  'cn/zeronews': 'network/cn/zeronews',
+  'cn/jdxb': 'network/cn/jdxb',
+  'global/cloudflare': 'network/global/cloudflare',
+}
+
+const PATH_PAGES = new Map(Object.entries(PAGE_PATHS).map(([page, path]) => [path, page as NetworkPage]))
 
 /** 地址栏 hash → 页面；认不出的 hash 一律回首页。 */
 export function pageFromHash(hash: string): NetworkPage {
   const path = hash.replace(/^#/, '').replace(/\/+$/, '')
-  if (path === 'network') return 'network'
-  for (const [region, value] of Object.entries(REGION_PATHS)) {
-    if (path === value) return region as NetworkRegion
-  }
-  return 'home'
+  if (!path) return 'home'
+  return PATH_PAGES.get(path) ?? 'home'
 }
 
 /** 页面 → 地址栏 hash（首页是空串）。 */
 export function hashOfPage(page: NetworkPage): string {
-  if (page === 'home') return ''
-  if (page === 'network') return 'network'
-  return REGION_PATHS[page]
+  return page === 'home' ? '' : PAGE_PATHS[page]
 }
 
-/** 这一页是不是网络配置那一组（主配置页与两个地区子页都算）。 */
+/** 这一页是不是网络配置那一组（主配置页、地区页、服务商页都算）。 */
 export function isNetworkPage(page: NetworkPage): boolean {
   return page !== 'home'
+}
+
+/** 服务商页 → 它所属的地区页（「返回」回这一层，不是直接回主配置页）。 */
+export function regionOfPage(page: NetworkPage): NetworkRegion | null {
+  if (page === 'cn' || page === 'global') return page
+  if (page.includes('/')) return page.split('/')[0] as NetworkRegion
+  return null
+}
+
+/** 服务商页 → 服务商；其它页回 null。 */
+export function providerOfPage(page: NetworkPage): NetworkProvider | null {
+  if (!page.includes('/')) return null
+  return page.split('/')[1] as NetworkProvider
+}
+
+/** 某地区下的服务商（按展示顺序）。 */
+export function providersOfRegion(region: NetworkRegion): NetworkProvider[] {
+  return (Object.entries(PROVIDERS) as [NetworkProvider, { region: NetworkRegion }][])
+    .filter(([, value]) => value.region === region)
+    .map(([provider]) => provider)
 }
