@@ -460,6 +460,7 @@ test('所有安装都带齐那几个开关：命令行与环境变量各带一�
   assert.match(fake.calls()[0], /auto-install-peers=false/, 'peer 里有一串 npm 上根本没有的 @deepseek-ai/*，必须显式关掉');
   assert.match(fake.calls()[0], /--config\.minimum-release-age=0/, '不再分哪一档才跳过晾置期：手动那一档同样要即时');
   assert.match(fake.calls()[0], /--config\.ignore-workspace-root-check=true/, 'profile 自己是 workspace 根，老 pnpm 拿 ERR_PNPM_ADDING_TO_ROOT 拒掉这一句 add');
+  assert.match(fake.calls()[0], /--config\.strict-dep-builds=false/, 'profile 里别的插件批没批安装脚本与这一版无关，pnpm 不该拿 ERR_PNPM_IGNORED_BUILDS 把装完的更新判成失败');
   assert.equal(fake.calls().length, 1, '开关一开始就带上，不许先失败一次再靠重试绕过去');
 });
 
@@ -485,7 +486,7 @@ test('策略开关走环境变量那一份：pnpm 12 只认它', async () => {
   fs.writeFileSync(file, [
     '#!/bin/sh',
     'if [ "$1" = "--version" ]; then echo "12.3.0"; exit 0; fi',
-    `printf '%s|%s|%s\\n' "$PNPM_CONFIG_AUTO_INSTALL_PEERS" "$PNPM_CONFIG_MINIMUM_RELEASE_AGE" "$PNPM_CONFIG_IGNORE_WORKSPACE_ROOT_CHECK" >> "${log}"`,
+    `printf '%s|%s|%s|%s\\n' "$PNPM_CONFIG_AUTO_INSTALL_PEERS" "$PNPM_CONFIG_MINIMUM_RELEASE_AGE" "$PNPM_CONFIG_IGNORE_WORKSPACE_ROOT_CHECK" "$PNPM_CONFIG_STRICT_DEP_BUILDS" >> "${log}"`,
     `mkdir -p node_modules/${PLUGIN}`,
     `printf '{"name":"${PLUGIN}","version":"0.2.0"}\\n' > node_modules/${PLUGIN}/package.json`,
     'exit 0',
@@ -494,7 +495,7 @@ test('策略开关走环境变量那一份：pnpm 12 只认它', async () => {
   fs.chmodSync(file, 0o755);
   const result = await installLatest({ profileNodeModules: profile.nodeModules, version: '0.2.0', dirs: [binDir], env: isolatedEnv(binDir) });
   assert.equal(result.installed, true);
-  assert.equal(fs.readFileSync(log, 'utf8').trim(), 'false|0|true', '几个开关都要以 PNPM_CONFIG_* 传给 pnpm');
+  assert.equal(fs.readFileSync(log, 'utf8').trim(), 'false|0|true|false', '几个开关都要以 PNPM_CONFIG_* 传给 pnpm');
 });
 
 test('来源判定：npm / file / link / workspace，读不到就说不知道', () => {
