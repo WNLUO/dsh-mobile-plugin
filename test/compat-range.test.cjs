@@ -27,8 +27,9 @@ const path = require('node:path');
 const MANIFEST = path.join(__dirname, '..', 'package.json');
 const pkg = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
 
-/** 这条预发布线必须被每份闭合声明覆盖；抬到下一代时只改这一个常量。 */
-const REQUIRED_TRACK = '^0.2.2-rc.1';
+/** 这条预发布线必须被每份闭合声明覆盖；抬到下一代时只改这一个常量。
+ *  0.2.3 转正式后改成 `^0.2.3-rc.1`（或 `^0.2.3`），届时 peer/dev 声明同步加这一条。 */
+const REQUIRED_TRACK = '^0.2.3-alpha.1';
 
 /** 声明里的 `||` 分支；构建元数据不参与比较，切掉。 */
 const alternativesOf = (range) => range.split('||').map((piece) => piece.trim().replace(/^([\^~]?[^+]+)\+.*$/, '$1'));
