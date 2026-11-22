@@ -633,6 +633,7 @@ export function Console() {
       <JdxbPage
         open={page === 'cn/jdxb'}
         onOpenChange={(next) => (next ? openProvider('jdxb') : backToRegion('cn'))}
+        status={status}
       />
 
       <GlobalLinesPage

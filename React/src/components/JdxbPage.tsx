@@ -10,11 +10,26 @@
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 
+import type { StatusView } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 import { JdxbLineCard } from './JdxbLineCard.tsx'
+import { LineGuide } from './LineGuide.tsx'
 
-export function JdxbPage({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function JdxbPage({ open, onOpenChange, status }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** 宿主状态：只借局域网端口，步骤里要告诉人把「网页服务」指向哪个端口。 */
+  status: StatusView
+}) {
   if (!open) return null
+
+  // 四步对应「装 → 绑 → 建网页服务 → 填地址」，顺序不能换：后一步依赖前一步的结果。
+  const steps = [
+    { title: t('panel.guide.jdxb.step1'), body: t('panel.guide.jdxb.step1Body') },
+    { title: t('panel.guide.jdxb.step2'), body: t('panel.guide.jdxb.step2Body') },
+    { title: t('panel.guide.jdxb.step3'), body: t('panel.guide.jdxb.step3Body', { port: status.lan.port }) },
+    { title: t('panel.guide.jdxb.step4'), body: t('panel.guide.jdxb.step4Body') },
+  ]
 
   return (
     <>
@@ -27,6 +42,7 @@ export function JdxbPage({ open, onOpenChange }: { open: boolean; onOpenChange: 
 
       <Card frame="solid">
         <div className="flex flex-col gap-3 p-4">
+          <LineGuide steps={steps} />
           <JdxbLineCard />
         </div>
       </Card>

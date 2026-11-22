@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import type { StatusView } from '../lib/api.ts'
 import { zeroNewsConnect, zeroNewsDisconnect } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
+import { LineGuide } from './LineGuide.tsx'
 
 type Props = {
   open: boolean
@@ -72,6 +73,15 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
 
   if (!open) return null
 
+  // 三步与卡片上的动作一一对应；`activeIndex` 按宿主的连接阶段走，遇到底层没报阶段就停在第一步。
+  const steps = [
+    { title: t('panel.guide.zeronews.step1'), body: t('panel.guide.zeronews.step1Body') },
+    { title: t('panel.guide.zeronews.step2'), body: t('panel.guide.zeronews.step2Body') },
+    { title: t('panel.guide.zeronews.step3'), body: t('panel.guide.zeronews.step3Body') },
+  ]
+  const phase = status.zeroNews?.phase
+  const activeIndex = phase === 'connected' ? steps.length : phase && phase !== 'off' ? 1 : 0
+
   return (
     <>
       <div className="flex items-center gap-2">
@@ -83,6 +93,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
 
       <Card frame="solid">
         <div className="flex flex-col gap-3 p-4">
+          <LineGuide steps={steps} activeIndex={activeIndex} />
           <p className="text-xs leading-5 text-foreground-muted">{t('panel.zeronews.linkHint')}</p>
           {status.zeroNews?.error ? <p className="text-xs text-error">{status.zeroNews.error}</p> : null}
           {note ? <p className="text-xs text-error">{note}</p> : null}
