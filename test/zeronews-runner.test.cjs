@@ -55,11 +55,16 @@ test('Linux 的 tar 只挑出 zeronews 可执行文件', () => {
 
 // ── runner：整条链 ─────────────────────────────────────────────────────────
 
-function harness({ login = true, endpoint = 'https://abc.hn.takin.cc', loggedAfter = 0 } = {}) {
+function harness({ endpoint = 'https://abc.hn.takin.cc', loggedAfter = 0 } = {}) {
   const calls = [];
   let checkCount = 0;
+  // 登录状态来自 CLI `status --json`（不是本地 HTTP API —— 两者实测不一致）。
+  const runImpl = async (bin, args) => {
+    calls.push({ cli: args.join(' ') });
+    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: ++checkCount > loggedAfter }), stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
   const apiResponses = {
-    '/api/v1/status': () => ({ login: ++checkCount > loggedAfter }),
     '/api/v1/endpoints': () => ({ code: 200, data: { items: endpoint ? [{ type: 'HTTPS', domain: endpoint, status: 'active' }] : [] } }),
     '/api/v1/tunnels': () => ({ code: 200 }),
     '/healthz': () => ({ ok: true }),
@@ -74,7 +79,7 @@ function harness({ login = true, endpoint = 'https://abc.hn.takin.cc', loggedAft
   const runner = createZeroNewsRunner({
     ensure: async () => ({ ok: true, path: '/cache/zeronews' }),
     portOf: () => 49906,
-    fetchImpl, spawnImpl,
+    fetchImpl, spawnImpl, runImpl,
     sleepImpl: () => Promise.resolve(),
   });
   return { runner, calls };
@@ -100,25 +105,40 @@ test('完整链路：登录→起客户端→复用已有隧道→拿到域名',
 });
 
 test('没有隧道时才建一条，指向本机端口', async () => {
-  const { runner, calls } = harness({ endpoint: '' });
-  // 第一次 endpoints 空 → 建隧道后返回域名
   let made = false;
   const fetchImpl = async (url, init) => {
     const key = url.replace(/^https?:\/\/[^/]+/, '');
     if (key === '/api/v1/endpoints') return { ok: true, json: async () => made ? { data: { items: [{ type: 'HTTPS', domain: 'new.example.com', status: 'active' }] } } : { data: { items: [] } } };
     if (key === '/api/v1/tunnels') { made = true; return { ok: true, json: async () => ({ code: 200 }) }; }
-    if (key === '/api/v1/status') return { ok: true, json: async () => ({ login: true }) };
     if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
     return { ok: false };
   };
-  runner._unused = fetchImpl; // 用一个新 runner 覆盖注入
-  const r2 = createZeroNewsRunner({ ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
-    fetchImpl, spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve() });
-  const s = await r2.start();
+  const runImpl = async (bin, args) => (args[0] === 'status'
+    ? { code: 0, stdout: JSON.stringify({ login: true }), stderr: '' }
+    : { code: 0, stdout: '', stderr: '' });
+  const runner = createZeroNewsRunner({ ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl, runImpl, spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve() });
+  const s = await runner.start();
   assert.equal(s.phase, 'connected');
-  const posts = calls.filter((c) => c.method === 'POST' && c.url.includes('tunnels'));
-  assert(posts.length === 0 || made, '没有隧道时才建');
-  assert.equal(made, true, '建了隧道');
+  assert.equal(made, true, '没有隧道时建了一条');
+  assert.equal(s.url, 'https://new.example.com');
+});
+
+test('已有隧道不重复建（免费档只有一条额度）', async () => {
+  let posted = false;
+  const fetchImpl = async (url, init) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'exists.example.com', status: 'active' }] } }) };
+    if (key === '/api/v1/tunnels') { posted = true; return { ok: true, json: async () => ({ code: 200 }) }; }
+    if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
+    return { ok: false };
+  };
+  const runImpl = async (bin, args) => (args[0] === 'status' ? { code: 0, stdout: '{"login":true}', stderr: '' } : { code: 0, stdout: '', stderr: '' });
+  const runner = createZeroNewsRunner({ ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl, runImpl, spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve() });
+  const s = await runner.start();
+  assert.equal(s.phase, 'connected');
+  assert.equal(posted, false, '已有隧道绝不重复建');
 });
 
 test('登录超时与下载失败都给出明确错误，不假装连上', async () => {
