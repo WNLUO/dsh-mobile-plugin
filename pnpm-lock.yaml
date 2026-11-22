@@ -62,20 +62,23 @@ importers:
         specifier: 0.1.2
         version: 0.1.2
       dsh-mobile-tailcat-darwin-arm64:
-        specifier: 1.1.5
-        version: 1.1.5
+        specifier: 1.1.7
+        version: 1.1.7
       dsh-mobile-tailcat-darwin-x64:
-        specifier: 1.1.5
-        version: 1.1.5
+        specifier: 1.1.7
+        version: 1.1.7
       dsh-mobile-tailcat-linux-arm64:
-        specifier: 1.1.5
-        version: 1.1.5
+        specifier: 1.1.7
+        version: 1.1.7
       dsh-mobile-tailcat-linux-x64:
-        specifier: 1.1.5
-        version: 1.1.5
+        specifier: 1.1.7
+        version: 1.1.7
+      dsh-mobile-tailcat-win32-arm64:
+        specifier: 1.1.7
+        version: 1.1.7
       dsh-mobile-tailcat-win32-x64:
-        specifier: 1.1.5
-        version: 1.1.5
+        specifier: 1.1.7
+        version: 1.1.7
 
 packages:
 
@@ -822,28 +825,33 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  dsh-mobile-tailcat-darwin-arm64@1.1.5:
-    resolution: {integrity: sha512-ChHq0HBTKgtEbjAd68Su58ROEXa+5cOdQUN18ool6KDp04Hbr5lJ6vWgw58HbRlPJV2CBUyEFmUsyfX+Xk3Usg==}
+  dsh-mobile-tailcat-darwin-arm64@1.1.7:
+    resolution: {integrity: sha512-X/eTbXQs0gLMFb3No+Kdlo+KZM1Du5RQeP6zczypcYg/EF6ii5d2Mi1qIM2ztoVg6hc05oWNF1Gj8JM0OyHd2Q==}
     cpu: [arm64]
     os: [darwin]
 
-  dsh-mobile-tailcat-darwin-x64@1.1.5:
-    resolution: {integrity: sha512-iiPQryfU/af3AydEvksso9H29V866mmgK8ZrTf9osnxRZevJrp2yP3XOlUofnEZU8KUe8VxJ+Nb2t1P6BBiABQ==}
+  dsh-mobile-tailcat-darwin-x64@1.1.7:
+    resolution: {integrity: sha512-vHwb3cqzGm/yKQpLCxl9vc8bh6FX+ezjM1X1cAu+Cz5V9wPKTqEYl6Kh2hW/vLfSQ0nvSk3ZigA4Axj8LujWwQ==}
     cpu: [x64]
     os: [darwin]
 
-  dsh-mobile-tailcat-linux-arm64@1.1.5:
-    resolution: {integrity: sha512-hVyiZYOHmxFRkReOrQlJcUC+Wv5mEQpJCdFZUEiDjN53htJ9dpYDZSvBlgjZWFRyQlSIRlYju9x54IT5WujVew==}
+  dsh-mobile-tailcat-linux-arm64@1.1.7:
+    resolution: {integrity: sha512-UNcLXdSnXrKil/g1s0C+mx/D67nJNkCaokmcP7uDMiFBJ/cAZLLkDYYi7y9L08gSSkjVUI8envDntgenhJ6ORw==}
     cpu: [arm64]
     os: [linux]
 
-  dsh-mobile-tailcat-linux-x64@1.1.5:
-    resolution: {integrity: sha512-nGxKnxYoc7/NEBuwnIv+hzqhc6wW0R7XfeZZ8qgm4gmgbks0bflwsem6X23ht3ciT3phsSIPEf3q+Qa1iCM79g==}
+  dsh-mobile-tailcat-linux-x64@1.1.7:
+    resolution: {integrity: sha512-DXj1B14yLZh2V9YCIhoG7o2+boJqiHiTa/Ds3aztKXCwyxgwbLiP4UZzZ1vrY63SslmgI3J2MMESLb/HeRKxKg==}
     cpu: [x64]
     os: [linux]
 
-  dsh-mobile-tailcat-win32-x64@1.1.5:
-    resolution: {integrity: sha512-oKfMyZNpmhkdVkD88L/82oq9lOr0T2Zr2mTnHIuacPyGMm/T9BvoAH9qrd3vFU51vR7nKOIutEje3Hd4agq9Cg==}
+  dsh-mobile-tailcat-win32-arm64@1.1.7:
+    resolution: {integrity: sha512-HQCSMKS23J3FNDeZRQgIWCA8LYvmiZ0hylBdeYjeRO687IBZZD46SYv5mOABU84+39WVZ4u/A/kjIkXBG1qa/A==}
+    cpu: [arm64]
+    os: [win32]
+
+  dsh-mobile-tailcat-win32-x64@1.1.7:
+    resolution: {integrity: sha512-ljZ1V8zbArRUgrAB40GMI4QHnlz40ylzQcXm1qcyfmUbm0dvB1I4olCDQ5qv+vybgJ7/xNLAtZj+09c++3xSug==}
     cpu: [x64]
     os: [win32]
 
@@ -1793,19 +1801,22 @@ snapshots:
   dsh-mobile-shell-win32-x64@0.1.2:
     optional: true
 
-  dsh-mobile-tailcat-darwin-arm64@1.1.5:
+  dsh-mobile-tailcat-darwin-arm64@1.1.7:
     optional: true
 
-  dsh-mobile-tailcat-darwin-x64@1.1.5:
+  dsh-mobile-tailcat-darwin-x64@1.1.7:
     optional: true
 
-  dsh-mobile-tailcat-linux-arm64@1.1.5:
+  dsh-mobile-tailcat-linux-arm64@1.1.7:
     optional: true
 
-  dsh-mobile-tailcat-linux-x64@1.1.5:
+  dsh-mobile-tailcat-linux-x64@1.1.7:
     optional: true
 
-  dsh-mobile-tailcat-win32-x64@1.1.5:
+  dsh-mobile-tailcat-win32-arm64@1.1.7:
+    optional: true
+
+  dsh-mobile-tailcat-win32-x64@1.1.7:
     optional: true
 
   emoji-regex@8.0.0: {}
