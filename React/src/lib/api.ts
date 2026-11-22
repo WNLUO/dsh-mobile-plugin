@@ -1,5 +1,6 @@
 // 本机面板状态包含 Tailcat 内部落点端口，反馈可区分监听与助手就绪。
 // 本机面板读取真实上报去向，并区分入口恢复与 FRP 启用、启动、待重试状态。
+// Cloudflare 兜底隧道：状态读 `/api/relay/status` 的 cloudflare 格，开关走 start/stop 两条管理路由。
 /**
  * 控制面客户端：只碰 `/api/relay/*` 这一组本机接口。
  *
@@ -94,6 +95,36 @@ export type FrpStatus = {
   remoteAddress?: string
 }
 
+/**
+ * Cloudflare 兜底隧道（quick tunnel）此刻的状态（控制面 `/api/relay/status` 的 `cloudflare` 字段）。
+ *
+ * `available` = 这台机器上有没有 cloudflared；没有它这条兜底整条不可用（别的通道照旧）。
+ * 地址每次重启都会变，由总控兜平，所以 `url` 只作展示、不作稳定入口。
+ * 老宿主没有这一格时按 null 处理。
+ */
+export type CloudflareStatus = {
+  available: boolean
+  enabled: boolean
+  running: boolean
+  /** 建好隧道后 cloudflared 报出的公网地址（`https://xxx.trycloudflare.com`）；还没建好是空串。 */
+  url: string
+  error: string
+  /** 开始运行的时刻（毫秒，0 = 还没跑起来过）。 */
+  startedAt: number
+  starting: boolean
+  retrying: boolean
+  waitingForPort: boolean
+}
+
+/**
+ * `/api/cloudflare/start` 与 `/stop` 的回包：成功把状态摊在上层（`{ ok:true, ...status }`），
+ * 失败给一个 `{ code, message }`。两种都照实读，界面据此更新或提示。
+ */
+export type CloudflareActionReply = {
+  ok: boolean
+  error?: { code: string; message: string }
+} & Partial<Omit<CloudflareStatus, 'error'>>
+
 export type StatusView = {
   enabled: boolean
   instanceId: string
@@ -136,6 +167,8 @@ export type StatusView = {
   p2p?: P2PStatus | null
   /** FRP 直连：本地 frpc 进程跑没跑（见 lib/frpc/runner.cjs）；老宿主没有这一格，按 null 处理。 */
   frp?: FrpStatus | null
+  /** Cloudflare 兜底隧道：cloudflared 装没装、跑没跑（见 lib/cloudflared/runner.cjs）；老宿主没有这一格，按 null 处理。 */
+  cloudflare?: CloudflareStatus | null
   lan: {
     enabled: boolean
     port: number
@@ -697,6 +730,21 @@ export function importFrp(config: string): Promise<{ ok: boolean; status: FrpSta
 /** 停掉本地 frpc 并清掉「启用」标记（控制面 `/api/relay/frp/stop`）。 */
 export function stopFrp(): Promise<{ ok: boolean; status: FrpStatus | null }> {
   return apiPost('/api/relay/frp/stop')
+}
+
+/**
+ * 启动 Cloudflare 兜底隧道（控制面 `/api/cloudflare/start`）。
+ *
+ * cloudflared 起进程、建 quick tunnel 要几秒，回包里带此刻的状态；起不起来、为什么失败都从
+ * 这份状态或 `error` 里给，界面据此提示，而不是无脑说「已开启」。
+ */
+export function cloudflareStart(): Promise<CloudflareActionReply> {
+  return apiPost('/api/cloudflare/start')
+}
+
+/** 停掉 Cloudflare 兜底隧道（控制面 `/api/cloudflare/stop`）。 */
+export function cloudflareStop(): Promise<CloudflareActionReply> {
+  return apiPost('/api/cloudflare/stop')
 }
 
 /** 界面上的错误一律走这里：网络层自己抛的 TypeError 也得变成一句人话。 */

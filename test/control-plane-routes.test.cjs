@@ -197,7 +197,7 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  */
 function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
   localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0, getPluginRuntime = () => null,
-  reconnectTunnel, frp, tailcat, registerRoutes = registerControlPlaneRoutes } = {}) {
+  reconnectTunnel, frp, tailcat, cloudflare, registerRoutes = registerControlPlaneRoutes } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
   const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
@@ -225,6 +225,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     reconnectTunnel,
     frp,
     tailcat,
+    cloudflare,
     sidecarToken: 'test',
     lanPortInUse: () => 18787,
     getLanPortAdjusted: () => false,
@@ -521,7 +522,10 @@ test('面板读不到时报的是能定位的诊断，不是一句「还没构�
 
 test('网页管理访问窗口只保护管理面板路由，例外路由逐条说明', () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
-  const routes = registrations(source).map((route) => route.path).filter((route) => route.startsWith('/api/relay/'));
+  // 控制面除了 `/api/relay/*`，还有 `/api/cloudflare/*` 这组兜底隧道启停；两者都按同一套
+  // 网页访问窗口保护，盘点时一起纳入，别让新前缀成了漏网的例外。
+  const routes = registrations(source).map((route) => route.path)
+    .filter((route) => route.startsWith('/api/relay/') || route.startsWith('/api/cloudflare/'));
   for (const route of routes) {
     assert.ok(
       WEB_ACCESS_ROUTES.has(route) || NO_WEB_ACCESS.has(route),
@@ -825,6 +829,45 @@ async function frpAcceptedContract(mutate) {
 test('FRP配置受理包含启动和自动重试，终止失败仍保留真实错误', () => frpAcceptedContract());
 test('变异：只认running会误报正在自动重试的导入失败', async () => {
   await assert.rejects(frpAcceptedContract(source => source.replace(' || current.retrying || current.starting', '')), assert.AssertionError);
+});
+
+test('Cloudflare 未接入时启停回 503 cloudflare-unavailable', async () => {
+  const table = controlRoutes({ state: {} });
+  for (const path of ['/api/cloudflare/start', '/api/cloudflare/stop']) {
+    const res = {};
+    await table.get(path)({}, res);
+    assert.equal(res.status, 503);
+    assert.equal(res.body.error.code, 'cloudflare-unavailable');
+  }
+});
+
+test('Cloudflare 启动成功回 ok 并带上当前状态', async () => {
+  let started = 0;
+  const table = controlRoutes({ state: {}, cloudflare: {
+    start: async () => { started += 1; return { running: true } },
+    status: () => ({ running: true, url: 'https://demo.trycloudflare.com' }),
+  } });
+  const res = {};
+  await table.get('/api/cloudflare/start')({}, res);
+  assert.equal(started, 1);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.running, true);
+  assert.equal(res.body.url, 'https://demo.trycloudflare.com');
+});
+
+test('Cloudflare 停止成功回 ok 并带上当前状态', async () => {
+  let stopped = 0;
+  const table = controlRoutes({ state: {}, cloudflare: {
+    stop: async () => { stopped += 1; return { running: false } },
+    status: () => ({ running: false, url: '' }),
+  } });
+  const res = {};
+  await table.get('/api/cloudflare/stop')({}, res);
+  assert.equal(stopped, 1);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.running, false);
 });
 
 async function probeCleanupContract(mutate) {

@@ -236,3 +236,14 @@ test('extractTunnelUrl 只认 trycloudflare 地址，剥掉装饰符与尾斜杠
   assert.equal(extractTunnelUrl('https://example.com'), '');
   assert.equal(extractTunnelUrl('nothing here'), '');
 });
+
+test('全新机器：available 反映平台能否跑 cloudflared，与二进制是否已下载分开', () => {
+  // 面板拿 available 决定开关能不能点。若它只表示「二进制已下载」，全新机器上恒为 false，
+  // 开关就永远点不动、下不了首次。所以这里钉住：available = 平台支持（或已有二进制）。
+  const { platformId } = require('../lib/cloudflared/provision.cjs');
+  const expected = Boolean(platformId());
+  const { runner } = harness();
+  const st = runner.status();
+  assert.equal(st.running, false);
+  assert.equal(st.available, expected);
+});

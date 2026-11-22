@@ -33,6 +33,7 @@ description: DSH 手机版（移动端插件）连不上电脑、配对失败、
    - IPv6 直连连不上 / 光猫或路由器 IPv6 没开 / IPv6 防火墙 / 公网 IPv6 进不来 → `references/ipv6.md`
    - 公网 IPv4 / 端口映射 / 路由器映射 / 有公网 IP 连不上 → `references/ipv4.md`
    - frp / frps / frpc / 自己架公网服务器做 TCP 直连 → `references/frp.md`
+   - Cloudflare 兜底隧道 / trycloudflare / cloudflared /「点一下就开个临时公网入口」→ `references/cloudflare.md`（插件内置开关，免账号免域名）
    - 有域名 / DDNS 动态解析 / Nginx 反代 / NAS 部署 / 三栏填哪个 / 上手机前验收 → `references/selfhost-common.md`（自建公网入口的共用篇，IPv4、IPv6、frp 都先过这篇）
 2. 读对应参考，先看「症状对不对得上」，再按里面的顺序问用户要信息。自建公网入口这一类，先读共用篇对栏位和验收，再读具体那篇。
 3. 回答里说清：现象、版本与环境、是否已经确认、依据、下一步。确认不了的标「待补充」，不说「已复现」「已修复」。

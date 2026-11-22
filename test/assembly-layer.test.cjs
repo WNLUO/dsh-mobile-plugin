@@ -80,7 +80,10 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 2026-11-22 +5：总控转达「请自检」时插件要回一份诊断 —— 一个取值器变量、一个闭包（转交
   // `diagnostics`）、两处 `setProviders` 各一格、路由表一个 `bindRelayControl`。诊断内容是
   // `mobile/relay-control.js` 里那一份，装配层只是把它接到总控客户端上。
-  assert.ok(lines <= 481, `lib/impl.js 回到 ${lines} 代码行了；超过 481 说明实现又被搬回装配层`);
+  // 2026-11-22 +7：Cloudflare 兜底隧道的挂载（一个 require、一次 mountCloudflare、依赖表一行、
+  // syncNetwork 一行与注释，另加文件头一行）；实现都在 lib/cloudflared/wiring.cjs（wiring 只做
+  // 挂载），没有一行搬回装配层。
+  assert.ok(lines <= 488, `lib/impl.js 回到 ${lines} 代码行了；超过 488 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {
