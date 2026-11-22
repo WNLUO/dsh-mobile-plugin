@@ -202,6 +202,27 @@ test('心跳里必须带 P2P 那一格（否则 App 永远显示「未配置」�
   assert.match(body, /p2p\.status\(\)/, '这一格要直接取门面的 status()，不要另算一套');
 });
 
+test('心跳里必须带 Cloudflare 兜底隧道那一格（独立线路自己的状态）', () => {
+  // 照上面 p2p 那格的先例：`/status` 要回 cloudflare 状态（available / running / error /
+  // url / enabled / starting / retrying / waitingForPort），手机才能画出这条独立线路。
+  // 它必须直接取 runner 的 `status()`，不在路由层另算一套。
+  const table = readRouteTable();
+  const statusBlock = table.slice(table.indexOf("path: '/api/mobile/v1/status'"));
+  const body = statusBlock.slice(0, statusBlock.indexOf('}) })'));
+  assert.match(body, /cloudflare\s*:/, '/status 的回包里必须有 cloudflare 这一格');
+  assert.match(body, /deps\.cloudflare[\s\S]*?\.status\(\)/, '这一格要取 deps.cloudflare.status()，不要另算一套');
+});
+
+test('connection-info 带回独立的 cloudflareUrl 字段（不塞 directUrl）', () => {
+  // Cloudflare 是新线路、独立一格：不能并进 directUrl。手机据此落到自己的 Cloudflare 槽。
+  const table = readRouteTable();
+  const at = table.indexOf("route('/api/mobile/v1/connection-info'");
+  assert.ok(at > 0, 'connection-info 路由不见了');
+  const end = table.indexOf("route('/api/mobile/v1/p2p/rendezvous'", at);
+  const body = table.slice(at, end > at ? end : at + 3000);
+  assert.match(body, /cloudflareUrl\s*:/, 'connection-info 的回包里必须有 cloudflareUrl 这一格');
+});
+
 test('心跳里必须带「这一代少了什么」那一格（否则容量退化又是静默的）', () => {
   // 与上一条同一个病：官方工具解析不到同代那份时，宿主不失败、手机照常连上，只是某个
   // 工具不见了，模型只会说「不可用」。这一格是 App 唯一能说出「这几项现在用不了」的来源。

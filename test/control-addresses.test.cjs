@@ -70,6 +70,21 @@ test('wss 地址由 http/https 推出来', () => {
   assert.equal(controlWsUrl('http://127.0.0.1:8787/findme'), 'ws://127.0.0.1:8787/findme');
 });
 
+// 2026-11-22：Cloudflare 兜底隧道升级成独立线路（`kind:'cf'`），不再写进直连格。
+test('Cloudflare 地址作为独立 kind:cf 上报，不受 lanEnabled 管、也不覆盖直连', () => {
+  const cf = 'https://xxx.trycloudflare.com';
+  // lanEnabled=false（关掉局域网）时照样出现——和 tcp 一样不受门控。
+  const addresses = controlAddresses({ lanEnabled: false, relayUrls: [], cloudflareUrl: cf }, 0);
+  assert.ok(addresses.some((item) => item.kind === 'cf' && item.url === cf), '关掉局域网仍要上报 cf');
+  // 空值时绝不 push 一条空 cf。
+  const empty = controlAddresses({ lanEnabled: false, relayUrls: [], cloudflareUrl: '' }, 0);
+  assert.equal(empty.some((item) => item.kind === 'cf'), false, '没有地址时不该报空 cf');
+  // 与用户手填直连互不覆盖：manualLanUrl 仍以 direct 出现，cf 是另一条。
+  const withDirect = controlAddresses({ lanEnabled: true, relayUrls: [], manualLanUrl: 'https://home.example.com:8443/', cloudflareUrl: cf }, 19999);
+  assert.deepEqual(withDirect.filter((item) => item.kind === 'direct'), [{ kind: 'direct', url: 'https://home.example.com:8443' }]);
+  assert.ok(withDirect.some((item) => item.kind === 'cf' && item.url === cf), 'cf 不能把直连挤掉');
+});
+
 test('TCP 目标清掉时清单里补一条空标记，手机据此清旧目标', () => {
   // 有别的地址可拨、而这一格是空的：报一条空 url，让「电脑上删了」传得下去；
   // 一位地址都没有时（上面那条用例）不补，免得为一句空话白建总控连接。
