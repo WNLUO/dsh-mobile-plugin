@@ -88,6 +88,8 @@ test('平台映射：认得出的才给 id，认不出返回 undefined', () => {
   assert.equal(platformId('linux', 'x64'), 'linux-x64');
   assert.equal(platformId('linux', 'arm64'), 'linux-arm64');
   assert.equal(platformId('win32', 'x64'), 'win32-x64');
+  // Windows on ARM 没有原生 cloudflared，归到 x64 资产（Windows 能跑 x64）。
+  assert.equal(platformId('win32', 'arm64'), 'win32-x64');
   assert.equal(platformId('freebsd', 'x64'), undefined);
   assert.equal(platformId('linux', 'ia32'), undefined);
   assert.equal(platformId('linux', 'arm'), undefined);
