@@ -1,6 +1,7 @@
 // 复用现有状态行和按钮展示 FRP 运行、恢复与主动停用入口。
 // 2026-11-20 用户要求：去掉「设备名」「实例 ID」两行与 TCP 直连的地址。
 // 2026-11-22：会话镜像 ok=true 时带的「内容未变，跳过重复推送」是良性跳过，不再当错误挂感叹号。
+// 2026-11-22：Cloudflare 兜底从网络配置弹窗挪到这里，在 TCP 直连行下新起一行，右侧挂「管理」开弹窗。
 /**
  * 主页右栏「连接状态」卡：只读事实。
  *
@@ -10,7 +11,7 @@ import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 
-import type { AddressBook, P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
+import type { AddressBook, CloudflareStatus, P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone, type Tone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 import { IssueMark } from './IssueMark.tsx'
@@ -26,6 +27,8 @@ type Props = {
   onManageTailcat: () => void
   /** 「管理」那颗：打开 P2P 隧道的弹窗（只读现场）。 */
   onManageP2P: () => void
+  /** 「管理」那颗：打开 Cloudflare 兜底隧道的弹窗（查看 / 开关）。 */
+  onManageCloudflare: () => void
   /** 上次重启 sidecar 的失败原因；并入「旁挂进程」那行显示，不单独铺一块告警。 */
   restartError: string | null
 }
@@ -71,6 +74,29 @@ function tailcatTone(tailcat: TailcatStatus): Tone {
 }
 
 /**
+ * Cloudflare 兜底那一行字。
+ *
+ * 顺序：先看可不可用，再看错没错，再看跑没跑、起来中，最后才落到「未启用 / 可用」。
+ * 这条兜底没有中间态可以含糊：cloudflared 没装就是整条不可用，跑了就是运行中。
+ */
+function cloudflareTextKey(cf: CloudflareStatus | null): string {
+  if (!cf || !cf.available) return 'panel.cloudflare.unavailable'
+  if (cf.error) return 'panel.cloudflare.error'
+  if (cf.running) return 'panel.cloudflare.running'
+  if (cf.starting || cf.retrying || cf.waitingForPort) return 'panel.cloudflare.starting'
+  if (!cf.enabled) return 'panel.cloudflare.disabled'
+  return 'panel.cloudflare.available'
+}
+
+function cloudflareTone(cf: CloudflareStatus | null): Tone {
+  if (!cf || !cf.available) return 'off'
+  if (cf.error) return 'error'
+  if (cf.running) return 'ok'
+  if (cf.starting || cf.retrying || cf.waitingForPort) return 'warn'
+  return 'off'
+}
+
+/**
  * 连接状态：把「概览」「连接状态」合成一张卡。
  *
  * 「远程控制」那颗开关（这段隧道开不开）与「允许配对」都已搬到「配对与二维码」的右列，
@@ -86,10 +112,11 @@ function tailcatTone(tailcat: TailcatStatus): Tone {
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageTailcat, onManageP2P, restartError }: Props) {
+export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageTailcat, onManageP2P, onManageCloudflare, restartError }: Props) {
   const tunnel = status.tunnel
   const tailcat = status.tailcat ?? null
   const p2p = status.p2p ?? null
+  const cloudflare = status.cloudflare ?? null
   /** TCP 直连配没配、配的哪条：宿主把它放在地址库的 `manualTcp`（状态接口里没有这一格）。 */
   const tcpTarget = (addressBook?.manualTcp ?? '').trim()
   // 本地 frpc 进程跑没跑（宿主 status.frp）。配了地址不等于通了——只有进程真在跑才算这条活了。
@@ -181,6 +208,20 @@ export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageT
             {frp && (frp.enabled || frp.running || frp.starting || frp.retrying || (frp.enabled === undefined && frp.configPresent)) ? (
               <Button variant="ghost" size="sm" disabled={busy !== ''} onClick={onStopFrp}>{t('panel.frp.stop')}</Button>
             ) : null}
+          </span>
+        </InfoRow>
+        <InfoRow
+          label={t('panel.cloudflare.title')}
+          tone={cloudflareTone(cloudflare)}
+          labelExtra={cloudflare && (!cloudflare.available || cloudflare.error)
+            ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.cloudflare.title'), detail: !cloudflare.available ? t('panel.cloudflare.unavailable') : (cloudflare.error ?? '') }} />
+            : undefined}
+        >
+          <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
+            <ToneValue tone={cloudflareTone(cloudflare)} text={t(cloudflareTextKey(cloudflare))} />
+            <Button variant="ghost" size="sm" onClick={onManageCloudflare}>
+              {t('panel.tailcat.manage')}
+            </Button>
           </span>
         </InfoRow>
         <InfoRow

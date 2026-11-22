@@ -2,6 +2,7 @@
 // 2026-11-19：顶部渲染窗口自动续期 / 关掉后保留一小时的提示；页面连上之前禁用同一设备的打开按钮；
 // 线路检测每行带上 host:port 区分同通道的两条；窗口开着时改挡位单独说明重新打开后生效。
 // 2026-11-20：窗口按钮（浏览器打开 / 关闭）改由 Remote 页面层渲染一次，卡片不再重复挂。
+// 2026-11-22：线路名的 keys 补上 cloudflare，兜底隧道路由能显示成档。
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
@@ -73,7 +74,7 @@ function TrashIcon() {
 
 function channelText(channel: string | null, url?: string | null): string {
   const keys: Record<string, string> = {
-    auto: 'auto', lan: 'lan', direct: 'direct', ipv6: 'ipv6', relay: 'relay', tunnel: 'tailcat', tailcat: 'tailcat', p2p: 'p2p', tcp: 'tcp',
+    auto: 'auto', lan: 'lan', direct: 'direct', ipv6: 'ipv6', relay: 'relay', tunnel: 'tailcat', tailcat: 'tailcat', p2p: 'p2p', tcp: 'tcp', cloudflare: 'cloudflare',
   }
   if (!channel) return t('panel.common.none')
   // 中转分「自建 / 公用」：公用中转只是没自建时的便利通道，配了任一公网可达的自建后公用会被停用。

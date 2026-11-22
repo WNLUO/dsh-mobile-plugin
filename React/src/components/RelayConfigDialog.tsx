@@ -1,5 +1,5 @@
 // FRP 子窗结果暂存到父窗保存，地址错误可重取，健康探测包含当前自建中转。
-// Cloudflare 兜底隧道：网络设置区一颗开关 + 一行状态（可用 / 运行中 / 当前地址 / 错误），开关直接走 start/stop。
+// Cloudflare 兜底的开关与状态行已挪到 ConnectionCard + CloudflareDialog，这里不再重复一份。
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import {
   Dialog,
@@ -13,15 +13,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
 import { Spinner } from '@appica/ui-react/spinner'
-import { Switch } from '@appica/ui-react/switch'
 import { useEffect, useRef, useState } from 'react'
 
-import { cloudflareStart, cloudflareStop, errorText, type AddressBook, type CloudflareStatus, type ConfigPatch, type StatusView } from '../lib/api.ts'
+import { type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { FrpImportDialog } from './FrpImportDialog.tsx'
-import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 import { PublicRelayPanelDialog } from './PublicRelayPanelDialog.tsx'
 
 type ComboOption = { value: string; label: string }
@@ -167,12 +165,6 @@ export function RelayConfigDialog({
   const [pendingFrp, setPendingFrp] = useState<{ config: string; field: 'tcp' | 'direct'; value: string } | undefined>()
   /** 「公用中转面板」弹窗开着没有：查看各条入口的延迟与心电图。 */
   const [publicPanelOpen, setPublicPanelOpen] = useState(false)
-  /** 本窗内一次 Cloudflare start/stop 请求在飞：开关期间禁用，防止连点。 */
-  const [cfBusy, setCfBusy] = useState(false)
-  /** 最近一次 start/stop 失败的原因（网络错误或回包里的 message）；成功或下一次操作前清空。 */
-  const [cfError, setCfError] = useState('')
-  /** start/stop 回包里的即时状态：先照它渲染，下一轮轮询会用 `status.cloudflare` 覆盖回真值。 */
-  const [cfLive, setCfLive] = useState<CloudflareStatus | null>(null)
   /** 子弹窗的落焦目标：清单让焦点落在容器上，别一开窗就圈住第一行。 */
   const lanPickerRef = useRef<HTMLDivElement | null>(null)
   /** 弹窗打开时的落焦目标：容器自己，不是第一个输入框（见下面 `initialFocus`）。 */
@@ -231,41 +223,6 @@ export function RelayConfigDialog({
 
   const canSave = busy === ''
 
-  // Cloudflare 状态由宿主每 3 秒轮询回来；status 换新对象时跟着刷新，本窗 start/stop 的
-  // 回包只是插一拍即时值，下一轮仍以宿主为准。
-  useEffect(() => {
-    setCfLive(status.cloudflare ?? null)
-  }, [status.cloudflare])
-
-  /** 开 / 关 Cloudflare 兜底隧道：开→start、关→stop；失败只在本窗显示原因，不动其它状态。 */
-  async function toggleCloudflare(next: boolean) {
-    if (!canSave || cfBusy) return
-    setCfBusy(true)
-    setCfError('')
-    try {
-      const reply = next ? await cloudflareStart() : await cloudflareStop()
-      if (reply.ok === false) {
-        setCfError(reply.error?.message || t('panel.cloudflare.error'))
-        return
-      }
-      setCfLive({
-        available: reply.available ?? true,
-        enabled: reply.enabled ?? next,
-        running: reply.running ?? next,
-        url: reply.url ?? '',
-        error: '',
-        startedAt: reply.startedAt ?? 0,
-        starting: reply.starting ?? false,
-        retrying: reply.retrying ?? false,
-        waitingForPort: reply.waitingForPort ?? false,
-      })
-    } catch (err) {
-      setCfError(errorText(err))
-    } finally {
-      setCfBusy(false)
-    }
-  }
-
   /**
    * 当前中转地址用的是哪条内置公用地址（命中清单的那条，没命中就是 null）。
    *
@@ -282,39 +239,6 @@ export function RelayConfigDialog({
   const publicOff = publicRelayBlocked || publicDisabled
   /** 直连那两条按宿主口径去掉尾部斜杠：它拼出来的是一条候选 URL，多一个 `/` 就多一条重复项。 */
   const trimUrl = (value: string) => value.trim().replace(/\/+$/, '')
-
-  /** Cloudflare 状态：本窗回包优先，其次宿主轮询回来的那一格；老宿主没有就是 null。 */
-  const cf = cfLive ?? status.cloudflare ?? null
-  /** 开关认「在跑或正在起来」为开：点开后即便还在 starting 也照开显示。 */
-  const cfOn = !!cf && (cf.running || cf.starting || cf.retrying || cf.waitingForPort)
-  /** 状态行的点色：不可用 / 出错 / 运行中 / 起来中 / 可用待开。 */
-  const cfTone: 'ok' | 'warn' | 'error' | 'off' = !cf || !cf.available
-    ? 'off'
-    : cf.error
-      ? 'error'
-      : cf.running
-        ? 'ok'
-        : cf.starting || cf.retrying || cf.waitingForPort
-          ? 'warn'
-          : 'off'
-  /** 状态行的文案：与 cfTone 同一条判定链，保证点色与文字永远说的是同一件事。 */
-  const cfText = !cf || !cf.available
-    ? t('panel.cloudflare.unavailable')
-    : cf.error
-      ? t('panel.cloudflare.error')
-      : cf.running
-        ? t('panel.cloudflare.running')
-        : cf.starting
-          ? t('panel.cloudflare.starting')
-          : cf.retrying
-            ? t('panel.cloudflare.retrying')
-            : cf.waitingForPort
-              ? t('panel.cloudflare.waitingForPort')
-              : t('panel.cloudflare.available')
-  /** 状态行的细节：运行中给当前地址，出错给原因；其余不留。 */
-  const cfDetail = cf?.running && cf.url ? `${t('panel.cloudflare.url')}: ${cf.url}` : cf?.error ? cf.error : undefined
-  /** 请求在飞、全局忙、或 cloudflared 未安装时开关不可点。 */
-  const cfDisabled = !canSave || cfBusy || cf?.available === false
 
   function submit() {
     if (!canSave) return
@@ -545,28 +469,6 @@ export function RelayConfigDialog({
                       setManualIpv6Url(value)
                     }}
                   />
-                </Field>
-
-                {/* Cloudflare 兜底隧道：cloudflared 没装时整条不可用。开关复用 Switch，
-                    状态行复用 InfoRow + 状态点，显示 可用 / 运行中（带当前地址）/ 错误。
-                    开→start、关→stop，请求在飞时禁用，失败按现有方式在行下给一句红字。 */}
-                <Field>
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel>{t('panel.cloudflare.title')}</FieldLabel>
-                    <Switch
-                      size="md"
-                      checked={cfOn}
-                      disabled={cfDisabled}
-                      onCheckedChange={(next) => void toggleCloudflare(next)}
-                      aria-label={t('panel.cloudflare.title')}
-                    />
-                  </div>
-                  <InfoList>
-                    <InfoRow label={t('panel.cloudflare.state')}>
-                      <ToneValue tone={cfTone} text={cfText} detail={cfDetail} />
-                    </InfoRow>
-                  </InfoList>
-                  {cfError ? <p className="text-xs text-error">{cfError}</p> : null}
                 </Field>
             </DialogBody>
           </div>

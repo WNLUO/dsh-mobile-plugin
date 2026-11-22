@@ -1,12 +1,16 @@
-// Cloudflare 兜底隧道：面板开关 + 状态行只读源码断言，接口与文案由 api.ts / panel.ts 钉住。
+// Cloudflare 兜底隧道：ConnectionCard 入口行 + CloudflareDialog 开关/状态源码断言。
+// 接口与文案由 api.ts / panel.ts 钉住；网络配置弹窗里不再重复一份实现。
 'use strict';
 
 /**
- * 面板「网络配置」里的 Cloudflare 兜底隧道开关与状态行。
+ * Cloudflare 兜底隧道的面板这半段。
  *
- * 宿主侧的守护进程、路由另有测试钉着；这条只钉面板这半段：开关渲染、开/关分别打
- * `/api/cloudflare/start` / `/stop`、状态行能读出「可用 / 运行中 / 错误」三种态，
- * 以及中英等十门语言的词条齐平。少了任何一段，用户在这扇窗里都开不了、也看不出这条兜底在不在跑。
+ * 宿主侧的守护进程、路由另有测试钉着；这条只钉面板：
+ *   1. 「连接状态」卡在 TCP 直连那一行下面新起一行「Cloudflare 兜底」，带一颗「管理」按钮；
+ *   2. 点「管理」打开的 CloudflareDialog 里有开关，开调 `/api/cloudflare/start`、关调 `/stop`，
+ *      请求中禁用、失败行内红字，状态行能读出「可用 / 运行中 / 错误」；
+ *   3. 网络配置弹窗那扇已经搬走，不再留第二份实现；
+ *   4. api.ts 提供接口与状态类型，中英等十门语言词条齐平。
  */
 
 const fs = require('node:fs');
@@ -17,41 +21,63 @@ const assert = require('node:assert/strict');
 const ROOT = path.join(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
 
-test('网络配置弹窗有「Cloudflare 兜底隧道」开关，复用 Switch 组件', () => {
-  const dialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
-  assert.match(dialog, /panel\.cloudflare\.title/, '要有「Cloudflare 兜底隧道」这一栏');
+test('ConnectionCard 在 TCP 行下面新起一行 Cloudflare 兜底，带「管理」按钮', () => {
+  const card = read('React', 'src', 'components', 'ConnectionCard.tsx');
+  // 这一行放在 TCP 直连那行之后：先出现 panel.connection.tcp，再出现 panel.cloudflare.title。
+  const tcpAt = card.indexOf('panel.connection.tcp');
+  const cfAt = card.indexOf('panel.cloudflare.title');
+  assert.ok(tcpAt > 0, '找不到 TCP 直连那一行');
+  assert.ok(cfAt > tcpAt, 'Cloudflare 兜底这一行要在 TCP 直连下面');
+  assert.match(card, /onManageCloudflare/, '要接上打开 Cloudflare 弹窗的回调');
+  assert.match(card, /cloudflareTextKey/, '状态字要走状态映射');
+  assert.match(card, /panel\.cloudflare\.disabled/, '未启用是一种状态');
+  assert.match(card, /panel\.cloudflare\.running/, '运行中是一种状态');
+  assert.match(card, /ToneValue/, '状态值复用现有的状态点组件');
+  assert.match(card, /t\('panel\.(cf|tailcat)\.manage'\)|panel\.cloudflare\.manage/, '「管理」按钮文案走字典');
+});
+
+test('CloudflareDialog 有开关，开→start、关→stop，请求中禁用', () => {
+  const dialog = read('React', 'src', 'components', 'CloudflareDialog.tsx');
   assert.match(dialog, /from '@appica\/ui-react\/switch'/, '复用现有的 Switch 组件，别另造一个');
   assert.match(dialog, /<Switch/, '要渲染 Switch');
-  assert.match(dialog, /onCheckedChange=\{\(next\) => void toggleCloudflare\(next\)\}/, '开关切换要交给 toggleCloudflare');
-});
-
-test('开→调 start、关→调 stop，请求中禁用开关', () => {
-  const dialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
   assert.match(dialog, /next \? await cloudflareStart\(\) : await cloudflareStop\(\)/, '开走 start、关走 stop');
-  assert.match(dialog, /setCfBusy\(true\)/, '请求开始置忙');
-  assert.match(dialog, /setCfBusy\(false\)/, '请求结束清忙');
-  assert.match(dialog, /disabled=\{cfDisabled\}/, '开关的禁用态要接上');
-  assert.match(dialog, /const cfDisabled = !canSave \|\| cfBusy \|\| cf\?\.available === false/, '忙 / 全局禁用 / 未安装时禁用开关');
+  assert.match(dialog, /setBusy\(true\)/, '请求开始置忙');
+  assert.match(dialog, /setBusy\(false\)/, '请求结束清忙');
+  assert.match(dialog, /disabled=\{disabled\}/, '开关的禁用态要接上');
+  assert.match(dialog, /const disabled = busy \|\| cf\?\.available === false/, '忙 / 未安装时禁用开关');
 });
 
-test('状态行复用 InfoRow / 状态点，读出 可用 / 运行中 / 错误 三种态', () => {
-  const dialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+test('CloudflareDialog 状态行复用 InfoRow / 状态点，从传入的 status.cloudflare 读', () => {
+  const dialog = read('React', 'src', 'components', 'CloudflareDialog.tsx');
   assert.match(dialog, /InfoRow/, '状态行复用现有的 InfoRow');
   assert.match(dialog, /ToneValue/, '状态值复用现有的状态点组件');
-  assert.match(dialog, /status\.cloudflare/, '状态从 /api/relay/status 的 cloudflare 格读');
+  assert.match(dialog, /status\.cloudflare/, '状态从传入的 status.cloudflare 读');
   assert.match(dialog, /panel\.cloudflare\.available/, '要有「可用」态');
   assert.match(dialog, /panel\.cloudflare\.running/, '要有「运行中」态');
-  assert.match(dialog, /panel\.cloudflare\.error/, '要有「错误」态');
+  assert.match(dialog, /panel\.cloudflare\.error/, '要有「错误 / 连不上」态');
   assert.match(dialog, /panel\.cloudflare\.url/, '运行中要能显示当前地址');
   assert.match(dialog, /cf\.running/, '运行态按 cf.running 判');
   assert.match(dialog, /cf\.error/, '错误态按 cf.error 判');
 });
 
-test('失败按现有方式在行下给红字提示', () => {
-  const dialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
-  assert.match(dialog, /cfError \? <p className="text-xs text-error">\{cfError\}<\/p> : null/, '失败沿用现有的红字提示');
+test('CloudflareDialog 失败按现有方式在行下给红字提示', () => {
+  const dialog = read('React', 'src', 'components', 'CloudflareDialog.tsx');
+  assert.match(dialog, /error \? <p className="text-xs text-error">\{error\}<\/p> : null/, '失败沿用现有的红字提示');
   assert.match(dialog, /errorText\(err\)/, '网络层错误也要变成一句人话');
   assert.match(dialog, /reply\.error\?\.message/, '回包里的失败原因要透出来');
+});
+
+test('网络配置弹窗不再重复一份 Cloudflare 开关', () => {
+  const dialog = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.doesNotMatch(dialog, /panel\.cloudflare\./, 'Cloudflare 那一栏已挪到 ConnectionCard + CloudflareDialog，别留两份实现');
+  assert.doesNotMatch(dialog, /cloudflareStart|cloudflareStop/, '网络配置弹窗不再直接调 Cloudflare 接口');
+});
+
+test('Console 挂上 CloudflareDialog 并把 onManageCloudflare 传给 ConnectionCard', () => {
+  const src = read('React', 'src', 'Console.tsx');
+  assert.match(src, /import \{ CloudflareDialog \}/, '要引入 CloudflareDialog');
+  assert.match(src, /onManageCloudflare=\{/, '连接卡要接上打开弹窗的回调');
+  assert.match(src, /<CloudflareDialog[\s\S]*?open=\{cloudflareOpen\}/, '要渲染 CloudflareDialog');
 });
 
 test('api.ts 提供 cloudflareStart / cloudflareStop，打对路径，并给状态类型', () => {
@@ -81,9 +107,18 @@ test('Cloudflare 那批文案在十门语言里都有', () => {
     'waitingForPort',
     'url',
     'error',
+    'disabled',
   ]) {
     const needle = `'panel.cloudflare.${key}':`;
     const count = panel.split(needle).length - 1;
     assert.equal(count, 10, `${needle} 要有十门语言，实际 ${count}`);
   }
+});
+
+test('远程电脑线路里 cloudflare 通道有中文名，十门语言齐平', () => {
+  const remote = read('React', 'src', 'lib', 'i18n', 'messages', 'remote-computers.ts');
+  const needle = "'panel.remote.channel.cloudflare':";
+  assert.equal(remote.split(needle).length - 1, 10, `${needle} 要有十门语言`);
+  const card = read('React', 'src', 'components', 'RemoteComputersCard.tsx');
+  assert.match(card, /cloudflare: 'cloudflare'/, 'channelText 的键映射要认得 cloudflare');
 });

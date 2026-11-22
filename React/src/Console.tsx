@@ -1,5 +1,6 @@
 // 网络配置与立即更新共用主按钮样式。
 // 固定端口与端口号通过同一次配置保存。
+// Cloudflare 兜底的管理弹窗在这里挂载，连接卡那行「管理」打开它。
 /**
  * 面板控制台（`/api/relay/panel/console`，也是面板主页）：桌面端那颗手机图标点开的那一窗。
  *
@@ -26,6 +27,7 @@ import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@a
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { AutoUpdateSection } from './components/AutoUpdateSection.tsx'
+import { CloudflareDialog } from './components/CloudflareDialog.tsx'
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
 import { PanelWindowActions } from './components/PanelWindowActions.tsx'
@@ -117,6 +119,7 @@ export function Console() {
   const [portOpen, setPortOpen] = useState(false)
   const [tailcatOpen, setTailcatOpen] = useState(false)
   const [p2pOpen, setP2POpen] = useState(false)
+  const [cloudflareOpen, setCloudflareOpen] = useState(false)
   const [inboxOpen, setInboxOpen] = useState(false)
   const notify = useNotify()
   useEffect(() => {
@@ -522,6 +525,7 @@ export function Console() {
               onStopFrp={stopFrpTunnel}
               onManageTailcat={() => setTailcatOpen(true)}
               onManageP2P={() => setP2POpen(true)}
+              onManageCloudflare={() => setCloudflareOpen(true)}
               restartError={status.sidecar.restartError}
             />
           </div>
@@ -554,6 +558,8 @@ export function Console() {
       <TailcatDialog open={tailcatOpen} onOpenChange={setTailcatOpen} onChanged={() => void loadStatus()} />
 
       <P2PDialog open={p2pOpen} onOpenChange={setP2POpen} onChanged={() => void loadStatus()} />
+
+      <CloudflareDialog open={cloudflareOpen} onOpenChange={setCloudflareOpen} status={status} onChanged={() => void loadStatus()} />
 
       <PortDialog
         open={portOpen}

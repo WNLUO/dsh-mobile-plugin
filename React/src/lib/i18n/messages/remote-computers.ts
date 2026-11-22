@@ -71,6 +71,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP 直连',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   'zh-Hant': {
     'panel.remote.title': '遠端電腦',
@@ -141,6 +142,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP 直連',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   en: {
     'panel.remote.title': 'Remote computers',
@@ -211,6 +213,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP direct',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   ja: {
     'panel.remote.title': 'リモートパソコン',
@@ -281,6 +284,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP 直接接続',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   ko: {
     'panel.remote.title': '원격 컴퓨터',
@@ -351,6 +355,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP 직접 연결',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   de: {
     'panel.remote.title': 'Entfernte Computer',
@@ -421,6 +426,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP-Direkt',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   es: {
     'panel.remote.title': 'Ordenadores remotos',
@@ -491,6 +497,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP directo',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   fr: {
     'panel.remote.title': 'Ordinateurs distants',
@@ -561,6 +568,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP direct',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   pt: {
     'panel.remote.title': 'Computadores remotos',
@@ -631,6 +639,7 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'TCP direto',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
   ru: {
     'panel.remote.title': 'Удалённые компьютеры',
@@ -701,5 +710,6 @@ export const REMOTE_COMPUTERS: PanelMessages = {
     'panel.remote.channel.tcp': 'Прямое TCP',
     'panel.remote.channel.tailcat': 'Tailcat',
     'panel.remote.channel.p2p': 'P2P',
+    'panel.remote.channel.cloudflare': 'Cloudflare',
   },
 }
