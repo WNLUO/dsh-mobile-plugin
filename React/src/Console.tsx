@@ -116,7 +116,30 @@ export function Console() {
   const [addressError, setAddressError] = useState('')
   /** 更新卡报上来的版本对不上详情，挂到左列「运行中版本」那行。 */
   const [versionIssues, setVersionIssues] = useState<Issue[]>([])
-  const [configOpen, setConfigOpen] = useState(false)
+  /** 网络配置是独立子页：用地址栏 hash（#network）承载，刷新后仍停在这一页。 */
+  const networkFromHash = () => (typeof window !== 'undefined' && window.location
+    ? window.location.hash.replace(/^#/, '') === 'network'
+    : false)
+  const [configOpen, setConfigOpen] = useState(networkFromHash)
+  // 浏览器前进 / 后退或手改 hash 时，让视图跟着地址走。
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined
+    const sync = () => setConfigOpen(networkFromHash())
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [])
+  const openNetwork = () => {
+    if (typeof window !== 'undefined' && window.location && window.location.hash !== '#network') window.location.hash = 'network'
+    setConfigOpen(true)
+  }
+  const closeNetwork = () => {
+    if (typeof window !== 'undefined' && window.location && window.location.hash) {
+      const base = window.location.pathname + window.location.search
+      if (typeof history !== 'undefined' && typeof history.replaceState === 'function') history.replaceState(null, '', base)
+      else window.location.hash = ''
+    }
+    setConfigOpen(false)
+  }
   const [portOpen, setPortOpen] = useState(false)
   const [tailcatOpen, setTailcatOpen] = useState(false)
   const [p2pOpen, setP2POpen] = useState(false)
@@ -327,7 +350,7 @@ export function Console() {
         if (importedFrp) await stopFrp().catch(() => undefined)
         throw error
       }
-      setConfigOpen(false)
+      closeNetwork()
       await Promise.all([loadPairing(), loadAddresses()])
       notify('soft', t('panel.shell.configSaved'))
     })
@@ -404,6 +427,7 @@ export function Console() {
     <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-4 sm:p-5">
       {/* 顶上一条窄栏：只剩「现在怎么样」与两个出口。没有大标题、没有说明段 ——
           那一屏的空间要留给二维码和设备。 */}
+      {configOpen ? null : (
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {tone ? <Dot tone={tone} /> : null}
@@ -442,6 +466,7 @@ export function Console() {
           <PanelWindowActions />
         </div>
       </header>
+      )}
 
       {fatal ? (
         <Alert variant="error">
@@ -509,7 +534,7 @@ export function Console() {
               onIssues={setVersionIssues}
               extraActions={
                 <>
-                  <Button variant="primary" size="sm" onClick={() => setConfigOpen(true)}>
+                  <Button variant="primary" size="sm" onClick={openNetwork}>
                     {t('panel.pairing.openConfig')}
                   </Button>
                 </>
@@ -546,7 +571,7 @@ export function Console() {
 
       <RelayConfigDialog
         open={configOpen}
-        onOpenChange={setConfigOpen}
+        onOpenChange={(next) => (next ? openNetwork() : closeNetwork())}
         status={status}
         addressBook={addresses}
         addressError={addressError}
@@ -589,7 +614,7 @@ export function Console() {
           「网络配置」按钮直接把上面那扇配置窗打开。 */}
       <PublicRelayNoticeDialog
         visible={isPublicRelayUrl(status.relayUrl)}
-        onOpenConfig={() => setConfigOpen(true)}
+        onOpenConfig={openNetwork}
       />
     </main>
   )

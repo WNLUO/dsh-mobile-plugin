@@ -17,7 +17,7 @@ import { Input } from '@appica/ui-react/input'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
-import { type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
+import { apiPost, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import { AddressPicker } from './AddressPicker.tsx'
@@ -155,6 +155,8 @@ export function RelayConfigDialog({
   const [manualTcpUrl, setManualTcpUrl] = useState('')
   /** TCP 那栏的填写提示：这格只收「主机:端口」，填了带 scheme 的地址就提示去「直连地址」。 */
   const [tcpHint, setTcpHint] = useState('')
+  /** 自建中转的检测结果：用宿主已有的 /api/relay/probe-relays 确认「是不是我们的中转」并取版本、延迟。 */
+  const [selfProbe, setSelfProbe] = useState<{ state: 'idle' | 'checking' | 'ok' | 'not-relay' | 'fail'; ms?: number; version?: string }>({ state: 'idle' })
   /**
    * 局域网地址（`preferredLanAddress`）：**可手填**，不再只让用户从检测到的那几条里挑。
    * 机器有好几块网卡、想直接敲一条地址时用得上；填错了拦在保存那儿（见 `unknownLan`）。
@@ -208,6 +210,7 @@ export function RelayConfigDialog({
       editedPreferredRef.current = false
       setLanHint('')
       setTcpHint('')
+      setSelfProbe({ state: 'idle' })
       return
     }
     if (!editedLanRef.current) setManualLanUrl(addressBook?.manual ?? '')
@@ -242,6 +245,24 @@ export function RelayConfigDialog({
   const publicOff = publicRelayBlocked || publicDisabled
   /** 直连那两条按宿主口径去掉尾部斜杠：它拼出来的是一条候选 URL，多一个 `/` 就多一条重复项。 */
   const trimUrl = (value: string) => value.trim().replace(/\/+$/, '')
+
+  /** 探一下自建中转：确认它是我们这套中转程序、取回版本与延迟；不是 / 连不上都如实说。 */
+  async function checkSelfRelay() {
+    const url = trimUrl(relayUrl)
+    if (!/^https?:\/\//i.test(url)) { setSelfProbe({ state: 'fail' }); return }
+    setSelfProbe({ state: 'checking' })
+    try {
+      const res = await apiPost<{ ok: boolean; results?: Array<{ url: string; ms: number | null; service?: string; version?: string }> }>(
+        '/api/relay/probe-relays', { urls: [url] }, { timeoutMs: 9000 },
+      )
+      const hit = res?.results?.[0]
+      if (hit && typeof hit.ms === 'number' && hit.service === 'dsh-mobile-relay') setSelfProbe({ state: 'ok', ms: hit.ms, version: hit.version })
+      else if (hit && typeof hit.ms === 'number') setSelfProbe({ state: 'not-relay' })
+      else setSelfProbe({ state: 'fail' })
+    } catch {
+      setSelfProbe({ state: 'fail' })
+    }
+  }
 
   function submit() {
     if (!canSave) return
@@ -384,6 +405,14 @@ export function RelayConfigDialog({
                     >
                       {t('panel.relay.selfRepo')}
                     </a>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!canSave || selfProbe.state === 'checking'}
+                      onClick={checkSelfRelay}
+                    >
+                      {t(selfProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                    </Button>
                   </div>
                   <Input
                     inputProps={{ id: 'relay-url', className: 'font-mono' }}
@@ -391,6 +420,20 @@ export function RelayConfigDialog({
                     placeholder="https://example.com"
                     onChange={(event) => setRelayUrl(event.target.value)}
                   />
+                  {!activePublicRelay && /^http:\/\//i.test(trimUrl(relayUrl)) ? (
+                    <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
+                  ) : null}
+                  {selfProbe.state === 'idle' ? null : (
+                    <p className={`text-xs ${selfProbe.state === 'ok' ? 'text-success' : selfProbe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'}`}>
+                      {selfProbe.state === 'checking'
+                        ? t('panel.relay.detecting')
+                        : selfProbe.state === 'ok'
+                          ? `${t('panel.relay.detectOk')}${selfProbe.version ? ` · v${selfProbe.version}` : ''}${typeof selfProbe.ms === 'number' ? ` · ${selfProbe.ms} ms` : ''}`
+                          : selfProbe.state === 'not-relay'
+                            ? t('panel.relay.detectNotOurs')
+                            : t('panel.relay.detectFail')}
+                    </p>
+                  )}
                 </Field>
 
                 <Field>
@@ -404,6 +447,9 @@ export function RelayConfigDialog({
                       setManualLanUrl(event.target.value)
                     }}
                   />
+                  {/^http:\/\//i.test(trimUrl(manualLanUrl)) ? (
+                    <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
+                  ) : null}
                 </Field>
 
                 <Field>

@@ -54,7 +54,8 @@ test('公用中转提示弹窗：只在公用启用时显示、可关闭、挂�
   // 正文的 \n\n 分段靠 whitespace-pre-line 还原，不拆成多条键。
   assert.match(dialog, /whitespace-pre-line/, '正文的分段要能显示出来');
   // 挂在控制台根部，并把网络配置那扇窗的开关传进去。
-  assert.match(consoleSrc, /<PublicRelayNoticeDialog[\s\S]*?onOpenConfig=\{\(\) => setConfigOpen\(true\)\}/, '弹窗要挂在控制台上并接好开配置的回调');
+  // 2026-11-22 需求变更：网络配置改成独立页、用 hash 路由，打开回调由 openNetwork 承载。
+  assert.match(consoleSrc, /<PublicRelayNoticeDialog[\s\S]*?onOpenConfig=\{openNetwork\}/, '弹窗要挂在控制台上并接好开配置的回调');
 });
 
 test('提示弹窗的「网络配置」按钮：关掉自己、打开配置窗', () => {
