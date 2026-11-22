@@ -426,7 +426,10 @@ export function RelayConfigDialog({
       <Card frame="solid">
         {/* 一屏两列（宽够时）：6 个 Field 交给 grid 按行自动填（grid-auto-flow: row），
             每项增减都会自动重排、两列行数均衡；窄窗口自动收成一列。 */}
-        <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 p-4 lg:grid-cols-2">
+        <div className="flex flex-col gap-5 p-4">
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.network.secRelay')}</h3>
+            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
               {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。
                   标题右侧两颗文字按钮：「查看面板」在左、「启用 / 停用」在右（2026-11-19 用户要求）。
                   配了公网自建时宿主会把公用强制停用（status.publicRelayBlocked）：这一栏直接显示
@@ -533,7 +536,12 @@ export function RelayConfigDialog({
                     </p>
                   )}
                 </Field>
+            </div>
+          </section>
 
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.network.secDirect')}</h3>
+            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
@@ -594,7 +602,12 @@ export function RelayConfigDialog({
                   />
                   {tcpHint ? <p className="text-xs text-error">{tcpHint}</p> : null}
                 </Field>
+            </div>
+          </section>
 
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.network.secLocal')}</h3>
+            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
                 {/* 局域网地址：只能从检测到的地址里选（不手填），网卡取不到时可「添加地址」。 */}
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -675,7 +688,12 @@ export function RelayConfigDialog({
                     }}
                   />
                 </Field>
+            </div>
+          </section>
 
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-foreground-strong">{t('panel.network.secFrp')}</h3>
+            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4">
                 {/* FRP 直连管理：把内置 frpc 的配置、启停、运行状态搬过来，替代只做一次导入。 */}
                 <Field className="col-span-full border-t border-border-muted pt-3">
                   <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -702,6 +720,8 @@ export function RelayConfigDialog({
                     </Button>
                   </div>
                 </Field>
+            </div>
+          </section>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">

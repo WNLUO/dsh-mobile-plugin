@@ -100,3 +100,15 @@ test('宿主把公网 IPv4 单列一格并缀进候选（地址库与手机候�
   assert.match(read('lib', 'routes', 'mobile-api.js'), /withManualIpv4Candidate/, '手机 connection-info 候选也要带上');
   assert.match(read('lib', 'relay', 'pairing-payload.cjs'), /withManualIpv4Candidate/, '二维码候选也要带上');
 });
+
+test('网络配置页按分组重构：中转 / 直连 / 局域网与 IPv6 / FRP 分区', () => {
+  const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp']) {
+    assert.ok(page.includes(`'${key}'`), `要有分组标题 ${key}`);
+  }
+  assert.equal((page.match(/<section/g) || []).length, 4, '四个分组 section');
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp']) {
+    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+  }
+});
