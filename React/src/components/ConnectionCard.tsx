@@ -125,32 +125,29 @@ export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageT
   const frpEnabled = frp?.enabled === true || (frp?.enabled === undefined && frp?.configPresent === true)
   const frpConfigured = frp?.configPresent === true || frpEnabled || Boolean(frp?.running || frp?.starting || frp?.retrying)
   // 这一行不摆地址（2026-11-20 用户要求删）：公网 IP 与端口在面板上念一遍没有用途，要查去网络配置里看。
-  let tcpTone: Tone
-  let tcpText: string
+  // 「TCP 直连」与 FRP 是两条不同的线路（2026-11-23 用户口径）：前者的地址是用户手填的，
+  // 后者是本机 frpc 分到的公网地址，各自一行，不再合在一格里。
+  const tcpTone: Tone = tcpTarget ? 'ok' : 'off'
+  const tcpText = tcpTarget ? t('panel.connection.tcpManual') : t('panel.connection.tcpOff')
+  let frpTone: Tone
+  let frpText: string
   if (frp?.running) {
-    tcpTone = 'ok'
-    tcpText = t('panel.connection.tcpRunning')
+    frpTone = 'ok'
+    frpText = t('panel.connection.tcpRunning')
   } else if (frp?.starting || frp?.retrying) {
-    tcpTone = 'warn'
-    tcpText = t('panel.frp.retrying')
+    frpTone = 'warn'
+    frpText = t('panel.frp.retrying')
   } else if (frp?.error) {
-    tcpTone = 'error'
-    tcpText = t('panel.connection.tcpFailed')
+    frpTone = 'error'
+    frpText = t('panel.connection.tcpFailed')
   } else if (frpEnabled) {
     // 有 FRP、已启用，但这一刻没跑起来（既不在启动中也没报错）。
-    tcpTone = 'warn'
-    tcpText = t('panel.connection.tcpEnabledNotRunning')
-  } else if (frpConfigured) {
-    // 只导入了 FRP 配置、还没启用：它没在跑，也没有「停止」可点。
-    tcpTone = 'off'
-    tcpText = t('panel.connection.tcpSet')
-  } else if (tcpTarget) {
-    // 手填的外部 TCP 目标：手机直接拨它，本机不跑 frpc，所以这里只说「用了手填地址」。
-    tcpTone = 'ok'
-    tcpText = t('panel.connection.tcpManual')
+    frpTone = 'warn'
+    frpText = t('panel.connection.tcpEnabledNotRunning')
   } else {
-    tcpTone = 'off'
-    tcpText = t('panel.connection.tcpOff')
+    // 只导入了 FRP 配置、还没启用：它没在跑，也没有「停止」可点。
+    frpTone = 'off'
+    frpText = t('panel.connection.tcpSet')
   }
 
   return (
@@ -198,18 +195,23 @@ export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageT
             </span>
           </InfoRow>
         ) : null}
-        <InfoRow
-          label={t('panel.connection.tcp')}
-          tone={tcpTone}
-          labelExtra={frp?.error ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.tcp'), detail: frp.error }} /> : undefined}
-        >
-          <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
-            <ToneValue tone={tcpTone} text={tcpText} />
-            {frp && (frp.enabled || frp.running || frp.starting || frp.retrying || (frp.enabled === undefined && frp.configPresent)) ? (
-              <Button variant="ghost" size="sm" disabled={busy !== ''} onClick={onStopFrp}>{t('panel.frp.stop')}</Button>
-            ) : null}
-          </span>
+        <InfoRow label={t('panel.connection.tcp')} tone={tcpTone}>
+          <ToneValue tone={tcpTone} text={tcpText} />
         </InfoRow>
+        {frpConfigured ? (
+          <InfoRow
+            label={t('panel.connection.frp')}
+            tone={frpTone}
+            labelExtra={frp?.error ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.frp'), detail: frp.error }} /> : undefined}
+          >
+            <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
+              <ToneValue tone={frpTone} text={frpText} />
+              {frp && (frp.enabled || frp.running || frp.starting || frp.retrying || (frp.enabled === undefined && frp.configPresent)) ? (
+                <Button variant="ghost" size="sm" disabled={busy !== ''} onClick={onStopFrp}>{t('panel.frp.stop')}</Button>
+              ) : null}
+            </span>
+          </InfoRow>
+        ) : null}
         <InfoRow
           label={t('panel.cloudflare.title')}
           tone={cloudflareTone(cloudflare)}

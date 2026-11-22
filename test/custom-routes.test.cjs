@@ -100,6 +100,26 @@ test('节点小宝那条线路按 tcp 通用线路上报，同时补一条老 AP
   assert.equal(bad.filter((a) => a.kind === 'custom').length, 0, '缺端口的地址拨不通，别当成线路');
 });
 
+test('FRP 隧道作为独立线路上报，与用户手填的 TCP 直连互不相干', () => {
+  // 2026-11-23 用户口径：FRP 不是服务商，是本机 frpc 分到的一条隧道，但它同样算一条独立线路。
+  const list = controlAddresses({ ...bare, frpUrl: '103.40.14.14:51543' }, 0, '');
+  const custom = list.filter((a) => a.kind === 'custom');
+  assert.equal(custom.length, 1);
+  assert.deepEqual({ ...custom[0] }, { kind: 'custom', url: '103.40.14.14:51543', name: 'FRP', transport: 'tcp' });
+  assert(list.some((a) => a.kind === 'tcp' && a.url === '103.40.14.14:51543'), '老 APP 从 tcp 这一格认得出这条线路');
+
+  // 两条各报各的：手填的 TCP 直连不会因为 FRP 在跑而被顶掉。
+  const both = controlAddresses({ ...bare, manualTcpUrl: 'example.com:9000', frpUrl: 'frp.example.com:7000' }, 0, '');
+  const names = both.filter((a) => a.kind === 'custom').map((a) => a.name);
+  assert.deepEqual(names, ['FRP']);
+  assert(both.some((a) => a.kind === 'tcp' && a.url === 'example.com:9000'), '手填目标照旧上报');
+
+  // 换成反代出来的 https 域名时按 http 线路走；形状认不出就当没接。
+  const web = controlAddresses({ ...bare, frpUrl: 'https://frp.example.com' }, 0, '');
+  assert.deepEqual({ ...web.filter((a) => a.kind === 'custom')[0] }, { kind: 'custom', url: 'https://frp.example.com', name: 'FRP', transport: 'http' });
+  assert.equal(controlAddresses({ ...bare, frpUrl: 'frp.example.com' }, 0, '').filter((a) => a.kind === 'custom').length, 0);
+});
+
 test('节点小宝换成网页服务后按 http 线路上报，不再是 tcp', () => {
   const list = controlAddresses({ ...bare, jdxbUrl: 'https://weadsad.iepose.cn' }, 0, '');
   const custom = list.filter((a) => a.kind === 'custom');

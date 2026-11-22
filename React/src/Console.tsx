@@ -53,12 +53,10 @@ import {
   apiGet,
   apiPost,
   errorText,
-  importFrp,
   stopFrp,
   pairingRenewIn,
   type AddressBook,
   type ConfigPatch,
-  type FrpStatus,
   type PairingInfo,
   type PairingPolicy,
   type StatusView,
@@ -331,40 +329,16 @@ export function Console() {
     })
 
   /**
-   * 保存网络配置。带 FRP 导入时先拉起本地 frpc，再落配置：
-   * 任一后续步骤失败（导入没起来、或配置没存上）就 `stopFrp` 回滚，别把一条界面说没保存、
-   * 后台却在跑的隧道留在那儿。控制面那条路由不改，进程的回滚只走已有的 `/frp/stop`。
+   * 保存网络配置。
+   *
+   * FRP 的导入在它自己那一栏里完成（导入即启动 frpc、地址写进独立的 `frpUrl`），不再借保存
+   * 这一步捎带：那条隧道现在是一条独立线路，和用户手填的「TCP 直连」互不相干。
    */
-  const saveConfig = (patch: ConfigPatch, frpConfig?: { config: string; field: 'tcp' | 'direct'; value: string }) =>
+  const saveConfig = (patch: ConfigPatch) =>
     act('config', async () => {
-      const nextPatch = { ...patch }
-      let importedFrp = false
-      if (frpConfig) {
-        importedFrp = true
-        let imported: { ok: boolean; status: FrpStatus | null }
-        try {
-          imported = await importFrp(frpConfig.config)
-        } catch (error) {
-          // 导入那一步本身抛错（网络 / 超时）：把可能已拉起的 frpc 停掉再往上抛。
-          await stopFrp().catch(() => undefined)
-          throw error
-        }
-        if (!imported.ok || !imported.status?.running || imported.status.error) {
-          // 导入没起来：回滚可能残留的 frpc，刷新状态后如实报错。
-          await stopFrp().catch(() => undefined)
-          await loadStatus()
-          throw new Error(imported.status?.error || t('panel.connection.tcpFailed'))
-        }
-        // 只有该栏仍是导入结果时才更新服务端实际端口，保留导入后用户手动修改。
-        if (frpConfig.field === 'tcp' && (nextPatch.manualTcpUrl === undefined || nextPatch.manualTcpUrl === frpConfig.value)) {
-          nextPatch.manualTcpUrl = imported.status.remoteAddress || frpConfig.value
-        }
-      }
       try {
-        setStatus(await apiPost<StatusView>('/api/relay/config', nextPatch, { timeoutMs: 60_000 }))
+        setStatus(await apiPost<StatusView>('/api/relay/config', patch, { timeoutMs: 60_000 }))
       } catch (error) {
-        // 配置没存上：导入时拉起的 frpc 一并回滚，避免「界面像没保存、隧道还在跑」。
-        if (importedFrp) await stopFrp().catch(() => undefined)
         throw error
       }
       closeNetwork()
@@ -612,7 +586,7 @@ export function Console() {
         onRetryAddresses={() => void loadAddresses()}
         lanUrls={pairing?.lanUrls ?? []}
         busy={busy}
-        onSave={(patch, frpConfig) => void saveConfig(patch, frpConfig)}
+        onSave={(patch) => void saveConfig(patch)}
         onSavePreferred={(address) => void savePreferredLanAddress(address)}
         onOpenRegion={openRegion}
       />

@@ -104,7 +104,7 @@ type Props = {
   /** 宿主在二维码里给的那串地址：拿不到地址库（老宿主）时退回它，只显示不能选。 */
   lanUrls: string[]
   busy: string
-  onSave: (patch: ConfigPatch, frpConfig?: { config: string; field: 'tcp' | 'direct'; value: string }) => void
+  onSave: (patch: ConfigPatch) => void
   /** 「手机优先用这条」：点了就存、不关窗，所以和上面那个带保存按钮的 `onSave` 分开。 */
   onSavePreferred: (address: string) => void
   /** 点地区入口卡：换到那一页（国内 / 国际，地址由 Console 写进 hash）。 */

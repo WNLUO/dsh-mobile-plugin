@@ -129,14 +129,16 @@ async function consoleEnvironment(overrides = {}) {
   let tree = env.render(); env.flush(); await settle(); tree = env.render();
   return { env, calls, tree };
 }
-test('PLUG-25/30 真正父保存才启动，实际端口不会被推断端口覆盖，停止接既有动作', runtimeOptions, async () => {
+// 2026-11-23 需求变了：FRP 是独立一条线路，导入只写自己的 `frpUrl`，不再借保存去改
+// 「TCP 直连」那一格。这条守卫跟着改成「保存只写配置、且不再顺带触发导入」。
+test('PLUG-25/30 保存只写用户填的配置，FRP 导入不再顺带改 TCP 直连', runtimeOptions, async () => {
   const { env, calls, tree } = await consoleEnvironment();
-  nodes(tree, 'RelayConfigDialog')[0].props.onSave({ manualTcpUrl: 'example.com:22' }, { config: 'CONFIG', field: 'tcp', value: 'example.com:22' });
+  nodes(tree, 'RelayConfigDialog')[0].props.onSave({ manualTcpUrl: 'example.com:22' });
   await settle();
   const posted = calls.find((row) => row[0] === 'post' && row[1] === '/api/relay/config');
-  assert.equal(posted[2].manualTcpUrl, 'example.com:6000');
-  assert.equal(calls.filter((row) => row[0] === 'import').length, 1);
-  nodes(env.render(), 'RelayConfigDialog')[0].props.onSave({ manualTcpUrl: 'example.com:6001' }, { config: 'CONFIG', field: 'tcp', value: 'example.com:22' });
+  assert.equal(posted[2].manualTcpUrl, 'example.com:22', '手填的 TCP 目标原样保存');
+  assert.equal(calls.filter((row) => row[0] === 'import').length, 0, '保存不再顺带导入 FRP');
+  nodes(env.render(), 'RelayConfigDialog')[0].props.onSave({ manualTcpUrl: 'example.com:6001' });
   await settle();
   assert.equal(calls.filter((row) => row[0] === 'post' && row[1] === '/api/relay/config').at(-1)[2].manualTcpUrl, 'example.com:6001', '手改目标必须保留');
   nodes(env.render(), 'ConnectionCard')[0].props.onStopFrp();
@@ -169,28 +171,30 @@ async function probeContract(mutate) {
   }, { setInterval: (fn) => { timers.set(++id, fn); return id; }, clearInterval: (key) => timers.delete(key) }, mutate);
   let props = { open: true, activeUrl: 'https://private.example/', onOpenChange() {} };
   env.render(props); env.flush();
-  assert.deepEqual(Array.from(pending[0].body.urls), ['https://public.example', 'https://private.example']);
+  // 2026-11-23 需求变了：公用中转面板只列内置公用地址，自建那条归它自己那栏的「检测」。
+  assert.deepEqual(Array.from(pending[0].body.urls), ['https://public.example']);
+  assert(!pending[0].body.urls.includes('https://private.example'), '自建中转不混进公用面板');
   for (const tick of timers.values()) { tick(); tick(); }
   assert.equal(pending.length, 1, '未完成的轮次必须互斥');
   props = { ...props, open: false }; env.render(props); env.flush();
   props = { ...props, open: true }; env.render(props); env.flush();
-  pending[0].resolve({ results: [{ url: 'https://private.example', ms: 123 }] }); await settle();
+  pending[0].resolve({ results: [{ url: 'https://public.example', ms: 123 }] }); await settle();
   assert.doesNotMatch(JSON.stringify(env.render(props)), /123 ms/, '旧窗口结果不得污染新窗口');
   for (const tick of timers.values()) tick();
   assert.equal(pending.length, 2);
-  pending[1].resolve({ results: [{ url: 'https://private.example', ms: 123 }] }); await settle();
+  pending[1].resolve({ results: [{ url: 'https://public.example', ms: 123 }] }); await settle();
   assert.match(JSON.stringify(env.render(props)), /123 ms/);
   for (const tick of timers.values()) tick();
   pending[2].reject(new Error('probe rejected')); await settle();
   assert.doesNotMatch(JSON.stringify(env.render(props)), /123 ms/, '整轮请求异常不得沿用旧成功值');
   assert.match(JSON.stringify(env.render(props)), /probe rejected/);
   for (const tick of timers.values()) tick();
-  pending[3].resolve({ results: [{ url: 'https://private.example', ms: null }] }); await settle();
+  pending[3].resolve({ results: [{ url: 'https://public.example', ms: null }] }); await settle();
   assert.doesNotMatch(JSON.stringify(env.render(props)), /123 ms/, '新失败不得沿用旧成功值');
   env.render({ ...props, open: false }); env.flush();
   assert.equal(timers.size, 0);
 }
-test('PLUG-32 慢请求互斥、当前自建送测、关窗失效且失败不冒充旧成功', runtimeOptions, () => probeContract());
+test('PLUG-32 慢请求互斥、只测公用地址、关窗失效且失败不冒充旧成功', runtimeOptions, () => probeContract());
 test('变异：去掉探测互斥会被实际在飞请求数拒绝', runtimeOptions, async () => {
   await assert.rejects(probeContract((source) => source.replace('!alive || inFlightRef.current', '!alive')), assert.AssertionError);
 });
@@ -262,7 +266,7 @@ function routes(frp = {}, mutate) {
   });
   return { table, state, calls };
 }
-test('PLUG-25/29 控制面 INI 零保存启动；停止清 TCP 目标，目的地只回字符串', async () => {
+test('PLUG-25/29 控制面 INI 零保存启动；停止只清 FRP 这条线路，目的地只回字符串', async () => {
   const touched = [];
   const env = routes({ start: async () => touched.push('start'), saveConfig: () => touched.push('save'), clear: async () => ({ enabled: false, running: false }) });
   const response = {};
@@ -270,7 +274,8 @@ test('PLUG-25/29 控制面 INI 零保存启动；停止清 TCP 目标，目的�
   assert.equal(response.code, 400);
   assert.deepEqual(touched, []);
   await env.table.get('/api/relay/frp/stop')({}, {});
-  assert.equal(env.state.manualTcpUrl, '');
+  assert.equal(env.state.frpUrl, '', '停掉 frpc 就是这条线路没了');
+  assert.equal(env.state.manualTcpUrl, 'example.com:22', '用户手填的 TCP 直连不归 FRP 管');
   const status = {};
   await env.table.get('/api/relay/status')({ headers: { host: 'localhost:18787' }, socket: { localAddress: '127.0.0.1', remoteAddress: '127.0.0.1' } }, status);
   assert.equal(status.body.controlReportTargetUrl, 'https://directory.example/findme');
@@ -315,9 +320,9 @@ async function recoveryAddressContract(mutate = (source) => source) {
   });
   const impl = fs.readFileSync(path.join(ROOT, 'lib/impl.js'), 'utf8');
   const binding = impl.slice(impl.indexOf("  mount('frpc 公网地址'"), impl.indexOf('  if (!(frpHost && frpHost.runner))'));
-  const state = { manualTcpUrl: '' };
+  const state = { frpUrl: '', manualTcpUrl: '' };
   vm.runInNewContext(binding, { frpRunner: runner, state, name: 'test', mount: (_label, fn) => fn(),
-    ctx: { effect: (fn) => fn() }, settings: { async update(patch) { Object.assign(state, patch); published.push(patch.manualTcpUrl); } } });
+    ctx: { effect: (fn) => fn() }, settings: { async update(patch) { Object.assign(state, patch); published.push(patch.frpUrl); } } });
   runner.saveConfig('webServer.port = 9000\nserverAddr = "example.com"\n[[proxies]]\nlocalPort = 22');
   try {
     await runner.start();
