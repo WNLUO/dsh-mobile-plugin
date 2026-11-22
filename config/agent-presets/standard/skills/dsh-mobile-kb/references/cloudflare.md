@@ -1,6 +1,6 @@
 # Cloudflare 快隧道兜底
 
-没有服务器、没有域名时，可以用 Cloudflare 快隧道把电脑上的服务端口搬到公网，手机拨 `https://xxx.trycloudflare.com`。它和 frp、natapp 站同一格，顶替的是中转，不是新功能——鉴权和配对还在电脑这侧，Cloudflare 只看到元数据。**这是插件内置的开关，不是让用户自己装 cloudflared、也不是去 Cloudflare 后台建隧道。** 共用的栏位和验收见 `references/selfhost-common.md`。
+没有服务器、没有域名时，可以用 Cloudflare 快隧道把电脑上的服务端口搬到公网，手机拨 `https://xxx.trycloudflare.com`。它和 frp 站同一格，顶替的是中转，不是新功能——鉴权和配对还在电脑这侧，Cloudflare 只看到元数据。**这是插件内置的开关，和 tailcat、P2P 一样默认关闭，不是让用户自己装 cloudflared、也不是去 Cloudflare 后台建隧道。** 共用的栏位和验收见 `references/selfhost-common.md`。
 
 ## 先认清自己站哪边
 
@@ -38,7 +38,7 @@
 
 - 快隧道是 Cloudflare 标「测试用」的：有并发和创建频率限制，没有可用性承诺。少量自用兜底够用，别当 SLA；要长期稳定得回到「有域名 + 一次性授权」的命名隧道。
 - 免费版单请求体上限 100MB，大文件上传会被截断；WSS 分片与 SSE 可穿。
-- tunnel 本身不鉴权：谁拿到 URL 谁能摸到那个端口，挡在前面的是插件令牌 + 配对。两个免鉴权体检口在公网可被扫到，量级同 natapp / frp。
+- tunnel 本身不鉴权：谁拿到 URL 谁能摸到那个端口，挡在前面的是插件令牌 + 配对。两个免鉴权体检口在公网可被扫到，量级同 frp 这类公网入口。
 - 开启期间占用「直连地址」那一格，关闭恢复原值。
 
 ## 几个坑
