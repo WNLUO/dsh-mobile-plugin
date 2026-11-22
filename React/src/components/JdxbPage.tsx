@@ -10,6 +10,7 @@
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 
+import editServiceShot from '../assets/jdxb-edit-service.jpg'
 import type { StatusView } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 import { JdxbLineCard } from './JdxbLineCard.tsx'
@@ -42,7 +43,19 @@ export function JdxbPage({ open, onOpenChange, status }: {
 
       <Card frame="solid">
         <div className="flex flex-col gap-3 p-4">
-          <LineGuide steps={steps} />
+          <LineGuide
+            steps={steps}
+            aside={(
+              <figure className="flex flex-col gap-1">
+                <img
+                  src={editServiceShot}
+                  alt={t('panel.guide.jdxb.caption')}
+                  className="w-full rounded-md border border-border-muted"
+                />
+                <figcaption className="text-xs leading-5 text-foreground-muted">{t('panel.guide.jdxb.caption')}</figcaption>
+              </figure>
+            )}
+          />
           <JdxbLineCard />
         </div>
       </Card>
