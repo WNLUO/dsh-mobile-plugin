@@ -31,6 +31,14 @@ export const RELAY_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-server'
  */
 export const PLUGIN_REPO_URL = 'https://github.com/WNLUO/dsh-mobile-plugin'
 
+/**
+ * 苹果测试版的 TestFlight 邀请链接。
+ *
+ * 两处消费：下载渠道弹窗里的「TestFlight」那条，以及进来就弹的公告弹窗（提示测试版比
+ * 正式版领先好几个版本）。改地址只改这一行，别在两处各写一份。
+ */
+export const TESTFLIGHT_URL = 'https://testflight.apple.com/join/4fn5PCMD'
+
 /** 一个下载渠道：名字 + 一句话说明它是什么，`url` 是直链。 */
 export type DownloadChannel = {
   /** 品牌名，原样显示（GitHub / App Store / TestFlight 这类商标不翻）。 */
@@ -86,7 +94,7 @@ export const DOWNLOAD_CHANNELS: { platform: DownloadPlatform; channels: Download
       {
         name: 'TestFlight',
         hintKey: 'panel.links.testFlight',
-        url: 'https://testflight.apple.com/join/4fn5PCMD',
+        url: TESTFLIGHT_URL,
       },
     ],
   },
