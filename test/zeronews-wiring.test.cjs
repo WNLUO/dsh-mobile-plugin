@@ -48,7 +48,7 @@ test('启动失败会按退避自动重试，连上后把地址写回状态', as
   env.cleanup();
 });
 
-test('第一次接入：装好客户端并打开登录页；身份落盘后状态直接算已接好', async () => {
+test('第一次接入：装好客户端后跑 login 并打开确认链接（不再要 token）；身份落盘后算已接好', async () => {
   const opened = [];
   const updates = [];
   let cleanup = null;
@@ -69,15 +69,41 @@ test('第一次接入：装好客户端并打开登录页；身份落盘后状�
     portOf: () => 18787,
     runnerFactory: () => runner,
     ensure: async () => ({ ok: true, path: '/x', source: 'downloaded' }),
+    loginFlow: async () => ({ already: false, url: 'https://verify.zeronews.cc/abc', error: '' }),
     openUrl: async (url) => { opened.push(url); return true; },
   });
   const result = await facade.prepare();
   assert.equal(result.ok, true);
   assert.equal(result.downloaded, true);
   assert.equal(result.opened, true);
-  assert.deepEqual(opened, ['https://user.zeronews.cc/setup'], '打开的是控制台的快速开始页');
-  assert.equal(facade.status().configured, true, '落盘标记要并进状态，面板据此收起粘贴框');
+  assert.equal(result.loginPending, true);
+  assert.deepEqual(opened, ['https://verify.zeronews.cc/abc'], '打开的是 login 给出的确认链接');
+  assert.equal(facade.status().configured, true, '落盘标记要并进状态，面板据此收起引导');
   cleanup();
+});
+
+test('已登录机器：login 直接回 already，准备阶段不开浏览器就能往下走', async () => {
+  const opened = [];
+  const ctx = { effect: (fn) => { fn(); return () => {}; } };
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: { update: async () => {} },
+    getState: () => ({}),
+    control: {},
+    warn: () => {},
+    ctx,
+    name: 'test-prepare-already',
+    portOf: () => 18787,
+    runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }) }),
+    ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
+    loginFlow: async () => ({ already: true, url: '', error: '' }),
+    openUrl: async (url) => { opened.push(url); return true; },
+  });
+  const result = await facade.prepare();
+  assert.equal(result.ok, true);
+  assert.equal(result.already, true);
+  assert.equal(result.opened, false);
+  assert.deepEqual(opened, [], '已经登录就不该再开确认页');
 });
 
 test('浏览器没打开时如实说没打开，不假装成功', async () => {
@@ -93,12 +119,13 @@ test('浏览器没打开时如实说没打开，不假装成功', async () => {
     portOf: () => 18787,
     runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }) }),
     ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
+    loginFlow: async () => ({ already: false, url: 'https://verify.zeronews.cc/abc', error: '' }),
     openUrl: async () => false,
   });
   const result = await facade.prepare();
   assert.equal(result.ok, true);
   assert.equal(result.opened, false);
-  assert.equal(result.url, 'https://user.zeronews.cc/setup');
+  assert.equal(result.url, 'https://verify.zeronews.cc/abc');
 });
 
 test('浏览器正常打开后 prepare 会返回，面板不会卡在准备中', { timeout: 1000 }, async () => {
@@ -115,6 +142,7 @@ test('浏览器正常打开后 prepare 会返回，面板不会卡在准备中',
     portOf: () => 18787,
     runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }) }),
     ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
+    loginFlow: async () => ({ already: false, url: 'https://verify.zeronews.cc/abc', error: '' }),
     execFile: (_command, args, _options, callback) => {
       commands.push(args);
       setImmediate(() => callback(null, '', ''));
@@ -124,7 +152,7 @@ test('浏览器正常打开后 prepare 会返回，面板不会卡在准备中',
   const result = await facade.prepare();
   assert.equal(result.ok, true);
   assert.equal(result.opened, true);
-  assert.equal(commands.length, 1, '只打开一次登录页');
+  assert.equal(commands.length, 1, '只打开一次确认页');
 });
 
 test('打开命令报错时如实说没打开', { timeout: 1000 }, async () => {
@@ -140,6 +168,7 @@ test('打开命令报错时如实说没打开', { timeout: 1000 }, async () => {
     portOf: () => 18787,
     runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }) }),
     ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
+    loginFlow: async () => ({ already: false, url: 'https://verify.zeronews.cc/abc', error: '' }),
     execFile: (_command, _args, _options, callback) => {
       setImmediate(() => callback(new Error('打不开浏览器')));
       return { on: () => {} };
@@ -148,7 +177,7 @@ test('打开命令报错时如实说没打开', { timeout: 1000 }, async () => {
   const result = await facade.prepare();
   assert.equal(result.ok, true);
   assert.equal(result.opened, false);
-  assert.equal(result.url, 'https://user.zeronews.cc/setup');
+  assert.equal(result.url, 'https://verify.zeronews.cc/abc');
 });
 
 test('客户端意外退出回调会触发自愈重连', async () => {

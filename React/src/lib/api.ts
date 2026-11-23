@@ -151,6 +151,87 @@ export type ZeroNewsActionReply = {
   error?: string | { code: string; message: string }
 }
 
+/** ZeroNews 账号快照里的一条隧道（`GET /api/relay/zeronews/account`）。 */
+export type ZeroNewsAccountTunnel = {
+  id: string
+  /** 协议类型，已大写（HTTPS / TCP / TLS / UDP）。 */
+  type: string
+  feature: string
+  mode: string
+  /** 公网地址：自有域名，或「子域.根域」。 */
+  domain: string
+  enabled: boolean
+  /** 带宽上限（Mbps），0 表示未知。 */
+  bw: number
+  status: string
+  /** 转发到的本机地址 `ip:port`，认不出时为空。 */
+  local: string
+  createdAt: string
+  lastSyncedAt: string
+}
+
+/** ZeroNews 账号快照里的一台设备。 */
+export type ZeroNewsAccountDevice = {
+  id: string
+  name: string
+  hostname: string
+  os: string
+  arch: string
+  version: string
+  ip: string
+  online: boolean
+  enabled: boolean
+  createdAt: string
+  edgeNode: string
+  workspace: string
+}
+
+/** ZeroNews 账号快照里的一条域名。 */
+export type ZeroNewsAccountDomain = {
+  id: string
+  fqdn: string
+  type: string
+  status: string
+  enabled: boolean
+  portCount: number
+}
+
+/**
+ * 账号快照（`GET /api/relay/zeronews/account`）。
+ *
+ * 面板那块服务商主页全靠这一份：`counts` 是「已用数量」（账号下隧道/设备/域名各有几个），
+ * `client` 是这台机器运行态，`account` 是套餐名与脱敏账号。官方 CLI 没有套餐配额上限，
+ * 所以这里只有已用数量、没有 X/Y 的上限。
+ */
+export type ZeroNewsAccount = {
+  ok: boolean
+  available: boolean
+  login?: boolean
+  /** 三张清单是否都读到了；false 时数组可能不全。 */
+  resourcesLoaded?: boolean
+  error?: string
+  client?: {
+    login: boolean
+    loginPending: boolean
+    configured: boolean
+    connected: boolean
+    clientId: string
+    node: string
+    hostname: string
+    os: string
+    arch: string
+    version: string
+    endpointCount: number
+    lastPongAt: string
+    clientEnabled: boolean
+  } | null
+  account?: { planName: string; userId: string; userTel: string }
+  counts?: { tunnels: number; devices: number; domains: number }
+  tunnels?: ZeroNewsAccountTunnel[]
+  devices?: ZeroNewsAccountDevice[]
+  domains?: ZeroNewsAccountDomain[]
+}
+
 export type StatusView = {
   enabled: boolean
   instanceId: string
@@ -855,6 +936,16 @@ export function zeroNewsEndpoints(): Promise<{
     .then((payload) => payload as { ok: boolean; urls: string[]; available: boolean; error: string })
 }
 
+/** 拉一份 ZeroNews 账号快照：套餐/账号、这台机器运行态、账号下隧道 / 设备 / 域名（只读）。 */
+export function zeroNewsAccount(): Promise<ZeroNewsAccount> {
+  return fetch('/api/relay/zeronews/account', { headers: { accept: 'application/json' } })
+    .then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return response.json()
+    })
+    .then((payload) => payload as ZeroNewsAccount)
+}
+
 /** 连接 ZeroNews 线路：自动下载客户端、拉浏览器登录、建隧道；回包带此刻状态。 */
 /**
  * 第一次接入：让宿主把客户端装好，并把登录页丢给系统浏览器。
@@ -862,7 +953,7 @@ export function zeroNewsEndpoints(): Promise<{
  * 面板自己的 `window.open` 在桌面壳里不保证落到系统浏览器，所以这一步交给本机进程做；
  * `opened` 为 false 时界面要把地址写出来，让人手动点。
  */
-export function zeroNewsPrepare(): Promise<{ ok: boolean; downloaded?: boolean; opened?: boolean; url?: string; error?: string }> {
+export function zeroNewsPrepare(): Promise<{ ok: boolean; downloaded?: boolean; opened?: boolean; url?: string; already?: boolean; loginPending?: boolean; error?: string }> {
   return apiPost('/api/relay/zeronews/prepare')
 }
 
