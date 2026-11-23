@@ -12,11 +12,11 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
 
-test('顶卡右列挂网络面板，单一容器且高度拉齐左列', () => {
+test('顶卡右列挂网络面板，单一容器且高度取左列一半', () => {
   const app = read('React', 'src', 'Console.tsx');
   assert.match(app, /lg:col-span-4">\s*<NetworkPanel status=\{status\}/, '右列挂网络面板');
   const panel = read('React', 'src', 'components', 'NetworkPanel.tsx');
-  assert.match(panel, /<Card frame="solid" className="h-full min-h-0 p-3">/, '单一容器且高度拉齐');
+  assert.match(panel, /<Card frame="solid" className="h-1\/2 min-h-0 p-3">/, '单一容器，高度取左列一半且顶部对齐');
   assert.equal((panel.match(/<Card\b/g) ?? []).length, 1, '只有一层卡片容器');
 });
 
