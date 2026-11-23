@@ -12,16 +12,15 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
 
-test('顶卡右列挂网络面板，量左列同高且不拉伸', () => {
+test('顶卡两列同处一个 flex 行，面板跟左列等高且不量高度', () => {
   const app = read('React', 'src', 'Console.tsx');
   assert.match(app, /<NetworkPanel status=\{status\} \/>/, '右列挂网络面板');
-  assert.match(app, /ref=\{pairingColumnRef\}/, '量左列实际高度');
-  assert.match(app, /getBoundingClientRect\(\)\.height\)/, '取左列实际高度');
-  assert.doesNotMatch(app, /getBoundingClientRect\(\)\.height \/ 2/, '不再折半');
-  assert.match(app, /self-start lg:col-span-4/, '右列不拉伸，不撑出空白');
-  assert.match(app, /style=\{panelHeight > 0 \? \{ height: `\$\{panelHeight\}px` \} : undefined\}/, '半高套给右列');
+  assert.match(app, /flex flex-col gap-4 p-4 lg:flex-row/, '两列同处一个 flex 行');
+  assert.match(app, /className="lg:w-2\/5"/, '右列只给宽度，不给高度');
+  assert.doesNotMatch(app, /pairingColumnRef|panelHeight/, '不再量高度套给右列');
+  assert.doesNotMatch(app, /self-start/, '右列不自己缩起来，stretch 跟左列等高');
   const panel = read('React', 'src', 'components', 'NetworkPanel.tsx');
-  assert.match(panel, /<Card frame="solid" className="h-full min-h-0 p-3">/, '单一容器，撑满父级给的半高');
+  assert.match(panel, /<Card frame="solid" className="h-full min-h-0 p-3">/, '单一容器，撑满 stretch 给的高度');
   assert.equal((panel.match(/<Card\b/g) ?? []).length, 1, '只有一层卡片容器');
 });
 

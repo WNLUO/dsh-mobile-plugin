@@ -182,23 +182,6 @@ export function Console() {
     return () => observer.disconnect()
   }, [status])
 
-  /**
-   * 顶卡右列的网络面板：跟左列（配对/二维码那一列）一样高。
-   * 量左列的实际高度套给右列 —— 左列高度由四个控件决定，会随宿主字段与语言变化。
-   * 之前右列用百分比高在 grid 里没有确定的参照，反而把整卡撑出了一截空白。
-   */
-  const pairingColumnRef = useRef<HTMLDivElement | null>(null)
-  const [panelHeight, setPanelHeight] = useState(0)
-  useEffect(() => {
-    const el = pairingColumnRef.current
-    if (!el || typeof ResizeObserver === 'undefined') return undefined
-    const measure = () => setPanelHeight(Math.round(el.getBoundingClientRect().height))
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [status])
-
   const loadStatus = useCallback(async () => {
     try {
       setStatus(await apiGet<StatusView>('/api/relay/status'))
@@ -513,8 +496,8 @@ export function Console() {
       {/* 「网络配置」现在是一整页（见 RelayConfigDialog）：打开时把首页内容收起，只留它那一页。 */}
       <div className={page !== 'home' ? 'hidden' : 'grid grid-cols-1 gap-3'}>
         <Card frame="solid">
-          <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">
-            <div className="lg:col-span-6" ref={pairingColumnRef}>
+          <div className="flex flex-col gap-4 p-4 lg:flex-row lg:gap-6">
+            <div className="lg:w-3/5">
               <PairingCard
                 bare
                 status={status}
@@ -528,11 +511,8 @@ export function Console() {
                 onChangeControlReport={(enabled) => void saveControlReport(enabled)}
               />
             </div>
-            {/* 右列取左列实测高度，不拉伸，避免整卡被撑出一截空白。 */}
-            <div
-              className="self-start lg:col-span-4"
-              style={panelHeight > 0 ? { height: `${panelHeight}px` } : undefined}
-            >
+            {/* 两列同处一个 flex 行，stretch 天然等高：面板跟左列一样高，整卡不留空白。 */}
+            <div className="lg:w-2/5">
               <NetworkPanel status={status} />
             </div>
           </div>
