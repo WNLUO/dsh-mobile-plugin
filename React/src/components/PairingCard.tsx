@@ -127,11 +127,20 @@ export function PairingCard({
   // 二维码占位的尺寸跟随右邻信息行：量它的实际高度，宽高都取这个值才是正方形。
   // 不靠 aspect-ratio 从高度反推宽度——高度由内容撑开时会塌成竖条，把文字挤成竖排。
   const infoRef = React.useRef<HTMLDivElement | null>(null)
-  const [qrSize, setQrSize] = React.useState(0)
+  const qrRef = React.useRef<HTMLDivElement | null>(null)
   React.useEffect(() => {
     const el = infoRef.current
     if (!el || typeof ResizeObserver === 'undefined') return undefined
-    const measure = () => setQrSize(Math.round(el.getBoundingClientRect().height))
+    // 直接把量到的高度写成二维码方块上的 CSS 变量，不 setState：拖窗口时高度每帧都变，
+    // 走 state 会让配对卡整棵子树每帧重渲染，是拖拽卡顿的一部分。
+    const measure = () => {
+      const height = Math.round(el.getBoundingClientRect().height)
+      const target = qrRef.current
+      if (target) {
+        if (height > 0) target.style.setProperty('--qr-size', `${height}px`)
+        else target.style.removeProperty('--qr-size')
+      }
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
@@ -146,8 +155,8 @@ export function PairingCard({
             宽屏尺寸由右邻信息行的实测高度驱动：宽高都取这个值，既是正方形又与最后一行齐平。
             窄屏单列没有可参照的高度，退回限宽 200 的正方形并居中。 */}
         <div
+          ref={qrRef}
           className="relative mx-auto aspect-square w-full max-w-[200px] shrink-0 self-center sm:mx-0 sm:h-[var(--qr-size)] sm:w-[var(--qr-size)] sm:max-w-none sm:self-start"
-          style={qrSize > 0 ? { '--qr-size': `${qrSize}px` } as React.CSSProperties : undefined}
         >
           {!pairing?.svg || !qrCurrent ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-md border border-border-muted bg-background-muted p-3 text-foreground-subtle">

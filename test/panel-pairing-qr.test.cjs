@@ -96,8 +96,9 @@ test('配对与更新合成一张无标题整卡：左六放二维码与控件�
   const update = read('components/UpdateCard.tsx');
   // 2026-11-23 用户要求：右列四个控件挪到二维码旁边，空出来的右列装网络面板。
   // 更新动作仍独占下面一排，不受上面内容高度推动。
-  assert.match(app, /<Card frame="solid">\s*<div className="flex flex-col gap-4 p-4 lg:flex-row lg:gap-6">/, '顶栏是一张整卡，两列同一 flex 行自然等高');
-  assert.match(app, /className="lg:w-3\/5">\s*<PairingCard\s+bare/, '左列放二维码与控件');
+  // 2026-11-24 用户要求：窗口变窄时别过早换行——两列并排的断点从 lg(1024) 降到 880px，窄了靠挤压留白。
+  assert.match(app, /<Card frame="solid"[^>]*>\s*<div className="flex flex-col gap-4 p-4 min-\[880px\]:flex-row min-\[880px\]:gap-6">/, '顶栏是一张整卡，两列同一 flex 行自然等高（880px 起并排）');
+  assert.match(app, /className="min-w-0 min-\[880px\]:w-3\/5">\s*<PairingCard\s+bare/, '左列放二维码与控件');
   assert.ok(card.includes('ALIGNED_ROWS'), '二维码旁的控件行沿用同一套行高');
   assert.match(app, /<NetworkPanel status=\{status\} \/>/, '右列装网络面板');
   assert.match(app, /<div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">\s*<UpdateCard\s+bare/, '更新动作独占一排且垂直居中');

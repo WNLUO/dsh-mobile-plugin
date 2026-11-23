@@ -171,11 +171,17 @@ export function Console() {
    * 连接卡内容较稳，量它的实际高度套给设备卡；设备多了在卡内滚动，不再把整列撑长。
    */
   const connectionRef = useRef<HTMLDivElement | null>(null)
-  const [connectionHeight, setConnectionHeight] = useState(0)
+  const devicesRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     const el = connectionRef.current
     if (!el || typeof ResizeObserver === 'undefined') return undefined
-    const measure = () => setConnectionHeight(el.getBoundingClientRect().height)
+    // 直接把测到的高度写到设备卡节点上，不 setState：拖窗口时高度每帧都在变，一旦走 state
+    // 就会整页 Console 跟着每帧重渲染，正是拖拽卡顿的来源。命令式改一个内联样式就够了。
+    const measure = () => {
+      const height = el.getBoundingClientRect().height
+      const target = devicesRef.current
+      if (target) target.style.height = height > 0 ? `${Math.round(height)}px` : ''
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
@@ -495,9 +501,9 @@ export function Console() {
       */}
       {/* 「网络配置」现在是一整页（见 RelayConfigDialog）：打开时把首页内容收起，只留它那一页。 */}
       <div className={page !== 'home' ? 'hidden' : 'grid grid-cols-1 gap-3'}>
-        <Card frame="solid">
-          <div className="flex flex-col gap-4 p-4 lg:flex-row lg:gap-6">
-            <div className="lg:w-3/5">
+        <Card frame="solid" className="backdrop-blur-none">
+          <div className="flex flex-col gap-4 p-4 min-[880px]:flex-row min-[880px]:gap-6">
+            <div className="min-w-0 min-[880px]:w-3/5">
               <PairingCard
                 bare
                 status={status}
@@ -515,8 +521,8 @@ export function Console() {
               右列宽屏用绝对定位填满：它的高度完全由左列决定，图表自身内容（指标卡 + svg）
               不参与撑高整行，避免把左列下面撑出空白。窄屏单列时退回普通文档流。
             */}
-            <div className="relative lg:w-2/5">
-              <div className="lg:absolute lg:inset-0">
+            <div className="relative min-w-0 min-[880px]:w-2/5">
+              <div className="min-[880px]:absolute min-[880px]:inset-0">
                 <NetworkPanel status={status} />
               </div>
             </div>
@@ -560,7 +566,7 @@ export function Console() {
               restartError={status.sidecar.restartError}
             />
           </div>
-          <div className="min-h-0" style={connectionHeight > 0 ? { height: `${connectionHeight}px` } : undefined}>
+          <div ref={devicesRef} className="min-h-0">
             <DevicesCard busy={busy} fill />
           </div>
         </div>

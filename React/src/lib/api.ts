@@ -232,6 +232,21 @@ export type ZeroNewsAccount = {
   domains?: ZeroNewsAccountDomain[]
 }
 
+/**
+ * 手机↔本机这条连接的累计字节（宿主 `lib/relay/traffic-stats.cjs`）。
+ * `sentBytes` 本机发出（上行 / 总发送），`receivedBytes` 本机收到（下行 / 总接收）。
+ * 老宿主没有这一格，读成 undefined 时按没有流量处理。
+ */
+export type TrafficView = {
+  since: number
+  sentBytes: number
+  receivedBytes: number
+}
+
+/** 面板流速图用的累计快照 + 最近每秒序列。 */
+export type TrafficSample = { at: number; sentBytes: number; receivedBytes: number }
+export type TrafficSeries = TrafficView & { samples: TrafficSample[] }
+
 export type StatusView = {
   enabled: boolean
   instanceId: string
@@ -272,6 +287,11 @@ export type StatusView = {
   publicRelayDisabled?: boolean
   /** 点对点隧道（P2P）的状态；老宿主没有这个字段时按「不可用」处理。 */
   p2p?: P2PStatus | null
+  /**
+   * 手机↔本机这条连接的真实字节累计（上下行）；面板那张流速图按相邻取样差算速率。
+   * 老宿主没有这一格，读成 undefined 时当作暂无流量数据。
+   */
+  traffic?: TrafficView | null
   /** FRP 直连：本地 frpc 进程跑没跑（见 lib/frpc/runner.cjs）；老宿主没有这一格，按 null 处理。 */
   frp?: FrpStatus | null
   /** Cloudflare 兜底隧道：cloudflared 装没装、跑没跑（见 lib/cloudflared/runner.cjs）；老宿主没有这一格，按 null 处理。 */
@@ -888,6 +908,11 @@ export type ProbeRelayResult = {
   version?: string
   instanceId?: string
   apiVersion?: number
+}
+
+/** 面板流速图读取：累计值 + 最近每秒快照（宿主内存，进程重启即清）。 */
+export function getTraffic(): Promise<TrafficSeries> {
+  return apiGet<TrafficSeries>('/api/relay/traffic', { timeoutMs: 8000 })
 }
 
 export function probeRelays(urls: string[]): Promise<{ ok: boolean; results: ProbeRelayResult[] }> {
