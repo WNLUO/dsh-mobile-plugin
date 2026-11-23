@@ -1,14 +1,16 @@
 /**
- * 面板的正式入口：挂全局的胶囊提示，再把整页交给 `Shell`。主题跟着 DSH 父窗口走。
+ * 面板的正式入口：挂全局的胶囊提示与那扇全局弹窗，再把整页交给 `Shell`。主题跟着 DSH 父窗口走。
  *
  * 页面本体（引导页 / 主页二选一）与右上角那组按钮都在 `Shell` 里，所以这一屏与录屏用的
- * 那一份假宿主页面共用同一套外壳（见 A3-45）。
+ * 那一份假宿主页面共用同一套外壳（见 A3-45）。全局弹窗挂在这一层，引导页与控制面板页
+ * 都从它下面过，不必去分流里逐页挂。
  */
 // Android 内嵌页先隔离绘制层；React 启动失败时回传可见错误。
 import { ToastProvider, Toaster } from '@appica/ui-react/toast'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import { GlobalDialog } from './components/GlobalDialog.tsx'
 import { Shell } from './Shell.tsx'
 import { errorText } from './lib/api.ts'
 import { reportPanelState } from './lib/panel-load.ts'
@@ -24,6 +26,7 @@ function Page() {
   return (
     <>
       <Shell />
+      <GlobalDialog />
       <Toaster position="top-right" />
     </>
   )
