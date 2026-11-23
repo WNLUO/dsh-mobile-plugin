@@ -1,4 +1,5 @@
 // ZeroNews 接线层：插件自动更新 / 就地重载把客户端弄断后要能自愈，别卡死在错误上。
+// 打开登录页走真实等待路径的用例要钉住：命令退出就得返回，报错就如实说没打开。
 'use strict';
 
 const assert = require('node:assert/strict');
@@ -93,6 +94,56 @@ test('浏览器没打开时如实说没打开，不假装成功', async () => {
     runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }) }),
     ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
     openUrl: async () => false,
+  });
+  const result = await facade.prepare();
+  assert.equal(result.ok, true);
+  assert.equal(result.opened, false);
+  assert.equal(result.url, 'https://user.zeronews.cc/setup');
+});
+
+test('浏览器正常打开后 prepare 会返回，面板不会卡在准备中', { timeout: 1000 }, async () => {
+  const commands = [];
+  const ctx = { effect: (fn) => { fn(); return () => {}; } };
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: { update: async () => {} },
+    getState: () => ({}),
+    control: {},
+    warn: () => {},
+    ctx,
+    name: 'test-open-success',
+    portOf: () => 18787,
+    runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }) }),
+    ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
+    execFile: (_command, args, _options, callback) => {
+      commands.push(args);
+      setImmediate(() => callback(null, '', ''));
+      return { on: () => {} };
+    },
+  });
+  const result = await facade.prepare();
+  assert.equal(result.ok, true);
+  assert.equal(result.opened, true);
+  assert.equal(commands.length, 1, '只打开一次登录页');
+});
+
+test('打开命令报错时如实说没打开', { timeout: 1000 }, async () => {
+  const ctx = { effect: (fn) => { fn(); return () => {}; } };
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: { update: async () => {} },
+    getState: () => ({}),
+    control: {},
+    warn: () => {},
+    ctx,
+    name: 'test-open-error',
+    portOf: () => 18787,
+    runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }) }),
+    ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
+    execFile: (_command, _args, _options, callback) => {
+      setImmediate(() => callback(new Error('打不开浏览器')));
+      return { on: () => {} };
+    },
   });
   const result = await facade.prepare();
   assert.equal(result.ok, true);
