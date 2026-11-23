@@ -1,16 +1,15 @@
-// ZeroNews 服务商主页：账号套餐概览 + 隧道 / 设备列表 + 一键接入（浏览器确认，不再粘 token）。
+// ZeroNews 服务商主页：账号概览 + 隧道 / 设备左右两栏。进入即看，数据本地留底。
 /**
- * ZeroNews 的配置页（2026-11-23 重做：从「一张引导卡」做成一个能看账号全貌的主页）。
+ * ZeroNews 的配置页（2026-11-23 第二次重做）。
  *
- * 数据来自宿主的只读账号快照（`/api/relay/zeronews/account`，走官方 CLI 的 status + show 三张清单）：
- * 套餐名、脱敏账号、这台机器的运行态、账号下隧道 / 设备 / 域名。官方 CLI 没有「套餐配额上限」，
- * 所以概览只显示「套餐名 + 已用数量」，不编造 X/Y。
+ * 不论新老用户，进这页都是同一张概览：套餐、脱敏账号、连接状态、四个已用数量（隧道 / 设备 /
+ * 在线设备 / 域名），下面隧道与设备左右两栏并排。没有数据就是 0，不再摆多步引导与截图 —— 老用户
+ * 身份早就在本机客户端里，新用户靠一颗「连接」按钮把「装客户端 → 浏览器确认登录 → 建隧道」一次做完。
  *
- * 首次接入全自动：点「开始接入」→ 宿主装好客户端并跑 `zeronews login`，把确认链接丢给系统浏览器；
- * 用户只在浏览器点一次「确认登录」，面板轮询到登录成功就自动起客户端、建隧道。全程不需要复制 token。
- *
- * 老用户（以前走「粘 token」那套）无感：他们的身份早就写进本机客户端配置，`login` 直接为真，
- * 打开这一页即是完整概览，不会让他们重来一遍。token 只在一次请求里经过、面板不留、不存、不显示。
+ * 数据来自宿主的只读账号快照（`/api/relay/zeronews/account`，跑官方 CLI 的 status + show 三张清单）。
+ * 这份数据基本不变，所以**读到就落本地**：下次进页面先用留底直接铺满，再在后台悄悄刷新一次；
+ * 不做定时轮询（只有正在等浏览器确认登录的那一小段才轮询）。官方 CLI 没有套餐配额上限，
+ * 概览只显示套餐名 + 已用数量，不编 X/Y。
  *
  * 返回按钮回「中国」页（`#network/cn`），地址由外层 Console 换。
  */
@@ -25,7 +24,6 @@ import { zeroNewsAccount, zeroNewsConnect, zeroNewsDisconnect, zeroNewsPrepare }
 import { cn, timeText, toneText, type Tone } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
 import { Dot } from './InfoRow.tsx'
-import { LineGuide } from './LineGuide.tsx'
 
 type Props = {
   open: boolean
@@ -37,6 +35,28 @@ type Props = {
 
 /** ZeroNews 控制台地址：概览卡右上角「打开控制台」用。 */
 const CONSOLE_URL = 'https://user.zeronews.cc/'
+/** 账号快照的本地留底：数据基本不变，进来先铺旧的，别每次都空着等网络。 */
+const CACHE_KEY = 'dsh-mobile-plugin:zeronews-account'
+
+function readCache(): ZeroNewsAccount | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return null
+    const value = JSON.parse(raw)
+    return value && typeof value === 'object' ? (value as ZeroNewsAccount) : null
+  } catch {
+    return null
+  }
+}
+
+/** 只留「真的读到账号」那一次：没登录 / 读取失败的空壳不覆盖已有留底。 */
+function writeCache(value: ZeroNewsAccount | null) {
+  try {
+    if (value && value.ok && value.login) localStorage.setItem(CACHE_KEY, JSON.stringify(value))
+  } catch {
+    /* 存不下不影响展示 */
+  }
+}
 
 /** 概览里的一格数字：上面大数字、下面小标签。 */
 function Stat({ value, label }: { value: number | string; label: string }) {
@@ -59,15 +79,15 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
 }
 
 export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
-  /** 账号快照：套餐、运行态、隧道 / 设备 / 域名。null = 还没读到。 */
-  const [snapshot, setSnapshot] = useState<ZeroNewsAccount | null>(null)
-  /** 读取中（刷新按钮转圈）。 */
+  /** 账号快照：先用本地留底，后台再用接口刷新覆盖。 */
+  const [snapshot, setSnapshot] = useState<ZeroNewsAccount | null>(() => readCache())
+  /** 第一次真正去拉（还没留底时转圈）。 */
   const [loading, setLoading] = useState(false)
   /** 页面里的提示（连接结果 / 失败原因 / 打开浏览器失败时的地址）。 */
   const [note, setNote] = useState('')
   /** 连接 / 安装 / 断开进行中。 */
   const [linkBusy, setLinkBusy] = useState(false)
-  /** 已点「开始接入」，正在等浏览器里点确认登录。 */
+  /** 已点「连接」，正在等浏览器里点确认登录。 */
   const [waiting, setWaiting] = useState(false)
   const canSave = busy === ''
 
@@ -90,7 +110,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
         : t('panel.zeronews.linkOff')
   const linkTone: Tone = connected ? 'ok' : phase === 'error' ? 'error' : busyPhase ? 'warn' : 'off'
 
-  /** 关页时把上一轮的提示、等待态一起清掉。 */
+  /** 关页时把提示与等待态清掉（留底本身不动）。 */
   useEffect(() => {
     if (!open) {
       setNote('')
@@ -99,21 +119,21 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     }
   }, [open])
 
-  /** 打开页面时拉一次账号快照（失败也不弹错，保留上一份）。 */
+  /** 进页面：有留底就直接铺，后台悄悄刷一次；没留底才转圈去拉。不做定时轮询。 */
   useEffect(() => {
-    if (open) void refresh(false)
+    if (!open) return
+    void refresh(readCache() === null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  /** 等登录确认期间每 2 秒轮询：一旦 login 变真就自动接着连接（起客户端 + 建隧道）。 */
+  /** 等浏览器确认登录期间每 1.5 秒看一次；登录变真就自动接着连接。 */
   useEffect(() => {
     if (!open || !waiting) return undefined
-    const timer = setInterval(() => { void refresh(false) }, 2000)
+    const timer = setInterval(() => { void refresh(false) }, 1500)
     return () => clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, waiting])
 
-  /** 登录一成功，立刻自动往下走，不用用户再点。 */
   useEffect(() => {
     if (!open || !waiting || snapshot?.login !== true) return
     setWaiting(false)
@@ -125,8 +145,12 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     if (showSpinner) setLoading(true)
     try {
       const next = await zeroNewsAccount()
+      if (next && next.ok === false) {
+        if (showSpinner) setNote(next.error || t('panel.zeronews.loadFailed'))
+        return
+      }
       setSnapshot(next)
-      if (next && next.ok === false) setNote(next.error || t('panel.zeronews.loadFailed'))
+      writeCache(next)
     } catch (error) {
       if (showSpinner) setNote(error instanceof Error ? error.message : String(error))
     } finally {
@@ -153,7 +177,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     }
   }
 
-  /** 第一步：装客户端 + 跑官方 login 拉起浏览器确认。老用户 already 就直接连。 */
+  /** 没登录时的第一次接入：装客户端 + 跑官方 login 拉起浏览器确认。老用户 already 就直接连。 */
   async function startSetup() {
     if (linkBusy) return
     setLinkBusy(true)
@@ -170,8 +194,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
         setWaiting(false)
       } else {
         setWaiting(true)
-        if (!res.opened && res.url) setNote(t('panel.zeronews.openFailed', { url: res.url }))
-        else setNote(t('panel.zeronews.loginWaiting'))
+        setNote(!res.opened && res.url ? t('panel.zeronews.openFailed', { url: res.url }) : t('panel.zeronews.loginWaiting'))
       }
       await refresh(false)
     } catch (error) {
@@ -199,13 +222,14 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     }
   }
 
-  if (!open) return null
+  /** 主按钮一个入口：已连接就断开；有身份就连接；没身份就把首次接入一步做完。 */
+  function onPrimary() {
+    if (connected) return disconnect()
+    if (loggedIn) return connect(false)
+    return startSetup()
+  }
 
-  const steps = [
-    { title: t('panel.guide.zeronews.step1'), body: t('panel.guide.zeronews.step1Body') },
-    { title: t('panel.guide.zeronews.step2'), body: t('panel.guide.zeronews.step2Body') },
-    { title: t('panel.guide.zeronews.step3'), body: t('panel.guide.zeronews.step3Body') },
-  ]
+  if (!open) return null
 
   return (
     <>
@@ -231,54 +255,67 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
         </div>
       </div>
 
-      {loggedIn ? (
-        <div className="flex flex-col gap-3">
-          {/* 概览：套餐 + 账号 + 连接状态，再排四个已用数量。 */}
-          <Card frame="solid">
-            <div className="flex flex-col gap-3 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <Badge variant="soft" size="sm">{account.planName || '—'}</Badge>
-                  <span className="truncate text-xs text-foreground-muted">{account.userTel || account.userId || '—'}</span>
-                </div>
-                <span className={cn('inline-flex shrink-0 items-center gap-1.5 text-xs', toneText[linkTone])}>
-                  <Dot tone={linkTone} />
-                  {statusText}
-                </span>
+      <div className="flex flex-col gap-3">
+        {/* 概览：套餐 + 账号 + 连接状态，四个已用数量，再列机器的接入信息与主操作。 */}
+        <Card frame="solid">
+          <div className="flex flex-col gap-3 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Badge variant="soft" size="sm">{account.planName || '—'}</Badge>
+                <span className="truncate text-xs text-foreground-muted">{account.userTel || account.userId || '—'}</span>
               </div>
-
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Stat value={counts.tunnels} label={t('panel.zeronews.overview.tunnels')} />
-                <Stat value={counts.devices} label={t('panel.zeronews.overview.devices')} />
-                <Stat value={onlineCount} label={t('panel.zeronews.overview.online')} />
-                <Stat value={counts.domains} label={t('panel.zeronews.overview.domains')} />
-              </div>
-
-              <div className="flex flex-col">
-                <Row label={t('panel.zeronews.overview.node')} value={client?.node || ''} mono />
-                <Row
-                  label={t('panel.zeronews.overview.host')}
-                  value={client ? [client.os, client.arch].filter(Boolean).join(' / ') : ''}
-                />
-                <Row label={t('panel.zeronews.overview.clientVersion')} value={client?.version || ''} />
-                <Row label={t('panel.zeronews.overview.lastPong')} value={timeText(client?.lastPongAt)} />
-              </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button variant="ghost" size="sm" disabled={!canSave || linkBusy || !connected} onClick={disconnect}>
-                  {t('panel.zeronews.linkDisconnect')}
-                </Button>
-                <Button variant="outline" size="sm" disabled={!canSave || linkBusy || connected} onClick={() => connect(false)}>
-                  {linkBusy ? t('panel.zeronews.linkConnecting') : t('panel.zeronews.linkConnect')}
-                </Button>
-              </div>
-              {note ? <p className="text-xs text-error">{note}</p> : null}
+              <span className={cn('inline-flex shrink-0 items-center gap-1.5 text-xs', toneText[linkTone])}>
+                <Dot tone={linkTone} />
+                {statusText}
+              </span>
             </div>
-          </Card>
 
-          {/* 账号隧道：域名 / 协议 / 带宽 / 转发到本机哪个端口。 */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Stat value={counts.tunnels} label={t('panel.zeronews.overview.tunnels')} />
+              <Stat value={counts.devices} label={t('panel.zeronews.overview.devices')} />
+              <Stat value={onlineCount} label={t('panel.zeronews.overview.online')} />
+              <Stat value={counts.domains} label={t('panel.zeronews.overview.domains')} />
+            </div>
+
+            <div className="flex flex-col">
+              <Row label={t('panel.zeronews.overview.node')} value={client?.node || ''} mono />
+              <Row
+                label={t('panel.zeronews.overview.host')}
+                value={client ? [client.os, client.arch].filter(Boolean).join(' / ') : ''}
+              />
+              <Row label={t('panel.zeronews.overview.clientVersion')} value={client?.version || ''} />
+              <Row label={t('panel.zeronews.overview.lastPong')} value={timeText(client?.lastPongAt)} />
+            </div>
+
+            {waiting ? (
+              <div className="flex items-center gap-2 text-xs leading-5 text-foreground-muted">
+                <Spinner />
+                <span>{note || t('panel.zeronews.loginWaiting')}</span>
+              </div>
+            ) : null}
+            {!waiting && note ? <p className="text-xs text-error">{note}</p> : null}
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                variant={connected ? 'ghost' : 'primary'}
+                size="sm"
+                disabled={!canSave || linkBusy || waiting}
+                onClick={onPrimary}
+              >
+                {linkBusy
+                  ? (loggedIn ? t('panel.zeronews.linkConnecting') : t('panel.zeronews.preparing'))
+                  : connected
+                    ? t('panel.zeronews.linkDisconnect')
+                    : t('panel.zeronews.linkConnect')}
+              </Button>
+            </div>
+          </div>
+        </Card>
+
+        {/* 隧道与设备左右两栏并排，把横向空间用起来；内容多了各自滚动。 */}
+        <div className="grid gap-3 md:grid-cols-2">
           <Card frame="solid">
-            <div className="flex flex-col gap-2 p-4">
+            <div className="flex max-h-96 flex-col gap-2 overflow-y-auto p-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-medium text-foreground-strong">{t('panel.zeronews.tunnels.title')}</h3>
                 <Badge variant="secondary" size="xs">{counts.tunnels}</Badge>
@@ -286,7 +323,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
               {tunnels.length === 0 ? (
                 <p className="text-xs text-foreground-muted">{t('panel.zeronews.tunnels.empty')}</p>
               ) : (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col">
                   {tunnels.map((tunnel) => (
                     <div key={tunnel.id} className="flex items-start justify-between gap-3 border-b border-border-muted py-2 last:border-b-0">
                       <div className="flex min-w-0 flex-col gap-1">
@@ -307,9 +344,8 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
             </div>
           </Card>
 
-          {/* 账号设备：名称 / 系统 / 版本 / IP / 在线。 */}
           <Card frame="solid">
-            <div className="flex flex-col gap-2 p-4">
+            <div className="flex max-h-96 flex-col gap-2 overflow-y-auto p-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-medium text-foreground-strong">{t('panel.zeronews.devices.title')}</h3>
                 <Badge variant="secondary" size="xs">{counts.devices}</Badge>
@@ -317,7 +353,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
               {devices.length === 0 ? (
                 <p className="text-xs text-foreground-muted">{t('panel.zeronews.devices.empty')}</p>
               ) : (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col">
                   {devices.map((device) => (
                     <div key={device.id} className="flex items-start justify-between gap-3 border-b border-border-muted py-2 last:border-b-0">
                       <div className="flex min-w-0 flex-col gap-1">
@@ -339,34 +375,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
             </div>
           </Card>
         </div>
-      ) : (
-        <Card frame="solid">
-          <div className="flex flex-col gap-3 p-4">
-            <LineGuide steps={steps} />
-            <p className="text-xs leading-5 text-foreground-muted">{t('panel.zeronews.linkHint')}</p>
-
-            {waiting ? (
-              <div className="flex items-center gap-2 text-xs leading-5 text-foreground-muted">
-                <Spinner />
-                <span>{note || t('panel.zeronews.loginWaiting')}</span>
-              </div>
-            ) : null}
-
-            {snapshot && snapshot.available === false ? (
-              <p className="text-xs text-foreground-muted">{t('panel.zeronews.notInstalled')}</p>
-            ) : null}
-
-            {status.zeroNews?.error ? <p className="text-xs text-error">{status.zeroNews.error}</p> : null}
-            {!waiting && note ? <p className="text-xs text-error">{note}</p> : null}
-
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button variant="primary" size="sm" disabled={!canSave || linkBusy || waiting} onClick={startSetup}>
-                {linkBusy ? t('panel.zeronews.preparing') : t('panel.zeronews.prepare')}
-              </Button>
-            </div>
-          </div>
-        </Card>
-      )}
+      </div>
     </>
   )
 }
