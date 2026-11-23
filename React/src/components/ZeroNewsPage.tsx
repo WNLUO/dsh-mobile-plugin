@@ -94,7 +94,9 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
   const phase = status.zeroNews?.phase
   const connected = phase === 'connected'
   const busyPhase = Boolean(phase && phase !== 'off' && phase !== 'error' && phase !== 'connected')
-  const loggedIn = snapshot?.login === true || status.zeroNews?.configured === true || connected
+  // 身份以「本机客户端的实际登录态」为准：快照说没登录就当新用户（哪怕落盘标记是旧的），
+  // 这样即使以前粘过 token、后来客户端被重置，也还能看到显眼的一键接入，而不是一个点了没反应的连接。
+  const loggedIn = snapshot ? (snapshot.login === true || connected) : (status.zeroNews?.configured === true || connected)
   const client = snapshot?.client || null
   const account = snapshot?.account || { planName: '', userId: '', userTel: '' }
   const counts = snapshot?.counts || { tunnels: 0, devices: 0, domains: 0 }
@@ -109,6 +111,8 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
         ? t('panel.zeronews.linkBusy')
         : t('panel.zeronews.linkOff')
   const linkTone: Tone = connected ? 'ok' : phase === 'error' ? 'error' : busyPhase ? 'warn' : 'off'
+  /** 还没接入过（本机没有身份）：给一颗显眼的一键接入按钮，别让新用户找不到入口。 */
+  const firstTime = !loggedIn
 
   /** 关页时把提示与等待态清掉（留底本身不动）。 */
   useEffect(() => {
@@ -167,7 +171,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
       const res = await zeroNewsConnect()
       const error = typeof res.error === 'string' ? res.error : res.error?.message
       if (!res.ok && error) setNote(error)
-      else if (res.phase === 'connected') setNote(t('panel.zeronews.linkOn', { url: res.url || '' }))
+      else if (res.phase === 'connected') setNote('')
       else if (error) setNote(error)
       await refresh(false)
     } catch (error) {
@@ -270,6 +274,19 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
               </span>
             </div>
 
+            {firstTime ? (
+              <div className="flex flex-col gap-2 rounded-md border border-primary/40 bg-primary/5 p-3">
+                <span className="text-sm font-medium text-foreground-strong">{t('panel.zeronews.linkTitle')}</span>
+                <p className="text-xs leading-5 text-foreground-muted">{t('panel.zeronews.linkHint')}</p>
+                {snapshot && snapshot.available === false ? (
+                  <p className="text-xs text-foreground-muted">{t('panel.zeronews.notInstalled')}</p>
+                ) : null}
+                <Button variant="primary" size="sm" className="w-full" disabled={!canSave || linkBusy || waiting} onClick={onPrimary}>
+                  {linkBusy ? t('panel.zeronews.preparing') : waiting ? t('panel.zeronews.linkConnecting') : t('panel.zeronews.prepare')}
+                </Button>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Stat value={counts.tunnels} label={t('panel.zeronews.overview.tunnels')} />
               <Stat value={counts.devices} label={t('panel.zeronews.overview.devices')} />
@@ -295,20 +312,22 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
             ) : null}
             {!waiting && note ? <p className="text-xs text-error">{note}</p> : null}
 
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                variant={connected ? 'ghost' : 'primary'}
-                size="sm"
-                disabled={!canSave || linkBusy || waiting}
-                onClick={onPrimary}
-              >
-                {linkBusy
-                  ? (loggedIn ? t('panel.zeronews.linkConnecting') : t('panel.zeronews.preparing'))
-                  : connected
-                    ? t('panel.zeronews.linkDisconnect')
-                    : t('panel.zeronews.linkConnect')}
-              </Button>
-            </div>
+            {!firstTime ? (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  variant={connected ? 'ghost' : 'primary'}
+                  size="sm"
+                  disabled={!canSave || linkBusy || waiting}
+                  onClick={onPrimary}
+                >
+                  {linkBusy
+                    ? t('panel.zeronews.linkConnecting')
+                    : connected
+                      ? t('panel.zeronews.linkDisconnect')
+                      : t('panel.zeronews.linkConnect')}
+                </Button>
+              </div>
+            ) : null}
           </div>
         </Card>
 
