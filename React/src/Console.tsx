@@ -490,33 +490,18 @@ export function Console() {
 
       {/*
         内容区自上而下：
-        1. 网络配置整卡排最上面（2026-11-23 用户要求）：中转 / 直连 / 局域网与 IPv6 / FRP，
-           以及国内 / 国际线路入口。
-        2. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 6 成放二维码与只读信息
+        1. 顶栏是一张无标题整卡（2026-11-20 用户要求合并）：左边 6 成放二维码与只读信息
            （含运行中版本），右边 4 成全放控件；窄屏整卡收成单列。
            原先这一行的「远程电脑」已抽到独立页（桌面侧边栏那颗电脑图标点开）。
+        2. 网络配置整卡（2026-11-23 用户要求放第二行）：中转 / 直连 / 局域网与 IPv6 / FRP，
+           以及国内 / 国际线路入口。
         3. 「连接状态 + 已绑定设备」并排：设备区高度对齐左边连接卡（见上面那个 ResizeObserver），
            设备再多也在卡内滚动。
         4. 其余维护类卡片按瀑布式几列铺开。
         整页滚动，不做单栏 sticky、也不套内滚动条。
       */}
-      {/* 「网络配置」铺在首页最上面（2026-11-23 用户要求放到顶部）：不再单开一页，顶栏那颗「网络配置」只把它滚进来。 */}
+      {/* 「网络配置」铺在首页第二行（2026-11-23 用户要求）：不再单开一页，顶栏那颗「网络配置」只把它滚进来。 */}
       <div className={page !== 'home' ? 'hidden' : 'grid grid-cols-1 gap-3'}>
-        <div ref={configRef} className="scroll-mt-3">
-          <RelayConfigDialog
-            open={page === 'home'}
-            status={status}
-            addressBook={addresses}
-            addressError={addressError}
-            onRetryAddresses={() => void loadAddresses()}
-            lanUrls={pairing?.lanUrls ?? []}
-            busy={busy}
-            onSave={(patch) => void saveConfig(patch)}
-            onSavePreferred={(address) => void savePreferredLanAddress(address)}
-            onOpenRegion={openRegion}
-          />
-        </div>
-
         <Card frame="solid" className="backdrop-blur-none">
           <div className="flex flex-col gap-4 p-4 min-[880px]:flex-row min-[880px]:gap-6">
             <div className="min-w-0 min-[880px]:w-3/5">
@@ -563,6 +548,22 @@ export function Console() {
             />
           </div>
         </Card>
+
+        {/* 网络配置：首页第二行（顶栏整卡之下、连接与设备之上）。 */}
+        <div ref={configRef} className="scroll-mt-3">
+          <RelayConfigDialog
+            open={page === 'home'}
+            status={status}
+            addressBook={addresses}
+            addressError={addressError}
+            onRetryAddresses={() => void loadAddresses()}
+            lanUrls={pairing?.lanUrls ?? []}
+            busy={busy}
+            onSave={(patch) => void saveConfig(patch)}
+            onSavePreferred={(address) => void savePreferredLanAddress(address)}
+            onOpenRegion={openRegion}
+          />
+        </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div ref={connectionRef}>
