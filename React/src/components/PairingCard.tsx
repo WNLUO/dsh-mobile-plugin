@@ -1,4 +1,4 @@
-// 扫码绑定成功后收起二维码弹窗，收起那一刻不让二维码闪成空白或旧码；放大弹窗左侧放大码、右侧同框摆已绑定设备列表（含解绑与清空历史），地址操作保留小号图标按钮与悬停提示。
+// 扫码绑定成功后收起二维码弹窗，收起那一刻不让二维码闪成空白或旧码；放大弹窗左侧放大码、右侧同框摆已绑定设备列表（含解绑与清空历史）。
 /**
  * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
  *
@@ -8,7 +8,6 @@
  * 看走眼的东西。二维码默认自己会变（配对成功那一刻宿主换码换票据，`rotatePairing`），
  * 但用户仍可在放大弹窗里手动「刷新」换一张新码——那颗按钮跟着大图走，卡片入口不再多摆控件。
  *
- * 地址行操作是小号图标按钮：不加胶囊边框和底色，颜色走主题 token，日夜间自动适配。
  * 2026-11-20 用户要求：整卡按「左显示、右控件」重排——左列放连接信息与运行中版本，
  * 右列放权限档位（三按钮切换）、配对策略、自动上报网络地址。
  */
@@ -27,23 +26,17 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { Switch } from '@appica/ui-react/switch'
 import * as React from 'react'
 
-import type { AddressBook, PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
+import type { PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
 import { isPublicRelayUrl } from '../lib/links.ts'
 import { usePairingCompletion } from '../lib/usePairingCompletion.ts'
-import { AddressPicker } from './AddressPicker.tsx'
 import { DevicesCard } from './DevicesCard.tsx'
 import { ALIGNED_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
 import { IssueMark, type Issue } from './IssueMark.tsx'
 import { InfoMark } from './InfoMark.tsx'
-import { RevealButton } from './RevealButton.tsx'
 
 type Props = {
   status: StatusView
   pairing: PairingInfo | null
-  /** 宿主枚举的地址库：地址那行靠它分「局域网 / 公网」并在原地选优先地址。 */
-  addressBook: AddressBook | null
-  addressError?: string
-  onRetryAddresses?: () => void
   /** 运行中版本：左列最后一行的只读展示。 */
   version: string
   /** 版本对不上的详情，挂在版本号那行的感叹号上。 */
@@ -54,7 +47,6 @@ type Props = {
   onRetryPairing: () => void
   /** 「刷新二维码」：作废当前这张码、换一张新的（放大弹窗底部那颗）。 */
   onRefreshQr: () => void
-  onSavePreferred: (address: string) => void
   /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
   onEditPort: () => void
   /** 只输出正文与动作，外壳由控制台那张合并卡提供。 */
@@ -68,8 +60,7 @@ type Props = {
  * 要多带一个依赖，而且会和手机端拿到的图不一致。未启用远程控制时宿主回 409 并给一句中文，
  * 这里照原样显示。
  *
- * 二维码与中转地址默认遮着，揭开之后不再给「隐藏」（状态不落盘，刷新即回到遮着）；地址那行的
- * 「显示」点开是弹窗，内容多，摊在卡片里会把下面的东西顶下去。
+ * 二维码默认遮着；中转地址与本地识别地址两行按用户要求删掉，地址只在「网络配置」里看和改。
  *
  * 维护动作（重新连接 / 吊销全部设备授权 / 网络配置）都挂这张卡：它们属于「连不上时怎么办」。
  * 吊销不可逆，走一次 window.confirm，这类确认不该藏在拖拽或长按里。
@@ -101,16 +92,12 @@ function QrGlyph() {
 export function PairingCard({
   status,
   pairing,
-  addressBook,
-  addressError = '',
-  onRetryAddresses,
   version,
   versionIssues = [],
   busy,
   error,
   onRetryPairing,
   onRefreshQr,
-  onSavePreferred,
   onEditPort,
   bare = false,
 }: Props) {
@@ -120,18 +107,6 @@ export function PairingCard({
    * 地址可以取 —— 卡片要显示明确的「已关闭」空态，而不是一直转圈的「还没取到二维码」。
    */
   const remoteOff = status.enabled === false
-  /** 「中转地址」那行的明文：默认遮上。 */
-  const relayUrl = pairing?.relayUrl || status.relayUrl || '—'
-  /**
-   * 「手机该填的地址」那行的明文：默认遮上。它是这台机器**此刻真的在用的网卡地址**
-   * （设备名与内网网段都写在里面），比中转地址更值得别摆着。
-   */
-  const phoneAddress = addressError ? 'error' : phoneHintAddress(addressBook, pairing)
-  // 「中转地址」这一行明文摆着、可当场遮上：只当页面里的一次开关，不落盘 ——
-  // 默认值才是那个谨慎的选项，记住了反而把「默认隐藏」抵消掉。
-  // 二维码不在这里：它整块就是个入口，点一下直接开放大弹窗（见下面的二维码格）。
-  const [shown, setShown] = React.useState({ relay: false })
-  const [addressOpen, setAddressOpen] = React.useState(false)
   // 放大二维码：屏幕缩放、手机离得远时，卡片里那颗太小。它只是同一张码的另一个尺寸，
   // 揭开状态另算 —— 关掉弹窗回到卡片里的样子，不改变「默认遮着」那条。
   const [qrZoom, setQrZoom] = React.useState(false)
@@ -163,7 +138,6 @@ export function PairingCard({
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
-  const toggle = (key: keyof typeof shown) => setShown((current) => ({ ...current, [key]: !current[key] }))
 
   const body = (
     <>
@@ -210,22 +184,6 @@ export function PairingCard({
 
         <div ref={infoRef} className="flex min-w-0 flex-1 flex-col">
           <InfoList className={ALIGNED_ROWS}>
-            <InfoRow label={t('panel.connection.relayUrl')} nowrap>
-              <span className="inline-flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
-                {shown.relay ? (
-                  <span className="min-w-0 font-mono text-xs text-foreground-strong">{relayUrl}</span>
-                ) : (
-                  <span className="text-xs text-foreground-subtle">{t('panel.pairing.hidden')}</span>
-                )}
-                <RevealButton
-                  on={shown.relay}
-                  what={t('panel.connection.relayUrl')}
-                  label={shown.relay ? t('panel.common.hide') : t('panel.common.show')}
-                  disabled={relayUrl === '—'}
-                  onClick={() => toggle('relay')}
-                />
-              </span>
-            </InfoRow>
             <InfoRow label={t('panel.pairing.port')} mono nowrap>
               <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 <span>
@@ -261,25 +219,6 @@ export function PairingCard({
               哪条」：手机是按候选顺序挨个试的，所以这个选择在宿主那边就表现为「把选中的排最前」。
               别退回一律写「局域网地址」的写法 —— 服务器上只有公网地址时那就是错的。
             */}
-            {/*
-              本地识别地址：只留一颗「显示」，点开是弹窗。就地摊开时地址一多（局域网几条 + 公网 +
-              IPv6）会把整张卡拉高、把下面的卡顶下去，所以内容挪进弹窗，这一行永远只有一行高。
-              **不给「隐藏」**：关掉弹窗就是遮上了；刷新页面也回到遮着。
-            */}
-            <InfoRow label={t('panel.pairing.phoneAddress')} nowrap>
-              <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-                {phoneAddress ? null : (
-                  <span className="text-xs text-foreground-subtle">{t('panel.pairing.noAddress')}</span>
-                )}
-                <RevealButton
-                  on={false}
-                  what={t('panel.pairing.phoneAddress')}
-                  label={t('panel.common.show')}
-                  disabled={!phoneAddress}
-                  onClick={() => setAddressOpen(true)}
-                />
-              </span>
-            </InfoRow>
             {/* 运行中版本：只读展示，控件都在右列。 */}
             <InfoRow
               label={t('panel.update.runningVersion')}
@@ -332,35 +271,6 @@ export function PairingCard({
         </DialogContent>
       </Dialog>
 
-      {/*
-        「本地识别地址」弹窗：地址清单与「手机优先用这条」都摆在这里。
-        内容可能五六行（局域网几条 + 公网 + IPv6），摊在卡片里会把下面的东西全顶下去，
-        所以点「显示」开这一层。关掉就是遮上，不再有「隐藏」那颗按钮。
-      */}
-      <Dialog open={addressOpen} onOpenChange={setAddressOpen}>
-        <DialogContent className="max-w-xl" closeLabel={t('panel.common.close')}>
-          <DialogHeader>
-            <DialogTitle>{t('panel.pairing.phoneAddress')}</DialogTitle>
-          </DialogHeader>
-          <DialogBody>
-            <AddressPicker
-              book={addressBook}
-              error={addressError}
-              onRetry={onRetryAddresses}
-              port={pairing?.lanPort ?? status.lan.port}
-              value={addressBook?.preferred ?? ''}
-              busy={idle}
-              onChange={onSavePreferred}
-              fallbackUrls={pairing?.lanUrls ?? []}
-            />
-          </DialogBody>
-          <DialogFooter className="flex justify-end">
-            <Button variant="outline" onClick={() => setAddressOpen(false)}>
-              {t('panel.common.close')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
     </>
   )
@@ -463,10 +373,4 @@ export function PairingPolicyRows({
       </Dialog>
     </>
   )
-}
-
-/** 这一行现在有没有值可揭：一眼能看出来的「还没取到地址」就别给一颗点了没反应的按钮。 */
-function phoneHintAddress(book: AddressBook | null, pairing: PairingInfo | null): string {
-  if (book && book.lan.length + book.public.length > 0) return 'book'
-  return pairing?.lanUrls?.[0] ?? ''
 }

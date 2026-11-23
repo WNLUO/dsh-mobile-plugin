@@ -502,16 +502,12 @@ export function Console() {
                 bare
                 status={status}
                 pairing={pairing}
-                addressBook={addresses}
-                addressError={addressError}
-                onRetryAddresses={() => void loadAddresses()}
                 version={status.appVersion || ''}
                 versionIssues={versionIssues}
                 busy={busy}
                 error={pairingError}
                 onRetryPairing={() => void loadPairing()}
                 onRefreshQr={() => void refreshQr()}
-                onSavePreferred={(address) => void savePreferredLanAddress(address)}
                 onEditPort={() => setPortOpen(true)}
               />
             </div>

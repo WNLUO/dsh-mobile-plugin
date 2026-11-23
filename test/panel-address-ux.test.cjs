@@ -20,7 +20,7 @@ const path = require('node:path');
 const COMPONENTS = path.join(__dirname, '..', 'React', 'src', 'components');
 const read = (name) => fs.readFileSync(path.join(COMPONENTS, name), 'utf8');
 
-test('地址按检测出来的那份给标签，配对卡与「网络配置」共用同一个选择器', () => {
+test('地址按检测出来的那份给标签，2026-11-23 起只在「网络配置」一处选', () => {
   const picker = read('AddressPicker.tsx');
   // 两份清单各自的名字：有私网就是局域网地址，一条私网都没有才是公网地址。
   assert.match(picker, /局域网地址/, '选择器必须会写「局域网地址」这一种');
@@ -32,9 +32,9 @@ test('地址按检测出来的那份给标签，配对卡与「网络配置」�
     /book\.lan\.length > 0 \? book\.lan : book\.public/,
     '能选的那份要与宿主 advertisedCandidates 同口径',
   );
-  for (const name of ['PairingCard.tsx', 'RelayConfigDialog.tsx']) {
-    assert.match(read(name), /AddressPicker/, `${name} 必须用共用的地址选择器，别各写一份口径`);
-  }
+  // 2026-11-23 需求变更：配对卡上「本地识别地址」那行连同弹窗一起删了，地址只在
+  // 「网络配置」这一处看和改。选择器因此只剩一份实现，不用再防两处各写一遍。
+  assert.match(read('RelayConfigDialog.tsx'), /AddressPicker/, '网络配置必须用共用的地址选择器');
   // 地址只剩「网络配置」一个入口：端口弹窗只管一个数字，不许再摆选择器。
   assert.ok(
     !read('PortDialog.tsx').includes('AddressPicker'),
