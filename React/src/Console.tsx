@@ -511,9 +511,14 @@ export function Console() {
                 onChangeControlReport={(enabled) => void saveControlReport(enabled)}
               />
             </div>
-            {/* 两列同处一个 flex 行，stretch 天然等高：面板跟左列一样高，整卡不留空白。 */}
-            <div className="lg:w-2/5">
-              <NetworkPanel status={status} />
+            {/*
+              右列宽屏用绝对定位填满：它的高度完全由左列决定，图表自身内容（指标卡 + svg）
+              不参与撑高整行，避免把左列下面撑出空白。窄屏单列时退回普通文档流。
+            */}
+            <div className="relative lg:w-2/5">
+              <div className="lg:absolute lg:inset-0">
+                <NetworkPanel status={status} />
+              </div>
             </div>
           </div>
 
