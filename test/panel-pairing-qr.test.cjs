@@ -90,16 +90,16 @@ test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () =
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
 });
 
-test('配对与更新合成一张无标题整卡：左六放二维码/信息，右四放控件，更新动作独占一排', () => {
+test('配对与更新合成一张无标题整卡：左六放二维码与控件，右四留空，更新动作独占一排', () => {
   const app = read('Console.tsx');
   const card = read('components/PairingCard.tsx');
   const update = read('components/UpdateCard.tsx');
-  // 2026-11-20 用户要求合并为一个区域、不要标题：上方 6:4 两栏（左只读、右控件），
-  // 更新动作独占下面一排，不受上面内容高度推动。
+  // 2026-11-23 用户要求：右列四个控件挪到二维码旁边，右列留空等后续加新东西。
+  // 更新动作仍独占下面一排，不受上面内容高度推动。
   assert.match(app, /<Card frame="solid">\s*<div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">/, '顶栏是一张整卡，窄屏单列');
   assert.match(app, /lg:col-span-6">\s*<PairingCard\s+bare/, '左栏 6 成取连接信息');
-  assert.ok(app.includes('ALIGNED_ROWS') && card.includes('ALIGNED_ROWS'), '左栏与右栏信息行共用同一套行高');
-  assert.match(app, /lg:col-span-4">\s*<InfoList className=\{ALIGNED_ROWS\}>\s*<PairingPolicyRows/, '右栏 4 成先放配对设置');
+  assert.ok(card.includes('ALIGNED_ROWS'), '二维码旁的控件行沿用同一套行高');
+  assert.match(app, /lg:col-span-4"\s*\/>/, '2026-11-23 起右列留空，等后续加新东西');
   assert.match(app, /<div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">\s*<UpdateCard\s+bare/, '更新动作独占一排且垂直居中');
   assert.match(update, /flex flex-wrap justify-end gap-1 lg:flex-nowrap/, '宽屏动作行不换行，四颗按钮横着排；小屏才允许折行');
   assert.doesNotMatch(app, /<PairingCard\s+fill|<UpdateCard\s+fill/, '等高开关已撤');
@@ -108,21 +108,22 @@ test('配对与更新合成一张无标题整卡：左六放二维码/信息，�
   assert.doesNotMatch(card, /fill \? 'flex h-full min-h-0 flex-col'/, '不再有 fill 全高分支');
   assert.doesNotMatch(update, /fill \? 'flex h-full min-h-0 flex-col'/, '不再有 fill 全高分支');
   // 信息行顶部对齐、跟二维码齐平，多出的高度留在卡片下方；信息行这层不许再垂直居中。
-  assert.match(card, /className="flex min-w-0 flex-1 flex-col"/, '信息行顶部对齐，不靠 justify 拉散');
+  assert.match(card, /className="flex min-w-0 flex-1 flex-col"/, '二维码旁的控件列顶部对齐，不靠 justify 拉散');
   assert.doesNotMatch(card, /flex-1 flex-col justify-/, '信息行不许 justify-around/center 把行拉到中间');
   assert.doesNotMatch(card, /hscroll|min-w-max/, '信息行自然换行，不再横向滚动截掉标签');
 });
 
-test('整卡左显示右控件：运行中版本在左，自动上报在右', () => {
+test('整卡左二维码右留空：端口与版本搬到连接状态卡，三个开关跟着二维码', () => {
   const app = read('Console.tsx');
   const card = read('components/PairingCard.tsx');
-  // 2026-11-20 用户要求：左列只读、右列控件。
+  // 2026-11-23 用户要求：端口与版本两行搬到连接状态卡，开关挪到二维码旁。
   assert.doesNotMatch(card, /moreOpen|panel\.common\.more/, '「其他」弹窗入口已撤');
-  assert.match(card, /panel\.update\.runningVersion/, '运行中版本在左列');
-  // 2026-11-20：配对卡属性变多，`<PairingCard` 到 `version=` 已相隔 260 余字符，原 200 窗口不够；
-  // 只是窗口宽度，断言本身（版本值真的传给左列）不变，放宽到 400。
-  assert.match(app, /<PairingCard[\s\S]{0,400}version=\{status\.appVersion \|\| ''\}/, '版本值传给左列');
-  assert.match(app, /<PairingPolicyRows[\s\S]{0,400}onChangeControlReport/, '自动上报回调交给右列控件');
+  assert.doesNotMatch(card, /panel\.update\.runningVersion/, '运行中版本已搬到连接状态卡');
+  const connection = read('components/ConnectionCard.tsx');
+  assert.match(connection, /panel\.update\.runningVersion/, '运行中版本在连接状态卡');
+  // 版本值现在交给连接状态卡（配对卡不再收 version）。
+  assert.match(app, /<ConnectionCard[\s\S]{0,400}version=\{status\.appVersion \|\| ''\}/, '版本值传给连接状态卡');
+  assert.match(card, /<PairingPolicyRows[\s\S]{0,200}onChangeControlReport/, '自动上报回调交给二维码旁的控件');
   assert.doesNotMatch(card, /onOpenSelfCheck|onOpenConfig|DownloadAppButton/, '网络配置、检查网络、下载 APP 都不在配对卡');
   assert.match(app, /keepApplyError: true/, '配置保存回填宿主状态，开关点下即变');
   assert.match(app, /if \(payload\.applyError\) \{[\s\S]{0,80}notify\('error'/, '下发失败仍按原口径报错，不说成已成功');

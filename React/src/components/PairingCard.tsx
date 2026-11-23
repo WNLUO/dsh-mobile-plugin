@@ -8,8 +8,9 @@
  * 看走眼的东西。二维码默认自己会变（配对成功那一刻宿主换码换票据，`rotatePairing`），
  * 但用户仍可在放大弹窗里手动「刷新」换一张新码——那颗按钮跟着大图走，卡片入口不再多摆控件。
  *
- * 2026-11-20 用户要求：整卡按「左显示、右控件」重排——左列放连接信息与运行中版本，
- * 右列放权限档位（三按钮切换）、配对策略、自动上报网络地址。
+ * 2026-11-23 用户要求：端口与运行中版本两行搬到下方连接状态卡；原来在 Console 右列的
+ * 四个控件（允许配对 / 远程控制 / 自动上报 / 自动更新）挪到二维码旁边，右列留空。
+ * 二维码尺寸继续量右邻那一列的实测高度（见下面的 ResizeObserver）。
  */
 import { t } from '../lib/i18n/index.ts'
 import { Button } from '@appica/ui-react/button'
@@ -29,26 +30,24 @@ import * as React from 'react'
 import type { PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
 import { isPublicRelayUrl } from '../lib/links.ts'
 import { usePairingCompletion } from '../lib/usePairingCompletion.ts'
+import { AutoUpdateSection } from './AutoUpdateSection.tsx'
 import { DevicesCard } from './DevicesCard.tsx'
 import { ALIGNED_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
-import { IssueMark, type Issue } from './IssueMark.tsx'
 import { InfoMark } from './InfoMark.tsx'
 
 type Props = {
   status: StatusView
   pairing: PairingInfo | null
-  /** 运行中版本：左列最后一行的只读展示。 */
-  version: string
-  /** 版本对不上的详情，挂在版本号那行的感叹号上。 */
-  versionIssues?: Issue[]
   busy: string
   error: string
   /** 上一次重启 sidecar 的失败原因；成功时是 null。 */
   onRetryPairing: () => void
   /** 「刷新二维码」：作废当前这张码、换一张新的（放大弹窗底部那颗）。 */
   onRefreshQr: () => void
-  /** 「修改」：开「局域网端口」那个弹窗（改的是配置里的首选端口）。 */
-  onEditPort: () => void
+  /** 三个开关从 Console 右列挪来，紧挨二维码：允许配对、远程控制、自动上报。 */
+  onChangePolicy: (policy: PairingPolicy) => void
+  onToggleRemote: (enabled: boolean) => void
+  onChangeControlReport: (enabled: boolean) => void
   /** 只输出正文与动作，外壳由控制台那张合并卡提供。 */
   bare?: boolean
 }
@@ -92,13 +91,13 @@ function QrGlyph() {
 export function PairingCard({
   status,
   pairing,
-  version,
-  versionIssues = [],
   busy,
   error,
   onRetryPairing,
   onRefreshQr,
-  onEditPort,
+  onChangePolicy,
+  onToggleRemote,
+  onChangeControlReport,
   bare = false,
 }: Props) {
   const idle = busy !== ''
@@ -184,50 +183,15 @@ export function PairingCard({
 
         <div ref={infoRef} className="flex min-w-0 flex-1 flex-col">
           <InfoList className={ALIGNED_ROWS}>
-            <InfoRow label={t('panel.pairing.port')} mono nowrap>
-              <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
-                <span>
-                  {pairing?.lanPort ?? status.lan.port}
-                  {pairing?.lanPortAdjusted ? (
-                    <span className="ml-2 font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
-                  ) : null}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={t('panel.pairing.portTitle')}
-                  title={t('panel.pairing.portTitle')}
-                  disabled={idle}
-                  onClick={onEditPort}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="m16 3 5 5M4 15 16 3a3.54 3.54 0 0 1 5 5L9 20l-6 1 1-6Z" />
-                  </svg>
-                </Button>
-              </span>
-            </InfoRow>
-            {/*
-              地址按**检测出来的那一份**分类型给标签（局域网 / 公网），并在原地就能选「手机优先用
-              哪条」：手机是按候选顺序挨个试的，所以这个选择在宿主那边就表现为「把选中的排最前」。
-              别退回一律写「局域网地址」的写法 —— 服务器上只有公网地址时那就是错的。
-            */}
-            {/* 运行中版本：只读展示，控件都在右列。 */}
-            <InfoRow
-              label={t('panel.update.runningVersion')}
-              mono
-              labelExtra={versionIssues.length > 0 ? <IssueMark issue={versionIssues[0]} /> : undefined}
-            >
-              {version || t('panel.update.unknownVersion')}
-            </InfoRow>
+            <PairingPolicyRows
+              status={status}
+              busy={busy}
+              onChangePolicy={onChangePolicy}
+              onToggleRemote={onToggleRemote}
+              onChangeControlReport={onChangeControlReport}
+            />
           </InfoList>
+          <AutoUpdateSection />
         </div>
       </div>
 

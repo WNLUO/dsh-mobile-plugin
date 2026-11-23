@@ -14,13 +14,19 @@ import { Card } from '@appica/ui-react/card'
 import type { AddressBook, CloudflareStatus, P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone, type Tone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
-import { IssueMark } from './IssueMark.tsx'
+import { IssueMark, type Issue } from './IssueMark.tsx'
 import { connectionFeedbackFacts } from '../lib/feedback-diagnostics.ts'
 
 type Props = {
   status: StatusView
   /** 地址库：TCP 直连这条要从里面读配置的 `manualTcp`（状态接口不带它）。 */
   addressBook: AddressBook | null
+  /** 2026-11-23 从配对卡挪来：端口与版本，都是只读展示。 */
+  port: number
+  portAdjusted?: boolean
+  version: string
+  versionIssues: Issue[]
+  onEditPort: () => void
   busy: string
   onStopFrp: () => void
   /** 「管理」那颗：打开 Tailcat 隧道的弹窗（查看 / 开关 / 移除手机）。 */
@@ -104,15 +110,14 @@ function cloudflareTone(cf: CloudflareStatus | null): Tone {
  * 下一步做什么」摆在同一张卡里 —— 那句英文原文（`1008 bad registration secret`）不指向
  * 任何可执行动作。
  *
- * 「插件版本」与「局域网直连」两行**不在这张卡里**（2026-11-02 用户要求删）：版本号在上面的
- * 「插件更新」卡里已经有，「局域网直连」那行原本只是开弹窗的按钮，端口现在直接在「配对与
- * 二维码」里改（见 components/PortDialog.tsx），状态想看得去「网络配置」。
+ * 「局域网端口」与「运行中版本」两行 2026-11-23 由用户从配对卡挪到这里：它们本来就是只读
+ * 事实，和这张卡其余各行放一起更顺。端口那颗编辑按钮仍开同一个弹窗（PortDialog）。
  *
  * **中转地址不在这张卡里**（2026-10-26 用户要求删）：域名长的时候那一行会把「隐藏」那颗
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageTailcat, onManageP2P, onManageCloudflare, restartError }: Props) {
+export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, version, versionIssues, onEditPort, onStopFrp, onManageTailcat, onManageP2P, onManageCloudflare, restartError }: Props) {
   const tunnel = status.tunnel
   const tailcat = status.tailcat ?? null
   const p2p = status.p2p ?? null
@@ -155,6 +160,43 @@ export function ConnectionCard({ status, addressBook, busy, onStopFrp, onManageT
       <InfoList>
         <InfoRow label={t('panel.connection.platform')}>
           {status.platform} {status.osVersion} · {status.arch}
+        </InfoRow>
+        <InfoRow label={t('panel.pairing.port')} mono nowrap>
+          <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+            <span>
+              {port}
+              {portAdjusted ? (
+                <span className="ml-2 font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
+              ) : null}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t('panel.pairing.portTitle')}
+              title={t('panel.pairing.portTitle')}
+              disabled={busy !== ''}
+              onClick={onEditPort}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m16 3 5 5M4 15 16 3a3.54 3.54 0 0 1 5 5L9 20l-6 1 1-6Z" />
+              </svg>
+            </Button>
+          </span>
+        </InfoRow>
+        <InfoRow
+          label={t('panel.update.runningVersion')}
+          mono
+          labelExtra={versionIssues.length > 0 ? <IssueMark issue={versionIssues[0]} /> : undefined}
+        >
+          {version || t('panel.update.unknownVersion')}
         </InfoRow>
         <InfoRow
           label={t('panel.connection.tunnel')}

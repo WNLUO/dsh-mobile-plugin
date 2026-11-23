@@ -27,7 +27,6 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@appica/ui-react/dialog'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { AutoUpdateSection } from './components/AutoUpdateSection.tsx'
 import { ChinaLinesPage } from './components/ChinaLinesPage.tsx'
 import { CloudflareDialog } from './components/CloudflareDialog.tsx'
 import { CloudflarePage } from './components/CloudflarePage.tsx'
@@ -42,7 +41,7 @@ import { DevicesCard } from './components/DevicesCard.tsx'
 import { FloatingActions } from './components/FloatingActions.tsx'
 import { InboxCard } from './components/InboxCard.tsx'
 import type { Issue } from './components/IssueMark.tsx'
-import { PairingCard, PairingPolicyRows } from './components/PairingCard.tsx'
+import { PairingCard } from './components/PairingCard.tsx'
 import { P2PDialog } from './components/P2PDialog.tsx'
 import { PortDialog } from './components/PortDialog.tsx'
 import { PublicRelayNoticeDialog } from './components/PublicRelayNoticeDialog.tsx'
@@ -61,7 +60,7 @@ import {
   type PairingPolicy,
   type StatusView,
 } from './lib/api.ts'
-import { Dot, ALIGNED_ROWS, InfoList } from './components/InfoRow.tsx'
+import { Dot } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
 import { isPublicRelayUrl } from './lib/links.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
@@ -502,33 +501,21 @@ export function Console() {
                 bare
                 status={status}
                 pairing={pairing}
-                version={status.appVersion || ''}
-                versionIssues={versionIssues}
                 busy={busy}
                 error={pairingError}
                 onRetryPairing={() => void loadPairing()}
                 onRefreshQr={() => void refreshQr()}
-                onEditPort={() => setPortOpen(true)}
+                onChangePolicy={(policy) => void savePolicy(policy)}
+                onToggleRemote={(enabled) => void toggle(enabled)}
+                onChangeControlReport={(enabled) => void saveControlReport(enabled)}
               />
             </div>
-            <div className="lg:col-span-4">
-              <InfoList className={ALIGNED_ROWS}>
-                <PairingPolicyRows
-                  status={status}
-                  busy={busy}
-                  onChangePolicy={(policy) => void savePolicy(policy)}
-                  onToggleRemote={(enabled) => void toggle(enabled)}
-                  onChangeControlReport={(enabled) => void saveControlReport(enabled)}
-                />
-              </InfoList>
-              {/* 右列最后一段：自动更新（2026-11-20 从「插件更新」卡挪来），与上面那几行
-                  同列、自带一段标题与问号说明。 */}
-              <AutoUpdateSection />
-            </div>
+            {/* 右列先留空：2026-11-23 起四个控件挪到二维码旁边，这里等后续加新东西。 */}
+            <div className="lg:col-span-4" />
           </div>
 
-          {/* 更新区独占一排：上面三列内容再怎么变，都不推动这一排按钮。
-              版本对不上的详情交给左列「运行中版本」那行的感叹号。 */}
+          {/* 更新区独占一排：上面两列内容再怎么变，都不推动这一排按钮。
+              版本对不上的详情交给连接状态卡「运行中版本」那行的感叹号。 */}
           <div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">
             <UpdateCard
               bare
@@ -553,6 +540,11 @@ export function Console() {
               status={status}
               addressBook={addresses}
               busy={busy}
+              port={pairing?.lanPort ?? status.lan.port}
+              portAdjusted={pairing?.lanPortAdjusted}
+              version={status.appVersion || ''}
+              versionIssues={versionIssues}
+              onEditPort={() => setPortOpen(true)}
               onStopFrp={stopFrpTunnel}
               onManageTailcat={() => setTailcatOpen(true)}
               onManageP2P={() => setP2POpen(true)}
