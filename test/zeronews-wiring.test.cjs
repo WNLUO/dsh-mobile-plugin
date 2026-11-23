@@ -221,3 +221,91 @@ test('显式断开后不再自动重连', async () => {
   await tick();
   assert.equal(calls, afterCleanup, '清理/断开后不应再有新的重试');
 });
+
+// ── 登录兑换：login 必须留在后台轮询设备码，不能 NO_TTY 秒退、也不能拿到地址就杀 ──
+
+const { EventEmitter } = require('node:events');
+
+/** 假 spawn：可指定打印一行输出、是否输出 already、以及是否打印后仍存活（轮询）。 */
+function fakeLoginSpawn(records, { line = '', already = false, retain = true } = {}) {
+  return (_bin, args, opts) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.killed = false;
+    child.kill = () => { child.killed = true; };
+    records.push({ args, opts, child });
+    setImmediate(() => {
+      if (already) { child.stdout.emit('data', 'already logged in\n'); child.emit('exit', 0); return; }
+      if (line) child.stdout.emit('data', `${line}\n`);
+      if (!retain) child.emit('exit', 0);
+    });
+    return child;
+  };
+}
+
+function mountLogin(overrides = {}) {
+  let cleanup = null;
+  const ctx = { effect: (fn) => { cleanup = fn(); return () => {}; } };
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: { update: async () => {} },
+    getState: () => ({}),
+    control: {},
+    warn: () => {},
+    ctx,
+    name: 'test-login',
+    portOf: () => 18787,
+    runnerFactory: () => ({ start: async () => ({ phase: 'off' }), stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off', configured: false }) }),
+    ensure: async () => ({ ok: true, path: '/x', source: 'cache' }),
+    ...overrides,
+  });
+  return { facade, cleanup: () => cleanup && cleanup() };
+}
+
+test('首次登录：拿到确认地址就打开，但 login 进程留着继续轮询、且不设 NO_TTY', async () => {
+  const records = [];
+  const opened = [];
+  const { facade, cleanup } = mountLogin({
+    spawnImpl: fakeLoginSpawn(records, { line: 'https://user.zeronews.cc/cli/login?code=abc&client=DSH-mobile' }),
+    openUrl: async (url) => { opened.push(url); return true; },
+  });
+  const result = await facade.prepare();
+  assert.equal(result.ok, true);
+  assert.equal(result.loginPending, true);
+  assert.deepEqual(opened, ['https://user.zeronews.cc/cli/login?code=abc&client=DSH-mobile'], '打开的是 login 给出的确认链接');
+  assert.equal(records.length, 1, '发起了一次 login');
+  assert.equal(records[0].opts.env.NO_TTY, undefined, '不设 NO_TTY：设了它 login 会打完地址就退，不做兑换');
+  assert.equal(records[0].child.killed, false, '拿到地址后不能杀 login，它要留着轮询兑换');
+  cleanup();
+  assert.equal(records[0].child.killed, true, '停止/卸载时把仍在轮询的 login 收掉');
+});
+
+test('已登录：login 回 already，准备阶段不开浏览器', async () => {
+  const records = [];
+  const opened = [];
+  const { facade, cleanup } = mountLogin({
+    spawnImpl: fakeLoginSpawn(records, { already: true }),
+    openUrl: async (url) => { opened.push(url); return true; },
+  });
+  const result = await facade.prepare();
+  assert.equal(result.ok, true);
+  assert.equal(result.already, true);
+  assert.equal(result.opened, false);
+  assert.deepEqual(opened, [], '已经登录就不该再开确认页');
+  cleanup();
+});
+
+test('重开登录页：先收掉上一次还没确认的 login 进程，免得两边各持一个设备码', async () => {
+  const records = [];
+  const { facade, cleanup } = mountLogin({
+    spawnImpl: fakeLoginSpawn(records, { line: 'https://user.zeronews.cc/cli/login?code=abc' }),
+    openUrl: async () => true,
+  });
+  await facade.prepare();
+  await facade.prepare();
+  assert.equal(records.length, 2, '第二次准备又发起一次 login');
+  assert.equal(records[0].child.killed, true, '旧的还没确认的 login 要被收掉');
+  assert.equal(records[1].child.killed, false, '新的留着轮询');
+  cleanup();
+});
