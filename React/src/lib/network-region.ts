@@ -1,9 +1,9 @@
-// 网络配置这一组页面的地址与互相跳转：主配置页 #network，地区页 #network/cn|global，
-// 地区下面每家服务商再各占一页（#network/cn/zeronews 之类）。
+// 网络线路的地址与互相跳转：网络配置主内容铺在首页，只有地区页 #network/cn|global 与
+// 地区下面每家服务商各占一页（#network/cn/zeronews 之类）。
 /**
- * 网络配置拆成三层（2026-11-23 用户要求）：主配置页管公用 / 自建中转、直连、局域网与 IPv6、
- * FRP；线路按地区分页；地区页里再按服务商分页 —— 后面加服务商只要往对应地区里加一页，
- * 既不会把主配置页撑长，也不用把别人家的配置摆在自家页面上。
+ * 线路拆成两层（2026-11-23 用户要求）：地区页管「按地区选服务商」；地区页里再按服务商分页 ——
+ * 后面加服务商只要往对应地区里加一页，既不会把首页撑长，也不用把别人家的配置摆在自家页面上。
+ * 网络配置本身（中转 / 直连 / 局域网与 IPv6 / FRP）不再单独成页，直接铺在首页。
  *
  * 页面状态放在地址栏 hash 里，刷新、前进后退都还停在同一页 —— 不引路由库（面板产物是
  * 单文件，多一层依赖只为几个地址不值）。
@@ -14,7 +14,7 @@ export type NetworkRegion = 'cn' | 'global'
 export type NetworkProvider = 'zeronews' | 'jdxb' | 'cloudflare'
 
 /** 面板当前停在哪一页。 */
-export type NetworkPage = 'home' | 'network' | NetworkRegion | ProviderPage
+export type NetworkPage = 'home' | NetworkRegion | ProviderPage
 
 /** 服务商页的页面标识（地区/服务商）。写得实一点，别让类型放开到「国内 + Cloudflare」这种不存在的组合。 */
 export type ProviderPage = 'cn/zeronews' | 'cn/jdxb' | 'global/cloudflare'
@@ -28,7 +28,6 @@ export const PROVIDERS: Record<NetworkProvider, { region: NetworkRegion }> = {
 
 /** 页面 → 地址栏 hash 里的路径（不含 `#`，首页是空串）。 */
 const PAGE_PATHS: Record<Exclude<NetworkPage, 'home'>, string> = {
-  network: 'network',
   cn: 'network/cn',
   global: 'network/global',
   'cn/zeronews': 'network/cn/zeronews',

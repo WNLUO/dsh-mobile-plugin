@@ -121,8 +121,8 @@ export function Console() {
   /** 更新卡报上来的版本对不上详情，挂到左列「运行中版本」那行。 */
   const [versionIssues, setVersionIssues] = useState<Issue[]>([])
   /**
-   * 网络配置是一组独立页：主配置页 `#network`，国内 / 国际线路各一页（`#network/cn`、
-   * `#network/global`）。地址进 hash，刷新与前进后退都停在同一页。
+   * 网络配置铺在首页；只有线路分页（国内 / 国际 → 服务商各一页）是独立页，地址进 hash，
+   * 刷新与前进后退都停在同一页。
    */
   const pageFromLocation = (): NetworkPage => (typeof window !== 'undefined' && window.location
     ? pageFromHash(window.location.hash)
@@ -146,11 +146,15 @@ export function Console() {
     else if (hash) window.location.hash = hash
     else window.location.hash = ''
   }
-  const openNetwork = () => showPage('network')
-  const closeNetwork = () => showPage('home', true)
-  /** 进地区子页：地址栏留一层历史，浏览器返回键就回主配置页。 */
+  /** 网络配置现在铺在首页：那颗「网络配置」只负责把这一块滚进视野，不再切页。 */
+  const configRef = useRef<HTMLDivElement | null>(null)
+  const openNetwork = () => {
+    if (page !== 'home') showPage('home', true)
+    window.setTimeout(() => configRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
+  }
+  /** 进地区子页：地址栏留一层历史，浏览器返回键就回首页（网络配置在首页）。 */
   const openRegion = (region: NetworkRegion) => showPage(region)
-  const backToNetwork = () => showPage('network', true)
+  const backToHome = () => showPage('home', true)
   /** 进服务商页：地址栏留一层历史，浏览器返回键回地区页。 */
   const openProvider = (provider: NetworkProvider) => showPage(`${PROVIDERS[provider].region}/${provider}` as ProviderPage)
   /** 从服务商页退回它所属的地区页（不堆历史）。 */
@@ -289,11 +293,7 @@ export function Console() {
     return () => window.clearTimeout(timer)
   }, [status?.enabled, pairing, loadAddresses])
 
-  useEffect(() => {
-    if (page !== 'network' || !status?.enabled) return
-    void loadPairing()
-    void loadAddresses()
-  }, [page, status?.enabled, loadPairing, loadAddresses])
+  // 网络配置内联在首页：地址库与配对信息由上面那两发（首屏之后补跑）带上，不再按页面单拉。
 
   /**
    * 全局 busy 的真相放在 ref 里：`busy` 状态给界面渲染用，但并发进来的第二个 `act`
@@ -347,7 +347,6 @@ export function Console() {
       } catch (error) {
         throw error
       }
-      closeNetwork()
       await Promise.all([loadPairing(), loadAddresses()])
       notify('soft', t('panel.shell.configSaved'))
     })
@@ -575,27 +574,29 @@ export function Console() {
           其余卡片用**瀑布式几列**（CSS `columns`）：每张卡都往下接，窄屏自动收到一列。
           `break-inside-avoid` 保证一张卡不会被劈到两列里。
         */}
+        {/* 网络配置铺在首页（2026-11-23 用户要求）：不再单开一页，顶栏那颗「网络配置」只把它滚进来。 */}
+        <div ref={configRef} className="scroll-mt-3">
+          <RelayConfigDialog
+            open={page === 'home'}
+            status={status}
+            addressBook={addresses}
+            addressError={addressError}
+            onRetryAddresses={() => void loadAddresses()}
+            lanUrls={pairing?.lanUrls ?? []}
+            busy={busy}
+            onSave={(patch) => void saveConfig(patch)}
+            onSavePreferred={(address) => void savePreferredLanAddress(address)}
+            onOpenRegion={openRegion}
+          />
+        </div>
+
         <div className="columns-1 gap-3 md:columns-2 xl:columns-3 [&>*]:mb-3 [&>*]:break-inside-avoid">
         </div>
       </div>
 
-      <RelayConfigDialog
-        open={page === 'network'}
-        onOpenChange={(next) => (next ? openNetwork() : closeNetwork())}
-        status={status}
-        addressBook={addresses}
-        addressError={addressError}
-        onRetryAddresses={() => void loadAddresses()}
-        lanUrls={pairing?.lanUrls ?? []}
-        busy={busy}
-        onSave={(patch) => void saveConfig(patch)}
-        onSavePreferred={(address) => void savePreferredLanAddress(address)}
-        onOpenRegion={openRegion}
-      />
-
       <ChinaLinesPage
         open={page === 'cn'}
-        onOpenChange={(next) => (next ? openRegion('cn') : backToNetwork())}
+        onOpenChange={(next) => (next ? openRegion('cn') : backToHome())}
         onOpenProvider={openProvider}
       />
 
@@ -614,7 +615,7 @@ export function Console() {
 
       <GlobalLinesPage
         open={page === 'global'}
-        onOpenChange={(next) => (next ? openRegion('global') : backToNetwork())}
+        onOpenChange={(next) => (next ? openRegion('global') : backToHome())}
         onOpenProvider={openProvider}
       />
 

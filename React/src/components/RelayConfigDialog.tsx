@@ -6,6 +6,7 @@
 // Cloudflare 兜底的开关与状态行已挪到 ConnectionCard + CloudflareDialog，这里不再重复一份。
 // 2026-11-23：线路按地区分页（国内 / 国际入口卡在本页底部）；IPv4 那栏补自动识别与候选下拉；
 // 各栏的检测结论挪进标题行、不再另占一行；自建中转那颗仓库按钮靠右。
+// 2026-11-23：网络配置改回铺在首页（用户要求），不再单开一页；去掉页面标题与「关闭返回」，只留保存。
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import {
@@ -94,8 +95,8 @@ function AddressCombo({
 }
 
 type Props = {
+  /** 首页显示网络配置时为真；离开首页（进地区 / 服务商页）置假，字段随之复位。 */
   open: boolean
-  onOpenChange: (open: boolean) => void
   status: StatusView
   /** 宿主枚举的地址库（`/api/relay/addresses`）：局域网选择与手填那两条都从它预填。 */
   addressBook: AddressBook | null
@@ -112,7 +113,7 @@ type Props = {
 }
 
 /**
- * 「网络配置」弹窗：这台宿主能被手机摸到的四条地址都在这里改。
+ * 网络配置（铺在首页，2026-11-23）：这台宿主能被手机摸到的几条地址都在这里改。
  *
  *   ① 中转地址（`relayUrl`）—— 拆成两栏：第一栏「公用中转」是内置地址（只读展示，标题右侧
  *      一颗「启用 / 停用」切换），第二栏「自建中转」可编辑。2026-11-18 用户要求把公用中转
@@ -146,7 +147,6 @@ type Props = {
  */
 export function RelayConfigDialog({
   open,
-  onOpenChange,
   status,
   addressBook,
   addressError = '',
@@ -513,21 +513,13 @@ export function RelayConfigDialog({
 
   return (
     <>
-      {/* 「网络配置」改成独立一页（2026-11-22 用户要求：从弹窗换成页面，网络这块要放得下更多配置）。
-          还是同一套字段与控制台组件，只是整页排布；控制台打开它时把首页内容收起，这里给一颗返回与标题。
-          保存中也可以返回：请求本身会跑完（失败时回滚已拉起的 frpc，见 Console.saveConfig），
-          用户不必被锁在这一页等宿主；落盘成功后 Console 那边也会切回首页。 */}
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
-          ← {t('panel.common.close')}
-        </Button>
-        <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
-      </div>
-
+      {/* 网络配置铺在首页（2026-11-23 用户要求）：同一套字段与控制台组件，不再单开一页、
+          也没有「关闭返回」。字段的初始化仍挂 `open`（首页为真、离开首页为假），离开再回来自动复位。 */}
       <Card frame="solid">
         {/* 一屏两列（宽够时）：6 个 Field 交给 grid 按行自动填（grid-auto-flow: row），
             每项增减都会自动重排、两列行数均衡；窄窗口自动收成一列。 */}
         <div className="flex flex-col gap-5 p-4">
+          <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
           <section className="flex flex-col gap-3">
             <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
               {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。
@@ -896,9 +888,6 @@ export function RelayConfigDialog({
               {t('panel.shell.busy')}
             </span>
           ) : null}
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('panel.common.cancel')}
-          </Button>
           <Button variant="primary" disabled={!canSave} onClick={submit}>
             {t('panel.relay.saveConfig')}
           </Button>

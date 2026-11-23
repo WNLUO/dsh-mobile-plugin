@@ -6,7 +6,7 @@
  * 摊在这一页，第三家一来就又是一整屏；每家一页之后，新服务商只是多一张卡，别人家那页一个字
  * 都不用动。
  *
- * 返回按钮回主配置页（`#network`），地址由外层 Console 换。
+ * 返回按钮回首页（网络配置铺在首页），地址由外层 Console 换。
  */
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
@@ -19,7 +19,7 @@ import { PROVIDER_LOOK } from './ProviderLook.tsx'
 
 type Props = {
   open: boolean
-  /** 返回（false）回主配置页；换页由外层按 hash 处理。 */
+  /** 返回（false）回首页；换页由外层按 hash 处理。 */
   onOpenChange: (open: boolean) => void
   /** 点某一家服务商：进它自己的配置页。 */
   onOpenProvider: (provider: NetworkProvider) => void
