@@ -16,6 +16,7 @@
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
+import { Input } from '@appica/ui-react/input'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
 
@@ -89,6 +90,10 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
   const [linkBusy, setLinkBusy] = useState(false)
   /** 已点「连接」，正在等浏览器里点确认登录。 */
   const [waiting, setWaiting] = useState(false)
+  /** 等确认期间展示、重开的确认地址：浏览器没弹出来时能手动打开。 */
+  const [loginUrl, setLoginUrl] = useState('')
+  /** 手动粘贴的 AuthToken：浏览器这条路弹不出来时，官方最稳的绑定兜底。 */
+  const [token, setToken] = useState('')
   const canSave = busy === ''
 
   const phase = status.zeroNews?.phase
@@ -119,6 +124,8 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     if (!open) {
       setNote('')
       setWaiting(false)
+      setLoginUrl('')
+      setToken('')
       setLoading(false)
     }
   }, [open])
@@ -138,9 +145,21 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, waiting])
 
+  /** 等太久还没确认就停下转圈，给出地址与兜底，别一直卡在「检测登录中」。 */
+  useEffect(() => {
+    if (!open || !waiting) return undefined
+    const timer = setTimeout(() => {
+      setWaiting(false)
+      setNote(t('panel.zeronews.loginTimeout'))
+    }, 120_000)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, waiting])
+
   useEffect(() => {
     if (!open || !waiting || snapshot?.login !== true) return
     setWaiting(false)
+    setLoginUrl('')
     void connect(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, waiting, snapshot])
@@ -163,8 +182,8 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
   }
 
   /** 连接：宿主起客户端、建隧道、拿域名。auto=true 表示是登录成功后自动触发的。 */
-  async function connect(auto = false) {
-    if (linkBusy) return
+  async function connect(auto = false, force = false) {
+    if (linkBusy && !force) return
     setLinkBusy(true)
     setNote(auto ? t('panel.zeronews.loginDetected') : '')
     try {
@@ -173,6 +192,30 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
       if (!res.ok && error) setNote(error)
       else if (res.phase === 'connected') setNote('')
       else if (error) setNote(error)
+      await refresh(false)
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setLinkBusy(false)
+    }
+  }
+
+  /** 手动粘贴 AuthToken 绑定并连接：浏览器确认弹不出来时的官方兜底。 */
+  async function saveToken() {
+    const value = token.trim()
+    if (linkBusy || !value) return
+    setLinkBusy(true)
+    setNote('')
+    try {
+      const res = await zeroNewsConnect(value)
+      const error = typeof res.error === 'string' ? res.error : res.error?.message
+      if (!res.ok && error) setNote(error)
+      else if (error) setNote(error)
+      else {
+        setToken('')
+        setWaiting(false)
+        setLoginUrl('')
+      }
       await refresh(false)
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error))
@@ -196,8 +239,10 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
       if (res.already) {
         autoConnect = true
         setWaiting(false)
+        setLoginUrl('')
       } else {
         setWaiting(true)
+        setLoginUrl(res.url || '')
         setNote(!res.opened && res.url ? t('panel.zeronews.openFailed', { url: res.url }) : t('panel.zeronews.loginWaiting'))
       }
       await refresh(false)
@@ -205,7 +250,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
       setNote(error instanceof Error ? error.message : String(error))
     } finally {
       setLinkBusy(false)
-      if (autoConnect) void connect(true)
+      if (autoConnect) void connect(true, true)
     }
   }
 
@@ -305,12 +350,50 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
             </div>
 
             {waiting ? (
-              <div className="flex items-center gap-2 text-xs leading-5 text-foreground-muted">
-                <Spinner />
-                <span>{note || t('panel.zeronews.loginWaiting')}</span>
+              <div className="flex flex-col gap-2 rounded-md border border-border-muted bg-background-muted p-3">
+                <div className="flex items-center gap-2 text-xs leading-5 text-foreground-muted">
+                  <Spinner />
+                  <span>{note || t('panel.zeronews.loginWaiting')}</span>
+                </div>
+                {loginUrl ? (
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-xs leading-5 text-foreground-muted">{t('panel.zeronews.loginUrlHint')}</p>
+                    <span className="select-all break-all font-mono text-xs text-foreground-strong">{loginUrl}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="ghost" size="sm" disabled={linkBusy} onClick={() => void startSetup()}>
+                        {t('panel.zeronews.reopen')}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={linkBusy}
+                        onClick={() => { setWaiting(false); setLoginUrl(''); void connect(true) }}
+                      >
+                        {t('panel.zeronews.loginRetry')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {!waiting && note ? <p className="text-xs text-error">{note}</p> : null}
+
+            {!loggedIn ? (
+              <div className="flex flex-col gap-2 rounded-md border border-border-muted p-3">
+                <span className="text-sm font-medium text-foreground-strong">{t('panel.zeronews.tokenLabel')}</span>
+                <Input
+                  value={token}
+                  placeholder={t('panel.zeronews.tokenPlaceholder')}
+                  onChange={(event) => setToken(event.target.value)}
+                />
+                <p className="text-xs leading-5 text-foreground-muted">{t('panel.zeronews.tokenHint')}</p>
+                <div className="flex justify-end">
+                  <Button variant="primary" size="sm" disabled={!canSave || linkBusy || !token.trim()} onClick={() => void saveToken()}>
+                    {t('panel.zeronews.tokenSave')}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
             {!firstTime ? (
               <div className="flex flex-wrap items-center justify-end gap-2">

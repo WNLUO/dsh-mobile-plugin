@@ -132,6 +132,24 @@ test('网络配置页分区：主配置页平铺字段，线路按地区与服�
   }
 });
 
+test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重试、超时收口，并留 AuthToken 兜底', () => {
+  // 现场反馈：登录页弹不出来 / 确认没生效时，面板只显示「已打开浏览器，请确认登录」一直转圈，
+  // 地址被藏起来、按钮锁死，用户只能干看着。现在等确认时把地址摆出来，可重开或点「我已登录，
+  // 重试」；等太久自动收口；浏览器这条路走不通还能粘 AuthToken 直接绑。
+  const page = read('React', 'src', 'components', 'ZeroNewsPage.tsx');
+  assert.match(page, /panel\.zeronews\.loginUrlHint/, '要把确认地址和手动打开的提示摆出来');
+  assert.match(page, /panel\.zeronews\.reopen/, '要能重新打开登录页');
+  assert.match(page, /panel\.zeronews\.loginRetry/, '要能「我已登录，重试」');
+  assert.match(page, /panel\.zeronews\.loginTimeout/, '等太久要收口，不许一直转圈');
+  assert.match(page, /setTimeout\(/, '等待要有超时');
+  assert.match(page, /async function saveToken/, '要有粘贴 AuthToken 绑定的兜底');
+  assert.match(page, /zeroNewsConnect\(value\)/, '兜底要把 token 交给宿主连接');
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  for (const key of ['panel.zeronews.loginUrlHint', 'panel.zeronews.reopen', 'panel.zeronews.loginRetry', 'panel.zeronews.loginTimeout']) {
+    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+  }
+});
+
 test('节点小宝绑定成功要自己收掉链接：轮询设备端状态，读到已绑就清空', () => {
   // 授权/绑定是在它自己的页面完成的，插件这边只有轮询这一条路。不轮询的话，用户明明绑好了，
   // 链接还挂在面板上，看起来就像没成功（现场反馈）。
