@@ -150,7 +150,11 @@ test('customRoutesOf 归一形状并被 configOf / schema 接纳', () => {
 
 test('心跳 /status 也下发通用线路，手机端才能平时看到', () => {
   const fs = require('node:fs');
-  const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'lib', 'routes', 'mobile-api.js'), 'utf8');
-  assert(/customRoutes: \(\(\) =>/.test(src), '心跳响应带 customRoutes 计算');
-  assert(/state\.zeroNewsUrl/.test(src), '从 zeroNewsUrl 取 ZeroNews 线路');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'routes', 'mobile-api.js'), 'utf8');
+  // 2026-11-23：心跳与配对二维码同源，统一走 providerLinesOf 那一份（不再各拼一遍）。
+  assert(/customRoutes: providerLinesOf\(state\)/.test(src), '心跳响应的 customRoutes 走统一清单');
+  const helper = fs.readFileSync(path.join(__dirname, '..', 'lib', 'relay', 'provider-lines.cjs'), 'utf8');
+  assert(/zeroNewsUrl/.test(helper), '从 zeroNewsUrl 取 ZeroNews 线路');
+  assert(/customRoutes/.test(helper), '用户自定义线路也在同一份清单里');
 });
