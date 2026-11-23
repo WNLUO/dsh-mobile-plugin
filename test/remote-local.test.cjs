@@ -110,6 +110,9 @@ function headers(gateway, extra = {}) {
   return { cookie: gateway.cookie, origin: gateway.origin, 'sec-fetch-site': 'same-origin', ...extra };
 }
 
+/** 顶层文档导航的请求头：网关据此才出过渡页。 */
+const NAV = { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', accept: 'text/html,application/xhtml+xml' };
+
 test('一次性入口清地址，v1浏览器认证和全部本机凭据隔离', async (t) => {
   const f = await fixture(t);
   const g = await f.gateway();
@@ -349,4 +352,40 @@ test('只有桌面壳会话拿到 Mac 排版脚本，壳标记与本机凭据都
   });
   assert.equal(page.status, 200);
   assert.equal(f.state.requests.findLast((entry) => entry.url === '/').headers.cookie, f.cookie);
+});
+
+test('顶层文档先给过渡页，隧道建好后才跳真实页面，内部标记不外送', async (t) => {
+  const f = await fixture(t);
+  const g = await f.gateway();
+  const loading = await request(`${g.origin}/`, { headers: headers(g, NAV) });
+  assert.equal(loading.status, 200);
+  assert.match(loading.headers['content-type'], /text\/html/);
+  assert.match(loading.body, /__dsh_remote_ready/);
+  assert.match(loading.body, /正在连接远程电脑|Connecting to the remote computer/);
+  assert.equal(f.state.dials, 0, '过渡页本身不触发握手');
+
+  const ready = await request(`${g.origin}/__dsh_remote_ready`, { headers: headers(g) });
+  assert.equal(ready.status, 200);
+  assert.equal(JSON.parse(ready.body).ok, true);
+  assert.equal(f.state.dials, 1, '就绪探测建立首条加密流');
+
+  const page = await request(`${g.origin}/?__dsh_ready=1`, { headers: headers(g, NAV) });
+  assert.equal(page.status, 200);
+  assert.equal(page.body, 'remote webpage');
+  assert.equal(f.state.requests.findLast((entry) => entry.url === '/').url, '/', '__dsh_ready 不转给远端');
+  assert.equal(f.state.dials, 1, '复用已建好的流，不重复握手');
+
+  const again = await request(`${g.origin}/`, { headers: headers(g, NAV) });
+  assert.equal(again.status, 200);
+  assert.equal(again.body, 'remote webpage', '已就绪后直接透传，不再给过渡页');
+});
+
+test('就绪探测失败如实回错误码，只读且需要本机入口会话', async (t) => {
+  const f = await fixture(t);
+  const g = await f.gateway({ connect: async () => { throw Object.assign(new Error('no route'), { code: 'REMOTE_CONNECT' }); } });
+  const ready = await request(`${g.origin}/__dsh_remote_ready`, { headers: headers(g) });
+  assert.equal(ready.status, 200);
+  assert.deepEqual(JSON.parse(ready.body), { ok: false, code: 'REMOTE_CONNECT' });
+  assert.equal((await request(`${g.origin}/__dsh_remote_ready`, { method: 'POST', headers: headers(g) })).status, 405);
+  assert.equal((await request(`${g.origin}/__dsh_remote_ready`)).status, 401);
 });
