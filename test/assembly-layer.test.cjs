@@ -222,8 +222,10 @@ test('装配逐块兜住：路由撞车只丢那一条，一块挂不上不影�
     assert.ok(src.includes(`mount('${block}'`), `「${block}」这块装配没有各自的兜住`);
   }
   assert.match(src, /const warn = \(message, \.\.\.rest\) => \{\n    try \{ ctx\.logger\?\.warn\?\./, '告警出口自己不许反噬装配');
-  // `apiProxy` 是公共名字：别人先占了就用人家的，不跟它抢。
-  assert.match(src, /mount\('apiProxy 兼容桥', \(\) => ctx\.reflect\.provide\('apiProxy'/, 'provide 撞车必须降级，不许把整块装配带走');
+  // `apiProxy` 兼容服务是移动端读接口的命根子：挂不上时会话、工作区等一律 500。所以它
+  // **不进** mount 的逐块兜住——如实抛出让这一代装载失败、交给外壳重试，而不是静默当成功
+  // 留下一张永久 500 的接口表（别的块仍逐块兜住，互不影响）。
+  assert.doesNotMatch(src, /mount\('apiProxy 兼容桥'/, 'apiProxy 兼容桥不许被 mount 吞掉：它缺失时整张移动读接口都会 500');
 });
 
 test('外壳包装宿主的路由注册时可叠加、撤离不摘别人的那层', () => {

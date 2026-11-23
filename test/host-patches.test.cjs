@@ -131,8 +131,15 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
   // （会话列表）会撞上「服务还没提供」，抛 `cannot get property "apiProxy" without inject`。
   assert.match(
     IMPL,
-    /const provideApiProxy = \(\) => mount\('apiProxy 兼容桥', \(\) => ctx\.reflect\.provide\('apiProxy', createApiProxyService\(ctx, hostApiProxy\)\)\)/,
+    /const provideApiProxy = \(\) => ctx\.reflect\.provide\('apiProxy', createApiProxyService\(ctx, hostApiProxy\)\)/,
     'apiProxy 兼容服务必须启动即提供，具体走宿主真服务还是网关兼容桥由 createApiProxyService 决定',
+  );
+  // 挂载失败必须让这一代装载失败（抛出去交给外壳重试），不能像别的装配块那样被 mount 兜住：
+  // 兼容服务缺失时整张移动端读接口都会 500，静默当成功会让外壳专为此准备的重试永远触发不了。
+  assert.doesNotMatch(
+    IMPL,
+    /const provideApiProxy = \(\) => mount\('apiProxy 兼容桥'/,
+    'apiProxy 兼容桥挂载失败不许被 mount 吞掉，否则一次瞬时失败会变成永久 500',
   );
   assert.match(
     IMPL,
@@ -184,7 +191,7 @@ test('impl.js 按运行时有没有 @deepseek-ai/dsh-host-apiproxy 决定装不�
 });
 
 /** 执行生产装配段，Context 来自真实 cordis，网关业务与帧桥用最小假体。 */
-function compatAssembly({ hasHostPackage = false, mutate = source => source } = {}) {
+function compatAssembly({ hasHostPackage = false, mutate = source => source, createApiProxyService: makeService } = {}) {
   const start = IMPL.indexOf('function apply(ctx) {');
   const end = IMPL.indexOf('  const state = core.loadState()', start);
   assert.ok(start >= 0 && end > start, '应能定位兼容桥装配段');
@@ -200,7 +207,8 @@ function compatAssembly({ hasHostPackage = false, mutate = source => source } = 
     runtimeProvidesApiProxy: () => hasHostPackage,
     createApiProxy: ctx => ({ ctx }),
     // 与 lib/mobile/host-bridge.js 的 createApiProxyService 同形：宿主服务在就用它，否则用兼容假体。
-    createApiProxyService: (ctx, hostProxyOf) => {
+    // 允许注入一个会抛错的版本，用来验证「挂不上时这一代必须装载失败」。
+    createApiProxyService: makeService || ((ctx, hostProxyOf) => {
       const compat = { ctx };
       return new Proxy(compat, {
         get(target, prop, receiver) {
@@ -215,7 +223,7 @@ function compatAssembly({ hasHostPackage = false, mutate = source => source } = 
           return (host != null && prop in host) || prop in target;
         },
       });
-    },
+    }),
     installApprovalBridge: () => {}, installQuestionBridge: () => {},
     setApprovalPushNotifier: () => {}, setQuestionPushNotifier: () => {},
     setTimeout: callback => {
@@ -257,10 +265,10 @@ test('兼容桥隔离变异：移除代际隔离就能抓住同名服务冲突',
   const assembly = compatAssembly({ mutate: source => source.replace(marker, 'ctx = ctx') });
   const root = new Context();
   const old = await assembly.mount(root);
-  const next = await assembly.mount(root);
-  t.after(() => next.fiber.dispose());
-  await old.fiber.dispose();
-  assert.throws(() => next.ctx.apiProxy, /without inject/);
+  t.after(() => old.fiber.dispose());
+  // 去掉代际隔离后，第二代再 provide 同名服务会撞车。现在这一处失败如实抛出、让第二代装载
+  // 失败（以前被 mount 兜住，表现为「装载成功但读 apiProxy 抛 without inject」的永久 500）。
+  await assert.rejects(() => assembly.mount(root), /has been registered/);
 });
 
 test('宿主包还在但服务没出现：宽限期后两代分别装桥', async t => {
@@ -324,6 +332,18 @@ test('启动即提供的变异：把 apiProxy 提供压回宽限期就能抓住�
   t.after(() => generation.fiber.dispose());
   assert.throws(() => void generation.ctx.apiProxy, /without inject/,
     '去掉启动即提供后，宽限期内读 apiProxy 必然抛 without inject');
+});
+
+test('兼容桥挂不上时这一代必须装载失败，不能静默当成功启动', async () => {
+  const { Context } = await import('@deepseek-ai/cordis');
+  const root = new Context();
+  const assembly = compatAssembly({
+    hasHostPackage: false,
+    createApiProxyService: () => { throw new Error('兼容服务挂载失败') },
+  });
+  // 兼容服务在 provideApiProxy 里同步建立；它一失败，这一代 apply 就必须抛出去，交给外壳
+  // 按装载失败重试，而不是被 mount 兜住后“成功”地留下一张全 500 的移动接口表。
+  await assert.rejects(() => assembly.mount(root), /兼容服务挂载失败/);
 });
 
 test('解析不动就是「没有」：不能把插件带崩', () => {
