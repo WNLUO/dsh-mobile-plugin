@@ -123,7 +123,7 @@ export function NetworkPanel({ status }: { status: StatusView }) {
     : []
 
   return (
-    <Card frame="solid" className="h-1/2 min-h-0 p-3">
+    <Card frame="solid" className="h-full min-h-0 p-3">
       <div className="flex h-full min-h-0 flex-col gap-2">
         <div className="grid shrink-0 grid-cols-4 gap-1.5">
           {[

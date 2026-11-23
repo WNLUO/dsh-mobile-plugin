@@ -97,9 +97,9 @@ test('配对与更新合成一张无标题整卡：左六放二维码与控件�
   // 2026-11-23 用户要求：右列四个控件挪到二维码旁边，空出来的右列装网络面板。
   // 更新动作仍独占下面一排，不受上面内容高度推动。
   assert.match(app, /<Card frame="solid">\s*<div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">/, '顶栏是一张整卡，窄屏单列');
-  assert.match(app, /lg:col-span-6">\s*<PairingCard\s+bare/, '左栏 6 成取连接信息');
+  assert.match(app, /lg:col-span-6"[^>]*>\s*<PairingCard\s+bare/, '左栏 6 成取连接信息');
   assert.ok(card.includes('ALIGNED_ROWS'), '二维码旁的控件行沿用同一套行高');
-  assert.match(app, /lg:col-span-4">\s*<NetworkPanel status=\{status\}/, '右列装网络面板');
+  assert.match(app, /<NetworkPanel status=\{status\} \/>/, '右列装网络面板');
   assert.match(app, /<div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">\s*<UpdateCard\s+bare/, '更新动作独占一排且垂直居中');
   assert.match(update, /flex flex-wrap justify-end gap-1 lg:flex-nowrap/, '宽屏动作行不换行，四颗按钮横着排；小屏才允许折行');
   assert.doesNotMatch(app, /<PairingCard\s+fill|<UpdateCard\s+fill/, '等高开关已撤');

@@ -182,6 +182,23 @@ export function Console() {
     return () => observer.disconnect()
   }, [status])
 
+  /**
+   * 顶卡右列的网络面板：只占左列一半高，且**不拉伸**（self-start）。
+   * 量左列（配对/二维码那一列）的实际高度再折半套给它 —— 左列高度由四个控件决定，
+   * 会随宿主字段与语言变化。右列自身用百分比高在 grid 里没有确定的参照，会撑出空白。
+   */
+  const pairingColumnRef = useRef<HTMLDivElement | null>(null)
+  const [panelHeight, setPanelHeight] = useState(0)
+  useEffect(() => {
+    const el = pairingColumnRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const measure = () => setPanelHeight(Math.round(el.getBoundingClientRect().height / 2))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [status])
+
   const loadStatus = useCallback(async () => {
     try {
       setStatus(await apiGet<StatusView>('/api/relay/status'))
@@ -497,7 +514,7 @@ export function Console() {
       <div className={page !== 'home' ? 'hidden' : 'grid grid-cols-1 gap-3'}>
         <Card frame="solid">
           <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">
-            <div className="lg:col-span-6">
+            <div className="lg:col-span-6" ref={pairingColumnRef}>
               <PairingCard
                 bare
                 status={status}
@@ -511,8 +528,11 @@ export function Console() {
                 onChangeControlReport={(enabled) => void saveControlReport(enabled)}
               />
             </div>
-            {/* 右列放网络面板：真实延迟曲线 + 流量占位，容器以后还能往里加块。 */}
-            <div className="lg:col-span-4">
+            {/* 右列只占左列一半高、不拉伸，避免整卡被撑出一截空白。 */}
+            <div
+              className="self-start lg:col-span-4"
+              style={panelHeight > 0 ? { height: `${panelHeight}px` } : undefined}
+            >
               <NetworkPanel status={status} />
             </div>
           </div>
