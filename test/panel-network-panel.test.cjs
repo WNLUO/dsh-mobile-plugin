@@ -12,11 +12,12 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
 
-test('顶卡右列挂网络面板，量左列折半且不拉伸', () => {
+test('顶卡右列挂网络面板，量左列同高且不拉伸', () => {
   const app = read('React', 'src', 'Console.tsx');
   assert.match(app, /<NetworkPanel status=\{status\} \/>/, '右列挂网络面板');
   assert.match(app, /ref=\{pairingColumnRef\}/, '量左列实际高度');
-  assert.match(app, /getBoundingClientRect\(\)\.height \/ 2/, '折半');
+  assert.match(app, /getBoundingClientRect\(\)\.height\)/, '取左列实际高度');
+  assert.doesNotMatch(app, /getBoundingClientRect\(\)\.height \/ 2/, '不再折半');
   assert.match(app, /self-start lg:col-span-4/, '右列不拉伸，不撑出空白');
   assert.match(app, /style=\{panelHeight > 0 \? \{ height: `\$\{panelHeight\}px` \} : undefined\}/, '半高套给右列');
   const panel = read('React', 'src', 'components', 'NetworkPanel.tsx');
