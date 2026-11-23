@@ -55,7 +55,7 @@ function component(file, name, imports = {}, context = {}, mutate = (source) => 
     if (id.includes('i18n/index')) return { t };
     if (id.includes('links.ts')) return { PUBLIC_RELAYS, isPublicRelayUrl };
     if (id.includes('format.ts')) return { cn: (...values) => values.filter(Boolean).join(' '), timeText: String };
-    if (id.includes('latency-sparkline.ts')) return { latencyLevel: () => 'fast', latencySparklinePath: () => '' };
+    if (id.includes('latency-sparkline.ts')) return { latencyLevel: () => 'fast', latencySparklinePath: () => '', latencyColorClass: () => '', latencyStrokeColor: () => '' };
     if (id.includes('embed-visibility')) return { pageVisible: () => true };
     if (id.includes('panel-load')) return { reportPanelState() {} };
     if (id.includes('notify')) return { useNotify: () => () => {} };

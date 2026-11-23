@@ -307,5 +307,7 @@ test('老那条 /directory/list 还在，且没有被这条顶掉（选目录不
   assert.ok(listingRoute, `${LISTING} 必须注册`);
   assert.notEqual(listingRoute.handler, legacy.handler, '两条是不同的 handler，别把新列表接到老路由上');
   // 老那条走的是透传宿主 directoryPicker 的实现，只列目录、每条只有 name/path/hidden。
-  assert.equal(legacy.handler, require(path.join(ROOT, 'lib', 'mobile', 'workspaces.js')).handleListDirectory);
+  // 移动路由外面统一套了流量记账层，引用相等要认回被包的原 handler。
+  const legacyImpl = legacy.handler.innerHandler || legacy.handler;
+  assert.equal(legacyImpl, require(path.join(ROOT, 'lib', 'mobile', 'workspaces.js')).handleListDirectory);
 });
