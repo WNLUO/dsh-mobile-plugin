@@ -25,7 +25,7 @@ import { useEffect, useRef, useState } from 'react'
 import { apiPost, errorText } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 import { PUBLIC_RELAYS } from '../lib/links.ts'
-import { latencyLevel, latencySparklinePath } from '../lib/latency-sparkline.ts'
+import { latencyColorClass, latencyLevel, latencySparklinePath, latencyStrokeColor } from '../lib/latency-sparkline.ts'
 
 type Props = {
   open: boolean
@@ -42,20 +42,6 @@ const HISTORY_POINTS = 14
 /** 一条心电图的画框尺寸（面板比手机宽，拉长一点看得清起伏）。 */
 const SPARK_WIDTH = 132
 const SPARK_HEIGHT = 28
-
-function latencyColorClass(level: ReturnType<typeof latencyLevel>): string {
-  if (level === 'fast') return 'text-success'
-  if (level === 'ok') return 'text-warning'
-  if (level === 'slow') return 'text-destructive'
-  return 'text-foreground-muted'
-}
-
-function strokeColor(level: ReturnType<typeof latencyLevel>): string {
-  if (level === 'fast') return '#16a34a'
-  if (level === 'ok') return '#d97706'
-  if (level === 'slow') return '#dc2626'
-  return '#9ca3af'
-}
 
 function formatLatency(ms: number | null): string {
   if (typeof ms !== 'number' || !Number.isFinite(ms)) return '—'
@@ -156,7 +142,7 @@ export function PublicRelayPanelDialog({ open, onOpenChange, activeUrl }: Props)
                 <div className="flex shrink-0 items-center gap-3">
                   {path ? (
                     <svg width={SPARK_WIDTH} height={SPARK_HEIGHT} aria-hidden="true">
-                      <path d={path} stroke={strokeColor(level)} strokeWidth={1.5} fill="none" />
+                      <path d={path} stroke={latencyStrokeColor(level)} strokeWidth={1.5} fill="none" />
                     </svg>
                   ) : null}
                   <span className={`w-16 text-right text-sm tabular-nums ${latencyColorClass(level)}`}>

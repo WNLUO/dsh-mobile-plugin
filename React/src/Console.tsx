@@ -35,6 +35,7 @@ import { JdxbPage } from './components/JdxbPage.tsx'
 import { ZeroNewsPage } from './components/ZeroNewsPage.tsx'
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
+import { NetworkPanel } from './components/NetworkPanel.tsx'
 import { PanelWindowActions } from './components/PanelWindowActions.tsx'
 import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { DevicesCard } from './components/DevicesCard.tsx'
@@ -510,8 +511,10 @@ export function Console() {
                 onChangeControlReport={(enabled) => void saveControlReport(enabled)}
               />
             </div>
-            {/* 右列先留空：2026-11-23 起四个控件挪到二维码旁边，这里等后续加新东西。 */}
-            <div className="lg:col-span-4" />
+            {/* 右列放网络面板：真实延迟曲线 + 流量占位，容器以后还能往里加块。 */}
+            <div className="lg:col-span-4">
+              <NetworkPanel status={status} />
+            </div>
           </div>
 
           {/* 更新区独占一排：上面两列内容再怎么变，都不推动这一排按钮。

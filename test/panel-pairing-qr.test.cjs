@@ -90,16 +90,16 @@ test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () =
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
 });
 
-test('配对与更新合成一张无标题整卡：左六放二维码与控件，右四留空，更新动作独占一排', () => {
+test('配对与更新合成一张无标题整卡：左六放二维码与控件，右四放网络面板，更新动作独占一排', () => {
   const app = read('Console.tsx');
   const card = read('components/PairingCard.tsx');
   const update = read('components/UpdateCard.tsx');
-  // 2026-11-23 用户要求：右列四个控件挪到二维码旁边，右列留空等后续加新东西。
+  // 2026-11-23 用户要求：右列四个控件挪到二维码旁边，空出来的右列装网络面板。
   // 更新动作仍独占下面一排，不受上面内容高度推动。
   assert.match(app, /<Card frame="solid">\s*<div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-10 lg:gap-6">/, '顶栏是一张整卡，窄屏单列');
   assert.match(app, /lg:col-span-6">\s*<PairingCard\s+bare/, '左栏 6 成取连接信息');
   assert.ok(card.includes('ALIGNED_ROWS'), '二维码旁的控件行沿用同一套行高');
-  assert.match(app, /lg:col-span-4"\s*\/>/, '2026-11-23 起右列留空，等后续加新东西');
+  assert.match(app, /lg:col-span-4">\s*<NetworkPanel status=\{status\}/, '右列装网络面板');
   assert.match(app, /<div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">\s*<UpdateCard\s+bare/, '更新动作独占一排且垂直居中');
   assert.match(update, /flex flex-wrap justify-end gap-1 lg:flex-nowrap/, '宽屏动作行不换行，四颗按钮横着排；小屏才允许折行');
   assert.doesNotMatch(app, /<PairingCard\s+fill|<UpdateCard\s+fill/, '等高开关已撤');
@@ -113,7 +113,7 @@ test('配对与更新合成一张无标题整卡：左六放二维码与控件�
   assert.doesNotMatch(card, /hscroll|min-w-max/, '信息行自然换行，不再横向滚动截掉标签');
 });
 
-test('整卡左二维码右留空：端口与版本搬到连接状态卡，三个开关跟着二维码', () => {
+test('整卡左二维码右网络面板：端口与版本搬到连接状态卡，三个开关跟着二维码', () => {
   const app = read('Console.tsx');
   const card = read('components/PairingCard.tsx');
   // 2026-11-23 用户要求：端口与版本两行搬到连接状态卡，开关挪到二维码旁。

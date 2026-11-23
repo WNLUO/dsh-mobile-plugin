@@ -59,3 +59,19 @@ export function latencyLevel(valueMs: number | null): 'fast' | 'ok' | 'slow' | '
   if (valueMs <= SPARK_CEILING_MS) return 'ok'
   return 'slow'
 }
+
+/** 档位 → 文字色（面板两处画延迟的地方共用这一份）。 */
+export function latencyColorClass(level: ReturnType<typeof latencyLevel>): string {
+  if (level === 'fast') return 'text-success'
+  if (level === 'ok') return 'text-warning'
+  if (level === 'slow') return 'text-destructive'
+  return 'text-foreground-muted'
+}
+
+/** 档位 → 折线描边色。 */
+export function latencyStrokeColor(level: ReturnType<typeof latencyLevel>): string {
+  if (level === 'fast') return '#16a34a'
+  if (level === 'ok') return '#d97706'
+  if (level === 'slow') return '#dc2626'
+  return '#9ca3af'
+}
