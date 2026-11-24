@@ -48,10 +48,10 @@ export function PublicRelayNoticeDialog({ visible, onOpenConfig }: Props) {
           {t('panel.publicRelayNotice.body')}
         </DialogBody>
         <DialogFooter className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => { setDismissed(true); onOpenConfig() }}>
+          <Button variant="primary" onClick={() => { setDismissed(true); onOpenConfig() }}>
             {t('panel.pairing.openConfig')}
           </Button>
-          <Button variant="primary" onClick={() => setDismissed(true)}>
+          <Button variant="outline" onClick={() => setDismissed(true)}>
             {t('panel.publicRelayNotice.action')}
           </Button>
         </DialogFooter>
