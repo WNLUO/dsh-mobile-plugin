@@ -14,14 +14,15 @@ const test = require('node:test');
 const { controlAddresses } = require('../lib/relay/control.js');
 // 服务商清单住在「代」里，测试里显式当注入方传进去（生产是装配层注入）。
 const { providerLinesOf } = require('../lib/relay/provider-lines.cjs');
+const lanNetwork = require('../lib/relay/lan-network.cjs');
 const { customRoutesOf, configOf, RemoteControlSettingsSchema } = require('../lib/relay/config-store.js');
 
 const bare = { lanEnabled: false, manualLanUrl: '', manualIpv6Url: '', manualTcpUrl: '', cloudflareUrl: '' };
 
 test('没有 customRoutes 时上报清单不变（老行为不回归）', () => {
-  assert.deepEqual(controlAddresses(bare, 0, '', providerLinesOf), []);
+  assert.deepEqual(controlAddresses(bare, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork }), []);
   const withTcp = { ...bare, manualTcpUrl: 'example.com:9000' };
-  assert.deepEqual(controlAddresses(withTcp, 0, '', providerLinesOf), [{ kind: 'tcp', url: 'example.com:9000' }]);
+  assert.deepEqual(controlAddresses(withTcp, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork }), [{ kind: 'tcp', url: 'example.com:9000' }]);
 });
 
 test('每条第三方线路单独上报，名字与传输类型一起带过去', () => {
@@ -32,7 +33,7 @@ test('每条第三方线路单独上报，名字与传输类型一起带过去',
       { url: 'line-b.example.com:9000', name: 'B 厂商', transport: 'tcp' },
     ],
   };
-  const list = controlAddresses(state, 0, '', providerLinesOf);
+  const list = controlAddresses(state, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   const custom = list.filter((a) => a.kind === 'custom');
   assert.equal(custom.length, 2);
   assert.deepEqual(custom[0], { kind: 'custom', url: 'https://line-a.example.com', name: 'A 厂商', transport: 'http' });
@@ -54,7 +55,7 @@ test('坏线路、重复地址不进信；transport 只认 tcp，其余按 http'
       { url: 'host:1', transport: 'bogus' },
     ],
   };
-  const custom = controlAddresses(state, 0, '', providerLinesOf).filter((a) => a.kind === 'custom');
+  const custom = controlAddresses(state, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork }).filter((a) => a.kind === 'custom');
   assert.equal(custom.length, 2, '无地址与重复地址都丢掉');
   assert.equal(custom[0].url, 'https://dup.example.com');
   assert.equal(custom[0].transport, 'http', '缺失按 http');
@@ -78,7 +79,7 @@ test('ZeroNews 隧道作为通用线路上报，同时保留 direct 给老手机
   const url = 'https://tunnel.example.takin.cc';
   // 关键：用户没点过「从 ZeroNews 读取」，manualLanUrl 为空——自动读到的线路仍要有直连兜底。
   const state = { ...bare, zeroNewsUrl: `${url}/` };
-  const list = controlAddresses(state, 0, '', providerLinesOf);
+  const list = controlAddresses(state, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   const custom = list.filter((a) => a.kind === 'custom');
   assert.equal(custom.length, 1);
   assert.deepEqual({ ...custom[0] }, { kind: 'custom', url, name: 'ZeroNews', transport: 'http' });
@@ -93,44 +94,44 @@ test('ZeroNews 隧道作为通用线路上报，同时保留 direct 给老手机
 test('节点小宝那条线路按 tcp 通用线路上报，同时补一条老 APP 认的 tcp 条目', () => {
   // 地址是用户从它控制台抄来的 `域名:端口`；形状不对时当没接（空串 / 写成整条 URL 以外的怪值）。
   const state = { ...bare, jdxbUrl: 'nb.nblink.cc:15565' };
-  const list = controlAddresses(state, 0, '', providerLinesOf);
+  const list = controlAddresses(state, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   const custom = list.filter((a) => a.kind === 'custom');
   assert.equal(custom.length, 1);
   assert.deepEqual({ ...custom[0] }, { kind: 'custom', url: 'nb.nblink.cc:15565', name: '节点小宝', transport: 'tcp' });
   assert(list.some((a) => a.kind === 'tcp' && a.url === 'nb.nblink.cc:15565'), '老 APP 从 tcp 这一格认得出这条线路');
-  const bad = controlAddresses({ ...bare, jdxbUrl: 'nb.nblink.cc' }, 0, '', providerLinesOf);
+  const bad = controlAddresses({ ...bare, jdxbUrl: 'nb.nblink.cc' }, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   assert.equal(bad.filter((a) => a.kind === 'custom').length, 0, '缺端口的地址拨不通，别当成线路');
 });
 
 test('FRP 隧道作为独立线路上报，与用户手填的 TCP 直连互不相干', () => {
   // 2026-11-23 用户口径：FRP 不是服务商，是本机 frpc 分到的一条隧道，但它同样算一条独立线路。
-  const list = controlAddresses({ ...bare, frpUrl: '103.40.14.14:51543' }, 0, '', providerLinesOf);
+  const list = controlAddresses({ ...bare, frpUrl: '103.40.14.14:51543' }, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   const custom = list.filter((a) => a.kind === 'custom');
   assert.equal(custom.length, 1);
   assert.deepEqual({ ...custom[0] }, { kind: 'custom', url: '103.40.14.14:51543', name: 'FRP', transport: 'tcp' });
   assert(list.some((a) => a.kind === 'tcp' && a.url === '103.40.14.14:51543'), '老 APP 从 tcp 这一格认得出这条线路');
 
   // 两条各报各的：手填的 TCP 直连不会因为 FRP 在跑而被顶掉。
-  const both = controlAddresses({ ...bare, manualTcpUrl: 'example.com:9000', frpUrl: 'frp.example.com:7000' }, 0, '', providerLinesOf);
+  const both = controlAddresses({ ...bare, manualTcpUrl: 'example.com:9000', frpUrl: 'frp.example.com:7000' }, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   const names = both.filter((a) => a.kind === 'custom').map((a) => a.name);
   assert.deepEqual(names, ['FRP']);
   assert(both.some((a) => a.kind === 'tcp' && a.url === 'example.com:9000'), '手填目标照旧上报');
 
   // 换成反代出来的 https 域名时按 http 线路走；形状认不出就当没接。
-  const web = controlAddresses({ ...bare, frpUrl: 'https://frp.example.com' }, 0, '', providerLinesOf);
+  const web = controlAddresses({ ...bare, frpUrl: 'https://frp.example.com' }, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   assert.deepEqual({ ...web.filter((a) => a.kind === 'custom')[0] }, { kind: 'custom', url: 'https://frp.example.com', name: 'FRP', transport: 'http' });
-  assert.equal(controlAddresses({ ...bare, frpUrl: 'frp.example.com' }, 0, '', providerLinesOf).filter((a) => a.kind === 'custom').length, 0);
+  assert.equal(controlAddresses({ ...bare, frpUrl: 'frp.example.com' }, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork }).filter((a) => a.kind === 'custom').length, 0);
 });
 
 test('节点小宝换成网页服务后按 http 线路上报，不再是 tcp', () => {
-  const list = controlAddresses({ ...bare, jdxbUrl: 'https://weadsad.iepose.cn' }, 0, '', providerLinesOf);
+  const list = controlAddresses({ ...bare, jdxbUrl: 'https://weadsad.iepose.cn' }, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   const custom = list.filter((a) => a.kind === 'custom');
   assert.deepEqual({ ...custom[0] }, { kind: 'custom', url: 'https://weadsad.iepose.cn', name: '节点小宝', transport: 'http' });
 });
 
 test('tcp 线路补同址 TCP 条目，老 APP 也认得出', () => {
   const state = { ...bare, customRoutes: [{ url: 'host.example:9000', name: 'B', transport: 'tcp' }] };
-  const list = controlAddresses(state, 0, '', providerLinesOf);
+  const list = controlAddresses(state, 0, '', { getProviderLines: providerLinesOf, lanTools: lanNetwork });
   assert(list.some((a) => a.kind === 'tcp' && a.url === 'host.example:9000'), '老 APP 认 tcp 这一格');
   assert(list.some((a) => a.kind === 'custom' && a.url === 'host.example:9000' && a.transport === 'tcp'));
   assert(!list.some((a) => a.kind === 'tcp' && a.url === ''), '有线路自带目标时不发空 tcp 标记把目标清掉');
