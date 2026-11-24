@@ -220,6 +220,20 @@ test('sidecar 实现指纹覆盖 worker 的依赖闭包（改 relay/* 会触发�
   for (const rel of ['relay/tunnel.js', 'relay/protocol.js', 'relay/lan-proxy.js', 'relay/core.js', 'relay/lan-discovery.cjs']) {
     assert.ok(files.includes(rel), `sidecar 指纹没覆盖 ${rel}（共 ${files.length} 个）；漏了改它就不会重建`)
   }
+  // 凭据子包是动态 require 进来的（字面量正则跟不到），必须被显式并进指纹：只改凭据实现也要触发重建。
+  const raw = sidecarFingerprintFiles()
+  assert.ok(
+    raw.some(f => f.endsWith('/dsh-mobile-credentials/lib/credentials.js')),
+    'sidecar 指纹没覆盖凭据包的 credentials.js；只改凭据实现就不会重建，worker 会一直跑旧凭据代码',
+  )
+})
+
+test('control 实现指纹覆盖 e2ee 传递依赖（改 shared/e2ee.js 会触发提交时重建）', () => {
+  const { controlFingerprintFiles } = require('../lib/relay/control.js')
+  const base = path.join(__dirname, '..', 'lib', 'relay')
+  const rels = controlFingerprintFiles()
+  assert.ok(rels.includes('../shared/e2ee.js'), 'control 指纹没覆盖 shared/e2ee.js：密封用到它，改了却不换客户端就新旧混跑')
+  for (const rel of rels) assert.ok(fs.existsSync(path.join(base, rel)), `control 指纹列了不存在的文件：${rel}`)
 })
 
 test('同指纹就地热重载：隧道连上 / 线路回写的订阅随代退订，反复热重载不累积泄漏', async () => {

@@ -30,20 +30,15 @@ const LINE_IMPL_PREFIXES = [
   'lib/zeronews/',
   'lib/cloudflared/',
   'lib/remote/',
+  // 线路实现、纯计算（服务商清单、地址候选）全住代里；外壳不许引用 relay/ 或 mobile/ 下任何文件。
+  'lib/relay/',
+  'lib/mobile/',
 ];
-/** 同样已搬进「代」、但散落在 relay/ 下的纯计算/线路文件（逐个点名）。 */
+/** 散落在 lib/ 根下、同样住代里的 sidecar 主链路实现（前缀归不进上面的目录，逐个点名）。 */
 const LINE_IMPL_FILES = [
-  'lib/relay/provider-lines.cjs',
-  'lib/relay/lan-network.cjs',
-  'lib/relay/tunnel-forwarder.cjs',
-  // 三条主链路实现：外壳按「提交时换实例」持有（见 transport-host），实现本身住代里。
   'lib/sidecar-lifecycle.cjs',
   'lib/sidecar-facade.cjs',
   'lib/sidecar-facade-worker.cjs',
-  'lib/relay/apply-ledger.cjs',
-  'lib/relay/control.js',
-  'lib/mobile/mux.js',
-  'lib/mobile/permissions.js',
 ];
 
 test('外壳的引用图里不许出现任何线路实现（前缀 + 点名）', async () => {
