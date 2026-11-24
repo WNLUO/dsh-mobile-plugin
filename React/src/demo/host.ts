@@ -65,6 +65,12 @@ type DemoState = {
   manualIpv6Url: string
   /** 「自动上报网络地址」（总控上报）开关，与宿主同名设置项。 */
   controlReportEnabled: boolean
+  /** 演示里 Cloudflare 快隧道开着没有、拿到的地址（引导页「国际」那条靠它判就绪）。 */
+  cfRunning: boolean
+  cfUrl: string
+  /** 演示里 ZeroNews 接好没有、拿到的域名（引导页「国内」主推那条靠它判就绪）。 */
+  znConnected: boolean
+  znUrl: string
   autoUpdate: boolean
   qrIndex: number
   /** 历史是否已被「清空历史」抹掉：只影响演示页自己，刷新即回到初始那份。 */
@@ -98,6 +104,11 @@ function initial(): DemoState {
     manualLanUrl: '',
     manualIpv6Url: '',
     controlReportEnabled: true,
+    // 服务商默认都没接：引导页先摆出「配好网络再出码」，点进卡片接上才出码。
+    cfRunning: false,
+    cfUrl: '',
+    znConnected: false,
+    znUrl: '',
     autoUpdate: false,
     qrIndex: 0,
     historyCleared: false,
@@ -251,6 +262,27 @@ function statusView(): StatusView {
     tunnel: {
       state: tunnelUp ? 'connected' : 'off',
       error: null,
+    },
+    // 服务商线路状态：引导页按这两格判「这家接好了没有」，接好才放二维码。
+    cloudflare: {
+      available: true,
+      enabled: state.cfRunning,
+      running: state.cfRunning,
+      url: state.cfUrl,
+      error: '',
+      startedAt: state.cfRunning ? DEMO_TIME.getTime() : 0,
+      starting: false,
+      retrying: false,
+      waitingForPort: false,
+    },
+    zeroNews: {
+      available: true,
+      running: state.znConnected,
+      phase: state.znConnected ? 'connected' : 'off',
+      url: state.znUrl,
+      error: '',
+      retryable: true,
+      configured: state.znConnected,
     },
     // Tailcat 隧道：演示里当作「助手装好、已就绪」，与真宿主同形状（真机 `available` 为假时
     // 引导页会显示「不可用」）。地址是编的，只求状态那一行显示正常，没有可用的隧道。
@@ -448,6 +480,67 @@ function route(pathname: string, init?: RequestInit, search = new URLSearchParam
     state.qrIndex = (state.qrIndex + 1) % FAKE_QR.length
     state.pairingCode = FAKE_QR[state.qrIndex].code
     return json(statusView())
+  }
+  // ── 服务商线路：引导页「先配网络再出码」这一套要能走通，各家自己的面板打的接口都就地答掉 ──
+  // Cloudflare（国际主推）：开一下就给个假域名，状态里 cfRunning / cfUrl 立刻变真。
+  if (pathname === '/api/cloudflare/start' && method === 'POST') {
+    state.cfRunning = true
+    state.cfUrl = 'https://demo-quick.trycloudflare.com'
+    return json({ ok: true, available: true, enabled: true, running: true, url: state.cfUrl, error: '', startedAt: DEMO_TIME.getTime(), starting: false, retrying: false, waitingForPort: false })
+  }
+  if (pathname === '/api/cloudflare/stop' && method === 'POST') {
+    state.cfRunning = false
+    state.cfUrl = ''
+    return json({ ok: true, available: true, enabled: false, running: false, url: '', error: '', startedAt: 0, starting: false, retrying: false, waitingForPort: false })
+  }
+  // ZeroNews（国内主推）：账号快照直接给「已登录」，面板一进来就会自己接上，接上就给假域名。
+  if (pathname === '/api/relay/zeronews/account' && method === 'GET') {
+    return json({
+      ok: true,
+      available: true,
+      login: true,
+      client: { node: 'demo', os: 'macOS', arch: 'arm64', version: DEMO_VERSION, lastPongAt: iso(-1) },
+      account: { planName: 'Free', userId: 'demo', userTel: 'demo@example.com' },
+      counts: { tunnels: state.znConnected ? 1 : 0, devices: 1, domains: state.znConnected ? 1 : 0 },
+      tunnels: state.znConnected
+        ? [{ id: 't1', domain: 'demo.zeronews.example', type: 'HTTPS', enabled: true, bw: 0, local: '127.0.0.1:18787' }]
+        : [],
+      devices: [{ id: 'd1', name: DEMO_NAME, hostname: DEMO_NAME, os: 'macOS', arch: 'arm64', version: DEMO_VERSION, ip: DEMO_LAN_ADDRESS, online: true }],
+    })
+  }
+  if (pathname === '/api/relay/zeronews/endpoints' && method === 'GET') {
+    return json({ ok: true, available: true, urls: state.znConnected ? [state.znUrl] : [] })
+  }
+  if (pathname === '/api/relay/zeronews/prepare' && method === 'POST') {
+    return json({ ok: true, already: true })
+  }
+  if (pathname === '/api/relay/zeronews/connect' && method === 'POST') {
+    state.znConnected = true
+    state.znUrl = 'https://demo.zeronews.example'
+    return json({ ok: true, phase: 'connected', url: state.znUrl, running: true, available: true })
+  }
+  if (pathname === '/api/relay/zeronews/disconnect' && method === 'POST') {
+    state.znConnected = false
+    state.znUrl = ''
+    return json({ ok: true, phase: 'off', running: false, available: true })
+  }
+  if (pathname === '/api/relay/zeronews/purge' && method === 'POST') {
+    state.znConnected = false
+    state.znUrl = ''
+    return json({ ok: true })
+  }
+  // 节点小宝（国内备选）：状态与轻动作给一份最小应答，点进那页不报「没有这条接口」。
+  if (pathname === '/api/relay/jdxb/status' && method === 'GET') {
+    return json({ ok: true, supported: true, installed: false, bound: false, peerid: '', tun: '', port: 0, error: '', url: '' })
+  }
+  if (pathname === '/api/relay/jdxb/bind' && method === 'GET') {
+    return json({ ok: true, url: '', bound: false, error: '' })
+  }
+  if (pathname === '/api/relay/jdxb/install' && method === 'POST') {
+    return json({ ok: true, installed: true, started: true, error: '' })
+  }
+  if (pathname === '/api/relay/jdxb/url' && method === 'POST') {
+    return json({ ok: true, url: String(body(init).url || '') })
   }
   if (pathname === '/api/relay/restart-sidecar' && method === 'POST') {
     return json({ ok: true, status: statusView() })
