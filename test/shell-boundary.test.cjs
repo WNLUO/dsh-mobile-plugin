@@ -32,6 +32,14 @@ const LINE_IMPL_DENY = [
   'lib/p2p/wiring.cjs',
   'lib/p2p/session.cjs',
   'lib/relay/tunnel-forwarder.cjs',
+  'lib/sidecar-lifecycle.cjs',
+  'lib/sidecar-facade.cjs',
+  'lib/sidecar-facade-worker.cjs',
+  'lib/relay/apply-ledger.cjs',
+  'lib/relay/control.js',
+  'lib/mirror/history-blob.cjs',
+  'lib/mobile/mux.js',
+  'lib/mobile/permissions.js',
 ];
 
 test('外壳的引用图里不许出现线路实现（第一批）', async () => {
