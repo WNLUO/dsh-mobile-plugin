@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { providerLinesOf } = require('../lib/relay/provider-lines.cjs');
-const { pairingPayload } = require('../lib/relay/pairing-payload.cjs');
+const { pairingPayload, pairingHasAddress } = require('../lib/relay/pairing-payload.cjs');
 
 const baseState = (extra = {}) => ({
   name: 'host',
@@ -77,4 +77,24 @@ test('同址已经在 lanUrls 里的线路不重复写进 routes', () => {
   }), 18787);
   assert.ok(payload.lanUrls.includes('https://zero.example.com'));
   assert.equal(payload.routes, undefined, '同址已进 lanUrls，不再重复占字节');
+});
+
+test('pairingHasAddress：只配服务商线路也算有可用地址', () => {
+  // 出码前那道判定以前只看中转和局域网，把只接一家服务商的机器挡在门外（二维码出不来）。
+  const { payload } = pairingPayload(baseState({ zeroNewsUrl: 'https://zero.example.com' }), 18787);
+  assert.equal(payload.relayUrl, '');
+  assert.equal(payload.lanUrls.length, 0);
+  assert.ok(payload.routes.length > 0);
+  assert.equal(pairingHasAddress(payload), true, '服务商线路要算可用地址');
+
+  const cfOnly = pairingPayload(baseState({ cloudflareUrl: 'https://cf.example.com' }), 18787).payload;
+  assert.equal(pairingHasAddress(cfOnly), true, '只有 Cloudflare 时也算');
+});
+
+test('pairingHasAddress：真的什么都没有时为假（不把检查改松）', () => {
+  const empty = pairingPayload(baseState(), 18787).payload;
+  assert.equal(pairingHasAddress(empty), false);
+  // IPv6 候选只是配对后的数据通道，不当配对地址。
+  assert.equal(pairingHasAddress({ lanUrls: [], relayUrl: '', ipv6Candidates: ['http://[240e::1]:18787'] }), false);
+  assert.equal(pairingHasAddress(null), false);
 });
