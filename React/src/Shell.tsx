@@ -32,12 +32,10 @@ export function Shell() {
     document.documentElement.lang = language
     document.title = t('panel.shell.title')
   }, [language])
-  const path = window.location.pathname.replace(/\/+$/, '')
-  // 除演示页外，面板的每一条地址都是控制台这一版（2026-11-15 收成一套，2026-11-17 删掉
-  // 唯一的例外调试页）：配色跟 DSH 走、用控制台顶栏自带的语言 / 日夜。Star / 赞助 / 交流群
-  // 三颗 2026-11-17 也进了顶栏（Console 的 header），外壳不再全局挂任何悬浮按钮。
-  // 演示页（`/demo.html`）不在这里面，它有自己的假宿主与录屏用法，保持原样。
-  const consolePage = !/\/demo(\.html)?$/.test(path)
+  // 面板的每一条地址（含录屏用的 demo）都走控制台这一版：配色跟 DSH 走，语言 / 日夜用页面
+  // 顶栏自带那一组。外壳不再另挂一组悬浮按钮 —— 否则引导页顶栏那组会和这一组在右上角叠成
+  // 两套、日夜互相覆盖（录屏时最明显）。Star / 赞助 / 交流群三颗早进了控制台顶栏，也不由外壳挂。
+  const consolePage = true
 
   // 控制台那一窗的日夜**跟着 DSH 走**（同源父窗口的 `data-ds-dark-theme`），
   // 单独在浏览器里打开就跟随系统。别的页不接：那几页有自己的日夜按钮，两套一起写

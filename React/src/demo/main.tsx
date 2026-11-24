@@ -6,34 +6,20 @@
  * 这一页只由开发服务器加载（`React/demo.html`），正式产物不含它。
  */
 import { ToastProvider, Toaster } from '@appica/ui-react/toast'
-import { ThemeProvider, getThemeScript } from '@appica/ui-react/providers/theme-provider'
 import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../index.css'
 import { Console } from '../Console.tsx'
 import { Onboarding } from '../Onboarding.tsx'
 import { Shell } from '../Shell.tsx'
+import { usePanelLanguage } from '../lib/i18n/use-language.ts'
 import { watchShellTheme } from '../lib/shell-theme.ts'
 import { installDemoHost } from './host.ts'
 import { StatusPreview } from './StatusPreview.tsx'
 
 installDemoHost()
 
-/**
- * 主题键与正式面板刻意分开：演示页与正式开发页在同一个来源下（`127.0.0.1:5273`），
- * 共用那个键的话，录屏时拧一下会把正在用的那一页的主题一起改掉。
- */
-const THEME_KEY = 'dsh-mobile-demo-theme'
-
 const sceneName = new URLSearchParams(window.location.search).get('scene')
-/** 控制台那一幕：主题跟着「父窗口 / 手动选择」走，不预置面板自己那份（与正式页同一条口径）。 */
-const consoleScene = sceneName === 'console'
-
-if (!consoleScene) {
-  const bootTheme = document.createElement('script')
-  bootTheme.textContent = getThemeScript({ storageKey: THEME_KEY })
-  document.head.appendChild(bootTheme)
-}
 
 /**
  * `?scene=status` 是「这块怎么留」的对照稿（见 `StatusPreview.tsx`）：它不画引导页，
@@ -63,23 +49,21 @@ function ConsoleScene() {
 }
 
 /**
- * 控制台那一幕不挂 `ThemeProvider`（与正式页同一条口径，见 `src/main.tsx` 里那段说明）：
- * 它会往 `<html>` 上写 `light` / `dark`，跟控制台要跟的「父窗口 / 手动选择」打架。
+ * 演示页的主题与正式页一致：**跟着 DSH 父窗口 / 系统走**，由 `lib/shell-theme.ts` 写到
+ * `<html>` 上，不挂 Appica 的 `ThemeProvider`（它会自己写 light/dark，跟这套互相覆盖 ——
+ * 那正是「日夜切了却只变一半」的来源）。引导页顶栏那颗日夜按钮拧的就是这一套。
+ *
+ * 语言要在这里订阅一次：演示页绕过外壳直接摆组件的那几幕，没有 `Shell` 帮着重绘，切语言
+ * 时得靠这一层重渲，整页文案才跟着换。
  */
 function Demo() {
-  if (consoleScene) {
-    return (
-      <>
-        <Scene />
-        <Toaster position="top-right" />
-      </>
-    )
-  }
+  usePanelLanguage()
+  useEffect(() => watchShellTheme(), [])
   return (
-    <ThemeProvider storageKey={THEME_KEY}>
+    <>
       <Scene />
       <Toaster position="top-right" />
-    </ThemeProvider>
+    </>
   )
 }
 

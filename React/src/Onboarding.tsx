@@ -279,6 +279,11 @@ export function Onboarding({ onDone }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anyReady, status?.enabled])
 
+  /** 换了地区、或这家又没接好：把上一张码清掉，别让它跨地区残留（国际切回国内时最明显）。 */
+  useEffect(() => {
+    if (!anyReady) setPairing((prev) => (prev ? null : prev))
+  }, [anyReady])
+
   useEffect(() => {
     const wait = pairingRenewIn(pairing)
     if (wait === null) return
@@ -615,6 +620,7 @@ export function Onboarding({ onDone }: Props) {
 
           <div className="flex min-w-0 flex-col justify-center gap-3 md:col-start-2 md:row-start-1">
             <p className="text-center text-sm font-medium text-foreground-strong">{t('panel.download.title')}</p>
+            <p className="text-center text-xs leading-5 text-foreground-muted">{t('panel.onboarding.installAppHint')}</p>
             <DownloadChannelsGrid />
           </div>
 
