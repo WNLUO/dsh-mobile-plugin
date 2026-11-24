@@ -313,3 +313,55 @@ test('新用户：显式停用公用中转后，启用也不回补（二维码�
   assert.deepEqual(state.relayUrls, [], '列表仍为空 = 二维码里没有公用地址');
   assert.equal(state.relayUrl, '');
 });
+
+// ── 配过自己的线路 → 公用中转一次性停用，清掉也不回（2026-11-24 用户口径） ──
+
+test('自己线路的判定：自建中转 / 服务商 / 自定义算，Cloudflare 等默认兜底不算', () => {
+  assert.equal(core.hasOwnRoute({ relayUrls: [PUBLIC] }), false, '只有公用不算');
+  assert.equal(core.hasOwnRoute({ relayUrls: [SELF] }), true, '自建中转算');
+  assert.equal(core.hasOwnRoute({ relayUrls: [PUBLIC], zeroNewsUrl: 'https://zn.example.com' }), true, 'ZeroNews 地址算');
+  assert.equal(core.hasOwnRoute({ relayUrls: [PUBLIC], jdxbUrl: 'demo.example.com:9000' }), true, '节点小宝地址算');
+  assert.equal(core.hasOwnRoute({ relayUrls: [PUBLIC], frpUrl: 'frp.example.com:7000' }), true, 'FRP 地址算');
+  assert.equal(core.hasOwnRoute({ relayUrls: [PUBLIC], customRoutes: [{ url: 'https://line.example.com' }] }), true, '自定义线路算');
+  // Cloudflare 快隧道默认就开着，绝不能据此停公用（否则人人一上来就停）。
+  assert.equal(core.hasOwnRoute({ relayUrls: [PUBLIC], cloudflareUrl: 'https://x.trycloudflare.com' }), false, 'Cloudflare 不算');
+});
+
+test('一次性停用：配了服务商立刻停公用，清掉服务商后也不回补', () => {
+  const state = { enabled: true, relayUrl: PUBLIC, relayUrls: [PUBLIC], zeroNewsUrl: 'https://zn.example.com' };
+  assert.equal(core.retirePublicRelay(state), true, '配了服务商就置停用');
+  core.stripPublicRelay(state);
+  core.expandDefaultPublicRelays(state);
+  assert.deepEqual(state.relayUrls, [], '公用中转被剔掉');
+  assert.equal(state.relayUrl, '');
+  // 清掉服务商之后：不再回补。
+  state.zeroNewsUrl = '';
+  assert.equal(core.retirePublicRelay(state), false, '已经置位过，不重复置');
+  core.expandDefaultPublicRelays(state);
+  assert.deepEqual(state.relayUrls, [], '清掉自己的线路也不回补公用');
+  assert.equal(state.publicRelayDisabled, true, '停用意图跨重启保持');
+});
+
+test('一次性停用：自建中转同样置停用，清掉也不回', () => {
+  const state = { enabled: true, relayUrl: SELF, relayUrls: [SELF] };
+  assert.equal(core.retirePublicRelay(state), true, '自建中转也算自己的线路');
+  state.relayUrls = [];
+  state.relayUrl = '';
+  state.publicRelayDisabled = true;
+  core.expandDefaultPublicRelays(state);
+  assert.deepEqual(state.relayUrls, [], '自建清掉后公用也不回来');
+});
+
+test('接线：配置写入点先 retire 再 strip / expand', () => {
+  const impl = fs.readFileSync(path.join(__dirname, '..', 'lib', 'impl.js'), 'utf8');
+  const store = impl.slice(impl.indexOf('async update(patch, options = {})'), impl.indexOf('watch(listener)'));
+  assert.match(store, /core\.retirePublicRelay\(parsed\)/, '写入点要调一次性停用');
+  assert.ok(
+    store.indexOf('core.retirePublicRelay(parsed)') < store.indexOf('core.stripPublicRelay(parsed)'),
+    'retire 要在 strip 之前（先把 disabled 置上）',
+  );
+  assert.ok(
+    store.indexOf('core.retirePublicRelay(parsed)') < store.indexOf('core.expandDefaultPublicRelays(parsed)'),
+    'retire 要在 expand 之前（expand 见到 disabled 才不再回补）',
+  );
+});
