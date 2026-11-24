@@ -4,7 +4,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { mountZeroNews } = require('../lib/zeronews/wiring.cjs');
+const { mountZeroNews, AGENT_INVITE_URL } = require('../lib/zeronews/wiring.cjs');
 
 /** 拼一份最小装配，effect 立即建立并给出清理函数；runnerFactory 换成假体。 */
 function mountWith(runner, overrides = {}) {
@@ -119,9 +119,14 @@ test('第一次接入：装好客户端后跑 login 并打开确认链接（不�
   assert.equal(result.downloaded, true);
   assert.equal(result.opened, true);
   assert.equal(result.loginPending, true);
-  assert.deepEqual(opened, ['https://verify.zeronews.cc/abc'], '打开的是 login 给出的确认链接');
+  assert.deepEqual(opened, [AGENT_INVITE_URL, 'https://verify.zeronews.cc/abc'], '先开邀请链接埋归属，再开 login 给出的确认链接');
   assert.equal(facade.status().configured, true, '落盘标记要并进状态，面板据此收起引导');
   cleanup();
+});
+
+test('代理商归属：邀请链接带 agent 且走主登录页（埋 cookie），不是 CLI 确认页', () => {
+  assert.match(AGENT_INVITE_URL, /^https:\/\/user\.zeronews\.cc\/login\?agent=\w+$/, '邀请链接落在主登录页并带 agent 参数');
+  assert.doesNotMatch(AGENT_INVITE_URL, /\/cli\/login/, '不能拿 CLI 确认页当邀请链接：那页不读 agent，埋不下 cookie');
 });
 
 test('已登录机器：login 直接回 already，准备阶段不开浏览器就能往下走', async () => {
@@ -194,7 +199,9 @@ test('浏览器正常打开后 prepare 会返回，面板不会卡在准备中',
   const result = await facade.prepare();
   assert.equal(result.ok, true);
   assert.equal(result.opened, true);
-  assert.equal(commands.length, 1, '只打开一次确认页');
+  assert.equal(commands.length, 2, '先开邀请链接埋归属，再开确认页，各一次');
+  assert.deepEqual(commands[0], [AGENT_INVITE_URL], '第一个开的是代理商邀请链接');
+  assert.deepEqual(commands[1], ['https://verify.zeronews.cc/abc'], '第二个开的是确认链接');
 });
 
 test('打开命令报错时如实说没打开', { timeout: 1000 }, async () => {
@@ -315,7 +322,7 @@ test('首次登录：按官方 NO_TTY 语义拿到确认地址就打开，登录
   const result = await facade.prepare();
   assert.equal(result.ok, true);
   assert.equal(result.loginPending, true);
-  assert.deepEqual(opened, ['https://user.zeronews.cc/cli/login?code=abc&client=DSH-mobile'], '打开的是 login 给出的确认链接');
+  assert.deepEqual(opened, [AGENT_INVITE_URL, 'https://user.zeronews.cc/cli/login?code=abc&client=DSH-mobile'], '先开邀请链接埋归属，再开 login 给出的确认链接');
   assert.equal(records.length, 1, '发起了一次 login');
   assert.equal(records[0].opts.env.NO_TTY, '1', '按官方规程带 NO_TTY：CLI 只打印确认地址，浏览器由我们打开');
   assert.equal(records[0].child.killed, false, '拿到地址后先不杀，交给面板轮询状态确认登录');
