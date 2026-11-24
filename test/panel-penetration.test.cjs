@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
 const ROOT = path.join(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
 
-test('引导页不再提供内网穿透入口（2026-11-07 起），主流程只配局域网 + 公用中转', () => {
+test('引导页不再提供内网穿透入口（2026-11-07 起），主流程只配局域网 + 用户自选的服务商', () => {
   const onboarding = read('React', 'src', 'Onboarding.tsx');
 
   // 那一块连同「自建中转」一起被用户要求删掉了（引导页一上来说越简单越好）。
@@ -35,8 +35,14 @@ test('引导页不再提供内网穿透入口（2026-11-07 起），主流程只
 
   // 主流程配的就是这两条，一条都不许少：少了局域网，家里扫完就要绕中转。
   assert.match(onboarding, /lanEnabled: true/, '局域网直连要一起开着');
-  // 2026-11-19 需求变更：公用中转改由电脑选路，引导页写入整份内置清单（不再只有第一条）。
-  assert.match(onboarding, /relayUrls: PUBLIC_RELAYS\.map\(/, '默认把整份内置公用中转清单写进配置（电脑在几台间选路）');
+  // 2026-11-24 需求变更：公用中转停止提供，新用户不再默认写公用中转 —— 引导页改为按地区列出
+  // 服务商、接好再出码。本来一条中转都没有的机器明确置 publicRelayDisabled，别让宿主在启用时
+  // 把公用中转补回来；老用户已有中转的不动它，照旧能用。
+  assert.ok(
+    !/relayUrls: PUBLIC_RELAYS\.map\(/.test(onboarding),
+    '引导页不再默认把公用中转清单写进配置',
+  );
+  assert.match(onboarding, /publicRelayDisabled = true/, '本来没有中转时明确停用公用中转，不让宿主补回');
 });
 
 test('宿主把穿透域名报给面板，主页「网络配置」接着改（引导页已不再提供这一格）', () => {
