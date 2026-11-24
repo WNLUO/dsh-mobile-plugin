@@ -1,8 +1,11 @@
-// FRP 传输主机：换代按「实现指纹」沿用或换新 —— 只影响 FRP 一条线路，DSH 不重启。
+// FRP/隧道助手/点对点传输主机：换代按「实现指纹」沿用或换新 —— 只影响某一条线路，DSH 不重启。
 'use strict';
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 /** 造一个够 installTransportHosts 跑起来的最小 ctx。 */
 function fakeCtx() {
@@ -14,7 +17,13 @@ function fakeCtx() {
     ctx: {
       logger: { warn() {}, info() {}, debug() {} },
       reflect: { provide: (name, obj) => { services[name] = obj; } },
-      effect: (fn, label) => { effects.push({ fn, label }); return () => {}; },
+      // 真如实现在启动时调用 fn 拿到清理回调、返回一个「调用即清理」的 disposer —— 否则测不出 effect 有没有被收。
+      effect: (fn, label) => {
+        let cleanup;
+        try { cleanup = fn(); } catch { cleanup = undefined; }
+        effects.push({ label, cleanup });
+        return () => { if (typeof cleanup === 'function') { try { cleanup(); } catch { /* ignore */ } } };
+      },
       get: () => null,
       webServer: { port: 19387, register: () => () => {}, registerUpgrade: () => () => {} },
     },
@@ -57,56 +66,74 @@ test('frpc 实现指纹：同一份实现稳定、格式固定', () => {
   assert.match(a, /^[0-9a-f]{16}$/, '指纹应是 16 位十六进制');
 });
 
-test('隧道助手：指纹不变沿用 door，变了重建并收旧 effect', async () => {
-  const { installTransportHosts } = await import('../lib/shell/transport-host.js');
-  const { services, ctx } = fakeCtx();
-  installTransportHosts(ctx);
-  const host = services.dshMobileTransportTailcat;
-  assert.ok(host && typeof host.ensure === 'function', '外壳应 provide dshMobileTransportTailcat（惰性 ensure）');
-
-  const built = [];
-  const stopped = [];
-  const mount = (opts) => {
-    const door = { status: () => ({ available: true }), start() {}, stop() { stopped.push(door); } };
-    built.push(door);
-    opts.ctx.effect(() => () => {}, 'fake tailcat life'); // 模拟 mount 内部登记 effect
-    return door;
-  };
-
-  const d1 = host.ensure({ providers: {}, mount, fingerprint: 'v1' });
-  assert.equal(built.length, 1);
-  const d2 = host.ensure({ providers: {}, mount, fingerprint: 'v1' });
-  assert.equal(d2, d1, '指纹没变必须沿用同一个 door（换代不断直连）');
-  assert.equal(built.length, 1, '沿用不得重建');
-  const d3 = host.ensure({ providers: {}, mount, fingerprint: 'v2' });
-  assert.notEqual(d3, d1, '指纹变了要重建 door');
-  assert.equal(built.length, 2);
-  assert.ok(stopped.includes(d1), '重建时旧 door 要被 stop，不能留着旧监听');
+test('三个实现指纹：改任一被 hash 的文件都必须变（漏算文件会导致「改了不生效」）', () => {
+  const base = path.join(__dirname, '..');
+  const frpc = require('../lib/frpc/runner.cjs');
+  const tailcat = require('../lib/tailcat/wiring.cjs');
+  const p2p = require('../lib/p2p/wiring.cjs');
+  const p2pFp = Object.entries(p2p).find(([name]) => /Fingerprint$/.test(name))[1];
+  assert.equal(typeof p2pFp, 'function', 'p2p 应导出实现指纹函数');
+  const cases = [
+    { label: 'frpc', fn: frpc.frpcFingerprint, dir: 'lib/frpc', files: ['runner.cjs', 'provision.cjs'] },
+    { label: 'tailcat', fn: tailcat.tailcatFingerprint, dir: 'lib/tailcat', files: ['wiring.cjs', 'ingress.cjs', 'session.cjs', '../tailcat/host-process.cjs', '../relay/tunnel-forwarder.cjs'] },
+    { label: 'p2p', fn: p2pFp, dir: 'lib/p2p', files: ['wiring.cjs', 'session.cjs', '../tailcat/host-process.cjs', '../relay/tunnel-forwarder.cjs'] },
+  ];
+  for (const c of cases) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-fp-'));
+    try {
+      for (const rel of c.files) {
+        const dst = path.join(tmp, c.dir, rel);
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        fs.copyFileSync(path.join(base, c.dir, rel), dst);
+      }
+      const dir = path.join(tmp, c.dir);
+      const baseline = c.fn(dir);
+      assert.match(baseline, /^[0-9a-f]{16}$/);
+      for (const rel of c.files) {
+        const file = path.join(tmp, c.dir, rel);
+        const before = fs.readFileSync(file);
+        fs.appendFileSync(file, '\n// mutated');
+        assert.notEqual(c.fn(dir), baseline, `${c.label} 指纹没覆盖 ${rel}：改它不会触发重建`);
+        fs.writeFileSync(file, before);
+      }
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }
 });
 
-test('点对点：指纹不变沿用 door，变了重建并收旧 effect', async () => {
-  const { installTransportHosts } = await import('../lib/shell/transport-host.js');
-  const { services, ctx } = fakeCtx();
-  installTransportHosts(ctx);
-  const host = services.dshMobileTransportP2P;
-  assert.ok(host && typeof host.ensure === 'function', '外壳应 provide dshMobileTransportP2P（惰性 ensure）');
+function adoptSwapTest(label, serviceName) {
+  test(`${label}：指纹不变沿用 door，变了重建并收掉旧 effect`, async () => {
+    const { installTransportHosts } = await import('../lib/shell/transport-host.js');
+    const { services, ctx } = fakeCtx();
+    installTransportHosts(ctx);
+    const host = services[serviceName];
+    assert.ok(host && typeof host.ensure === 'function', `外壳应 provide ${serviceName}（惰性 ensure）`);
 
-  const built = [];
-  const stopped = [];
-  const mount = (opts) => {
-    const door = { status: () => ({ available: true }), start() {}, stop() { stopped.push(door); } };
-    built.push(door);
-    opts.ctx.effect(() => () => {}, 'fake p2p life');
-    return door;
-  };
+    const built = [];
+    const stopped = [];
+    const disposedEffects = [];
+    const mount = (opts) => {
+      const door = { status: () => ({ available: true }), start() {}, stop() { stopped.push(door); } };
+      built.push(door);
+      // 模拟 mount 内部把启停登记成 ctx.effect：清理时记录，用来验证重建确实把旧 effect 收了。
+      opts.ctx.effect(() => () => { disposedEffects.push(door); }, `fake ${label} life`);
+      return door;
+    };
 
-  const d1 = host.ensure({ providers: {}, mount, fingerprint: 'v1' });
-  assert.equal(built.length, 1);
-  const d2 = host.ensure({ providers: {}, mount, fingerprint: 'v1' });
-  assert.equal(d2, d1, '指纹没变必须沿用同一个 door（换代不断直连）');
-  assert.equal(built.length, 1, '沿用不得重建');
-  const d3 = host.ensure({ providers: {}, mount, fingerprint: 'v2' });
-  assert.notEqual(d3, d1, '指纹变了要重建 door');
-  assert.equal(built.length, 2);
-  assert.ok(stopped.includes(d1), '重建时旧 door 要被 stop');
-});
+    const d1 = host.ensure({ providers: {}, mount, fingerprint: 'v1' });
+    assert.equal(built.length, 1);
+    const d2 = host.ensure({ providers: {}, mount, fingerprint: 'v1' });
+    assert.equal(d2, d1, '指纹没变必须沿用同一个 door（换代不断直连）');
+    assert.equal(built.length, 1, '沿用不得重建');
+    assert.equal(disposedEffects.length, 0, '沿用不得收旧 effect');
+    const d3 = host.ensure({ providers: {}, mount, fingerprint: 'v2' });
+    assert.notEqual(d3, d1, '指纹变了要重建 door');
+    assert.equal(built.length, 2);
+    assert.ok(stopped.includes(d1), '重建时旧 door 要被 stop，不能留着旧监听');
+    assert.ok(disposedEffects.includes(d1), '重建时必须把旧 door 登记的 effect 收掉，否则监听/定时器泄漏');
+  });
+}
+
+adoptSwapTest('隧道助手', 'dshMobileTransportTailcat');
+adoptSwapTest('点对点', 'dshMobileTransportP2P');

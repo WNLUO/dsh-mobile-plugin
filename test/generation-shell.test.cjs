@@ -733,7 +733,7 @@ test('换代：指纹盖住外壳实际加载的每个文件（漏一个就必�
   const { updater } = await loadShellModules();
   const shellFiles = updater.shellFiles(PKG_DIR);
   assert.ok(shellFiles.length >= 8, `外壳文件数不对，引用走查可能坏了：${shellFiles.length}`);
-  for (const rel of ['lib/index.js', 'lib/shell/transport-host.js', 'lib/http/routing.js', 'lib/shared/http-util.js', 'lib/shell/manager.js']) {
+  for (const rel of ['lib/index.js', 'lib/shell/transport-host.js', 'lib/sidecar-lifecycle.cjs', 'lib/sidecar-facade.cjs', 'lib/relay/control.js']) {
     assert.ok(shellFiles.includes(rel), `清单没走到 ${rel}：多级引用或 CJS 的 require 没跟上`);
   }
   for (const name of fs.readdirSync(path.join(PKG_DIR, 'lib', 'shell'))) {
@@ -825,21 +825,14 @@ test('传输归外壳：总控上报客户端跨代存活（换代不断开上�
   await waitForStatus(runtime);
 
   const host = ctx.get('dshMobileTransportControl');
-  assert.ok(host, '外壳应 provide dshMobileTransportControl 服务');
-  // 2026-11-24：control 实现搬进「代」，外壳按指纹持有客户端；改钉 adopt 契约。
-  assert.equal(typeof host.adopt, 'function', '实现由当前这一代 adopt 交给外壳');
+  assert.ok(host && host.client, '外壳应 provide dshMobileTransportControl 服务');
   assert.equal(typeof host.setProviders, 'function', '来源要能被当前这一代注入');
-
-  const made = [];
-  const create = () => { const c = { start() {}, stop() {}, sync() {}, snapshot: () => ({}), targetUrl: '' }; made.push(c); return c; };
-  const beforeClient = host.adopt({ fingerprint: 'same', create });
-  assert.equal(typeof beforeClient.sync, 'function', '应拿到控制客户端');
+  assert.equal(typeof host.client.sync, 'function', '应拿到控制客户端');
+  const beforeClient = host.client;
 
   install(makeGeneration('ctl-host-b', '0.9.11', goodGeneration('b-0.9.11')));
   await runtime.reload();
-  const after = ctx.get('dshMobileTransportControl').adopt({ fingerprint: 'same', create });
-  assert.equal(after, beforeClient, '指纹不变不得重建总控上报客户端（否则上报连接要断一次）');
-  assert.equal(made.length, 1, '指纹不变不得重建 client');
+  assert.equal(ctx.get('dshMobileTransportControl').client, beforeClient, '换代不得重建总控上报客户端（否则上报连接要断一次）');
 });
 
 test('传输归外壳：隧道助手服务存在、可惰性注入来源', async t => {
@@ -853,20 +846,14 @@ test('传输归外壳：隧道助手服务存在、可惰性注入来源', async
   const p2pHost = ctx.get('dshMobileTransportP2P');
   assert.ok(p2pHost && typeof p2pHost.ensure === 'function', '外壳应 provide dshMobileTransportP2P（惰性 ensure）');
   const muxHost = ctx.get('dshMobileTransportMux');
-  assert.ok(muxHost && typeof muxHost.adopt === 'function', '外壳应 provide dshMobileTransportMux（长连接归外壳）');
-  const muxCreate = () => ({ handleUpgrade() {}, dropAll() {}, dropDevice() {}, reassignInstance() {} });
-  const muxBefore = muxHost.adopt({ fingerprint: 'm1', create: muxCreate });
+  assert.ok(muxHost && muxHost.service && typeof muxHost.setProviders === 'function', '外壳应 provide dshMobileTransportMux（长连接归外壳）');
 
   // 传输进程管理器跨代必须是同一份（换代不重启、不重建）。
-  const sidecarHost = ctx.get('dshMobileSidecarHost');
-  assert.ok(sidecarHost && typeof sidecarHost.adopt === 'function', '外壳应 provide dshMobileSidecarHost');
-  const sideCreate = () => ({ start() {}, stop() {}, isStarted: () => true, tunnelConnected: () => false, getSnapshot: () => ({}), setProviders() {}, onTunnelUp: () => () => {}, getSidecar: () => null, syncSidecar: async () => {}, restartSidecar: async () => ({ ok: true }), getAdvertisedLanPort: () => 0 });
-  const sideBefore = sidecarHost.adopt({ fingerprint: 's1', create: sideCreate });
-
+  const sidecarBefore = ctx.get('dshMobileSidecarHost');
+  assert.ok(sidecarBefore, '外壳应 provide dshMobileSidecarHost');
   install(makeGeneration('tc-svc2', '0.9.13', goodGeneration('b-0.9.13')));
   await runtime.reload();
-  assert.equal(ctx.get('dshMobileTransportMux').adopt({ fingerprint: 'm1', create: muxCreate }), muxBefore, 'mux 服务跨代是同一份（指纹不变不重建）');
-  assert.equal(ctx.get('dshMobileSidecarHost').adopt({ fingerprint: 's1', create: sideCreate }), sideBefore, 'sidecar 生命周期跨代是同一份（指纹不变不重建）');
+  assert.equal(ctx.get('dshMobileSidecarHost'), sidecarBefore, 'sidecar 传输进程管理器跨代是同一份');
 });
 
 test('蓝绿：新代不再注册的旧路由，提交后被摘掉（不留残影）', async t => {

@@ -608,7 +608,7 @@ async function main() {
     warn('  重启 DSH 会退回声明里那一份。要让重启也保留，跑一次不带 --only 的。')
   }
   if (run.shellTouched.length) {
-    warn('\n⚠ 这次还改了外壳（lib/index.js 或 lib/shell/*）。')
+    warn('\n⚠ 这次还改了外壳（lib/index.js、lib/shell/*，或启动时被外壳加载的其它模块，如 lib/relay/control.js、lib/sidecar-lifecycle.cjs 等）。')
     warn('  外壳在进程启动时就被 Node 缓存了，换不掉 —— 上面那些实现改动已经生效，')
     warn('  但外壳那部分要重启一次 DSH 才会用上。改外壳属于少数情况，日常改代码不会碰到。')
   } else {

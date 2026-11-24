@@ -218,18 +218,18 @@ test('更新没动外壳：外壳指纹一致时仍按「无需重启」上报',
   assert.equal(updateState.lastApply.shellChanged, false);
 });
 
-// transport-host 静态引用 wiring，后者持有会话、入口、助手与带来源标记的落点代理。
-const TAILCAT_HOST_FILES = ['lib/tailcat/wiring.cjs', 'lib/tailcat/session.cjs', 'lib/tailcat/ingress.cjs',
-  'lib/tailcat/host-process.cjs', 'lib/relay/tunnel-forwarder.cjs', 'lib/shared/via-header.js'];
+// 这些是当前仍在「稳定外壳」里的文件（改它们才算外壳变化、要重启）；可选线路（frpc/tailcat/p2p）已搬进代，不在其中。
+const HOST_FILES = ['lib/relay/control.js', 'lib/sidecar-lifecycle.cjs', 'lib/http/routing.js',
+  'lib/shared/private-address.js', 'lib/shared/http-util.js', 'lib/mobile/mux.js'];
 
 function addTailcatHostFiles(pkgDir) {
   addShellFiles(pkgDir);
-  for (const rel of TAILCAT_HOST_FILES) {
+  for (const rel of HOST_FILES) {
     fs.mkdirSync(path.dirname(path.join(pkgDir, rel)), { recursive: true });
     fs.copyFileSync(path.join(__dirname, '..', rel), path.join(pkgDir, rel));
   }
   // 外壳加载哪些文件是顺着入口的引用算的：入口得真的引用它们，否则这些文件不算外壳。
-  const imports = TAILCAT_HOST_FILES.map(rel => `import './${rel.slice('lib/'.length)}'`).join('\n');
+  const imports = HOST_FILES.map(rel => `import './${rel.slice('lib/'.length)}'`).join('\n');
   fs.writeFileSync(path.join(pkgDir, 'lib', 'index.js'), `import './shell/runtime.js'\n${imports}\n`);
 }
 
@@ -262,24 +262,24 @@ async function tailcatHostUpdate(updater, t, rel, id) {
   return { result, updateState };
 }
 
-for (const [index, rel] of TAILCAT_HOST_FILES.entries()) {
+for (const [index, rel] of HOST_FILES.entries()) {
   test(`只更新 ${rel}：实现换代成功仍提示常驻代码需要重启`, async t => {
     const { result, updateState } = await tailcatHostUpdate(await loadUpdater(), t, rel, index);
     assertTailcatRestart(result, updateState);
   });
 }
 
-test('变异证明：指纹漏掉 Tailcat wiring 时，同一重启提示断言必须失败', async t => {
+test('变异证明：指纹漏掉某个外壳文件时，同一重启提示断言必须失败', async t => {
   const file = path.join(__dirname, '..', 'lib', 'shell', 'updater.js');
   const source = fs.readFileSync(file, 'utf8');
   const marker = 'const files = shellFiles(pkgDir)';
   assert.equal(source.split(marker).length, 2, '变异必须只命中那一处取清单的地方');
   // 清单是顺着引用算的，漏项只能靠改取法来造：这里把 wiring 从清单里摘掉，看断言会不会红。
-  const broken = source.replace(marker, "const files = shellFiles(pkgDir).filter(rel => rel !== 'lib/tailcat/wiring.cjs')")
+  const broken = source.replace(marker, "const files = shellFiles(pkgDir).filter(rel => rel !== 'lib/shared/http-util.js')")
     .replace(/from '(\.[^']+)'/g, (_match, spec) => `from ${JSON.stringify(pathToFileURL(path.join(path.dirname(file), spec)).href)}`)
     .replace('createRequire(import.meta.url)', `createRequire(${JSON.stringify(pathToFileURL(file).href)})`);
   const updater = await import(`data:text/javascript;base64,${Buffer.from(broken).toString('base64')}`);
-  const { result, updateState } = await tailcatHostUpdate(updater, t, 'lib/tailcat/wiring.cjs', 10);
+  const { result, updateState } = await tailcatHostUpdate(updater, t, 'lib/shared/http-util.js', 10);
   assert.throws(() => assertTailcatRestart(result, updateState), { code: 'ERR_ASSERTION' });
 });
 
