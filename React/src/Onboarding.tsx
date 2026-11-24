@@ -519,7 +519,7 @@ export function Onboarding({ onDone }: Props) {
                     onClick={() => setRegion(value)}
                     className={cn(
                       'cursor-pointer rounded px-2.5 py-1 text-xs transition-colors',
-                      region === value ? 'bg-primary text-white' : 'text-foreground-muted hover:text-foreground-strong',
+                      region === value ? 'bg-primary text-primary-foreground' : 'text-foreground-muted hover:text-foreground-strong',
                     )}
                   >
                     {t(value === 'cn' ? 'panel.region.china' : 'panel.region.global')}
