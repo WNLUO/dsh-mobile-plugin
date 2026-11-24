@@ -85,6 +85,59 @@ async function loadUpdater() {
   return import(pathToFileURL(path.join(__dirname, '..', 'lib', 'shell', 'updater.js')).href);
 }
 
+test('判新版与装包同源：优先问 npm，市场说没新版也拦不住', async t => {
+  const pkgDir = install('0.30.0');
+  // 盘上那一代带真实形态的查询模块：查 npm 注册表（本地假源），带出更新说明。
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'update-registry.cjs'), `
+    exports.checkForUpdate = async ({ installedVersion, base, source }) => {
+      const res = await fetch(base + '/dsh-mobile-plugin/latest');
+      const manifest = await res.json();
+      const cmp = (a, b) => {
+        const x = String(a).split('-')[0].split('.').map(Number);
+        const y = String(b).split('-')[0].split('.').map(Number);
+        for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); }
+        return 0;
+      };
+      return {
+        installedVersion,
+        latestVersion: manifest.version,
+        updateAvailable: installedVersion !== null && cmp(manifest.version, installedVersion) > 0,
+        source: source || null,
+        releaseNotes: manifest.dshMobileReleaseNotes || null,
+        checkedAt: new Date().toISOString(),
+      };
+    };
+  `);
+  // profileRegistry 由这一代提供：测试里直接给出假注册表地址；declaredSource 报 npm。
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'update-install.cjs'), `
+    exports.profileRegistry = async () => ${JSON.stringify(`http://127.0.0.1:__PORT__/registry`)};
+    exports.declaredSource = () => 'npm';
+  `);
+  const manifests = { server: null };
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ version: '0.31.0', dshMobileReleaseNotes: { version: '0.31.0', kinds: ['fix'], notes: { en: 'fix' } } }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const port = server.address().port;
+  const installer = fs.readFileSync(path.join(pkgDir, 'lib', 'update-install.cjs'), 'utf8').replace('__PORT__', String(port));
+  fs.writeFileSync(path.join(pkgDir, 'lib', 'update-install.cjs'), installer);
+
+  const updater = await loadUpdater();
+  const result = await updater.checkFromGeneration({ packageManager: null });
+  assert.equal(result.latestVersion, '0.31.0', 'npm 上的新版要查得到');
+  assert.equal(result.updateAvailable, true, '盘上 0.30.0、npm 0.31.0 → 有新版');
+  assert.equal(result.source, 'npm', '来源与装包判据一致');
+  assert.equal(result.channelSwitch, false);
+});
+
+test('判新版：盘上没有查询模块时退回 null，调用方改问市场', async t => {
+  install('0.30.0'); // install() 只造 package.json + lib/impl.js，没有查询模块
+  const updater = await loadUpdater();
+  assert.equal(await updater.checkFromGeneration({}), null, '老一代没有查询模块就让调用方兜底市场，不能抛');
+});
+
 test('来源是本地 link / tgz 时：不去试、不写盘，并如实说出原因', async t => {
   install('0.1.0');
   // 本地 tgz / link 装法：市场在 check 里就把它报成 `linked`。
