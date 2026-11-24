@@ -571,9 +571,18 @@ export function Onboarding({ onDone }: Props) {
         </div>
       </Card>
 
-      {/* 二维码 + 下载渠道 + 状态：接好之后二维码才出来。 */}
+      {/* 装 App：新用户可能还没装手机 App，先把下载渠道摆出来，按「配网络 → 装 App → 扫码」的顺序走。 */}
       <Card frame="solid" className="w-full max-w-4xl">
-        <div className="grid items-center gap-6 px-4 pb-2 md:grid-cols-[minmax(320px,1fr)_minmax(0,1fr)]">
+        <div className="flex flex-col gap-3 p-4">
+          <p className="text-center text-sm font-medium text-foreground-strong">{t('panel.download.title')}</p>
+          <p className="text-center text-xs leading-5 text-foreground-muted">{t('panel.onboarding.installAppHint')}</p>
+          <DownloadChannelsGrid />
+        </div>
+      </Card>
+
+      {/* 二维码 + 状态：接好之后二维码才出来。 */}
+      <Card frame="solid" className="w-full max-w-4xl">
+        <div className="flex flex-col items-center gap-2 px-4 pb-2">
           <div className="flex flex-col items-center gap-2 md:col-start-1 md:row-start-1">
             <div className="flex h-5 w-full max-w-[320px] items-center justify-center gap-1.5">
               <p className="text-sm font-medium leading-5 text-foreground-strong">{t('panel.onboarding.pairingHint')}</p>
@@ -618,13 +627,7 @@ export function Onboarding({ onDone }: Props) {
             </p>
           </div>
 
-          <div className="flex min-w-0 flex-col justify-center gap-3 md:col-start-2 md:row-start-1">
-            <p className="text-center text-sm font-medium text-foreground-strong">{t('panel.download.title')}</p>
-            <p className="text-center text-xs leading-5 text-foreground-muted">{t('panel.onboarding.installAppHint')}</p>
-            <DownloadChannelsGrid />
-          </div>
-
-          <div className="w-full md:col-span-2 md:row-start-2 [&_dt]:text-foreground-strong">
+          <div className="w-full [&_dt]:text-foreground-strong">
             <InfoList>
               <InfoRow label={t('panel.onboarding.direct')}>
                 <ToneValue tone={lanTone(status?.lan.state ?? 'off', true)} text={lanText(status?.lan.state ?? 'off', true)} />

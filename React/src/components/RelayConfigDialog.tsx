@@ -541,7 +541,7 @@ export function RelayConfigDialog({
                       <Button
                         variant="ghost"
                         size="sm"
-                        disabled={!canSave || publicRelayBlocked}
+                        disabled={!canSave || publicOff}
                         onClick={() => {
                           if (publicActive) {
                             // 没有配任何公网直连入口时停用公用中转，新手机在蜂窝网络下就没有

@@ -82,7 +82,8 @@ test('网络配置：公用被强制停用时只显「已禁用」、禁用启�
   assert.match(config, /const publicRelayBlocked =/, '收敛成一个具名变量');
   const first = config.slice(config.indexOf('第一栏：公用中转'), config.indexOf('第二栏：自建中转'));
   // 按钮：被停用时禁用「启用」（与正在保存一起做或）。
-  assert.match(first, /disabled=\{!canSave \|\| publicRelayBlocked\}/, '被停用时启用按钮要禁用');
+  // 2026-11-24 需求变更：公用中转为「一次性停用」，停用/被停用后不许再从这里点「启用」开回来。
+  assert.match(first, /disabled=\{!canSave \|\| publicOff\}/, '停用 / 被停用时启用按钮要禁用');
   // 2026-11-19 用户口径：停用时输入框只摆一句「已禁用」，不再列链接、也不划删除线。
   // 2026-11-21（issue #27）：用户显式停用（publicDisabled）与自建强制停用一起走这个「已禁用」展示态。
   assert.match(first, /publicOff \? \(/, '停用（强制或显式）时走单独一个输入框');
