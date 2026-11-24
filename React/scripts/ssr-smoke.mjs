@@ -1,5 +1,6 @@
 // 冒烟渲染：在 node 里把各张卡与配置弹窗渲染一遍，抓运行期崩（不依赖浏览器）。
 // Base UI 的弹窗走 portal，SSR 渲染出来是空字符串，弹窗要另用浏览器验收。
+// 2026-11-24：公告组件早删了，烟测里那三处残留引用清掉。
 import { ToastProvider } from '@appica/ui-react/toast'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -74,7 +75,6 @@ const [Conn, Pair, Upd, Dialog, Lan, Con, Onb, Join, Spn, Star, Toggle, Picker, 
   server.ssrLoadModule('/src/components/DownloadAppButton.tsx'),
   server.ssrLoadModule('/src/components/LanguageMenu.tsx'),
   server.ssrLoadModule('/src/components/TopRightActions.tsx'),
-  server.ssrLoadModule('/src/components/NoticeBoard.tsx'),
 ])
 
 const noop = () => {}
@@ -216,14 +216,6 @@ const cases = [
   // 下载入口：按钮本身总是在，四条渠道在弹窗里 —— 弹窗未打开时不进 DOM（Base UI 走 portal），
   // 所以这一遍只冒烟按钮；四条链接有没有齐要看真浏览器点开（和上面几颗弹窗同一种处境）。
   ['DownloadAppButton', h(Dl.DownloadAppButton, {}), '下载 APP'],
-  // 公告板：标题与那条号都得在 —— 号是常量、正文从它拼，缺了就是占位符没接上。
-  // 公告卡里两条：版本门槛 + 「自己搭一台中转」，后者带一个指向仓库的链接。
-  // 调试页 2026-11-17 删除，这三条烟测随之撤掉。
-  // 公告板：2026-11-13 从常驻卡片改成「按钮 + 弹窗」，所以首屏只剩那颗按钮 ——
-  // 标题与「最低插件版本 ≥ x.y.z」都在它身上。正文（版本门槛那两句、以及「自己搭一台
-  // 中转」那一节）住在弹窗里，收起时不渲染，这一遍冒烟看不到，要看得点开（浏览器里看）。
-  ['NoticeBoard', h(Notice.NoticeBoard, {}), '公告'],
-  ['NoticeBoard（版本门槛还在）', h(Notice.NoticeBoard, {}), '最低插件版本'],
 ]
 
 let failed = 0

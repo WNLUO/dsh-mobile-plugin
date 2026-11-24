@@ -84,11 +84,13 @@ test('并发重启必须串行，否则两次重启会互相 stop 掉对方刚�
   assert.match(src, /restartInFlight = null[\s\S]*?\}\)\(\)\n\s*return restartInFlight/, 'finally 里必须清掉 in-flight 标记')
 })
 
-test('重启按钮在网页版设置页里，失败时在界面上显式标红', () => {
+test('重启按钮在控制台顶栏，失败时在界面上显式标红', () => {
   // 从 0.1.48 起界面搬进宿主吐的网页（React/）；2026-10 又撤掉「插件更新」那张卡，设置项
-  // 只剩一个网页入口，但重启 sidecar 这个更轻的动作仍留在网页版那张卡片上。
-  // 宿主面一点没变：路由还在，只是页面不再由 lib/client.js 画 —— 所以断言跟着搬家，
-  // 别把这条守卫删掉（它钉的是「界面上必须能触发重启，而且失败必须看得见」）。
+  // 只剩一个网页入口。**2026-11-24 用户要求**：重启与检查更新从更新卡挪到控制台顶栏，
+  // 做成图标按钮。按钮的 JSX 与文案仍留在更新卡里（借 portal 画到顶栏），所以断言钉的是
+  // 「更新卡里有字典键 + 顶栏有落脚点」，别把守卫删掉 —— 它管的是「界面上必须能触发重启，
+  // 而且失败必须看得见」。
+  // 宿主面一点没变：路由还在，只是页面不再由 lib/client.js 画。
   const routes = read(path.join(PKG_DIR, 'lib', 'routes', 'control-plane.js'))
   assert.match(routes, /'\/api\/relay\/restart-sidecar'/, '宿主仍要提供重启路由')
   const app = read(path.join(PKG_DIR, 'React', 'src', 'Console.tsx'))
@@ -98,7 +100,10 @@ test('重启按钮在网页版设置页里，失败时在界面上显式标红',
   // 一起做」）：文案搬进 `React/src/lib/i18n/messages/`，组件里只留键。所以这条断言改成
   // 钉「那颗按钮用的是字典键」，原话在 `panel.update.restartSidecar` 里（五门语言各一份）。
   const card = read(path.join(PKG_DIR, 'React', 'src', 'components', 'UpdateCard.tsx'))
-  assert.ok(card.includes('panel.update.restartSidecar'), '网页版那颗按钮的文案要来自字典（重启 sidecar 那条键）')
+  assert.ok(card.includes('panel.update.restartSidecar'), '图标按钮的文案要来自字典（重启 sidecar 那条键）')
+  // 2026-11-24 需求变更：按钮位置从卡片挪到顶栏，落脚点由 Console 给。
+  const panel = read(path.join(PKG_DIR, 'React', 'src', 'Console.tsx'))
+  assert.match(panel, /setUpdateActionsSlot/, '顶栏要给更新卡那两颗按钮留落脚点')
   assert.equal(
     fs.existsSync(path.join(PKG_DIR, 'React', 'src', 'lib', 'i18n.ts')),
     false,

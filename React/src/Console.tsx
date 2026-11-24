@@ -1,3 +1,4 @@
+// 2026-11-24：重启 sidecar / 检查更新两颗图标按钮从更新卡挪进顶栏，位置在这页给。
 // 2026-11-24：顶栏那颗「网络配置」按钮已撤——配置自 11-23 起铺在首页，按钮只把它滚进视野，多余。
 // 固定端口与端口号通过同一次配置保存。
 // Cloudflare 兜底的管理弹窗在这里挂载，连接卡那行「管理」打开它。
@@ -119,6 +120,12 @@ export function Console() {
   const [addressError, setAddressError] = useState('')
   /** 更新卡报上来的版本对不上详情，挂到左列「运行中版本」那行。 */
   const [versionIssues, setVersionIssues] = useState<Issue[]>([])
+  /**
+   * 顶栏里给更新卡那两颗维护按钮的落脚点。2026-11-24 用户要求把它们从卡片挪到顶栏；
+   * 按钮的 JSX 与逻辑仍在更新卡里，这里只负责给位置。ref 回调直接用 setState 本身
+   * （引用稳定），DOM 就位后重渲一次，portal 才有落点。
+   */
+  const [updateActionsSlot, setUpdateActionsSlot] = useState<HTMLDivElement | null>(null)
   /**
    * 网络配置铺在首页；只有线路分页（国内 / 国际 → 服务商各一页）是独立页，地址进 hash，
    * 刷新与前进后退都停在同一页。
@@ -464,6 +471,9 @@ export function Console() {
               摆成删除动作），点开才拉取与清理。 */}
           <LanguageMenu />
           <ConsoleThemeToggle />
+          {/* 2026-11-24：更新卡那两颗维护按钮（重启 sidecar / 检查更新）的落脚点，排在
+              显示类按钮之后、收件与窗口操作之前。显示条件和逻辑都归更新卡。 */}
+          <div ref={setUpdateActionsSlot} className="flex items-center gap-1" />
           <Button
             variant="ghost"
             size="icon-md"
@@ -536,6 +546,7 @@ export function Console() {
               version={status.appVersion || ''}
               busy={busy}
               onRestartSidecar={() => void restartSidecar()}
+              actionsSlot={updateActionsSlot}
               onIssues={setVersionIssues}
             />
           </div>

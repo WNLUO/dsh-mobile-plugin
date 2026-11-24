@@ -1,3 +1,4 @@
+// 2026-11-24：重启 sidecar / 检查更新挪到控制台顶栏，按钮只留这一份、借落脚点渲染过去。
 // 2026-11-24：顶栏那颗「网络配置」按钮撤了，extraActions 扩展位随之删掉。
 // 主状态版本变化时重读外壳，磁盘版本与外壳当前实现比较。
 /**
@@ -35,6 +36,7 @@ import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { errorText } from '../lib/api.ts'
 import { useNotify } from '../lib/notify.ts'
@@ -63,10 +65,56 @@ type Props = {
   version: string
   busy: string
   onRestartSidecar: () => void
+  /**
+   * 顶栏那两颗维护按钮的落脚点（控制台在 header 里给）。2026-11-24 用户要求把它们从卡片
+   * 挪到顶栏：按钮的 JSX 仍只在这一份文件里，靠 portal 画到顶栏，busy / 模式分支 / 结果
+   * 胶囊全归这张卡，避免出现第二份检查逻辑。不传（单独用这张卡、SSR）就不画。
+   */
+  actionsSlot?: HTMLElement | null
   /** 版本对不上的详情交给上层，挂到「运行中版本」那行的感叹号上。 */
   onIssues?: (issues: Issue[]) => void
   /** 只输出正文，外壳由控制台那张合并卡提供。 */
   bare?: boolean
+}
+
+/** 回转箭头：重启 sidecar。手画，跟顶栏其它图标同一套描边。 */
+function RestartIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
+    </svg>
+  )
+}
+
+/** 放大镜：检查有没有新版本，跟「装」和「重启」的图标都不重。 */
+function CheckUpdateIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m15.5 15.5 4.5 4.5" />
+    </svg>
+  )
 }
 
 /** 这几个 code 不是「坏了」，是「这次没动、可以再试」——走琥珀提示而不是红框。 */
@@ -108,7 +156,7 @@ function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
   }
 }
 
-export function UpdateCard({ version, busy, onRestartSidecar, onIssues, bare = false }: Props) {
+export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsSlot = null, bare = false }: Props) {
   /** 宿主那四条接口的状态；null = 还没读到（或老宿主压根没有）。 */
   const [host, setHost] = useState<UpdateStatusView | null>(null)
   /** 第一次读宿主状态已经落地：这之前别显示降级那一半，否则会先闪一下再变。 */
@@ -338,6 +386,38 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, bare = f
 
   const body = (
     <>
+      {/*
+        2026-11-24：重启与检查更新挪到控制台顶栏。按钮的 JSX 只在这一份文件里，借
+        `actionsSlot` portal 过去；busy、宿主 / 降级分支、结果提示全归这张卡，不写第二套
+        检查逻辑。显示条件与原先卡片里那两处一一对应。
+      */}
+      {actionsSlot && settled && (hostMode || (!noShell && caps?.available === true))
+        ? createPortal(
+            <>
+              <Button
+                variant="ghost"
+                size="icon-md"
+                aria-label={t('panel.update.restartSidecar')}
+                title={t('panel.update.restartSidecar')}
+                disabled={idle}
+                onClick={onRestartSidecar}
+              >
+                <RestartIcon />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-md"
+                aria-label={t('panel.update.check')}
+                title={working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
+                disabled={idle}
+                onClick={() => void (hostMode ? check() : marketOnlyCheck())}
+              >
+                <CheckUpdateIcon />
+              </Button>
+            </>,
+            actionsSlot,
+          )
+        : null}
       {!settled ? (
         <div className="flex items-center gap-2 py-2 text-sm text-foreground-muted">
           <Spinner />
@@ -394,15 +474,8 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, bare = f
           ) : null}
 
           <div className="flex flex-wrap justify-end gap-1 lg:flex-nowrap">
-            {/* 「重启 sidecar」和更新讲的是同一件事的另一半：让磁盘上的新代码在**子进程**层
-                立刻生效。它不重启宿主，所以留在这里。 */}
-            <Button variant="ghost" size="sm" disabled={idle} onClick={onRestartSidecar}>
-              {t('panel.update.restartSidecar')}
-            </Button>
-            <Button variant="ghost" size="sm" disabled={idle} onClick={() => void check()}>
-              {working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
-            </Button>
-            {/* 非 npm 来源不给这两颗：宿主那边同样会拒（`LOCAL_SOURCE`），按钮留着只会在点了
+            {/* 重启与检查更新 2026-11-24 挪到顶栏了，这里只剩安装类动作。 */}
+            {/* 非 npm 来源不给这一颗：宿主那边同样会拒（`LOCAL_SOURCE`），按钮留着只会在点了
                 之后弹一句「这台不该这么装」。 */}
             {localSource ? null : (
               <Button variant="primary" size="sm" disabled={idle} onClick={() => void apply(false)}>
@@ -441,12 +514,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, bare = f
 
 
           <div className="flex flex-wrap justify-end gap-1 lg:flex-nowrap">
-            <Button variant="ghost" size="sm" disabled={idle} onClick={onRestartSidecar}>
-              {t('panel.update.restartSidecar')}
-            </Button>
-            <Button variant="ghost" size="sm" disabled={idle} onClick={() => void marketOnlyCheck()}>
-              {working === 'check' ? t('panel.update.checking') : t('panel.update.check')}
-            </Button>
             {/* 与宿主模式那一支同一条判据：非 npm 来源不给「立即更新」。 */}
             {host !== null && !localSource ? (
               <Button variant="primary" size="sm" disabled={idle} onClick={() => void apply(false)}>
