@@ -1,3 +1,4 @@
+// 2026-11-24 用户要求：自动更新已够用，手动安装按钮撤掉，这条守卫跟着改。
 'use strict';
 
 /**
@@ -98,10 +99,11 @@ test('调试 OTA 的前端入口已经不显示，但后端接口与客户端函
   assert.match(client, /\/api\/relay\/update\/ota\/apply/);
 });
 
-test('非 npm 来源仍隐藏安装按钮，但不显示来源提示条', () => {
+test('手动安装入口已撤，来源提示条也不显示', () => {
   const card = read('UpdateCard.tsx');
-  assert.match(card, /localSource \? null : \(/, '本地来源仍要隐藏自动更新开关');
-  assert.match(card, /localSource \? null : \(\s*<Button variant="primary"/, '本地来源仍要隐藏立即更新按钮');
+  assert.doesNotMatch(card, /localSource/, '不再按安装来源决定按钮给不给');
+  assert.doesNotMatch(card, /<Button variant="primary"/, '页面上不再给「立即更新」');
+  assert.doesNotMatch(card, /forceHint/, '「强制更新」也一并撤掉');
   assert.ok(!card.includes('这台不是从 npm 装的'), '不再显示非 npm 来源提示条');
 });
 

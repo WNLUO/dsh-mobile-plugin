@@ -1,3 +1,4 @@
+// 2026-11-24 用户要求：自动更新已够用，面板上手动「立即更新 / 强制更新」撤掉，后端接口不动。
 // 2026-11-24：重启 sidecar / 检查更新挪到控制台顶栏，按钮只留这一份、借落脚点渲染过去。
 // 2026-11-24：顶栏那颗「网络配置」按钮撤了，extraActions 扩展位随之删掉。
 // 主状态版本变化时重读外壳，磁盘版本与外壳当前实现比较。
@@ -5,9 +6,9 @@
  * 「插件更新」卡片：正式 npm 更新状态与手动更新。**自动更新开关不在这张卡里**：2026-11-20
  * 起它挪到顶卡右列（`AutoUpdateSection`），与「自动上报网络地址」同列。
  *
- * **查**归插件自己（直接问 npm 注册表，见 `lib/update-registry.cjs`），**装**走
- * `/update/apply`，**换代码**由外壳就地换代（见 `lib/shell/runtime.js`）。对应四条接口是
- * `/api/relay/update/{status,check,apply,auto}`。
+ * **查**归插件自己（直接问 npm 注册表，见 `lib/update-registry.cjs`），**装**由宿主里的
+ * 自动更新走 `/update/apply`，**换代码**由外壳就地换代（见 `lib/shell/runtime.js`）。对应
+ * 四条接口是 `/api/relay/update/{status,check,apply,auto}`；页面只读状态与查询，不主动装。
  *
  * 紧急 OTA 的入口从前端撤掉了，**后端与客户端都不动**：`lib/relayUpdate.ts` 里那三个
  * `ota*` 函数与宿主那三条路由都留着，别顺手删掉接口或路由。
@@ -18,16 +19,15 @@
  * 文案**不走字典，直接写中文**：这一页整体是中文语境，为一张卡维护两份字典只让改一句话要
  * 动两处。要再国际化就整页一起做，别只做这一张。
  *
- * 老宿主没有那四条接口（404）时走降级那一半：只剩版本几行加一颗「检查更新」。**「装」归
- * 插件自己**（在 profile 里跑它自己的包管理器，见 `lib/update-install.cjs`），不要求外壳
- * 在场，所以只要宿主答过状态就照样给「立即更新」；真老宿主才只剩「去设置里更新」。
+ * 老宿主没有那四条接口（404）时走降级那一半：只剩「线上最新是几」这一行，页面不再给手动
+ * 安装入口；装由宿主里的自动更新负责。
  *
  * **某次动作的结果**一律走右上角的胶囊（`../lib/notify.ts`）；**一直如此的事实**（没有可
- * 换代的外壳、没有市场、`link:` 装的）留在卡片里。
+ * 换代的外壳、没有市场）留在卡片里。
  *
  * 正文与标题外壳分开：控制台把它与配对卡合成一张无标题整卡时只取正文，标题外壳仍保留给
- * 单独用的场合。卡里的动作按钮都是纯文字按钮，颜色走主题 token，日夜间自动适配。
- * 2026-11-20 用户要求：版本信息挪到整卡左列，这张卡只留更新动作与检查结果。
+ * 单独用的场合。维护按钮借 portal 画到控制台顶栏，卡片自身不放动作按钮。
+ * 2026-11-20 用户要求：版本信息挪到整卡左列，这张卡只留检查结果与提示。
  */
 // 2026-11-20 用户要求：自动更新开关不再按安装来源隐藏，开发台上也摆出来（配一句实情）。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
@@ -48,12 +48,10 @@ import {
   type MarketUpdate,
 } from '../lib/market.ts'
 import {
-  updateApply,
   updateCheck,
   updateEndpointMissing,
   updateStatus,
   updateUnavailable,
-  type ApplyOutcomeView,
   type UpdateStatusView,
 } from '../lib/relayUpdate.ts'
 import { EVEN_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
@@ -117,7 +115,7 @@ function CheckUpdateIcon() {
   )
 }
 
-/** 这几个 code 不是「坏了」，是「这次没动、可以再试」——走琥珀提示而不是红框。 */
+/** 市场查询里这几个 code 不是「坏了」，是「这次没查成、可以再试」——走琥珀提示。 */
 const SOFT_CODES = new Set(['OPERATION_BUSY', 'RELEASE_TOO_FRESH', 'VERSION_UNCHANGED', 'PLUGIN_NOT_INSTALLED', 'AGENTS_RUNNING'])
 
 /**
@@ -127,34 +125,6 @@ const SOFT_CODES = new Set(['OPERATION_BUSY', 'RELEASE_TOO_FRESH', 'VERSION_UNCH
  * 优先；老宿主上退回市场那份客户端（`lib/market.ts`，不带时间）。
  */
 type UpdateView = MarketUpdate & { checkedAt?: string | null }
-
-/** 把「装完了」这件事说成一句人话。 */
-function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
-  const installed = outcome.installedVersion ?? outcome.beforeVersion
-  if (outcome.failure) return { text: t('panel.update.applyFailed', { message: outcome.failure.message }), ok: false }
-  if (outcome.installed === false) {
-    if (outcome.skipped) {
-      return {
-        text: installed
-          ? t('panel.update.applyUpToDate', { version: installed })
-          : t('panel.update.applyUpToDatePlain'),
-        ok: true,
-      }
-    }
-    return {
-      text: installed
-        ? t('panel.update.applyDiskUnchanged', { version: installed })
-        : t('panel.update.applyFailedRetry'),
-      ok: false,
-    }
-  }
-  return {
-    text: installed
-      ? t('panel.update.applySwitched', { version: installed })
-      : t('panel.update.applySwitchedPlain'),
-    ok: true,
-  }
-}
 
 export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsSlot = null, bare = false }: Props) {
   /** 宿主那四条接口的状态；null = 还没读到（或老宿主压根没有）。 */
@@ -170,7 +140,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
   /**
    * 「某次动作的结果」一律走右上角的胶囊，**不在卡片里铺长条**：卡片里那条 `Alert` 会一直
    * 占着版面，还把「刚才成没成」和「这块的长期状态」混成一种东西。长期状态（没有可换代的
-   * 外壳 / 没有市场 / `link:` 装的）仍旧写在卡片里——弹一次就消失等于让人再也看不到。
+   * 外壳 / 没有市场）仍旧写在卡片里——弹一次就消失等于让人再也看不到。
    */
   const notify = useNotify()
 
@@ -180,8 +150,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
    * **为什么要并而不是直接覆盖**：只有 `update/status` 那条会把外壳服务的在场标志
    * `available` 补在状态上，`update/check` 回的 status 里没有这个字段（宿主那边已补齐，
    * 但 0.1.64 及以前的宿主仍旧不带）。直接 `setHost(next)` 会把它抹成 undefined，
-   * 卡片当场从「宿主模式」掉进取降级那一半 —— 用户看到的现象就是
-   * 「有新版本，却没有『立即更新』」。
+   * 卡片当场从「宿主模式」掉进取降级那一半 —— 用户看到的现象就是「查不到更新」。
    */
   const mergeHost = useCallback((next: UpdateStatusView | null) => {
     if (!next) return
@@ -290,31 +259,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
     }
   }, [loadHost])
 
-  const apply = useCallback(
-    async (force: boolean) => {
-      setWorking('apply')
-      try {
-        const outcome = await updateApply(force)
-        if (outcome.status) mergeHost(outcome.status)
-        const said = applyText(outcome)
-        // 「这次没动、可以再试」这一类（有人正在干活、刚发布还不能装、盘上版本没变）走琥珀
-        // 提示，不是红框：它们不是故障，用户要的是「等下再来」而不是「哪里坏了」。
-        const soft = outcome.failure !== null && SOFT_CODES.has(outcome.failure.code)
-        if (said.ok || soft) notify('soft', said.text)
-        else notify('error', said.text)
-      } catch (err) {
-        if (updateEndpointMissing(err) || updateUnavailable(err)) {
-          await loadHost()
-        } else {
-          notify('error', errorText(err))
-        }
-      } finally {
-        setWorking('')
-      }
-    },
-    [loadHost],
-  )
-
   /**
    * 降级那一半的「检查更新」。
    *
@@ -346,18 +290,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
     }
   }, [reportMarketError])
 
-  const marketSource = update?.source ?? host?.marketResult?.source ?? null
-  /**
-   * 这台是不是从注册表装的。
-   *
-   * 只有注册表来源才该由注册表来更新：`link:` / `file:` / `workspace:` 是有人明确安排的
-   * 装法（开发机就这么跑），点一次「立即更新」会把那个指向换成 npm 版，本地改动从此不生效。
-   * 所以这一格不只用来写说明，还**决定那几颗按钮给不给** —— 宿主那边也拒（同一个判据），
-   * 两头一致，免得出现「按钮在、点了报错」。
-   */
-  const localSource = marketSource === 'linked' || marketSource === 'file' || marketSource === 'workspace'
   const hasUpdate = update?.updateAvailable ?? host?.marketResult?.updateAvailable ?? false
-  const summary = host?.lastApply ? applyText(host.lastApply) : null
   const shellVersion = host?.version ?? null
   // 主状态与外壳分别读取，两份快照可能暂时处在换代的两侧。
   const versionsDisagree = hostMode && !!shellVersion && !!version && shellVersion !== version
@@ -458,52 +391,18 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
           */}
           {/* 版本对不上已收进「运行中版本」那行的感叹号，这里不再铺段落。 */}
 
-          {/*
-            「上一次更新的结果」不在这里铺一条长条（原先是绿/红 `Alert`）：宿主记得的
-            `lastApply` 每次打开页面都会重放一遍，那条大绿条就是这么来的。
-            **这次动作**的结论走胶囊。
-          */}
-          {/* 2026-11-17：原先这里有一条「这次更新里外壳也换了 / 要重启 DSH 才生效」的
-              Alert，用户用不到，删掉。宿主照旧报 shellChanged，指纹计算与手机端提示不动。 */}
-
           {/* 宿主自己记下来的最近一次失败（自动更新失败也落在这里）。 */}
           {host.lastError ? (
             <p className="mt-2 text-xs text-foreground-muted">
               {t('panel.update.lastErrorLine', { message: host.lastError })}
             </p>
           ) : null}
-
-          <div className="flex flex-wrap justify-end gap-1 lg:flex-nowrap">
-            {/* 重启与检查更新 2026-11-24 挪到顶栏了，这里只剩安装类动作。 */}
-            {/* 非 npm 来源不给这一颗：宿主那边同样会拒（`LOCAL_SOURCE`），按钮留着只会在点了
-                之后弹一句「这台不该这么装」。 */}
-            {localSource ? null : (
-              <Button variant="primary" size="sm" disabled={idle} onClick={() => void apply(false)}>
-                {working === 'apply' ? t('panel.update.updating') : t('panel.update.updateNow')}
-              </Button>
-            )}
-          </div>
-
-          {/* 市场对「刚发布、还没过 release-age 门槛」的版本会先拒一次。这时才轮到 force：
-              平时不给这个选项，免得不小心绕过供应链策略。force 也过不了来源那道门，所以
-              本地来源时这颗同样不摆。 */}
-          {!localSource && (hasUpdate || (summary !== null && !summary.ok)) ? (
-            <div className="mt-2 flex justify-end">
-              <Button variant="ghost" size="sm" disabled={idle} onClick={() => void apply(true)}>
-                {t('panel.update.forceHint')}
-              </Button>
-            </div>
-          ) : null}
         </>
       ) : null}
 
-      {/*
-        降级那一半：这张卡没能进「宿主模式」（读不到那四条接口的状态，或者宿主说它没有
-        可换代的外壳）。**装不一定做不了**：「装」归插件自己（在 profile 里跑它自己的包管理器，
-        见 `lib/update-install.cjs`），不要求外壳在场。所以只要宿主答过状态（`host !== null`，
-        说明那几条路由在），这里就照样给「立即更新」；真老宿主（路由压根不存在）才只剩
-        「去设置里更新」。
-      */}
+      {/* 降级那一半：这张卡没能进「宿主模式」（读不到那四条接口的状态，或者宿主说它没有
+          可换代的外壳）。查更新不要求外壳在场，所以这一半照样报得出「线上最新是几」；
+          装由宿主里的自动更新负责，页面上不再给手动入口。 */}
       {settled && !hostMode && !noShell && caps?.available ? (
         <>
           <InfoList className={EVEN_ROWS}>
@@ -511,16 +410,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
               {hasUpdate ? t('panel.update.resultHasNew') : t('panel.update.resultUpToDate')}
             </InfoRow>
           </InfoList>
-
-
-          <div className="flex flex-wrap justify-end gap-1 lg:flex-nowrap">
-            {/* 与宿主模式那一支同一条判据：非 npm 来源不给「立即更新」。 */}
-            {host !== null && !localSource ? (
-              <Button variant="primary" size="sm" disabled={idle} onClick={() => void apply(false)}>
-                {working === 'apply' ? t('panel.update.updating') : t('panel.update.updateNow')}
-              </Button>
-            ) : null}
-          </div>
         </>
       ) : null}
 

@@ -1,3 +1,4 @@
+// 2026-11-24 用户要求：自动更新已够用，手动「立即更新 / 强制更新」也撤掉。
 // 2026-11-24 用户要求：更新按钮挪到顶栏后底部空横条已撤，下面两条断言跟着改。
 'use strict';
 
@@ -107,7 +108,8 @@ test('配对与更新合成一张无标题整卡：左六放二维码与控件�
   // 2026-11-24 用户要求：更新动作挪到顶栏，底部横条空了就撤，组件逻辑照旧。
   assert.doesNotMatch(app, /mt-4 flex h-12 items-center justify-end border-t border-border-muted/, '底部空横条已撤');
   assert.match(app, /<UpdateCard\s+bare/, '更新卡仍挂着，顶栏按钮照常');
-  assert.match(update, /flex flex-wrap justify-end gap-1 lg:flex-nowrap/, '宽屏动作行不换行，四颗按钮横着排；小屏才允许折行');
+  // 2026-11-24 用户要求：自动更新已够用，手动安装那排撤掉。
+  assert.doesNotMatch(update, /flex flex-wrap justify-end gap-1 lg:flex-nowrap/, '手动安装按钮那排已撤');
   assert.doesNotMatch(app, /<PairingCard\s+fill|<UpdateCard\s+fill/, '等高开关已撤');
   assert.match(card, /bare = false/, '配对卡有裸内容模式');
   assert.match(update, /bare = false/, '更新卡有裸内容模式');
