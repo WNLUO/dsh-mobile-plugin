@@ -380,7 +380,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
             </div>
 
             {firstTime ? (
-              <div className="flex flex-col gap-2 rounded-md border border-primary/40 bg-primary/5 p-3">
+              <div className="flex flex-col gap-2 rounded-md border border-border-muted bg-primary-subtle p-3">
                 <span className="text-sm font-medium text-foreground-strong">{t('panel.zeronews.linkTitle')}</span>
                 <p className="text-xs leading-5 text-foreground-muted">{t('panel.zeronews.linkHint')}</p>
                 {snapshot && snapshot.available === false ? (

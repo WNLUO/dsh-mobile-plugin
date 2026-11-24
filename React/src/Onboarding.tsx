@@ -541,8 +541,8 @@ export function Onboarding({ onDone }: Props) {
                 <div
                   key={entry.provider}
                   className={cn(
-                    'flex flex-col gap-2 rounded-lg border p-3',
-                    entry.primary ? 'border-primary/50 bg-primary/5' : 'border-border-muted',
+                    'flex flex-col gap-2 rounded-lg border border-border-muted p-3',
+                    entry.primary ? 'bg-primary-subtle' : '',
                   )}
                 >
                   <div className="flex items-center gap-2">
