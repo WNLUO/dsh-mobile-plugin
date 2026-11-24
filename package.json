@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.108",
+  "version": "0.5.109",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -117,23 +117,22 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.108",
+    "version": "0.5.109",
     "kinds": [
-      "fix",
-      "feature"
+      "fix"
     ],
     "notes": {
-      "zh-Hans": "- 修复插件卡在旧版不自动更新的问题：电脑判断有没有新版现在和真正安装走同一个来源，不会再出现「手机上有提示、电脑上却一直不动」。\n- App 现在每隔半小时检查一次插件新版，一直开着也能收到更新提示，不用再切到后台再回来。\n- 插件更新完成后会自动清掉页面上残留的「更新 / 稍后再说」；设备多的时候，更新页可以一次把所有设备一起更新。",
-      "zh-Hant": "- 修復外掛卡在舊版不自動更新的問題：電腦判斷有沒有新版現在和真正安裝走同一個來源，不會再出現「手機上有提示、電腦上卻一直不動」。\n- App 現在每隔半小時檢查一次外掛新版，一直開著也能收到更新提示，不用再切到背景再回來。\n- 外掛更新完成後會自動清掉頁面上殘留的「更新 / 稍後再說」；裝置多的時候，更新頁可以一次把所有裝置一起更新。",
-      "en": "- Fixed a bug where the plugin could get stuck on an old version and never auto-update: the computer now checks for new versions from the same source it installs from, so the phone can show an update while the computer stays put no longer happens.\n- The app now checks for plugin updates every 30 minutes, so you'll get the notification even if you leave it open — no need to send it to the background and come back.\n- After an update finishes, the leftover \"Update / Later\" buttons are cleared automatically; with many devices, the update page can update them all at once.",
-      "ja": "- プラグインが古いバージョンで固まって自動更新されない問題を修正しました。新しいバージョンがあるかの確認を、実際のインストールと同じ情報源から行うようになり、「スマホには通知が出るのにパソコンが動かない」という状態が起きなくなりました。\n- アプリが30分ごとにプラグインの更新を確認するようになり、開いたままでも通知が届きます。バックグラウンドにして戻る必要はありません。\n- 更新完了後にページに残る「更新 / 後で」ボタンが自動で消えます。デバイスが多い場合、更新ページですべてをまとめて更新できます。",
-      "ko": "- 플러그인이 오래된 버전에 멈춰 자동 업데이트되지 않던 문제를 수정했습니다. 새 버전이 있는지 확인할 때 실제 설치와 같은 출처를 사용하므로, \"휴대전화에는 알림이 뜨는데 컴퓨터는 그대로인\" 상황이 더 이상 발생하지 않습니다.\n- 앱이 30분마다 플러그인 업데이트를 확인하므로 계속 열어 두어도 알림을 받을 수 있습니다. 백그라운드로 보냈다가 돌아올 필요가 없습니다.\n- 업데이트가 끝나면 화면에 남아 있던 \"업데이트 / 나중에\" 버튼이 자동으로 사라집니다. 기기가 많으면 업데이트 페이지에서 모두 한 번에 업데이트할 수 있습니다.",
-      "de": "- Behoben: Das Plugin blieb manchmal auf einer alten Version hängen und aktualisierte sich nicht automatisch. Der Computer prüft jetzt auf dieselbe Weise auf neue Versionen, wie er auch installiert — „das Handy zeigt eine Update-Meldung, der Computer bleibt stehen“ passiert nicht mehr.\n- Die App prüft jetzt alle 30 Minuten auf Plugin-Updates, sodass du auch bei dauerhaft geöffneter App eine Benachrichtigung bekommst — ohne in den Hintergrund und zurück zu wechseln.\n- Nach Abschluss eines Updates verschwinden die übrig gebliebenen Buttons „Aktualisieren / Später“ automatisch; bei vielen Geräten kann die Update-Seite alle auf einmal aktualisieren.",
-      "es": "- Corregido: el plugin podía quedarse atascado en una versión antigua y no actualizarse solo. Ahora el ordenador comprueba si hay versiones nuevas desde la misma fuente que usa para instalar, así que ya no ocurre que «el móvil muestra un aviso pero el ordenador no se mueve».\n- La app ahora comprueba las actualizaciones del plugin cada 30 minutos, así que recibirás el aviso aunque la dejes abierta, sin necesidad de pasar a segundo plano y volver.\n- Al terminar una actualización, los botones sobrantes de «Actualizar / Más tarde» desaparecen automáticamente; con muchos dispositivos, la página de actualizaciones puede actualizarlos todos a la vez.",
-      "fr": "- Corrigé : le plugin pouvait rester bloqué sur une ancienne version et ne pas se mettre à jour automatiquement. L'ordinateur vérifie désormais l'existence de nouvelles versions depuis la même source que celle utilisée pour l'installation : le cas « le téléphone affiche une notification mais l'ordinateur ne bouge pas » ne se produit plus.\n- L'application vérifie maintenant les mises à jour du plugin toutes les 30 minutes : vous recevrez la notification même si elle reste ouverte, sans passer en arrière-plan et revenir.\n- Une fois la mise à jour terminée, les boutons restants « Mettre à jour / Plus tard » disparaissent automatiquement ; avec de nombreux appareils, la page de mise à jour peut tous les mettre à jour en une seule fois.",
-      "pt": "- Corrigido: o plugin podia ficar preso numa versão antiga e não atualizar sozinho. Agora o computador verifica se há versões novas na mesma fonte usada para instalar, então não acontece mais de «o celular mostrar um aviso e o computador ficar parado».\n- O app agora verifica atualizações do plugin a cada 30 minutos, então você recebe o aviso mesmo deixando-o aberto, sem precisar ir para o segundo plano e voltar.\n- Após a conclusão da atualização, os botões restantes de «Atualizar / Depois» desaparecem automaticamente; com muitos dispositivos, a página de atualizações pode atualizar todos de uma vez.",
-      "ru": "- Исправлено: плагин мог застрять на старой версии и не обновляться автоматически. Теперь компьютер проверяет наличие новых версий из того же источника, из которого выполняет установку, поэтому ситуация «телефон показывает уведомление, а компьютер не реагирует» больше не возникает.\n- Теперь приложение проверяет обновления плагина каждые 30 минут, поэтому уведомление придёт даже если оно всё время открыто — не нужно сворачивать его и возвращаться.\n- После завершения обновления оставшиеся кнопки «Обновить / Позже» исчезают автоматически; при большом количестве устройств страница обновлений может обновить их все сразу.",
-      "tr": "- Düzeltildi: eklenti eski bir sürüme takılıp kendiliğinden güncellenmeyebiliyordu. Artık bilgisayar yeni sürüm olup olmadığını, kurulumu yaptığı kaynaktan kontrol ediyor; böylece \"telefonda bildirim çıkıyor ama bilgisayar kıpırdamıyor\" durumu artık oluşmuyor.\n- Uygulama artık eklenti güncellemelerini 30 dakikada bir kontrol ediyor; açık bıraksanız da bildirim gelir, arka plana alıp geri dönmeniz gerekmez.\n- Bir güncelleme tamamlandığında geride kalan \"Güncelle / Daha sonra\" düğmeleri otomatik kaybolur; cihaz sayısı fazlaysa güncelleme sayfası tümünü aynı anda güncelleyebilir."
+      "zh-Hans": "- 配置页面打不开时，报错页现在会把「完整退出 DSH 再打开」放在第一条：插件更新后没重启是最常见的原因。页面同时展示插件版本、来源和更新时间，方便看清当前状态。",
+      "zh-Hant": "- 設定頁面打不開時，報錯頁現在會把「完整結束 DSH 再開啟」放在第一條：外掛更新後沒重啟是最常見的原因。頁面同時顯示外掛版本、來源與更新時間，方便看清目前狀態。",
+      "en": "- When the configuration page won't open, the error page now puts \"quit DSH completely and reopen it\" first — not restarting after an update is the most common cause. It also shows the plugin version, source and activation time so you can see the current state.",
+      "ja": "- 設定ページが開かない場合、エラーページに「DSH を完全に終了してから開き直す」を最初に表示するようになりました。更新後に再起動していないことが最も多い原因です。プラグインのバージョン、入手元、有効化時刻も表示され、現在の状態を確認できます。",
+      "ko": "- 설정 페이지가 열리지 않을 때, 오류 화면에 \"DSH를 완전히 종료했다가 다시 열기\"를 가장 먼저 표시합니다. 업데이트 후 재시작하지 않은 것이 가장 흔한 원인입니다. 플러그인 버전, 출처, 활성화 시각도 함께 표시되어 현재 상태를 확인할 수 있습니다.",
+      "de": "- Wenn die Konfigurationsseite nicht geöffnet wird, steht auf der Fehlerseite jetzt „DSH vollständig beenden und erneut öffnen“ an erster Stelle — ein vergessener Neustart nach einem Update ist die häufigste Ursache. Die Seite zeigt auch Plugin-Version, Quelle und Aktivierungszeit, damit du den aktuellen Zustand sehen kannst.",
+      "es": "- Cuando la página de configuración no se abre, la página de error ahora muestra primero «sal de DSH por completo y vuelve a abrirlo»: no reiniciar tras una actualización es la causa más común. También muestra la versión del plugin, su origen y la hora de activación para que veas el estado actual.",
+      "fr": "- Lorsque la page de configuration ne s'ouvre pas, la page d'erreur affiche désormais en premier « quittez complètement DSH et rouvrez-le » : ne pas redémarrer après une mise à jour est la cause la plus fréquente. Elle affiche aussi la version du plugin, sa source et l'heure d'activation pour voir l'état actuel.",
+      "pt": "- Quando a página de configuração não abre, a página de erro agora mostra primeiro «saia do DSH completamente e abra novamente»: não reiniciar após uma atualização é a causa mais comum. Ela também mostra a versão do plugin, a origem e o horário de ativação para você ver o estado atual.",
+      "ru": "- Если страница настроек не открывается, на странице ошибки теперь первым делом указано «полностью выйти из DSH и открыть снова» — чаще всего причина в том, что после обновления не выполнен перезапуск. Также показываются версия плагина, источник и время активации, чтобы было видно текущее состояние.",
+      "tr": "- Yapılandırma sayfası açılmadığında, hata sayfası artık \"DSH'yi tamamen kapatıp yeniden açın\" önerisini ilk sıraya koyuyor; güncelleme sonrası yeniden başlatmamak en yaygın nedendir. Sayfa ayrıca eklenti sürümünü, kaynağını ve etkinleştirme zamanını göstererek mevcut durumu görmenizi sağlar."
     }
   }
 }
