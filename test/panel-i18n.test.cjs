@@ -306,7 +306,8 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
   assert.match(consoleSrc, /<FloatingActions compact \/>/, 'Console 顶栏要渲染那排按钮');
   const group = read('components', 'FloatingActions.tsx');
   assert.match(group, /<JoinGroupButton[^>]*>\s*<DownloadAppButton|JoinGroupButton[\s\S]{0,120}DownloadAppButton/, '下载 APP 紧跟在交流群右边');
-  assert.match(consoleSrc, /extraActions=\{[\s\S]{0,200}panel\.pairing\.openConfig/, '网络配置并到重启左边');
+  // 2026-11-24 需求变更：配置已铺在首页，顶栏那颗「网络配置」按钮多余、撤掉。
+  assert.doesNotMatch(consoleSrc, /extraActions=\{[\s\S]{0,200}panel\.pairing\.openConfig/, '顶栏不再摆网络配置按钮');
   assert.doesNotMatch(consoleSrc, /panel\.pairing\.checkNetwork|SelfCheckDialog/, '检查网络按钮与弹窗入口已撤');
   assert.match(shell, /<TopRightActions \/>/, '外壳里要渲染右上角那组按钮');
   assert.match(shell, /usePanelLanguage\(\)/, '外壳必须订阅语言状态，否则切语言整页不重绘');

@@ -1,3 +1,4 @@
+// 2026-11-24：顶栏那颗「网络配置」按钮撤了，extraActions 扩展位随之删掉。
 // 主状态版本变化时重读外壳，磁盘版本与外壳当前实现比较。
 /**
  * 「插件更新」卡片：正式 npm 更新状态与手动更新。**自动更新开关不在这张卡里**：2026-11-20
@@ -33,7 +34,7 @@ import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { errorText } from '../lib/api.ts'
 import { useNotify } from '../lib/notify.ts'
@@ -62,8 +63,6 @@ type Props = {
   version: string
   busy: string
   onRestartSidecar: () => void
-  /** 并到动作行里的额外按钮（控制台把网络配置、检查网络放这儿）。 */
-  extraActions?: ReactNode
   /** 版本对不上的详情交给上层，挂到「运行中版本」那行的感叹号上。 */
   onIssues?: (issues: Issue[]) => void
   /** 只输出正文，外壳由控制台那张合并卡提供。 */
@@ -109,7 +108,7 @@ function applyText(outcome: ApplyOutcomeView): { text: string; ok: boolean } {
   }
 }
 
-export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIssues, bare = false }: Props) {
+export function UpdateCard({ version, busy, onRestartSidecar, onIssues, bare = false }: Props) {
   /** 宿主那四条接口的状态；null = 还没读到（或老宿主压根没有）。 */
   const [host, setHost] = useState<UpdateStatusView | null>(null)
   /** 第一次读宿主状态已经落地：这之前别显示降级那一半，否则会先闪一下再变。 */
@@ -395,7 +394,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
           ) : null}
 
           <div className="flex flex-wrap justify-end gap-1 lg:flex-nowrap">
-            {extraActions}
             {/* 「重启 sidecar」和更新讲的是同一件事的另一半：让磁盘上的新代码在**子进程**层
                 立刻生效。它不重启宿主，所以留在这里。 */}
             <Button variant="ghost" size="sm" disabled={idle} onClick={onRestartSidecar}>
@@ -443,7 +441,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, extraActions, onIs
 
 
           <div className="flex flex-wrap justify-end gap-1 lg:flex-nowrap">
-            {extraActions}
             <Button variant="ghost" size="sm" disabled={idle} onClick={onRestartSidecar}>
               {t('panel.update.restartSidecar')}
             </Button>

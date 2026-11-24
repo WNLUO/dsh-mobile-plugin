@@ -1,5 +1,4 @@
-// 网络配置与立即更新共用主按钮样式。
-// 2026-11-22：网络配置由弹窗改为独立一页，Console 打开它时把首页内容收起。
+// 2026-11-24：顶栏那颗「网络配置」按钮已撤——配置自 11-23 起铺在首页，按钮只把它滚进视野，多余。
 // 固定端口与端口号通过同一次配置保存。
 // Cloudflare 兜底的管理弹窗在这里挂载，连接卡那行「管理」打开它。
 /**
@@ -146,7 +145,7 @@ export function Console() {
     else if (hash) window.location.hash = hash
     else window.location.hash = ''
   }
-  /** 网络配置现在铺在首页：那颗「网络配置」只负责把这一块滚进视野，不再切页。 */
+  /** 网络配置铺在首页：公用中转提示弹窗那颗「网络配置」用它把这块滚进视野。 */
   const configRef = useRef<HTMLDivElement | null>(null)
   const openNetwork = () => {
     if (page !== 'home') showPage('home', true)
@@ -500,7 +499,7 @@ export function Console() {
         4. 其余维护类卡片按瀑布式几列铺开。
         整页滚动，不做单栏 sticky、也不套内滚动条。
       */}
-      {/* 「网络配置」铺在首页第二行（2026-11-23 用户要求）：不再单开一页，顶栏那颗「网络配置」只把它滚进来。 */}
+      {/* 「网络配置」铺在首页第二行（2026-11-23 用户要求）：不再单开一页，也不再在顶栏摆按钮。 */}
       <div className={page !== 'home' ? 'hidden' : 'grid grid-cols-1 gap-3'}>
         <Card frame="solid" className="backdrop-blur-none">
           <div className="flex flex-col gap-4 p-4 min-[880px]:flex-row min-[880px]:gap-6">
@@ -538,13 +537,6 @@ export function Console() {
               busy={busy}
               onRestartSidecar={() => void restartSidecar()}
               onIssues={setVersionIssues}
-              extraActions={
-                <>
-                  <Button variant="primary" size="sm" onClick={openNetwork}>
-                    {t('panel.pairing.openConfig')}
-                  </Button>
-                </>
-              }
             />
           </div>
         </Card>
