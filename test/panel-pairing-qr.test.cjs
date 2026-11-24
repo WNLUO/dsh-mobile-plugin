@@ -159,7 +159,9 @@ test('两处都能点开「看大图」弹窗，放大版仍是同一份 SVG 且
   // 引导页同一份弹窗：码还没有的时候不给放大（那时弹窗里只是一片白）。
   assert.match(page, /const \[qrZoomOpen, setQrZoomOpen\] = useState\(false\)/);
   assert.match(page, /<Dialog open=\{qrZoomOpen\} onOpenChange=\{setQrZoomOpen\}>/);
-  assert.match(page, /\{qrSvg \? \([\s\S]{0,200}panel\.pairing\.qrZoom/);
+  // 2026-11-24 需求变更：入口不再只看「有没有 svg」——旧码（pairingCode 已不是当前那张）的
+  // 票据早作废，摆出来让人扫只会被判「电脑拒绝新设备」，所以按 `qrReady`（当前票 + 有 svg）判断。
+  assert.match(page, /\{qrReady \? \([\s\S]{0,200}panel\.pairing\.qrZoom/);
   assert.match(page, /onClick=\{\(\) => setQrZoomOpen\(true\)\}[\s\S]{0,400}dangerouslySetInnerHTML=\{\{ __html: qrSvg \}\}/);
 });
 
@@ -212,3 +214,29 @@ test('续码间隔按隧道段的 expiresAt 算，没有隧道段就不排', asy
   assert.equal(pairingRenewIn(at(now / 1000 - 60), now), null, '过期的隧道段不排下一拍');
 });
 
+
+test('引导页：配对码一变就重取二维码，且只画当前这张（旧票扫了会被判「电脑拒绝新设备」）', () => {
+  const page = read('Onboarding.tsx');
+  // 控制台早就有「配对码一变就重取」，引导页一直漏着。宿主每配对成功一次 / 换身份 / 重启就
+  // 换 `pairingCode` + 票据，旧码当场作废；引导页若还挂着旧票，用户扫过去宿主解不开，只会回
+  // 一句「电脑拒绝新设备」——局域网通、允许配对开着也照样拒，正是这张截图现场。
+  assert.match(
+    page,
+    /if \(status\.pairingCode && pairing\.pairingCode !== status\.pairingCode\) void loadPairing\(\)/,
+    '配对码变了要重取二维码',
+  );
+  assert.match(
+    page,
+    /\[status\?\.pairingCode, status\?\.enabled, pairing\]/,
+    '这条 effect 的依赖里要有 pairingCode',
+  );
+  // 显示前先认票：旧码不进画面，等于别把作废的票据摆出来让人扫。
+  assert.match(
+    page,
+    /const qrCurrent = pairing\?\.pairingCode !== undefined && pairing\.pairingCode === status\?\.pairingCode/,
+    '按 pairingCode 判断是不是「当前这张」',
+  );
+  assert.match(page, /const qrReady = qrCurrent && qrSvg !== ''/, '旧码不当成可扫的码');
+  assert.match(page, /\{qrReady \? \(/, '入口与二维码只在当前这张时才画');
+  assert.doesNotMatch(page, /\{qrSvg \? \(/, '不许再按「有没有 svg」直接画，跳过 current 判断');
+});

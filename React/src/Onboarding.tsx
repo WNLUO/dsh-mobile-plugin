@@ -10,6 +10,7 @@
  * 服务商清单来自 `lib/onboarding-providers.tsx`，加一家只改那份注册表，不碰这一页。
  */
 // 首次取码失败可重试，后台续码保留已有二维码；扫码绑定成功后进入插件主页。
+// 2026-11-24：配对码一变就重取二维码，显示前也认当前票 —— 旧码里的票据已作废，扫了只会被宿主判「电脑拒绝新设备」。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -294,6 +295,20 @@ export function Onboarding({ onDone }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 拿到新码才按它重排
   }, [pairing])
 
+  /**
+   * 配对码一变就重取二维码 —— 控制台早就有这条，引导页一直漏着。
+   *
+   * 宿主每配对成功一次（以及换身份、重启）就换 `pairingCode` + 票据，旧二维码当场作废。
+   * 引导页若只在临期定时器到点才重取，这中间会一直挂着旧票：用户扫过去，宿主按当前票解不开，
+   * 直接判「电脑拒绝新设备」——局域网通、允许配对开着也照样拒，跟用户说破了也查不出原因。
+   * 每 3 秒那轮状态一读到新码就补一次取码，把旧票换掉。
+   */
+  useEffect(() => {
+    if (!status?.enabled || !pairing) return
+    if (status.pairingCode && pairing.pairingCode !== status.pairingCode) void loadPairing()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在 pairingCode 变了时重取，loadPairing 不该进依赖
+  }, [status?.pairingCode, status?.enabled, pairing])
+
   /** 弹窗里点名用的端口。 */
   const lanPortText = String(status?.lan.port || addresses?.port || 18787)
 
@@ -446,6 +461,16 @@ export function Onboarding({ onDone }: Props) {
   }
 
   const qrSvg = pairing?.svg ?? ''
+  /**
+   * 这张码是不是「当前这张」。
+   *
+   * 配对成功换码、换身份、重启都会换 `pairingCode`，而旧码里的票据从换码那一刻起就作废了。
+   * 旧票还摆在屏幕上让人扫，宿主用当前票去解就解不开，只会回一句「电脑拒绝新设备」——
+   * 可现场看局域网是通的、允许配对也开着，人根本查不到原因。所以显示前先认票：
+   * 只画当前这张，旧码当成「还没取到」，等下面那条 effect 把新码取回来。
+   */
+  const qrCurrent = pairing?.pairingCode !== undefined && pairing.pairingCode === status?.pairingCode
+  const qrReady = qrCurrent && qrSvg !== ''
 
   const tailcat = status?.tailcat ?? null
   const tailcatState = !tailcat || !tailcat.available
@@ -586,7 +611,7 @@ export function Onboarding({ onDone }: Props) {
           <div className="flex flex-col items-center gap-2 md:col-start-1 md:row-start-1">
             <div className="flex h-5 w-full max-w-[320px] items-center justify-center gap-1.5">
               <p className="text-sm font-medium leading-5 text-foreground-strong">{t('panel.onboarding.pairingHint')}</p>
-              {qrSvg ? (
+              {qrReady ? (
                 <button
                   type="button"
                   aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
@@ -601,7 +626,7 @@ export function Onboarding({ onDone }: Props) {
                 </button>
               ) : null}
             </div>
-            {qrSvg ? (
+            {qrReady ? (
               <button
                 type="button"
                 className="cursor-zoom-in rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -714,7 +739,7 @@ export function Onboarding({ onDone }: Props) {
           <DialogBody>
             <div className="flex flex-col items-center gap-3">
               <div className="flex items-center justify-center rounded-md bg-white p-4">
-                {qrSvg ? <div className="size-[min(72vh,600px)] [&_svg]:h-full [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: qrSvg }} /> : null}
+                {qrReady ? <div className="size-[min(72vh,600px)] [&_svg]:h-full [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: qrSvg }} /> : null}
               </div>
             </div>
           </DialogBody>
