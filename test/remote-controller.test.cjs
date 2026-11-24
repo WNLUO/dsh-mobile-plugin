@@ -1,4 +1,5 @@
 // 控制器终止授权回收对应隧道，环境诊断与有效访问恢复保持原语义。
+// 2026-11-24：同一台电脑重开复用本机端口（缓存命中需要），旧入口靠新票据与新 cookie 失效。
 'use strict';
 
 const test = require('node:test');
@@ -57,10 +58,22 @@ async function fixture(t, options = {}) {
   return { controller, store, state, binding };
 }
 
+/** 同一端口重开时不能用全局 keep-alive 池，它会拿上一轮已经断掉的连接。 */
+function get(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, { headers, agent: false }, (res) => {
+      const parts = [];
+      res.on('data', (part) => parts.push(part));
+      res.once('end', () => resolve({ status: res.statusCode, text: () => Buffer.concat(parts).toString() }));
+    });
+    req.once('error', reject);
+  });
+}
+
 async function browser(controller) {
   const opened = await controller.open('A');
   const response = await new Promise((resolve, reject) => {
-    http.get(opened.url, { headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'none', 'sec-fetch-dest': 'document' } }, (res) => {
+    http.get(opened.url, { headers: { 'sec-fetch-mode': 'navigate', 'sec-fetch-site': 'none', 'sec-fetch-dest': 'document' }, agent: false }, (res) => {
       res.resume(); resolve({ status: res.statusCode, cookie: res.headers['set-cookie']?.[0] });
     }).on('error', reject);
   });
@@ -89,16 +102,19 @@ test('到期不能renew，重新open得到新租期和可用浏览器并保留�
   const f = await fixture(t);
   await f.controller.setMode('A', 'relay');
   const first = await browser(f.controller);
-  assert.equal((await fetch(first.base, { headers: { cookie: first.cookie } })).status, 200);
+  assert.equal((await get(first.base, { cookie: first.cookie })).status, 200);
   const realNow = Date.now;
   try {
     Date.now = () => first.expiresAt + 1;
     assert.equal((await f.controller.list())[0].state, 'expired');
     await assert.rejects(() => f.controller.renew('A'), { code: 'REMOTE_EXPIRED' });
     const second = await browser(f.controller);
-    assert.notEqual(second.base, first.base);
+    // 端口按绑定稳定留着给浏览器攒缓存；新旧入口的隔离改由一次性票据和会话 cookie 保证。
+    assert.equal(second.base, first.base);
+    assert.notEqual(second.url, first.url);
+    assert.notEqual(second.cookie.split('=')[0], first.cookie.split('=')[0]);
     assert.ok(second.expiresAt > first.expiresAt);
-    const response = await fetch(second.base, { headers: { cookie: second.cookie } });
+    const response = await get(second.base, { cookie: second.cookie });
     assert.equal(response.status, 200);
     assert.equal(await response.text(), 'remote-page');
     assert.equal((await f.controller.list())[0].mode, 'relay');
@@ -108,7 +124,7 @@ test('到期不能renew，重新open得到新租期和可用浏览器并保留�
 test('续期只允许有效本地访问，停止后旧入口失效且长期绑定保留', async (t) => {
   const f = await fixture(t);
   const page = await browser(f.controller);
-  const before = await fetch(page.base, { headers: { cookie: page.cookie } });
+  const before = await get(page.base, { cookie: page.cookie });
   assert.equal(before.status, 200);
   const renewed = await f.controller.renew('A');
   assert.ok(renewed.expiresAt >= page.expiresAt);
@@ -145,7 +161,7 @@ test('认证后的基础线路更新持久保存且不覆盖模式或隧道密�
   assert.equal(f.store.rows.get('A').tunnelKeys.secret, 'persisted-helper-key');
   await f.controller.setMode('A', 'lan');
   const page = await browser(f.controller);
-  const response = await fetch(page.base, { headers: { cookie: page.cookie } });
+  const response = await get(page.base, { cookie: page.cookie });
   assert.equal(response.status, 200);
   assert.equal(f.state.dialRoutes[0].url, 'http://192.168.9.2:5000');
   assert.equal((await f.controller.list())[0].mode, 'lan');
@@ -154,14 +170,14 @@ test('认证后的基础线路更新持久保存且不覆盖模式或隧道密�
 async function assertTerminalCleanup(t, code, createController) {
   const f = await fixture(t, { createController });
   const page = await browser(f.controller);
-  await fetch(page.base, { headers: { cookie: page.cookie } });
+  await get(page.base, { cookie: page.cookie });
   f.state.closes.length = 0;
   f.state.failure = Object.assign(new Error('credential-secret'), { code });
   const row = await f.controller.probe('A');
   assert.equal(row.state, code === 'REMOTE_REVOKED' ? 'revoked' : 'expired');
   assert.equal(JSON.stringify(row).includes('credential-secret'), false);
   assert.deepEqual(f.state.closes, ['A'], '终止授权必须回收该设备的助手隧道');
-  const denied = await fetch(page.base, { headers: { cookie: page.cookie } }).catch(() => null);
+  const denied = await get(page.base, { cookie: page.cookie }).catch(() => null);
   assert.ok(!denied || denied.status >= 400);
 }
 for (const code of ['REMOTE_REVOKED', 'REMOTE_EXPIRED']) {

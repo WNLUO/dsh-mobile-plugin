@@ -1,5 +1,6 @@
 // 本地远程网页网关的真实 HTTP、流式上传、SSE 与 WebSocket 边界。
 // 壳会话的专属标记只留在本机，页面脚本按会话分发，不进转发请求。
+// 2026-11-24：本机端口跨打开稳定、静态资源按上游缓存头缓存都由这里钉住。
 'use strict';
 
 const test = require('node:test');
@@ -10,6 +11,7 @@ const { once } = require('node:events');
 const { Duplex } = require('node:stream');
 const { WebSocket, WebSocketServer } = require('ws');
 const { createLocalGateway, LEASE_MS, OPEN_MS } = require('../lib/remote/local.cjs');
+const { preferredPortOf } = require('../lib/remote/local-port.cjs');
 
 function request(url, { method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
@@ -58,6 +60,10 @@ async function fixture(t) {
       const body = '<!doctype html><html><head><title>remote</title></head><body>remote body</body></html>';
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(body) });
       res.write(body.slice(0, 25)); res.end(body.slice(25)); return;
+    }
+    if (url.pathname === '/assets/app.js') {
+      res.writeHead(200, { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'public, max-age=31536000, immutable' });
+      res.end('console.log(1)'); return;
     }
     if (url.pathname === '/redirect') {
       res.writeHead(303, { location: `http://127.0.0.1:${server.address().port}/?token=${token}` }); res.end(); return;
@@ -388,4 +394,52 @@ test('就绪探测失败如实回错误码，只读且需要本机入口会话',
   assert.deepEqual(JSON.parse(ready.body), { ok: false, code: 'REMOTE_CONNECT' });
   assert.equal((await request(`${g.origin}/__dsh_remote_ready`, { method: 'POST', headers: headers(g) })).status, 405);
   assert.equal((await request(`${g.origin}/__dsh_remote_ready`)).status, 401);
+});
+
+async function freePort() {
+  const server = net.createServer();
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const port = server.address().port;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+test('同一绑定每次打开从同一端口起，被占才顺延，空出来后回到原号', async (t) => {
+  const key = 'remote-computer-A';
+  const derived = preferredPortOf(key);
+  assert.equal(preferredPortOf(key), derived);
+  assert.ok(derived >= 49152 && derived <= 65535);
+  assert.notEqual(preferredPortOf('remote-computer-B'), derived);
+
+  const f = await fixture(t);
+  const base = await freePort();
+  const first = await f.gateway({ preferredPort: base });
+  assert.equal(new URL(first.origin).port, String(base));
+  const second = await f.gateway({ preferredPort: base });
+  assert.notEqual(new URL(second.origin).port, String(base));
+  first.local.close();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const third = await f.gateway({ preferredPort: base });
+  assert.equal(new URL(third.origin).port, String(base));
+});
+
+test('静态资源按上游缓存头缓存，注入提示的文档和只读入口不缓存', async (t) => {
+  const f = await fixture(t);
+  const g = await f.gateway();
+  const ready = await request(`${g.origin}/__dsh_remote_ready`, { headers: headers(g) });
+  assert.equal(JSON.parse(ready.body).ok, true);
+
+  const asset = await request(`${g.origin}/assets/app.js`, { headers: headers(g, { 'sec-fetch-dest': 'script' }) });
+  assert.equal(asset.status, 200);
+  assert.equal(asset.headers['cache-control'], 'public, max-age=31536000, immutable');
+
+  const doc = await request(`${g.origin}/html`, { headers: headers(g, NAV) });
+  assert.equal(doc.status, 200);
+  assert.match(doc.body, /__dsh_remote_notice\.js/);
+  assert.equal(doc.headers['cache-control'], 'no-store');
+  assert.equal(doc.headers.etag, undefined);
+
+  const status = await request(`${g.origin}/__dsh_remote_status`, { headers: headers(g) });
+  assert.equal(status.headers['cache-control'], 'no-store');
 });
