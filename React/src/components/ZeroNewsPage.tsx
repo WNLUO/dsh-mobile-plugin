@@ -164,6 +164,31 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, waiting, snapshot])
 
+  /** 等确认收口之后仍持续留意登录是否完成：用户可能过一会儿才在浏览器或控制台确认，
+   *  不能因为一开始那两分钟没等到就永远当没登录。 */
+  useEffect(() => {
+    if (!open || waiting || loggedIn) return undefined
+    const timer = setInterval(() => { void refresh(false) }, 5000)
+    return () => clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, waiting, loggedIn])
+
+  /** 明确登录失败（配额满 / 被拒 / 过期）：停止转圈，把原因原样摆出来。 */
+  useEffect(() => {
+    if (!open || !snapshot?.loginError) return
+    setWaiting(false)
+    setLoginUrl('')
+    setNote(snapshot.loginError)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, snapshot?.loginError])
+
+  /** 还没连上时，一轮刷新里读到已登录就自动接一次（覆盖超时后补确认、以及在控制台先登录的情况）。 */
+  useEffect(() => {
+    if (!open || waiting || connected) return
+    if (snapshot?.login === true) void connect(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, waiting, connected, snapshot?.login])
+
   async function refresh(showSpinner: boolean) {
     if (showSpinner) setLoading(true)
     try {
@@ -186,10 +211,15 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     if (linkBusy && !force) return
     setLinkBusy(true)
     setNote(auto ? t('panel.zeronews.loginDetected') : '')
+    let needSetup = false
     try {
       const res = await zeroNewsConnect()
       const error = typeof res.error === 'string' ? res.error : res.error?.message
-      if (!res.ok && error) setNote(error)
+      if (res.phase === 'login') {
+        // 这台机器还没登录：别再干等，转去会打开浏览器确认页的接入流程。
+        needSetup = true
+        setNote(error || '')
+      } else if (!res.ok && error) setNote(error)
       else if (res.phase === 'connected') setNote('')
       else if (error) setNote(error)
       await refresh(false)
@@ -198,6 +228,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     } finally {
       setLinkBusy(false)
     }
+    if (needSetup) void startSetup()
   }
 
   /** 手动粘贴 AuthToken 绑定并连接：浏览器确认弹不出来时的官方兜底。 */

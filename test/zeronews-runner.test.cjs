@@ -136,29 +136,143 @@ test('AuthToken 写失败：如实报错，不起隧道的后续步骤', async (
   });
   const s = await runner.start({ token: 'bad' });
   assert.equal(s.phase, 'error');
-  assert.match(s.error, /invalid token/);
+  assert.match(s.error, /无效|失效|token/, '无效 token 要讲清去重新复制');
   assert(!calls.includes('login'), '写 token 失败不该退回浏览器登录');
 });
 
-test('未登录：拉起浏览器 login，确认后继续', async () => {
-  // 第一次 cliStatus（快路判断）返回未登录，之后返回已登录 —— 模拟用户点完浏览器确认。
-  let statusCalls = 0;
+test('未登录且无 token：不静默拉起 login，返回待登录让面板打开确认页', async () => {
+  const spawnCalls = [];
   const runImpl = async (bin, args) => {
-    if (args[0] === 'status') { statusCalls += 1; return { code: 0, stdout: JSON.stringify({ login: statusCalls > 1 }), stderr: '' }; }
+    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: false }), stderr: '' };
     return { code: 0, stdout: '', stderr: '' };
   };
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl: async () => ({ ok: false }), runImpl,
+    spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {}, kill() {} }; },
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'login', '停在待登录，而不是当失败或假装连上');
+  assert.match(s.error, /开始接入|登录/, '要说清去点「开始接入」完成浏览器确认');
+  assert.ok(!spawnCalls.includes('login'), '不能在后台静默拉起 login —— 用户看不到确认页只会干等到超时');
+});
+
+test('正在等浏览器确认（login_pending）：不重开登录，轮询到 login:true 后继续连上', async () => {
+  let n = 0;
   const spawnCalls = [];
+  const runImpl = async (bin, args) => {
+    if (args[0] !== 'status') return { code: 0, stdout: '', stderr: '' };
+    n += 1;
+    // 头部几次仍是 pending，之后完成登录。退出码 3 是官方的「等待中」，不是失败。
+    return n < 3
+      ? { code: 3, stdout: JSON.stringify({ login: false, login_pending: true }), stderr: '' }
+      : { code: 0, stdout: JSON.stringify({ login: true, login_pending: false }), stderr: '' };
+  };
   const fetchImpl = async (url) => {
     const key = url.replace(/^https?:\/\/[^/]+/, '');
     if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'ok.example.com', status: 'active' }] } }) };
     if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
     return { ok: false };
   };
-  const runner = createZeroNewsRunner({ ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
-    fetchImpl, runImpl, spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {} }; }, sleepImpl: () => Promise.resolve() });
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl, runImpl,
+    spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {} }; },
+    sleepImpl: () => Promise.resolve(),
+  });
   const s = await runner.start();
   assert.equal(s.phase, 'connected');
-  assert(spawnCalls.includes('login'), '未登录时要拉起浏览器登录');
+  assert.ok(!spawnCalls.includes('login'), 'pending 时不该重新拉起 login（会顶掉设备码）');
+});
+
+test('登录被拒（quota_exceeded / denied）：立刻按原因报错，不空等', async () => {
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl: async () => ({ ok: false }),
+    runImpl: async (bin, args) => {
+      if (args[0] === 'status') return { code: 1, stdout: JSON.stringify({ login: false, login_error: 'quota_exceeded' }), stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    spawnImpl: () => ({ on() {}, unref() {} }),
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'error');
+  assert.match(s.error, /一台设备|名额|控制台/, '配额满要说清去控制台停用另一台或升级');
+  assert.equal(s.retryable, false, '配额满属于确定性错误，不该再无限重试');
+});
+
+test('AuthToken 因本机已有配置被忽略：如实报错，不假装写成功', async () => {
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl: async () => ({ ok: false }),
+    runImpl: async (bin, args) => {
+      if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: false }), stderr: '' };
+      if (args[0] === 'authtoken') return { code: 0, stdout: 'Local config file already exists, token update ignored', stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    spawnImpl: () => ({ on() {}, unref() {} }),
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start({ token: 'x' });
+  assert.equal(s.phase, 'error');
+  assert.match(s.error, /已有|重置/, '要说明旧配置还在、这个 token 没写进去');
+});
+
+test('AuthToken 认证撞上免费套餐客户端数量上限：翻成可选流程，不甩英文原文', async () => {
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl: async () => ({ ok: false }),
+    runImpl: async (bin, args) => {
+      if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: false }), stderr: '' };
+      if (args[0] === 'authtoken') return { code: 1, stdout: '', stderr: 'auth client failed: client count limit reached for this plan' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    spawnImpl: () => ({ on() {}, unref() {} }),
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start({ token: 'x' });
+  assert.equal(s.phase, 'error');
+  assert.match(s.error, /名额|控制台|恢复客户端/, '要说清怎么释放名额 / 换机');
+  assert.doesNotMatch(s.error, /client count limit/, '不要把英文原文直接抛给用户');
+  assert.equal(s.retryable, false);
+});
+
+test('客户端被禁用：直接说去控制台启用，不继续 start', async () => {
+  const spawnCalls = [];
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl: async () => ({ ok: false }),
+    runImpl: async (bin, args) => {
+      if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, client_enabled: false }), stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {} }; },
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'error');
+  assert.match(s.error, /禁用|启用/);
+  assert.ok(!spawnCalls.includes('start'), '被禁用就别再起客户端');
+  assert.equal(s.retryable, false);
+});
+
+test('status 只有 stderr 的数量上限报错：也认出来，不当作没登录去开浏览器', async () => {
+  const spawnCalls = [];
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl: async () => ({ ok: false }),
+    runImpl: async (bin, args) => {
+      if (args[0] === 'status') return { code: 1, stdout: '', stderr: 'auth client failed: client count limit reached for this plan' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {} }; },
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'error');
+  assert.match(s.error, /名额|控制台/, '数量上限要直接说清，不能退回待登录');
+  assert(!spawnCalls.includes('login'), '不该再去开浏览器登录');
 });
 
 test('没有隧道时用 CLI add 建一条，解析 public_url', async () => {
@@ -202,11 +316,11 @@ test('已有隧道不重复建（免费档只有一条额度）', async () => {
   assert.equal(added, false, '已有隧道绝不重复建');
 });
 
-test('登录超时与下载失败都给出明确错误，不假装连上', async () => {
+test('一直没登录也不假装连上，下载失败也给出明确错误', async () => {
   const { runner } = harness({ loggedAfter: 999 });
   const s = await runner.start();
-  assert.equal(s.phase, 'error');
-  assert(s.error.includes('浏览器'), '登录超时说清去浏览器确认');
+  assert.equal(s.phase, 'login', '没登录停在待登录，不谎报 connected / error');
+  assert.match(s.error, /开始接入|登录/, '要说清去点「开始接入」完成登录');
 
   const failed = createZeroNewsRunner({
     ensure: async () => ({ ok: false, code: 'unsupported-platform' }),

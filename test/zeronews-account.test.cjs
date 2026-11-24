@@ -114,6 +114,26 @@ test('客户端在但没登录：只回客户端态，不拉三张清单', async
   assert.equal(snap.account.planName, '免费');
 });
 
+test('登录被拒（quota_exceeded）：快照带出可读原因，而不只是「没登录」', async () => {
+  const reader = createZeroNewsAccountReader({
+    locate: async () => ({ ok: true, path: '/bin/zeronews' }),
+    run: async () => ({ code: 1, stdout: JSON.stringify({ login: false, login_error: 'quota_exceeded' }), stderr: '' }),
+  });
+  const snap = await reader.read();
+  assert.equal(snap.login, false);
+  assert.match(snap.loginError, /一台设备|名额|控制台/, '配额满要给出可操作的整句');
+});
+
+test('status 只有 stderr 的数量上限报错：快照也带出可读原因', async () => {
+  const reader = createZeroNewsAccountReader({
+    locate: async () => ({ ok: true, path: '/bin/zeronews' }),
+    run: async () => ({ code: 1, stdout: '', stderr: 'auth client failed: client count limit reached for this plan' }),
+  });
+  const snap = await reader.read();
+  assert.equal(snap.login, false);
+  assert.match(snap.loginError, /名额|控制台/, '只打在 stderr 的报错也要认出来');
+});
+
 test('已登录：status + 三张清单归一，数量与明细都对', async () => {
   const reader = createZeroNewsAccountReader({
     locate: async () => ({ ok: true, path: '/bin/zeronews' }),

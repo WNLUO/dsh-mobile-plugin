@@ -263,7 +263,7 @@ function mountLogin(overrides = {}) {
   return { facade, cleanup: () => cleanup && cleanup() };
 }
 
-test('首次登录：拿到确认地址就打开，但 login 进程留着继续轮询、且不设 NO_TTY', async () => {
+test('首次登录：按官方 NO_TTY 语义拿到确认地址就打开，登录完成交给状态轮询', async () => {
   const records = [];
   const opened = [];
   const { facade, cleanup } = mountLogin({
@@ -275,10 +275,10 @@ test('首次登录：拿到确认地址就打开，但 login 进程留着继续�
   assert.equal(result.loginPending, true);
   assert.deepEqual(opened, ['https://user.zeronews.cc/cli/login?code=abc&client=DSH-mobile'], '打开的是 login 给出的确认链接');
   assert.equal(records.length, 1, '发起了一次 login');
-  assert.equal(records[0].opts.env.NO_TTY, undefined, '不设 NO_TTY：设了它 login 会打完地址就退，不做兑换');
-  assert.equal(records[0].child.killed, false, '拿到地址后不能杀 login，它要留着轮询兑换');
+  assert.equal(records[0].opts.env.NO_TTY, '1', '按官方规程带 NO_TTY：CLI 只打印确认地址，浏览器由我们打开');
+  assert.equal(records[0].child.killed, false, '拿到地址后先不杀，交给面板轮询状态确认登录');
   cleanup();
-  assert.equal(records[0].child.killed, true, '停止/卸载时把仍在轮询的 login 收掉');
+  assert.equal(records[0].child.killed, true, '停止/卸载时把 login 进程收掉');
 });
 
 test('已登录：login 回 already，准备阶段不开浏览器', async () => {
@@ -307,5 +307,30 @@ test('重开登录页：先收掉上一次还没确认的 login 进程，免得�
   assert.equal(records.length, 2, '第二次准备又发起一次 login');
   assert.equal(records[0].child.killed, true, '旧的还没确认的 login 要被收掉');
   assert.equal(records[1].child.killed, false, '新的留着轮询');
+  cleanup();
+});
+
+test('配额满这类确定性错误不自动重试（retryable=false），别无限空转', async () => {
+  let calls = 0;
+  const runner = {
+    start: async () => { calls += 1; return { phase: 'error', error: '免费套餐只一台设备', retryable: false, running: true }; },
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'off' }),
+  };
+  const env = mountWith(runner);
+  await tick(200);
+  assert.equal(calls, 1, '确定性错误只尝试一次，不再退避重连');
+  env.cleanup();
+});
+
+test('login 直接撞上客户端数量上限：prepare 把原文翻成可操作提示', async () => {
+  const { facade, cleanup } = mountLogin({
+    loginFlow: async () => ({ already: false, url: '', error: 'auth client failed: client count limit reached for this plan' }),
+    openUrl: async () => true,
+  });
+  const result = await facade.prepare();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /名额|控制台|恢复客户端/, '要说明免费套餐一台的名额怎么释放');
+  assert.doesNotMatch(result.error, /client count limit/, '不要把英文原文直接甩给用户');
   cleanup();
 });

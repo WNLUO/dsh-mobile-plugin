@@ -137,6 +137,8 @@ export type ZeroNewsStatus = {
   phase: string
   url: string
   error: string
+  /** 这个错误还值不值得自动重试；false 表示配额满 / 被拒 / token 冲突这类确定性错误。 */
+  retryable?: boolean
   /** 这台机器的客户端有没有账户身份（token 写过 / 以前登录过）：面板据此决定还显不显示粘贴框。 */
   configured?: boolean
 }
@@ -207,12 +209,17 @@ export type ZeroNewsAccount = {
   ok: boolean
   available: boolean
   login?: boolean
+  /** 已经发起登录、正在等浏览器确认（此时还没算登录成功）。 */
+  loginPending?: boolean
+  /** 登录明确失败时的整句原因（配额满 / 被拒 / 过期等），没有就为空。 */
+  loginError?: string
   /** 三张清单是否都读到了；false 时数组可能不全。 */
   resourcesLoaded?: boolean
   error?: string
   client?: {
     login: boolean
     loginPending: boolean
+    loginError: string
     configured: boolean
     connected: boolean
     clientId: string
