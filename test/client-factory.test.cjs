@@ -1,4 +1,5 @@
 /** 客户端服务、界面与嵌入声明的生命周期行为测试；图标物化时把 inject 的 tf 一并传给组件。 */
+// 2026-11-24：反馈附件补 plugin_source / activated_at / shell_changed，并加对应变异。
 'use strict';
 
 /**
@@ -1021,7 +1022,7 @@ async function assertOpenFailureFeedback(source = SOURCE) {
         submitted = init.body;
         return { ok: true, status: 200, json: async () => ({ data: { thread_key: 'feedback-test' } }) };
       }
-      if (String(url).endsWith('/host-half')) return { ok: true, status: 200, json: async () => ({ half: { version: '0.6.0' } }) };
+      if (String(url).endsWith('/host-half')) return { ok: true, status: 200, json: async () => ({ half: { version: '0.6.0', source: 'npm', activatedAt: '2026-11-20T00:00:00Z', shellChanged: true } }) };
       if (entry.network) throw new Error('request failed https://example.test/?token=private-token');
       return { ok: false, status: entry.status, json: async () => entry.body };
     } });
@@ -1039,6 +1040,9 @@ async function assertOpenFailureFeedback(source = SOURCE) {
     assert.equal(context.error_code, entry.expected);
     const text = await submitted.get('files').text();
     assert.match(text, new RegExp(`error_code=${entry.expected}`));
+    assert.match(text, /plugin_source=npm/);
+    assert.match(text, /activated_at=2026-11-20T00:00:00Z/);
+    assert.match(text, /shell_changed=true/);
     assert.doesNotMatch(text + JSON.stringify(context), /private-token|private-credential|example\.test|Bearer/);
   }
 }
@@ -1050,6 +1054,7 @@ test('网页管理反馈变异：丢原因码或把无HTTP响应当缺值时行�
     ["code: outcome.code || '', message: outcome.message", "code: '', message: outcome.message"],
     ["current && Number.isFinite(current.status) ? String(current.status) : ''", "current && current.status ? String(current.status) : ''"],
     ["error_code: current && typeof current.code === 'string' && /^[A-Za-z][A-Za-z0-9._-]{0,79}$/.test(current.code) ? current.code : ''", "error_code: current ? current.message : ''"],
+    ["source: half && half.source ? String(half.source) : '',", ""],
   ]) {
     const changed = SOURCE.replaceAll(before, after);
     assert.notEqual(changed, SOURCE);
