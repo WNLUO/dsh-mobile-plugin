@@ -80,22 +80,49 @@ test('reset 失败：如实报错、留住缓存二进制，提示重新点按�
   assert.deepEqual(h.removed, [], 'reset 没成功就绝不能删掉最后一份二进制');
 });
 
-test('用户取消系统授权：报「取消了」而不是报「reset 失败」，留住缓存', async () => {
+test('用户取消系统授权：报「没通过授权」而不是报「reset 失败」，留住缓存', async () => {
   const h = harness({ resetOk: false, resetStderr: 'execution error: User canceled. (-128)' });
   const result = await purgeZeroNews(h.options);
   assert.equal(result.ok, false);
-  assert.match(result.reset.error, /取消/);
-  assert.match(result.error, /取消了系统授权/);
+  assert.match(result.reset.error, /没有通过系统授权/);
+  assert.match(result.error, /授权没通过/);
   assert.deepEqual(h.removed, []);
 });
 
-test('非 macOS：直接执行官方 reset，不经授权框', async () => {
+test('Windows：走 UAC 提权，不经 osascript', async () => {
+  const h = harness({ platform: 'win32' });
+  const result = await purgeZeroNews(h.options);
+  assert.equal(result.ok, true, 'UAC 成功就算重置成功');
+  assert.equal(h.commands[0][0], 'powershell.exe', '经 PowerShell 弹 UAC');
+  const script = h.commands[0][1].join(' ');
+  assert.match(script, /-Verb RunAs/, '必须走 UAC 提权，不能绕过');
+  assert.match(script, /'reset'/, '跑的是官方 reset');
+  assert.equal(h.commands.some((c) => c[0] === 'osascript'), false, 'Windows 不用 macOS 的授权框');
+});
+
+test('Windows 用户拒绝 UAC：报「没通过授权」，留住缓存', async () => {
+  const h = harness({ platform: 'win32', resetOk: false, resetStderr: 'The operation was canceled by the user' });
+  const result = await purgeZeroNews(h.options);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /授权没通过/);
+  assert.deepEqual(h.removed, []);
+});
+
+test('Linux：走 pkexec 弹 polkit 授权框，路径作独立参数不经 shell', async () => {
   const h = harness({ platform: 'linux' });
   const result = await purgeZeroNews(h.options);
   assert.equal(result.ok, true);
-  assert.deepEqual(h.commands[0][1], ['reset'], '官方 reset 命令');
-  assert.equal(h.commands[0][0], SYSTEM_BIN, '用定位到的客户端执行，不另下一份');
-  assert.equal(h.commands.some((c) => c[0] === 'osascript'), false, '非 macOS 不提权');
+  assert.equal(h.commands[0][0], 'pkexec', '经 pkexec 弹授权框');
+  assert.deepEqual(h.commands[0][1], [SYSTEM_BIN, 'reset'], '路径单独作参数，免 shell 注入');
+  assert.equal(h.commands.some((c) => c[0] === 'osascript'), false, 'Linux 不用 macOS 的授权框');
+});
+
+test('Linux 用户拒绝 polkit 授权：报「没通过授权」，留住缓存', async () => {
+  const h = harness({ platform: 'linux', resetOk: false, resetStderr: 'Not authorized: dismissed' });
+  const result = await purgeZeroNews(h.options);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /授权没通过/);
+  assert.deepEqual(h.removed, []);
 });
 
 test('本机没装客户端：跳过 reset，仍清掉缓存残留', async () => {
