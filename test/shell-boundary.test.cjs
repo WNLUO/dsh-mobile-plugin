@@ -28,6 +28,10 @@ const LINE_IMPL_DENY = [
   'lib/tailcat/wiring.cjs',
   'lib/tailcat/ingress.cjs',
   'lib/tailcat/session.cjs',
+  'lib/tailcat/host-process.cjs',
+  'lib/p2p/wiring.cjs',
+  'lib/p2p/session.cjs',
+  'lib/relay/tunnel-forwarder.cjs',
 ];
 
 test('外壳的引用图里不许出现线路实现（第一批）', async () => {

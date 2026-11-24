@@ -83,3 +83,30 @@ test('隧道助手：指纹不变沿用 door，变了重建并收旧 effect', as
   assert.equal(built.length, 2);
   assert.ok(stopped.includes(d1), '重建时旧 door 要被 stop，不能留着旧监听');
 });
+
+test('点对点：指纹不变沿用 door，变了重建并收旧 effect', async () => {
+  const { installTransportHosts } = await import('../lib/shell/transport-host.js');
+  const { services, ctx } = fakeCtx();
+  installTransportHosts(ctx);
+  const host = services.dshMobileTransportP2P;
+  assert.ok(host && typeof host.ensure === 'function', '外壳应 provide dshMobileTransportP2P（惰性 ensure）');
+
+  const built = [];
+  const stopped = [];
+  const mount = (opts) => {
+    const door = { status: () => ({ available: true }), start() {}, stop() { stopped.push(door); } };
+    built.push(door);
+    opts.ctx.effect(() => () => {}, 'fake p2p life');
+    return door;
+  };
+
+  const d1 = host.ensure({ providers: {}, mount, fingerprint: 'v1' });
+  assert.equal(built.length, 1);
+  const d2 = host.ensure({ providers: {}, mount, fingerprint: 'v1' });
+  assert.equal(d2, d1, '指纹没变必须沿用同一个 door（换代不断直连）');
+  assert.equal(built.length, 1, '沿用不得重建');
+  const d3 = host.ensure({ providers: {}, mount, fingerprint: 'v2' });
+  assert.notEqual(d3, d1, '指纹变了要重建 door');
+  assert.equal(built.length, 2);
+  assert.ok(stopped.includes(d1), '重建时旧 door 要被 stop');
+});
