@@ -1,3 +1,4 @@
+// 2026-11-24 用户要求：那一块一律不显示，异常提示也撤掉，这条守卫跟着改。
 // 2026-11-24 用户要求：自动更新已够用，手动安装按钮撤掉，这条守卫跟着改。
 'use strict';
 
@@ -109,23 +110,17 @@ test('手动安装入口已撤，来源提示条也不显示', () => {
 
 test('宿主说没法就地换代时，更新卡不许把用户往插件市场带', () => {
   const card = read('UpdateCard.tsx');
-  // 判据是宿主回的 `available: false`（它自己说这份实现是直接被挂载的）。只认 409 那条错误码
-  // 时这个分支永远进不来 —— 服务器那台面板上剩下的就是一句「去插件市场更新」（用户报的原文）。
+  // 判据仍是宿主回的 `available: false`，但按 2026-11-24 用户要求，卡片正文一律不显示。
   assert.match(
     card,
     /setNoShell\(next\.available !== true\)/,
-    '宿主回 available:false 就要进「没有可换代的外壳」那一支',
+    '宿主回 available:false 仍要记进 noShell，供顶栏按钮的显示判据使用',
   );
-  const at = card.indexOf('{noShell ?');
-  assert.notEqual(at, -1, '找不到 noShell 那一支');
-  const branch = card.slice(at, card.indexOf('市场那条路', at) === -1 ? at + 900 : card.indexOf('市场那条路', at));
-  // 文案进字典后断键：「点名无头 / 源码同步」那句话现在是 `panel.update.nothingToInstall`
-  // （五门语言里都写着 headless / source-synced），这里钉的是「用的就是那条键」。
-  assert.match(branch, /panel\.update\.nothingToInstall/, '那句话里必须点名无头 / 源码同步这条路（那台机器上没有市场）');
-  // 版本展示已按用户要求挪到整卡左列（PairingCard），这一支只说不装、不铺警告框。
-  assert.doesNotMatch(branch, /panel\.update\.runningVersion/, '运行中版本不在更新卡里');
-  assert.ok(!/Alert/.test(branch), '别把这一支铺成警告框');
-  assert.ok(!/没有可换代的外壳/.test(branch), '那句「这一版没有可换代的外壳」的标题别再回来');
+  assert.doesNotMatch(card, /panel\.update\.nothingToInstall/, '无头 / 源码同步那句话不再显示');
+  assert.doesNotMatch(card, /panel\.update\.noMarketTitle/, '「去设置里更新」的引导不再出现');
+  const body = card.slice(card.indexOf('const body = ('));
+  assert.doesNotMatch(body, /panel\.update\.runningVersion/, '运行中版本不在卡片正文里');
+  assert.doesNotMatch(body, /<p |<Alert|<InfoList/, '卡片正文不铺任何提示');
 });
 
 test('网络配置弹窗：两列一屏、公用中转内置清单、局域网开关撤掉、配对策略是开关', () => {

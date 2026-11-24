@@ -1,10 +1,12 @@
+// 2026-11-24 用户要求：这一块一律不显示任何东西，卡片正文清空，只保留顶栏按钮与版本提示的逻辑。
 // 2026-11-24 用户要求：自动更新已够用，面板上手动「立即更新 / 强制更新」撤掉，后端接口不动。
 // 2026-11-24：重启 sidecar / 检查更新挪到控制台顶栏，按钮只留这一份、借落脚点渲染过去。
 // 2026-11-24：顶栏那颗「网络配置」按钮撤了，extraActions 扩展位随之删掉。
 // 主状态版本变化时重读外壳，磁盘版本与外壳当前实现比较。
 /**
- * 「插件更新」卡片：正式 npm 更新状态与手动更新。**自动更新开关不在这张卡里**：2026-11-20
- * 起它挪到顶卡右列（`AutoUpdateSection`），与「自动上报网络地址」同列。
+ * 「插件更新」卡片：承载顶栏维护按钮与版本对不上时的提示，**卡片自身不渲染任何正文**。
+ * 自动更新开关不在这张卡里：2026-11-20 起它挪到顶卡右列（`AutoUpdateSection`），与
+ * 「自动上报网络地址」同列。
  *
  * **查**归插件自己（直接问 npm 注册表，见 `lib/update-registry.cjs`），**装**由宿主里的
  * 自动更新走 `/update/apply`，**换代码**由外壳就地换代（见 `lib/shell/runtime.js`）。对应
@@ -19,34 +21,25 @@
  * 文案**不走字典，直接写中文**：这一页整体是中文语境，为一张卡维护两份字典只让改一句话要
  * 动两处。要再国际化就整页一起做，别只做这一张。
  *
- * 老宿主没有那四条接口（404）时走降级那一半：只剩「线上最新是几」这一行，页面不再给手动
- * 安装入口；装由宿主里的自动更新负责。
+ * 老宿主没有那四条接口（404）时走降级那一半：仍然保留检查能力，但卡片自身什么都不显示；
+ * 装由宿主里的自动更新负责。
  *
- * **某次动作的结果**一律走右上角的胶囊（`../lib/notify.ts`）；**一直如此的事实**（没有可
- * 换代的外壳、没有市场）留在卡片里。
+ * **某次动作的结果**一律走右上角的胶囊（`../lib/notify.ts`）；卡片自身不铺正文、不摆长期提示。
  *
  * 正文与标题外壳分开：控制台把它与配对卡合成一张无标题整卡时只取正文，标题外壳仍保留给
  * 单独用的场合。维护按钮借 portal 画到控制台顶栏，卡片自身不放动作按钮。
- * 2026-11-20 用户要求：版本信息挪到整卡左列，这张卡只留检查结果与提示。
+ * 2026-11-20 用户要求：版本信息挪到整卡左列，这张卡的正文按 2026-11-24 要求清空。
  */
 // 2026-11-20 用户要求：自动更新开关不再按安装来源隐藏，开发台上也摆出来（配一句实情）。
-import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card, CardHeader, CardTitle } from '@appica/ui-react/card'
-import { Spinner } from '@appica/ui-react/spinner'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { errorText } from '../lib/api.ts'
 import { useNotify } from '../lib/notify.ts'
-import {
-  MarketError,
-  marketCapabilities,
-  marketCheckUpdate,
-  type MarketCapabilities,
-  type MarketUpdate,
-} from '../lib/market.ts'
+import { marketCapabilities, type MarketCapabilities } from '../lib/market.ts'
 import {
   updateCheck,
   updateEndpointMissing,
@@ -54,7 +47,6 @@ import {
   updateUnavailable,
   type UpdateStatusView,
 } from '../lib/relayUpdate.ts'
-import { EVEN_ROWS, InfoList, InfoRow } from './InfoRow.tsx'
 import type { Issue } from './IssueMark.tsx'
 import { t } from '../lib/i18n/index.ts'
 
@@ -115,17 +107,6 @@ function CheckUpdateIcon() {
   )
 }
 
-/** 市场查询里这几个 code 不是「坏了」，是「这次没查成、可以再试」——走琥珀提示。 */
-const SOFT_CODES = new Set(['OPERATION_BUSY', 'RELEASE_TOO_FRESH', 'VERSION_UNCHANGED', 'PLUGIN_NOT_INSTALLED', 'AGENTS_RUNNING'])
-
-/**
- * 这张卡显示的「最近一次检查结果」。
- *
- * 两条来源共用一个形状：宿主那条（插件自己问 npm，见 `lib/relayUpdate.ts`，带 `checkedAt`）
- * 优先；老宿主上退回市场那份客户端（`lib/market.ts`，不带时间）。
- */
-type UpdateView = MarketUpdate & { checkedAt?: string | null }
-
 export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsSlot = null, bare = false }: Props) {
   /** 宿主那四条接口的状态；null = 还没读到（或老宿主压根没有）。 */
   const [host, setHost] = useState<UpdateStatusView | null>(null)
@@ -134,14 +115,9 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
   /** 宿主说「这一版没有可换代的外壳」（409 + update_unavailable）。 */
   const [noShell, setNoShell] = useState(false)
   const [caps, setCaps] = useState<MarketCapabilities | null>(null)
-  const [update, setUpdate] = useState<UpdateView | null>(null)
   const [working, setWorking] = useState('')
   const hostRead = useRef(0)
-  /**
-   * 「某次动作的结果」一律走右上角的胶囊，**不在卡片里铺长条**：卡片里那条 `Alert` 会一直
-   * 占着版面，还把「刚才成没成」和「这块的长期状态」混成一种东西。长期状态（没有可换代的
-   * 外壳 / 没有市场）仍旧写在卡片里——弹一次就消失等于让人再也看不到。
-   */
+  /** 「某次动作的结果」一律走右上角的胶囊；卡片自身不铺任何提示，也不写长期状态。 */
   const notify = useNotify()
 
   /**
@@ -191,8 +167,7 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
     return () => { hostRead.current += 1 }
   }, [loadHost, version])
 
-  // 再静默问一次「线上最新是几」。这一格归插件自己（宿主直接问 npm 注册表），所以不管走
-  // 哪一半都能填上，不再等外壳去问市场。**静默**：打开页面就弹红框太吵 —— 失败什么都不说，
+  // 再静默读一次状态，把 check 可能补回来的外壳在场标志并进快照。失败什么都不说，
   // 人自己点「检查更新」时才如实报。
   useEffect(() => {
     if (!settled) return undefined
@@ -201,7 +176,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
     void updateCheck()
       .then((result) => {
         if (!alive) return
-        if (result.update) setUpdate(result.update)
         if (result.status && read === hostRead.current) mergeHost(result.status)
       })
       .catch(() => {})
@@ -230,24 +204,12 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
     }
   }, [hostMode, settled])
 
-  /** 市场那份失败分两种：能再试的走中性提示，真故障才红框。 */
-  const reportMarketError = useCallback((err: unknown) => {
-    if (err instanceof MarketError && SOFT_CODES.has(err.code)) {
-      notify('soft', `${err.message}（${err.code}）`)
-      return
-    }
-    notify('error', errorText(err))
-  }, [])
-
   const check = useCallback(async () => {
     setWorking('check')
     const read = hostRead.current
     try {
       const result = await updateCheck()
       if (result.status && read === hostRead.current) mergeHost(result.status)
-      // 这一格归插件自己：拿不到就是拿不到（宿主那条会把原因带在 500 的 message 里，
-      // 上面 catch 会如实显示）。**不再**借宿主的 marketLastError 说事 —— 那是市场的事。
-      if (result.update) setUpdate(result.update)
     } catch (err) {
       if (updateEndpointMissing(err) || updateUnavailable(err)) {
         await loadHost()
@@ -259,38 +221,19 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
     }
   }, [loadHost])
 
-  /**
-   * 降级那一半的「检查更新」。
-   *
-   * 先走宿主那条 `/api/relay/update/check`：它现在**不要求外壳在场**（查归插件自己，问的是
-   * npm 注册表），所以无头部署、没有可换代外壳的那一版上照样答得出来。只有宿主连这条都没有
-   * 时（真老版本，404）才退回页面直连市场那份老客户端 —— 那条路只报数、不装东西。
-   */
+  /** 降级那一半的「检查更新」：宿主那条不要求外壳在场，无头 / 老宿主也照样查得到。 */
   const marketOnlyCheck = useCallback(async () => {
     setWorking('check')
-    const read = hostRead.current
     try {
       const result = await updateCheck()
-      if (result.status && read === hostRead.current) mergeHost(result.status)
-      setUpdate(result.update)
+      if (result.status) mergeHost(result.status)
     } catch (err) {
-      if (!updateEndpointMissing(err)) {
-        setUpdate(null)
-        notify('error', errorText(err))
-      } else {
-        try {
-          setUpdate(await marketCheckUpdate(undefined, true))
-        } catch (marketErr) {
-          setUpdate(null)
-          reportMarketError(marketErr)
-        }
-      }
+      notify('error', errorText(err))
     } finally {
       setWorking('')
     }
-  }, [reportMarketError])
+  }, [])
 
-  const hasUpdate = update?.updateAvailable ?? host?.marketResult?.updateAvailable ?? false
   const shellVersion = host?.version ?? null
   // 主状态与外壳分别读取，两份快照可能暂时处在换代的两侧。
   const versionsDisagree = hostMode && !!shellVersion && !!version && shellVersion !== version
@@ -351,68 +294,6 @@ export function UpdateCard({ version, busy, onRestartSidecar, onIssues, actionsS
             actionsSlot,
           )
         : null}
-      {!settled ? (
-        <div className="flex items-center gap-2 py-2 text-sm text-foreground-muted">
-          <Spinner />
-          {t('panel.update.reading')}
-        </div>
-      ) : null}
-
-      {/*
-        宿主说「这份实现是直接被挂载的」时，这一页**不摆警告框**：那台机器（无头 / 源码同步
-        部署）照样答得出「线上最新是几」——查更新本来就不需要外壳（见宿主 control-plane 那条
-        路由的注释）。所以这里跟正常卡片一样只报版本，再用一行灰字说清这台是怎么更新的：
-        把无头那台往插件市场上带是错的（那儿没有市场），而铺一个大黄框只是把「没有故障」
-        说成故障。
-      */}
-      {noShell ? (
-        <>
-          <p className="mt-3 text-xs text-foreground-muted">
-            {hasUpdate ? t('panel.update.hasNew') : ''}
-            {t('panel.update.nothingToInstall')}
-          </p>
-        </>
-      ) : null}
-
-      {/* 市场那条路：市场不在或没装市场时，只剩「去设置里更新」这一条。 */}
-      {settled && !hostMode && !noShell && caps !== null && !caps.available ? (
-        <Alert variant="info" className="mt-3">
-          <AlertIcon />
-          <AlertTitle>{t('panel.update.noMarketTitle')}</AlertTitle>
-          <AlertDescription>{t('panel.update.noMarketBody')}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {hostMode && host ? (
-        <>
-          {/*
-            自动更新那颗开关 2026-11-20 挪到顶卡右列（`AutoUpdateSection`）：它跟「自动上报
-            网络地址」同列，说明与关闭确认都在那边。这里不再摆开关，只剩版本与动作。
-          */}
-          {/* 版本对不上已收进「运行中版本」那行的感叹号，这里不再铺段落。 */}
-
-          {/* 宿主自己记下来的最近一次失败（自动更新失败也落在这里）。 */}
-          {host.lastError ? (
-            <p className="mt-2 text-xs text-foreground-muted">
-              {t('panel.update.lastErrorLine', { message: host.lastError })}
-            </p>
-          ) : null}
-        </>
-      ) : null}
-
-      {/* 降级那一半：这张卡没能进「宿主模式」（读不到那四条接口的状态，或者宿主说它没有
-          可换代的外壳）。查更新不要求外壳在场，所以这一半照样报得出「线上最新是几」；
-          装由宿主里的自动更新负责，页面上不再给手动入口。 */}
-      {settled && !hostMode && !noShell && caps?.available ? (
-        <>
-          <InfoList className={EVEN_ROWS}>
-            <InfoRow label={t('panel.update.checkResult')}>
-              {hasUpdate ? t('panel.update.resultHasNew') : t('panel.update.resultUpToDate')}
-            </InfoRow>
-          </InfoList>
-        </>
-      ) : null}
-
     </>
   )
 
