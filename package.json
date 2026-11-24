@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.105",
+  "version": "0.5.106",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -117,7 +117,7 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.105",
+    "version": "0.5.106",
     "kinds": [
       "feature",
       "fix"
