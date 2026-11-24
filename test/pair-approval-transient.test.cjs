@@ -61,3 +61,13 @@ test('局域网配对校验以主进程为准：旁车现取配对码/票据，�
   assert.match(proxy, /instanceId: pairing\.instanceId/, '实例号也用权威那份');
   assert.match(proxy, /safeEqual\(code, String\(pairing\.code/, '老形状比对也用权威配对码');
 });
+
+test('内部环节失手时兜底转本机配对接口，不让用户吃 500', () => {
+  const proxy = read('lib', 'relay', 'lan-proxy.js');
+  assert.match(proxy, /function forwardPairToUpstream\(req, res, rawBody\)/, '要有「转本机配对接口」的兜底');
+  assert.match(proxy, /path: '\/api\/mobile\/v1\/pair'/, '兜底发到电脑本机那条配对接口');
+  assert.match(proxy, /approve error（内部通道没答上，改走本机配对接口兜底）/, '内部审批失手要打日志');
+  const at = proxy.indexOf('approve error（内部通道没答上');
+  assert.ok(at > 0);
+  assert.match(proxy.slice(at, at + 500), /forwardPairToUpstream\(req, res, b\)/, '失手后转本机配对接口兜底，而不是回 500');
+});
