@@ -1,4 +1,5 @@
 // 配对二维码带上服务商线路：以后加服务商不用再改二维码（与心跳 / 总控同源）。
+// 2026-11-24：出码把内置公用地址并进中继两格，几处「码里没有中转」的旧断言跟着改，理由见各处。
 'use strict';
 
 const test = require('node:test');
@@ -6,6 +7,7 @@ const assert = require('node:assert/strict');
 
 const { providerLinesOf } = require('../lib/relay/provider-lines.cjs');
 const { pairingPayload, pairingHasAddress } = require('../lib/relay/pairing-payload.cjs');
+const { PUBLIC_RELAY_URLS } = require('../lib/relay/core.js');
 
 const baseState = (extra = {}) => ({
   name: 'host',
@@ -82,7 +84,9 @@ test('同址已经在 lanUrls 里的线路不重复写进 routes', () => {
 test('pairingHasAddress：只配服务商线路也算有可用地址', () => {
   // 出码前那道判定以前只看中转和局域网，把只接一家服务商的机器挡在门外（二维码出不来）。
   const { payload } = pairingPayload(baseState({ zeroNewsUrl: 'https://zero.example.com' }), 18787);
-  assert.equal(payload.relayUrl, '');
+  // 2026-11-24 用户要求：码里总带一条内置公用地址（iOS 扫不上服务商 routes 时的兜底），
+  // 所以这里不再断言 relayUrl 为空；服务商线路算可用地址这条判据本身没变。
+  assert.equal(payload.relayUrl, PUBLIC_RELAY_URLS[0]);
   assert.equal(payload.lanUrls.length, 0);
   assert.ok(payload.routes.length > 0);
   assert.equal(pairingHasAddress(payload), true, '服务商线路要算可用地址');
@@ -91,10 +95,31 @@ test('pairingHasAddress：只配服务商线路也算有可用地址', () => {
   assert.equal(pairingHasAddress(cfOnly), true, '只有 Cloudflare 时也算');
 });
 
-test('pairingHasAddress：真的什么都没有时为假（不把检查改松）', () => {
-  const empty = pairingPayload(baseState(), 18787).payload;
-  assert.equal(pairingHasAddress(empty), false);
+test('pairingHasAddress：裸载荷真的什么都没有时为假（判据本身没放宽）', () => {
+  // 2026-11-24：pairingPayload 现在总带一条内置公用地址，所以它产出的码判为真（见上一测试）。
+  // 这里改喂手工构造的裸载荷，继续钉住判据本身：只有 IPv6 / 全空 / null 都不算可用地址。
   // IPv6 候选只是配对后的数据通道，不当配对地址。
   assert.equal(pairingHasAddress({ lanUrls: [], relayUrl: '', ipv6Candidates: ['http://[240e::1]:18787'] }), false);
+  assert.equal(pairingHasAddress({ lanUrls: [], relayUrl: '' }), false);
   assert.equal(pairingHasAddress(null), false);
+});
+
+test('出码总带内置公用地址，且不写回宿主配置（iOS 扫不上服务商线路的兜底）', () => {
+  const state = baseState();
+  const { payload } = pairingPayload(state, 18787);
+  assert.equal(payload.relayUrl, PUBLIC_RELAY_URLS[0]);
+  assert.equal(payload.relayUrls, undefined, '只有公用这一条时不写数组，省码点');
+  assert.equal(state.relayUrl, '', '只改发进码的那一份，state 不动');
+  assert.equal(state.relayUrls, undefined, '宿主配置这一格没被写过（停用逻辑不变）');
+
+  // 宿主已配自建时，自建排在前、公用缀在后面做兜底，首项不变式照旧成立。
+  const own = pairingPayload(baseState({ relayUrl: 'https://own.example', relayUrls: ['https://own.example'] }), 18787).payload;
+  assert.equal(own.relayUrl, 'https://own.example');
+  assert.deepEqual(own.relayUrls, ['https://own.example', PUBLIC_RELAY_URLS[0]]);
+  assert.equal(own.relayUrls[0], own.relayUrl);
+
+  // 宿主本来就用这条公用（老配置残留），去重后仍只有一条，不重复写第二遍。
+  const dup = pairingPayload(baseState({ relayUrl: PUBLIC_RELAY_URLS[0], relayUrls: [...PUBLIC_RELAY_URLS] }), 18787).payload;
+  assert.equal(dup.relayUrl, PUBLIC_RELAY_URLS[0]);
+  assert.equal(dup.relayUrls, undefined, '去重后单条，不写数组');
 });

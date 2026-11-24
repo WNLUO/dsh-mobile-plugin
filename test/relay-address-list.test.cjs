@@ -214,26 +214,26 @@ test('配对二维码 payload 两格都在：老手机读 relayUrl，新手机�
   };
   const { payload } = pairingPayload({ ...base, relayUrl: A, relayUrls: [A, B] }, 18787);
   assert.equal(payload.relayUrl, A, '老手机只认这一格，一个字都不能少');
-  assert.deepEqual(payload.relayUrls, [A, B]);
+  // 2026-11-24：宿主自建的两条照旧排前，末尾缀一条内置公用兜底。
+  assert.deepEqual(payload.relayUrls, [A, B, core.PUBLIC_RELAY_URLS[0]]);
   assert.equal(payload.relayUrls[0], payload.relayUrl);
 
   const legacy = pairingPayload({ ...base, relayUrl: A }, 18787).payload;
-  assert.equal(legacy.relayUrl, A);
-  // **决策变了（2026-11-09）**：只有一条中转时二维码里**不写** `relayUrls`。
-  // 原来这里断言「退化到单元素数组」，但那个数组与上面的 `relayUrl` 逐字相同 ——
-  // 同一串地址在码里出现两遍，白占七八个模块，而扫码能不能成几乎全看码有多密。
-  // 「老手机读 relayUrl、新手机优先读数组」那条契约没变：数组缺席时新手机本来就会退化到单条
-  // （App 侧 `parsePairingInvite` 的 `declared.length ? declared : first ? [first] : []`）。
-  assert.equal(legacy.relayUrls, undefined, '单中转时不写数组，省掉重复的那一串');
+  assert.equal(legacy.relayUrl, A, '自建仍排第一，不受公用兜底影响');
+  // 11-09 那条「单中转不写数组」的理由还在（同一串地址不写两遍），但判据现在落在含公用的
+  // codeRelays 上：一条自建 + 一条公用 = 两条，要写数组。首项不变式照旧成立。
+  assert.deepEqual(legacy.relayUrls, [A, core.PUBLIC_RELAY_URLS[0]]);
+  assert.equal(legacy.relayUrls[0], legacy.relayUrl);
   const listed = pairingPayload({ ...base, relayUrl: A, relayUrls: [A, B] }, 18787).payload;
-  assert.deepEqual(listed.relayUrls, [A, B], '真有第二条时才写数组');
+  assert.deepEqual(listed.relayUrls, [A, B, core.PUBLIC_RELAY_URLS[0]], '自建多条 + 公用兜底');
 
   const none = pairingPayload({ ...base, relayUrl: '', relayUrls: [] }, 18787).payload;
-  assert.equal(none.relayUrl, '');
-  // 没有中转时同样不写数组（与单条时同一个判据：`relayUrls.length > 1` 才写）。
-  // 这条要保住的意图是「别造一条假地址出来」—— 见下面断言：数组要么缺席、要么非空。
-  assert.ok(none.relayUrls === undefined || none.relayUrls.length === 0,
-    '真的没有中转时两格都空，别造一条假地址出来');
+  // 2026-11-24 用户要求：出码总带一条内置公用地址（iOS 扫不上服务商线路时的兜底）。
+  // 「别造一条假地址」那条老规矩针对的是凭空拼地址；这里是内置清单里的真地址，且只进码、
+  // 不写回 state，宿主配置那两格仍按契约保持空。首项不变式照旧成立。
+  assert.equal(none.relayUrl, core.PUBLIC_RELAY_URLS[0]);
+  assert.equal(none.relayUrls, undefined, '只有公用这一条时不写数组');
+  assert.equal(none.relayUrls?.[0] ?? none.relayUrl, none.relayUrl, '首项恒等于 relayUrl');
   assert.ok(!none.lanUrls.length, '局域网关着时也不该冒出地址');
 });
 

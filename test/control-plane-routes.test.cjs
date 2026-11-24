@@ -404,7 +404,7 @@ test('行为：二维码按 ?relayUrl= 预览出码，且不把预览地址写�
   assert.equal(blocked.status, 409, '没启用远程控制时不出码，说清该先做什么');
 });
 
-test('行为：只配一家服务商线路时也能出码，一条线路都没有时照旧报错', async () => {
+test('行为：只配一家服务商线路、或一条都没有时都能出码，码里带内置公用兜底', async () => {
   // 停用公用中转 + 关局域网 + 只接一家服务商：这是支持中的配置，出码判定必须认服务商线路。
   const state = {
     enabled: true, instanceId: 'i1', pairingCode: '123456', pairingTicket: 't'.repeat(43),
@@ -417,10 +417,13 @@ test('行为：只配一家服务商线路时也能出码，一条线路都没�
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.match(res.body.svg, /<svg/, '只接服务商也要真正生成二维码');
 
+  // 2026-11-24 用户要求：出码总带一条内置公用地址（iOS 扫不上服务商线路时的兜底），
+  // 所以「一条线路都没有」也不再拦——那张码里至少有这台公用中转可用。判据没放宽，是码里多了地址。
   const none = controlRoutes({ state: { ...state, zeroNewsUrl: '' } });
-  const blocked = {};
-  await none.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, blocked);
-  assert.equal(blocked.status, 409, '一条线路都没有时照旧报无可用地址');
+  const bare = {};
+  await none.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, bare);
+  assert.equal(bare.status, 200, '码里带公用地址，出码判定 Passage');
+  assert.match(bare.body.svg, /<svg/, '带公用兜底的码也要真正生成');
 });
 
 /** 使用真实来源守卫，验证局域网网页访问而不是绕过校验的路由假体。 */
