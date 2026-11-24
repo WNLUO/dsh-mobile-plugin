@@ -152,6 +152,23 @@ test('吊销走 setAllowed：先落盘，再告诉助手', () => {
   assert.deepEqual(host.calls.setAllowed, [['nodekey:dd']])
 })
 
+test('内置保底隧道默认开：没写过开关那格也算开，显式关掉保持关', () => {
+  const disk = { tailcatState: null, tailcatAllowedClients: [] }
+  const session = createTailcatSession({
+    readState: () => ({ ...disk }),
+    writeState: patch => { Object.assign(disk, patch) },
+    localPort: 19000,
+    hostName: () => 'test-mac',
+    host: fakeHost(),
+  })
+  assert.equal(session.status().enabled, true, '从没写过这一格按默认开')
+  assert.equal(disk.tailcatEnabled, undefined)
+  session.start()
+  assert.equal(session.setEnabled(false), true)
+  assert.equal(disk.tailcatEnabled, false, '用户显式关掉落 false，重启后保持关')
+  assert.equal(session.status().enabled, false)
+})
+
 test('总开关关掉时停进程，白名单留着（再打开不用重新配对）', () => {
   const { session, host, disk, emit } = makeSession()
   session.start()

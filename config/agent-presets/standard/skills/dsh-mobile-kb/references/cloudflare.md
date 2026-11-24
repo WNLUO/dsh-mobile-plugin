@@ -1,6 +1,6 @@
 # Cloudflare 快隧道兜底
 
-没有服务器、没有域名时，可以用 Cloudflare 快隧道把电脑上的服务端口搬到公网，手机拨 `https://xxx.trycloudflare.com`。它和 frp 站同一格，顶替的是中转，不是新功能——鉴权和配对还在电脑这侧，Cloudflare 只看到元数据。**这是插件内置的开关，和 tailcat、P2P 一样默认关闭，不是让用户自己装 cloudflared、也不是去 Cloudflare 后台建隧道。** 共用的栏位和验收见 `references/selfhost-common.md`。
+没有服务器、没有域名时，可以用 Cloudflare 快隧道把电脑上的服务端口搬到公网，手机拨 `https://xxx.trycloudflare.com`。它和 frp 站同一格，顶替的是中转，不是新功能——鉴权和配对还在电脑这侧，Cloudflare 只看到元数据。**这是插件内置的开关，和 tailcat、P2P 一样默认开启（用户主动关掉后才保持关），不是让用户自己装 cloudflared、也不是去 Cloudflare 后台建隧道。** 共用的栏位和验收见 `references/selfhost-common.md`。
 
 ## 先认清自己站哪边
 

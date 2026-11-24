@@ -29,8 +29,8 @@ function fakeHost() {
 }
 
 function makeSession(state = {}, host = fakeHost()) {
-  // 原生助手现在默认关、用户显式开启才起；这些用例本来就是在验「开着时」的行为，
-  // 所以在辅助函数里显式置 true（要测关闭的用例自己传 false 覆盖）。
+  // 这些用例验「开着时」的行为，辅助函数显式置 true 保证与旧用例一致；
+  // 默认开（没写过这一格）另有用例钉住。要测关闭的用例自己传 false 覆盖。
   const saved = { [STATE.enabled]: true, ...state };
   const session = createP2PSession({
     readState: () => saved,
@@ -705,7 +705,26 @@ async function captureJson(run, res) {
   }
 }
 
-test('原生助手默认不自动启动：没有显式开启时 enabled=false，start 不拉助手', () => {
+// 内置保底隧道默认开：没写过这一格算开、start 拉起助手；显式关掉才算关。
+test('默认开：没写过开关那格也拉起助手，显式关掉才不拉', () => {
+  const host = fakeHost();
+  const saved = {};
+  const session = createP2PSession({
+    readState: () => saved,
+    writeState: (patch) => { Object.assign(saved, patch); },
+    localPort: 18787,
+    host,
+    log: () => {},
+  });
+  assert.equal(session.status().enabled, true, '从没写过这一格按默认开');
+  assert.notEqual(session.start(), null, '默认开就该拉起助手');
+  assert.ok(host.written.some((item) => item.command === 'p2pKeys'));
+  assert.equal(session.setEnabled(false), true);
+  assert.equal(saved[STATE.enabled], false, '用户显式关掉落 false，重启后保持关');
+  assert.equal(session.status().enabled, false);
+});
+
+test('显式关掉时不拉助手，状态如实报告关', () => {
   const { session, host } = makeSession({ [STATE.enabled]: false });
   assert.equal(session.status().enabled, false);
   assert.equal(session.start(), null);

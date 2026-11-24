@@ -169,18 +169,18 @@ test('崩溃按退避有限重连（用户仍开启），封顶后不再重试',
   assert.equal(runner.status().retrying, false);
 });
 
-test('崩溃时 enabled 标记缺失则不重连', async () => {
+test('崩溃时用户显式关掉（写了 disabled 标记）则不重连', async () => {
   const clock = retryClock();
   const { runner, children } = harness({ port: 18787, clock });
   await runner.start();
-  fs.rmSync(runner._paths.enabled, { force: true });
+  fs.writeFileSync(runner._paths.disabled, '1');
   children[0].emit('close', 1, null);
-  assert.equal(runner.status().retrying, false, '没有用户开启标记就不该自动重连');
+  assert.equal(runner.status().retrying, false, '用户关掉就不该自动重连');
   assert.equal(clock.timers.size, 0);
   assert.match(runner.status().error, /cloudflared 已退出/);
 });
 
-test('stop 后清地址、删标记、不复活', async () => {
+test('stop 后清地址、写关闭标记、不复活', async () => {
   const clock = retryClock();
   const gone = [];
   const { runner, children } = harness({ port: 18787, clock, onAddressGone: () => gone.push(1) });
@@ -199,7 +199,7 @@ test('stop 后清地址、删标记、不复活', async () => {
   assert.equal(children.length, 1);
 });
 
-test('dispose 杀进程、清地址、解绑监听，但保留 enabled', async () => {
+test('dispose 杀进程、清地址、解绑监听，不动关闭标记', async () => {
   const clock = retryClock();
   const child = fakeChild();
   let kills = 0;
@@ -223,19 +223,23 @@ test('dispose 杀进程、清地址、解绑监听，但保留 enabled', async (
   assert.equal(st.url, '');
   assert.equal(kills, 1);
   assert.deepEqual(gone, [1], '卸载时那条地址同样要撤回');
-  assert.equal(runner.shouldAutoStart(), true, 'dispose 不删 enabled，下次宿主启动还能自动起');
+  assert.equal(runner.shouldAutoStart(), true, 'dispose 写不写关闭标记都不影响：没关掉，下次宿主启动照旧自动起');
   child.stderr.emit('data', `${BANNER}\n`);
   assert.equal(runner.status().url, '', '解绑后旧输出不再写地址');
   assert.equal(clock.timers.size, 0);
 });
 
-test('shouldAutoStart 由 enabled 标记驱动', async () => {
+test('shouldAutoStart：默认开，显式关掉才不自动起', async () => {
   const { runner } = harness({});
-  assert.equal(runner.shouldAutoStart(), false);
+  assert.equal(runner.shouldAutoStart(), true, '没写过关闭标记按默认开');
+  assert.equal(runner.status().enabled, true);
   await runner.start();
   assert.equal(runner.shouldAutoStart(), true);
   await runner.stop();
-  assert.equal(runner.shouldAutoStart(), false);
+  assert.equal(runner.shouldAutoStart(), false, '用户显式关掉后重启不再自动起');
+  assert.equal(runner.status().enabled, false);
+  fs.rmSync(runner._paths.disabled, { force: true });
+  assert.equal(runner.shouldAutoStart(), true, '关掉标记没了（例如用户从面板重开）又恢复默认开');
 });
 
 test('拿不到二进制：起不来但如实报原因，不抛', async () => {
@@ -244,7 +248,7 @@ test('拿不到二进制：起不来但如实报原因，不抛', async () => {
   assert.equal(st.running, false);
   assert.match(st.error, /下载失败/);
   assert.equal(children.length, 0);
-  assert.equal(runner.shouldAutoStart(), true, '用户已开启，标记要留着以便稍后重试');
+  assert.equal(runner.shouldAutoStart(), true, '默认开：没写关闭标记，拿不到二进制也留着稍后重试');
 });
 
 test('extractTunnelUrl 只认 trycloudflare 地址，剥掉装饰符与尾斜杠', () => {

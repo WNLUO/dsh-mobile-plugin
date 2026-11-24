@@ -33,7 +33,7 @@ function fixture(type, options = {}, mutate = source => source) {
     if (options.sessionError) throw options.sessionError;
     const session = {
       ready: false,
-      status: () => ({ available: true, enabled: config.readState()[`${type}Enabled`] === true,
+      status: () => ({ available: true, enabled: config.readState()[`${type}Enabled`] !== false,
         ready: session.ready, error: '' }),
       start() { if (options.startError) throw options.startError; },
       watch() {}, unwatch() {}, stop() { seen.sessionStops += 1; return Promise.resolve(); },
@@ -178,7 +178,7 @@ for (const type of TYPES) {
 
   test(`${type}：变异后同一组 enabled 与错误断言必须失败`, async t => {
     const disabled = fixture(type, { forwarderStart: () => new Promise(() => {}) }, source =>
-      replaceMutation(source, `enabled: (readState() || {}).${type}Enabled === true`, 'enabled: false'));
+      replaceMutation(source, `enabled: (readState() || {}).${type}Enabled !== false`, 'enabled: false'));
     t.after(disabled.close);
     assert.throws(() => assertPendingIntent(disabled, type), { code: 'ERR_ASSERTION' });
     const prematureReady = fixture(type, { forwarderStart: () => new Promise(() => {}) }, source =>
@@ -209,14 +209,16 @@ function assertTailcatPending(f) {
   assert.equal(f.door.status().enabled, true);
   assert.equal(f.door.status().ready, false);
   assert.equal(f.door.status().error, '', '正常等待端口不属于启动错误');
-  for (const state of [{ tailcatEnabled: false }, {}]) {
-    f.setState(state);
-    assert.equal(f.door.status().enabled, false, '显式关闭和默认关闭都保留关闭意图');
-    assert.equal(f.door.status().error, '', '关闭的通道不能因等待端口产生故障反馈');
-  }
+  // 需求变更：内置保底隧道默认开。显式 false 才是关，没写过这一格算开。
+  f.setState({ tailcatEnabled: false });
+  assert.equal(f.door.status().enabled, false, '显式关闭保留关闭意图');
+  assert.equal(f.door.status().error, '', '关闭的通道不能因等待端口产生故障反馈');
+  f.setState({});
+  assert.equal(f.door.status().enabled, true, '默认开：没写过这一格算开');
+  assert.equal(f.door.status().error, '', '等待端口不属于故障反馈');
 }
 
-test('tailcat：等待端口不生成 error，默认关闭也不会报 starting 故障', async t => {
+test('tailcat：等待端口不生成 error，显式关闭也不报 starting 故障', async t => {
   const f = fixture('tailcat', { forwarderStart: () => new Promise(() => {}) });
   t.after(f.close);
   await flush();
