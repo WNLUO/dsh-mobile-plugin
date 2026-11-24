@@ -1,3 +1,4 @@
+// 2026-11-24：远程控制总开关按 applyError 报下发失败，不再弹「已停用/已启用」的成功回执。
 // 2026-11-24：重启 sidecar / 检查更新两颗图标按钮从更新卡挪进顶栏，位置在这页给。
 // 2026-11-24：顶栏那颗「网络配置」按钮已撤——配置自 11-23 起铺在首页，按钮只把它滚进视野，多余。
 // 固定端口与端口号通过同一次配置保存。
@@ -323,14 +324,19 @@ export function Console() {
 
   const toggle = (enabled: boolean) =>
     act('toggle', async () => {
-      setStatus(await apiPost<StatusView>('/api/relay/toggle', { enabled }))
+      const payload = await apiPost<StatusView & { applyError?: string }>('/api/relay/toggle', { enabled }, { keepApplyError: true })
+      setStatus(payload)
       if (enabled) {
         await loadPairing()
       } else {
         setPairing(null)
         setPairingError('')
       }
-      notify('soft', enabled ? t('panel.shell.remoteEnabled') : t('panel.shell.remoteDisabled'))
+      if (payload.applyError) {
+        notify('error', t('panel.shell.toggleApplyFailed', { message: payload.applyError }))
+      } else {
+        notify('soft', enabled ? t('panel.shell.remoteEnabled') : t('panel.shell.remoteDisabled'))
+      }
     })
 
   const restartSidecar = () =>

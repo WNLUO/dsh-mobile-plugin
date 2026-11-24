@@ -1,3 +1,4 @@
+// 2026-11-24：总开关那两条提示单独钉住（shell.ts 不进领域字典检查）。
 'use strict';
 
 /**
@@ -106,6 +107,27 @@ test('同一个键不许落在两个领域文件里', () => {
 test('键名带 panel. 前缀（与 App 的 key 不会撞）', () => {
   const stray = Object.keys(ALL).filter((key) => !key.startsWith('panel.'));
   assert.deepEqual(stray.slice(0, 20), []);
+});
+
+/**
+ * shell.ts 里 COMMON 与 SHELL 同文件，没进上面的领域字典对称检查。
+ * 总开关那两条提示单独钉住：失败提示每门语言都要有，停用提示不能承诺它做不到的事。
+ */
+const SHELL_TABLES = loadDomain('shell.ts');
+
+test('总开关下发失败提示每门语言都有，且带 {message}', () => {
+  for (const language of LANGUAGES) {
+    const text = SHELL_TABLES['panel.shell.toggleApplyFailed']?.[language];
+    assert.ok(text, `${language} 缺总开关下发失败提示`);
+    assert.deepEqual(placeholders(text), ['message'], `${language} 的提示占位符不对`);
+  }
+});
+
+test('停用总开关的提示只说关掉中转与局域网，不承诺手机一定断开', () => {
+  const zh = SHELL_TABLES['panel.shell.remoteDisabled']['zh-Hans'];
+  assert.match(zh, /中转/);
+  assert.match(zh, /局域网/);
+  assert.ok(!/手机将断开/.test(zh));
 });
 
 /** 组件与 lib 里的源码（排除字典自身）。 */

@@ -1,3 +1,4 @@
+// 2026-11-24：总开关下发失败要带 applyError，并钉住面板据此报失败。
 // 二维码等待隧道窗口后读取当前票据与身份，换码期间出码仍可真实验票。
 // 网络控制动作必须真实执行；重连失败不报成功，FRP 重试受理与运行状态分开。
 'use strict';
@@ -197,7 +198,8 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  */
 function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
   localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0, getPluginRuntime = () => null,
-  reconnectTunnel, frp, tailcat, cloudflare, registerRoutes = registerControlPlaneRoutes } = {}) {
+  reconnectTunnel, frp, tailcat, cloudflare, syncSidecar = async () => {},
+  registerRoutes = registerControlPlaneRoutes } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
   const credentials = credentialStore || { listDevices: () => [], listHistory: () => [], listDevicesWithHistory: () => ({ devices: [], history: [] }) };
@@ -221,7 +223,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     dropDeviceStreams,
     getPluginRuntime,
     status: () => ({}),
-    syncSidecar: async () => {},
+    syncSidecar,
     reconnectTunnel,
     frp,
     tailcat,
@@ -1054,4 +1056,42 @@ test('行为：/status 如实报「外壳改过、要重启」，供侧边栏那
   const res2 = {};
   await plain.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res2);
   assert.equal(res2.body.shellChanged, false);
+});
+
+/**
+ * 总开关的下发结果：配置已经落盘，但旁车没接住时仍要回 200（界面据此显示新开关），
+ * 同时把失败放进 applyError。绝不能回到「吞掉异常、弹已生效」那版。
+ */
+async function toggleContract(registerRoutes) {
+  const state = { enabled: false };
+  const fail = controlRoutes({
+    state, registerRoutes,
+    syncSidecar: async () => { throw new Error('worker unavailable'); },
+  });
+  const res = {};
+  await fail.get('/api/relay/toggle')({ body: { enabled: true } }, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.applyError, 'worker unavailable', '下发失败必须原样带回');
+  assert.equal(state.enabled, true, '配置仍然落盘，与 /config 同一口径');
+
+  const ok = {};
+  await controlRoutes({ registerRoutes }).get('/api/relay/toggle')({ body: { enabled: false } }, ok);
+  assert.equal(ok.body.applyError, undefined, '下发成功时不带 applyError');
+}
+test('总开关下发失败如实回 applyError，仍按已落盘回 200', () => toggleContract());
+test('变异：把下发失败吞掉会被总开关守卫拒绝', async () => {
+  const swallowed = 'await syncSidecar().catch(() => undefined)';
+  const registerRoutes = networkRoutesModule(source => source.replace(
+    'try { await syncSidecar() } catch (error) { applyError = String(error?.message || error) }', swallowed,
+  ));
+  await assert.rejects(toggleContract(registerRoutes), assert.AssertionError);
+});
+test('面板总开关读 applyError 报失败，不弹成功提示', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'Console.tsx'), 'utf8');
+  const at = app.indexOf('const toggle = (enabled: boolean)');
+  assert.notEqual(at, -1);
+  const body = app.slice(at, app.indexOf('const restartSidecar', at));
+  assert.match(body, /keepApplyError: true/, '总开关必须自己读 applyError，不能让通用请求直接抛掉');
+  assert.match(body, /payload\.applyError/, '下发失败要据此改走失败提示');
+  assert.match(body, /panel\.shell\.toggleApplyFailed/, '失败提示不是「已启用/已停用」那种成功回执');
 });
