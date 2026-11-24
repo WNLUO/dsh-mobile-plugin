@@ -48,3 +48,16 @@ test('宿主 /pair：解票失败与策略拒绝各写各的日志', () => {
   assert.match(pairing, /pair: sealed open failed/, '解票失败要单独记');
   assert.match(pairing, /pair: approval denied by policy=/, '真被策略拒要单独记');
 });
+
+test('局域网配对校验以主进程为准：旁车现取配对码/票据，不再只信自己缓存那份', () => {
+  const worker = read('lib', 'sidecar-facade-worker.cjs');
+  const proxy = read('lib', 'relay', 'lan-proxy.js');
+  const control = read('lib', 'routes', 'control-plane.js');
+  assert.match(control, /path: '\/api\/relay\/internal\/pairing'/, '主进程要提供当前配对码 / 票据 / 实例号的内部通道');
+  assert.match(worker, /authoritativePairing:/, '旁车要把「现取权威那份」接进去');
+  assert.match(worker, /\/api\/relay\/internal\/pairing/, '旁车向主进程现取当前配对');
+  assert.match(proxy, /async function resolvePairing\(/, '局域网配对前要现取主进程那份');
+  assert.match(proxy, /ticket: pairing\.ticket \|\| ''/, '解票用权威票据，不用旁车缓存');
+  assert.match(proxy, /instanceId: pairing\.instanceId/, '实例号也用权威那份');
+  assert.match(proxy, /safeEqual\(code, String\(pairing\.code/, '老形状比对也用权威配对码');
+});

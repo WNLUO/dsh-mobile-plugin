@@ -40,6 +40,7 @@ const NO_LOCAL_ONLY = new Map([
   ['/api/relay/internal/approval', '由中转与局域网代理代转，没有本机 socket 可言；身份靠 sidecarToken（中转 ↔ worker 共享密钥），不是「这条路由不重要」的例外'],
   ['/api/relay/internal/issue-credential', '旁路子进程（局域网代理）签发凭据的唯一通道：凭据库只有主进程一个写方，身份靠 sidecarToken'],
   ['/api/relay/internal/rotate-pairing', '旁路子进程配对成功后换码换票据的唯一通道：状态文件只有主进程能写，身份靠 sidecarToken'],
+  ['/api/relay/internal/pairing', '旁车子进程解手机配对请求前，向主进程现取当前配对码 / 票据 / 实例号的内部通道；身份靠 sidecarToken，没有本机 socket'],
 ]);
 
 /** 不随网页管理窗口关闭的控制面通道：必须逐条说明用途。 */
@@ -47,6 +48,7 @@ const NO_WEB_ACCESS = new Map([
   ['/api/relay/internal/approval', '中转与 sidecar 的内部审批通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/internal/issue-credential', 'sidecar 签发凭据的内部通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/internal/rotate-pairing', 'sidecar 换码换票据的内部通道，依赖 sidecarToken，不由网页面板调用'],
+  ['/api/relay/internal/pairing', 'sidecar 配对校验前取当前配对码 / 票据 / 实例号的内部通道，依赖 sidecarToken，不由网页面板调用'],
   ['/api/relay/read-receipt', '桌面端轮询上报回执以同步本地已读状态，属于客户端功能，不是网页管理面板。'],
   ['/api/relay/client-half', '桌面客户端每 10 秒上报存活与故障自检状态，不能随网页管理窗口停止。'],
   ['/api/relay/desktop-read', '桌面客户端轮询同步已读会话，属于手机与桌面协同通道，不是网页管理接口。'],
@@ -136,7 +138,7 @@ test('豁免清单没腐化：每一条都还在，且写清了为什么', () =>
     assert.ok(why.length > 20, `${route} 的豁免理由要写清楚，不能只是「特殊」`);
   }
   // 数字是刻意的绊线：加一条例外就必须来这里改一次，逼人想清楚「这条真的不能只给本机吗」。
-  assert.equal(NO_LOCAL_ONLY.size, 3);
+  assert.equal(NO_LOCAL_ONLY.size, 4);
 });
 
 test('不挂 localOnly 的内部路由都真的校验 sidecarToken', () => {
