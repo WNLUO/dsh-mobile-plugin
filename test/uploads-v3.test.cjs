@@ -34,6 +34,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const routing = require('../lib/http/routing.js');
+const guard = require('../lib/mobile/guarded.js');
 const e2ee = require('../lib/shared/e2ee.js');
 const { readRawBody } = require('../lib/shared/e2ee-request.js');
 const {
@@ -129,7 +130,7 @@ function openResponse(routePath, request, raw) {
 /** 起一个挂着真守卫的真 http 服务；收件根指向临时目录。 */
 async function serve(inbox) {
   process.env.DSH_MOBILE_INBOX = inbox;
-  const guarded = routing.createGuarded({}, () => true, null, {
+  const guarded = guard.createGuarded({}, () => true, null, {
     envelope: {
       keyFor: (keyId) => (keyId === KEY_ID ? { deviceKey: DEVICE_KEY.toString('base64url'), deviceId: 'dev-1' } : null),
       readBody: (req) => readRawBody(req),

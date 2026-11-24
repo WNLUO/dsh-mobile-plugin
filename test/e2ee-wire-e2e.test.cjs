@@ -28,6 +28,7 @@ const root = path.join(__dirname, '..', '..');
 const e2ee = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'shared', 'e2ee.js'));
 const { wrapper } = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'shared', 'e2ee-request.js'));
 const routing = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'http', 'routing.js'));
+const guard = require(path.join(root, 'dsh-mobile-plugin', 'lib', 'mobile', 'guarded.js'));
 
 // 这组用例要拿 App 侧的真实现来对账，所以必须在主仓里跑（路径跨到 `app/`）。
 // 单独检出插件仓库时（tag 流水线、把插件目录拷出去跑）没有那份源码：整组带理由 skip，
@@ -134,7 +135,7 @@ function collectRes() {
 
 /** 起一个真的 guarded 守卫，keyFor 只认这一把设备密钥。 */
 function guarded() {
-  return routing.createGuarded({}, () => true, null, {
+  return guard.createGuarded({}, () => true, null, {
     envelope: {
       keyFor: (keyId) => (keyId === KEY_ID ? { deviceKey: DEVICE_KEY.toString('base64url'), deviceId: 'dev-1' } : null),
       readBody: (req) =>

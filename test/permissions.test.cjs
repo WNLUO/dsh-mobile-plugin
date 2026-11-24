@@ -27,6 +27,7 @@ process.env.DEVICE_CREDENTIALS_FILE = tmpFile;
 const P = require('../lib/mobile/permissions.js');
 const credentials = require('../dsh-mobile-credentials/lib/credentials.js');
 const routing = require('../lib/http/routing.js');
+const guard = require('../lib/mobile/guarded.js');
 const { handleDevicePermissions } = require('../lib/mobile/device-permissions.js');
 
 test.after(() => { try { fs.unlinkSync(tmpFile); } catch { /* ignore */ } });
@@ -157,7 +158,7 @@ function fakeRes() {
 }
 function makeGuard(record) {
   const authorized = () => ({ ok: true, record });
-  return routing.createGuarded({}, authorized, null, {
+  return guard.createGuarded({}, authorized, null, {
     permission: { resolve: P.resolvePermission, has: P.hasPermission },
   });
 }

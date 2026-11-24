@@ -5,7 +5,8 @@
 ## 分层（谁该长命、谁会换）
 
 - **稳定外壳**（以 `lib/index.js` 顺引用算出的集合为准，见 `lib/shell/loaded-files.js`；启动即冻结、改它就要重启 DSH）：
-  现在只剩内核与更新机制本身——`lib/shell/*`、`lib/http/routing.js`、`lib/shared/*.js`（约 23 个文件）。
+  现在只剩内核与更新机制本身——`lib/shell/*`、`lib/http/routing.js`、`lib/shared/{http-util,paths,private-address}.js`
+  （约 20 个文件；`lib/shared/e2ee*.js` 跟着移动端守卫一起挪进了代，见下）。
   - **传输总管** `lib/shell/transport-host.js`：**持有** six 条传输的实例并管它们的提交时切换；
     三条主链路（sidecar / 总控上报 / mux 长连接）的实现住在「代」里，实例由外壳持有、提交时才换。
   - **蓝绿分发表**：`lib/shell/runtime.js`。代注册的路由登记进 staging 表，每个路径在真服务器上
@@ -37,6 +38,10 @@
   注入进外壳，外壳只转交。已把服务商线路清单、节点小宝识别、地址候选计算这么搬出去
   （`test/shell-boundary.test.cjs` 用前缀 + 点名钉着外壳引用图里不许再出现它们）。私有地址判断
   例外：它抽到 `lib/shared/private-address.js` 仍在外壳里，但它是改动极少的纯谓词，刻意留壳。
+- **移动端信封/鉴权守卫（token + 协议 v2）住 `lib/mobile/guarded.js`（代里），外壳不许引**：它原本在
+  `lib/http/routing.js` 里，被信封那几件（`lib/shared/e2ee*`）拖着，改一次移动鉴权或信封就得重启 DSH。
+  外壳只保留 `localOnly` 需要的最小来源判定与 `sendJson`。`lib/mobile/` 前缀由外壳边界守卫兜着，
+  防止它哪天又被搬回外壳、把信封重新冻进去。
 - **单实例主链路（中转 sidecar / 总控上报 / mux 长连接）也热换，但走「提交时才换实例」**：实现住
   代里，当前这一代 `adopt` 时把「待建工厂」交给外壳；外壳给一代一个**稳定门面**（方法都委托到当前
   实例）。换代时**不立刻拆旧实例**——运行时确认新代提交成功且自检通过后才 `commit`：停旧、建新、起新；

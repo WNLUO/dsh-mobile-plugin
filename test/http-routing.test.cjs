@@ -13,6 +13,7 @@ const { format } = require('node:util');
 
 const root = path.join(__dirname, '..');
 const routing = require(path.join(root, 'lib/http/routing.js'));
+const guard = require(path.join(root, 'lib/mobile/guarded.js'));
 
 /** 假 ServerResponse：只记录最后一次 writeHead + end。 */
 function fakeRes() {
@@ -193,7 +194,7 @@ test('控制面：实际动词大小写不敏感，缺省当 GET', async () => {
 test('移动端：无 token 回 401 且 handler 不被调用', async () => {
   const ctx = { marker: true };
   const res = fakeRes();
-  const handler = routing.createGuarded(ctx, () => false);
+  const handler = guard.createGuarded(ctx, () => false);
   await handler(async () => { throw new Error('handler 不该被调用'); })(fakeReq(), res);
   assert.equal(res.status, 401);
   assert.equal(res.body.error.code, 'unauthorized');
@@ -201,7 +202,7 @@ test('移动端：无 token 回 401 且 handler 不被调用', async () => {
 
 test('移动端：handler 抛错收成 500 信封而不是让请求炸掉', async () => {
   const res = fakeRes();
-  const handler = routing.createGuarded({}, () => true);
+  const handler = guard.createGuarded({}, () => true);
   await handler(async () => { throw new Error('boom'); })(fakeReq(), res);
   assert.equal(res.status, 500);
   assert.equal(res.body.error.code, 'internal');
@@ -232,13 +233,13 @@ async function assertInternalErrorLog(api) {
 }
 
 test('移动端：异常 500 记录方法、无查询串路径与异常堆栈，不记录请求内容和凭据', async () => {
-  await assertInternalErrorLog(routing);
+  await assertInternalErrorLog(guard);
 });
 
 test('移动端：日志出口异常仍返回原有 500 错误响应', async () => {
   const res = fakeRes();
   const logger = { error() { throw new Error('日志出口故障'); } };
-  await routing.createGuarded({ logger }, () => true)(async () => { throw new Error('业务故障'); })(fakeReq(), res);
+  await guard.createGuarded({ logger }, () => true)(async () => { throw new Error('业务故障'); })(fakeReq(), res);
   assert.equal(res.status, 500);
   assert.deepEqual(res.body, { ok: false, error: { code: 'internal', message: '业务故障' } });
 });
@@ -246,7 +247,7 @@ test('移动端：日志出口异常仍返回原有 500 错误响应', async () 
 test('移动端：抛的不是 Error 也照样有文案和日志', async () => {
   const lines = [];
   const res = fakeRes();
-  const handler = routing.createGuarded({ logger: { error(...args) { lines.push(format(...args)); } } }, () => true);
+  const handler = guard.createGuarded({ logger: { error(...args) { lines.push(format(...args)); } } }, () => true);
   await handler(async () => { throw 'plain string'; })(fakeReq(), res);
   assert.equal(res.status, 500);
   assert.equal(res.body.error.message, 'plain string');
@@ -257,7 +258,7 @@ test('移动端：抛的不是 Error 也照样有文案和日志', async () => {
 test('移动端：未鉴权不执行 handler，也不记业务异常日志', async () => {
   const lines = [];
   const res = fakeRes();
-  const handler = routing.createGuarded({ logger: { error(...args) { lines.push(args); } } }, () => false);
+  const handler = guard.createGuarded({ logger: { error(...args) { lines.push(args); } } }, () => false);
   await handler(async () => { throw new Error('不该执行'); })(fakeReq(), res);
   assert.equal(res.status, 401);
   assert.deepEqual(lines, []);
@@ -286,7 +287,7 @@ test('移动端：协议 v2 异常 500 保持原有加密信封，日志不含�
     },
   };
   const lines = [];
-  const guarded = routing.createGuarded({ logger: { error(...args) { lines.push(format(...args)); } } }, () => true, null, {
+  const guarded = guard.createGuarded({ logger: { error(...args) { lines.push(format(...args)); } } }, () => true, null, {
     envelope: { keyFor: () => ({ deviceKey: deviceKey.toString('base64url') }), readBody: async () => wire },
   });
   const res = fakeRes();
@@ -306,7 +307,7 @@ test('移动端：协议 v2 异常 500 保持原有加密信封，日志不含�
 });
 
 test('变异证明：去掉异常日志、带回查询串或丢堆栈，真实行为断言都会拒绝', async () => {
-  const file = path.join(root, 'lib/http/routing.js');
+  const file = path.join(root, 'lib/mobile/guarded.js');
   const source = fs.readFileSync(file, 'utf8');
   const mutations = [
     ['异常日志', "ctx?.logger?.error?.('dsh-mobile-plugin: 移动请求异常 %s %s: %s%s', method, path,\n          String(error?.message || error), error?.stack ? `\\n${error.stack}` : '')", 'void 0'],
@@ -327,7 +328,7 @@ test('移动端：ctx 透传给 handler（路由表里就是靠它拿 state）',
   const ctx = { state: { instanceId: 'i-9' } };
   const res = fakeRes();
   let seen = null;
-  const handler = routing.createGuarded(ctx, () => true);
+  const handler = guard.createGuarded(ctx, () => true);
   await handler(async (gotCtx, req, res2) => {
     seen = gotCtx;
     routing.sendJson(res2, 200, { ok: true });
@@ -341,7 +342,7 @@ test('控制面与移动端的不对称是刻意的：移动端不查跨站', as
   // 一旦哪天给 guarded 也加上跨站检查，手机端会全线 403——这条断言把这个取舍写死。
   const res = fakeRes();
   let reached = false;
-  await routing.createGuarded({}, () => true)(async (_ctx, _req, res2) => {
+  await guard.createGuarded({}, () => true)(async (_ctx, _req, res2) => {
     reached = true;
     routing.sendJson(res2, 200, { ok: true });
   })(fakeReq({ 'sec-fetch-site': 'cross-site', origin: 'http://relay.example' }), res);

@@ -24,7 +24,7 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const { registerMobileRoutes } = require(path.join(root, 'lib/routes/mobile-api.js'));
-const { createGuarded } = require(path.join(root, 'lib/http/routing.js'));
+const { createGuarded } = require(path.join(root, 'lib/mobile/guarded.js'));
 
 /** 假 ServerResponse：只记录最后一次 writeHead + end（与 http-routing.test.cjs 同一形状）。 */
 function fakeRes() {

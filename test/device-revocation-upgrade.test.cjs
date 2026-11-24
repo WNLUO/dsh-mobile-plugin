@@ -21,6 +21,7 @@ const { createPreviewService } = require('../lib/relay/preview');
 const { registerMobileRoutes } = require('../lib/routes/mobile-api');
 const { registerControlPlaneRoutes } = require('../lib/routes/control-plane');
 const routing = require('../lib/http/routing');
+const guard = require('../lib/mobile/guarded');
 const { sendJson, readJsonBody } = require('../lib/shared/http-util');
 const registry = require('../lib/mobile/stream-registry');
 
@@ -78,7 +79,7 @@ async function fixture(upstreamAgent, services = {}) {
     getSidecar: () => ({ request: async () => ({ revoked: 0 }) }), dropDeviceStreams: drop, dropAllDeviceStreams: dropAll };
   registerMobileRoutes({
     registerRoute: (route) => routes.set(route.path, route.handler), registerUpgradeRoute: (route) => upgrades.set(route.path, route.handler),
-    guarded: routing.createGuarded({}, auth), state, credentials: store, hostMetadata: () => ({}),
+    guarded: guard.createGuarded({}, auth), state, credentials: store, hostMetadata: () => ({}),
     getSidecarSnapshot: () => ({}), safeLanCandidates: () => [], safeIpv6Candidates: () => [], lanPortInUse: () => 0,
     core, pairingApproval: null, preview, mux, relayControl, dropDeviceStreams: drop, dropAllDeviceStreams: dropAll,
   });

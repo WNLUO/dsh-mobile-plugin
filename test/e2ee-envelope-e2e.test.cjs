@@ -28,6 +28,7 @@ const { PassThrough } = require('node:stream');
 
 const root = path.join(__dirname, '..');
 const routing = require(path.join(root, 'lib/http/routing.js'));
+const guard = require(path.join(root, 'lib/mobile/guarded.js'));
 const e2ee = require(path.join(root, 'lib/shared/e2ee.js'));
 
 const DEVICE_KEY = Buffer.alloc(32, 0x22);
@@ -73,7 +74,7 @@ function fakeRes() {
   return res;
 }
 
-const guarded = routing.createGuarded(
+const guarded = guard.createGuarded(
   {},
   () => true,
   null,
@@ -254,7 +255,7 @@ test('凭据是 v2 配的但请求没带 X-Dsh-Proto：400 e2ee-required，而�
   delete headers['x-dsh-proto'];
   delete headers['x-dsh-sig'];
   let called = false;
-  const handlers = routing.createGuarded({}, () => ({ ok: true, record: { deviceId: 'dev-1', deviceKey: 'x' } }), null, {
+  const handlers = guard.createGuarded({}, () => ({ ok: true, record: { deviceId: 'dev-1', deviceKey: 'x' } }), null, {
     envelope: { keyFor: () => null, readBody: async () => Buffer.alloc(0) },
   });
   const res = fakeRes();
@@ -267,7 +268,7 @@ test('凭据是 v2 配的但请求没带 X-Dsh-Proto：400 e2ee-required，而�
 test('原生后台服务的 /monitor 不再免信封：v2 凭据不带信封一律 400', async () => {
   // 原生侧已经自己封 v2（app/android/.../DeviceEnvelope.kt）：宿主这侧的临时口子收掉，
   // 否则那条「只读状态位」会变成一条长期存在的明文旁路。
-  const handlers = routing.createGuarded({}, () => ({ ok: true, record: { deviceId: 'dev-1', deviceKey: 'x' } }), null, {
+  const handlers = guard.createGuarded({}, () => ({ ok: true, record: { deviceId: 'dev-1', deviceKey: 'x' } }), null, {
     envelope: { keyFor: () => null, readBody: async () => Buffer.alloc(0) },
   });
   const plainHeaders = { cookie: 'c', authorization: 'Bearer t', 'x-dsh-instance': INSTANCE, 'x-dsh-device': 'dev-1' };
@@ -343,7 +344,7 @@ test('重放表超过软上限也只淘汰过期项：窗口内最早的 nonce �
 
 test('无效信封不记设备恢复，有效信封只记一次', async () => {
   let noted = 0;
-  const guarded = routing.createGuarded({}, () => true, null, {
+  const guarded = guard.createGuarded({}, () => true, null, {
     onAuthorized: () => { noted += 1; },
     envelope: {
       keyFor: keyId => keyId === KEY_ID ? { deviceKey: DEVICE_KEY.toString('base64url'), deviceId: 'dev-1' } : null,
