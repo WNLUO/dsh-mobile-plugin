@@ -45,6 +45,8 @@ export function Root() {
   const needsStatus = !forcedSetup && !forcedSettings && !forcedRemote
   /** null = 首屏状态尚未返回；请求失败时显示错误与重新载入入口。强制主页直接当作已配过。 */
   const [configured, setConfigured] = useState<boolean | null>(forcedSettings ? true : null)
+  /** null = 还没问到。真 = 第一次装进正在跑的 DSH、还没完整重启：只给「请重启」拦截页。 */
+  const [firstInstallPendingRestart, setFirstInstallPendingRestart] = useState<boolean | null>(null)
   const [startupError, setStartupError] = useState('')
   const [entered, setEntered] = useState(false)
 
@@ -54,14 +56,19 @@ export function Root() {
   }, [configured, startupError, needsStatus])
 
   useEffect(() => {
-    if (!needsStatus) return undefined
     let alive = true
     void (async () => {
       try {
         const current = await apiGet<StatusView>('/api/relay/status')
-        if (alive) setConfigured(current.onboarded === true || current.enabled === true)
+        if (!alive) return
+        // 首装待重启对「强制进某屏」也要判：三处入口统一拦，用户不会先钻进控制台/引导页。
+        setFirstInstallPendingRestart(current.firstInstallPendingRestart === true)
+        if (needsStatus) setConfigured(current.onboarded === true || current.enabled === true)
       } catch (error) {
-        if (alive) setStartupError(errorText(error))
+        if (!alive) return
+        // 强制入口（演示 / 排查）读不到状态就照常进去；普通入口仍旧报错停下。
+        if (needsStatus) setStartupError(errorText(error))
+        else setFirstInstallPendingRestart(false)
       }
     })()
     return () => {
@@ -74,6 +81,28 @@ export function Root() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-3 p-5">
         <p className="text-sm text-error" role="alert">{startupError}</p>
         <p className="text-sm text-foreground-muted">{t('panel.shell.restartHint')}</p>
+        <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
+          {t('panel.console.reload')}
+        </Button>
+      </main>
+    )
+  }
+
+  if (firstInstallPendingRestart === null) {
+    return (
+      <main className="flex min-h-screen items-center justify-center gap-2 p-6 text-sm text-foreground-muted">
+        <Spinner />
+        {t('panel.shell.loading')}
+      </main>
+    )
+  }
+
+  // 第一次装进正在跑的 DSH、还没完整重启：桌面那半外壳资源还没就位，控制台 / 引导页 / 远程
+  // 电脑页都不该进来。统一给一张「请重启」的拦截页，挑明怎么重启。
+  if (firstInstallPendingRestart) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="text-base font-medium text-foreground-strong" role="alert">{t('panel.shell.restartHint')}</p>
         <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
           {t('panel.console.reload')}
         </Button>

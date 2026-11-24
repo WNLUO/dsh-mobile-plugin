@@ -327,6 +327,11 @@ export type StatusView = {
   /** 这台机器走过首次接入引导了没有（落盘在 relay.json 里，见 ../lib/relay/core.js）。 */
   onboarded?: boolean
   /**
+   * 第一次把插件装进正在跑的 DSH、还没完整重启过：面板据此只显示「请重启 DSH」并挡住控制台
+   * 与引导页，不让用户进半成品。老宿主没有这一格，读成 undefined 时按「不是」处理。
+   */
+  firstInstallPendingRestart?: boolean
+  /**
    * 面板页自己的绝对地址，宿主在 `/api/relay/status` 上补的（只有这条本机路由带它）。
    * 侧边栏那颗手机图标拿它当入口：必须是绝对 http(s)，相对地址在桌面版里会被解析成
    * `dsh-app://` 而点不开。
