@@ -1,3 +1,4 @@
+// 2026-11-24：公用中转改成「码里没自己的线路才塞」的兜底，只配服务商的机器靠服务商地址出码。
 // 2026-11-24：总开关下发失败要带 applyError，并钉住面板据此报失败。
 // 二维码等待隧道窗口后读取当前票据与身份，换码期间出码仍可真实验票。
 // 网络控制动作必须真实执行；重连失败不报成功，FRP 重试受理与运行状态分开。
@@ -404,7 +405,7 @@ test('行为：二维码按 ?relayUrl= 预览出码，且不把预览地址写�
   assert.equal(blocked.status, 409, '没启用远程控制时不出码，说清该先做什么');
 });
 
-test('行为：只配一家服务商线路、或一条都没有时都能出码，码里带内置公用兜底', async () => {
+test('行为：只配一家服务商线路、或一条都没有时都能出码', async () => {
   // 停用公用中转 + 关局域网 + 只接一家服务商：这是支持中的配置，出码判定必须认服务商线路。
   const state = {
     enabled: true, instanceId: 'i1', pairingCode: '123456', pairingTicket: 't'.repeat(43),
@@ -417,12 +418,12 @@ test('行为：只配一家服务商线路、或一条都没有时都能出码�
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.match(res.body.svg, /<svg/, '只接服务商也要真正生成二维码');
 
-  // 2026-11-24 用户要求：出码总带一条内置公用地址（iOS 扫不上服务商线路时的兜底），
-  // 所以「一条线路都没有」也不再拦——那张码里至少有这台公用中转可用。判据没放宽，是码里多了地址。
+  // 一条线路都没有的机器，码里仍有内置公用做首次配对兜底，出码判定通过；判据没放宽，
+  // 是码里带了地址。配了 http 服务商的机器则是服务商地址进 lanUrls 供老包拨，不再借公用。
   const none = controlRoutes({ state: { ...state, zeroNewsUrl: '' } });
   const bare = {};
   await none.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, bare);
-  assert.equal(bare.status, 200, '码里带公用地址，出码判定 Passage');
+  assert.equal(bare.status, 200, '纯新装机器靠公用兜底也能出码');
   assert.match(bare.body.svg, /<svg/, '带公用兜底的码也要真正生成');
 });
 

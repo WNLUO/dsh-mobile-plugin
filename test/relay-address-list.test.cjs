@@ -1,4 +1,5 @@
 // 验证容灾配置完整保留，而移动端只获得当前注册线路。
+// 2026-11-24：配对二维码不再往自建配置后附公用兜底——配了自建就不塞，只有新装才靠公用配对。
 // 2026-11-21：TCP 目标同时进 lanUrls，让现网 App 扫码配对时能拨它。
 'use strict';
 
@@ -214,23 +215,20 @@ test('配对二维码 payload 两格都在：老手机读 relayUrl，新手机�
   };
   const { payload } = pairingPayload({ ...base, relayUrl: A, relayUrls: [A, B] }, 18787);
   assert.equal(payload.relayUrl, A, '老手机只认这一格，一个字都不能少');
-  // 2026-11-24：宿主自建的两条照旧排前，末尾缀一条内置公用兜底。
-  assert.deepEqual(payload.relayUrls, [A, B, core.PUBLIC_RELAY_URLS[0]]);
+  // 自建两条是老包能拨的线路：码里照旧带整组，公用兜底不再写入。
+  assert.deepEqual(payload.relayUrls, [A, B]);
   assert.equal(payload.relayUrls[0], payload.relayUrl);
 
   const legacy = pairingPayload({ ...base, relayUrl: A }, 18787).payload;
   assert.equal(legacy.relayUrl, A, '自建仍排第一，不受公用兜底影响');
-  // 11-09 那条「单中转不写数组」的理由还在（同一串地址不写两遍），但判据现在落在含公用的
-  // codeRelays 上：一条自建 + 一条公用 = 两条，要写数组。首项不变式照旧成立。
-  assert.deepEqual(legacy.relayUrls, [A, core.PUBLIC_RELAY_URLS[0]]);
-  assert.equal(legacy.relayUrls[0], legacy.relayUrl);
+  // 单自建不写数组（同一串地址不写两遍）；配了自建就不塞公用，码里只有自建这一条。
+  assert.equal(legacy.relayUrls, undefined);
+  assert.equal(legacy.relayUrls?.[0] ?? legacy.relayUrl, legacy.relayUrl);
   const listed = pairingPayload({ ...base, relayUrl: A, relayUrls: [A, B] }, 18787).payload;
-  assert.deepEqual(listed.relayUrls, [A, B, core.PUBLIC_RELAY_URLS[0]], '自建多条 + 公用兜底');
+  assert.deepEqual(listed.relayUrls, [A, B], '自建多条，不带公用兜底');
 
   const none = pairingPayload({ ...base, relayUrl: '', relayUrls: [] }, 18787).payload;
-  // 2026-11-24 用户要求：出码总带一条内置公用地址（iOS 扫不上服务商线路时的兜底）。
-  // 「别造一条假地址」那条老规矩针对的是凭空拼地址；这里是内置清单里的真地址，且只进码、
-  // 不写回 state，宿主配置那两格仍按契约保持空。首项不变式照旧成立。
+  // 什么都没配的新机器：公用是首次配对唯一的通道，才写进码里（只进码、不写回 state）。
   assert.equal(none.relayUrl, core.PUBLIC_RELAY_URLS[0]);
   assert.equal(none.relayUrls, undefined, '只有公用这一条时不写数组');
   assert.equal(none.relayUrls?.[0] ?? none.relayUrl, none.relayUrl, '首项恒等于 relayUrl');

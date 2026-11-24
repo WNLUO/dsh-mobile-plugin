@@ -1,5 +1,5 @@
 // 配对二维码带上服务商线路：以后加服务商不用再改二维码（与心跳 / 总控同源）。
-// 2026-11-24：出码把内置公用地址并进中继两格，几处「码里没有中转」的旧断言跟着改，理由见各处。
+// 2026-11-24：http 服务商线路同时进 lanUrls 给老包拨；公用中转改成「码里没自己的线路才塞」的兜底。
 'use strict';
 
 const test = require('node:test');
@@ -84,15 +84,50 @@ test('同址已经在 lanUrls 里的线路不重复写进 routes', () => {
 test('pairingHasAddress：只配服务商线路也算有可用地址', () => {
   // 出码前那道判定以前只看中转和局域网，把只接一家服务商的机器挡在门外（二维码出不来）。
   const { payload } = pairingPayload(baseState({ zeroNewsUrl: 'https://zero.example.com' }), 18787);
-  // 2026-11-24 用户要求：码里总带一条内置公用地址（iOS 扫不上服务商 routes 时的兜底），
-  // 所以这里不再断言 relayUrl 为空；服务商线路算可用地址这条判据本身没变。
-  assert.equal(payload.relayUrl, PUBLIC_RELAY_URLS[0]);
-  assert.equal(payload.lanUrls.length, 0);
+  // 服务商线路进码后它自己就是老包能拨的地址：relayUrl 空、公用兜底不再写，
+  // 但 lanUrls 里有服务商地址，「服务商线路算可用地址」这条判据本身没变。
+  assert.equal(payload.relayUrl, '', '配了服务商就不塞公用中转');
+  assert.equal(payload.lanUrls.length, 1);
+  assert.ok(payload.lanUrls.includes('https://zero.example.com'), '服务商 http 线路按直连进 lanUrls');
   assert.ok(payload.routes.length > 0);
   assert.equal(pairingHasAddress(payload), true, '服务商线路要算可用地址');
 
   const cfOnly = pairingPayload(baseState({ cloudflareUrl: 'https://cf.example.com' }), 18787).payload;
+  assert.equal(cfOnly.relayUrl, '', '只有 Cloudflare 也不塞公用');
+  assert.ok(cfOnly.lanUrls.includes('https://cf.example.com'));
   assert.equal(pairingHasAddress(cfOnly), true, '只有 Cloudflare 时也算');
+});
+
+test('老包可用的线路都写进 lanUrls：http 服务商进，tcp 服务商不进', () => {
+  const { payload } = pairingPayload(baseState({
+    zeroNewsUrl: 'https://zero.example.com',
+    customRoutes: [{ url: 'host.example:9000', name: '自定义', transport: 'tcp' }],
+  }), 18787);
+  assert.deepEqual(payload.lanUrls, ['https://zero.example.com'], 'tcp 类不塞进 lanUrls，会被当 http 拨不通');
+  assert.deepEqual(payload.routes.map((row) => `${row.transport}:${row.url}`), [
+    'http:https://zero.example.com', 'tcp:host.example:9000',
+  ]);
+});
+
+test('只配 tcp 类服务商线路：老包拨不了，公用中转仍兜底', () => {
+  // iOS 老包没有原生转发模块时拨不了裸 TCP，码里必须留一条公用地址，否则彻底配不上。
+  const { payload } = pairingPayload(baseState({
+    customRoutes: [{ url: 'host.example:9000', name: '自定义', transport: 'tcp' }],
+  }), 18787);
+  assert.equal(payload.relayUrl, PUBLIC_RELAY_URLS[0], '纯 tcp 服务商线路仍要公用兜底');
+});
+
+test('服务商地址同时是手填直连（同址被 routes 跳过）也不塞公用', () => {
+  // 「从 ZeroNews 读取」会把同一地址写进手填直连：pairingRoutes 因同址已在 urls 而跳过它，
+  // 但用户确实配了线路，判据不能看去重后的 routes，否则误塞回公用。
+  const { payload } = pairingPayload(baseState({
+    lanEnabled: true,
+    manualLanUrl: 'https://zero.example.com',
+    zeroNewsUrl: 'https://zero.example.com',
+  }), 18787);
+  assert.ok(payload.lanUrls.includes('https://zero.example.com'));
+  assert.equal(payload.routes, undefined, '同址不重复写进 routes');
+  assert.equal(payload.relayUrl, '', '已配 http 服务商线路，不塞公用');
 });
 
 test('pairingHasAddress：裸载荷真的什么都没有时为假（判据本身没放宽）', () => {
@@ -104,22 +139,24 @@ test('pairingHasAddress：裸载荷真的什么都没有时为假（判据本身
   assert.equal(pairingHasAddress(null), false);
 });
 
-test('出码总带内置公用地址，且不写回宿主配置（iOS 扫不上服务商线路的兜底）', () => {
+test('公用中转只在码里没自己的线路时才兜底，且不写回宿主配置', () => {
   const state = baseState();
   const { payload } = pairingPayload(state, 18787);
-  assert.equal(payload.relayUrl, PUBLIC_RELAY_URLS[0]);
+  assert.equal(payload.relayUrl, PUBLIC_RELAY_URLS[0], '什么都没配才塞公用');
   assert.equal(payload.relayUrls, undefined, '只有公用这一条时不写数组，省码点');
   assert.equal(state.relayUrl, '', '只改发进码的那一份，state 不动');
   assert.equal(state.relayUrls, undefined, '宿主配置这一格没被写过（停用逻辑不变）');
 
-  // 宿主已配自建时，自建排在前、公用缀在后面做兜底，首项不变式照旧成立。
+  // 宿主已配自建时，自建照旧排在前面，公用兜底不再写进码里。
   const own = pairingPayload(baseState({ relayUrl: 'https://own.example', relayUrls: ['https://own.example'] }), 18787).payload;
   assert.equal(own.relayUrl, 'https://own.example');
-  assert.deepEqual(own.relayUrls, ['https://own.example', PUBLIC_RELAY_URLS[0]]);
-  assert.equal(own.relayUrls[0], own.relayUrl);
+  assert.equal(own.relayUrls, undefined, '自建是老包能拨的线路，码里不留公用');
+  assert.equal(own.relayUrls?.[0] ?? own.relayUrl, own.relayUrl, '首项恒等于 relayUrl');
 
-  // 宿主本来就用这条公用（老配置残留），去重后仍只有一条，不重复写第二遍。
-  const dup = pairingPayload(baseState({ relayUrl: PUBLIC_RELAY_URLS[0], relayUrls: [...PUBLIC_RELAY_URLS] }), 18787).payload;
-  assert.equal(dup.relayUrl, PUBLIC_RELAY_URLS[0]);
-  assert.equal(dup.relayUrls, undefined, '去重后单条，不写数组');
+  // 老配置残留了公用地址：出码时剔掉，绝不让老包又走回公用。
+  const mixed = pairingPayload(baseState({
+    relayUrl: 'https://own.example', relayUrls: ['https://own.example', PUBLIC_RELAY_URLS[0]],
+  }), 18787).payload;
+  assert.deepEqual(mixed.relayUrls, undefined);
+  assert.equal(mixed.relayUrl, 'https://own.example', '残留公用地址被剔除');
 });
