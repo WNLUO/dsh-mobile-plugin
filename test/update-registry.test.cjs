@@ -73,6 +73,59 @@ test('线上比盘上新：如实报有新版，并带上两边版本号', async
   }
 });
 
+test('新版清单里带了更新说明：连同 kinds 一起读出来，按下发形状', async () => {
+  const registry = await startRegistry((req, res) => {
+    if (req.url === `/${PLUGIN}/latest`) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        name: PLUGIN,
+        version: '0.2.0',
+        dshMobileReleaseNotes: { version: '0.2.0', kinds: ['security', 'feature'], notes: { 'zh-Hans': '修好了', en: 'Fixed' } },
+      }));
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+  });
+  try {
+    const result = await checkForUpdate({ base: registry.base, installedVersion: '0.1.60' });
+    assert.equal(result.releaseNotes.version, '0.2.0');
+    assert.deepEqual(result.releaseNotes.kinds, ['security', 'feature']);
+    assert.equal(result.releaseNotes.notes['zh-Hans'], '修好了');
+    assert.equal(result.releaseNotes.notes.en, 'Fixed');
+  } finally {
+    await registry.close();
+  }
+});
+
+test('更新说明的版本对不上线上最新：丢掉，不错拿别的版本的说明', async () => {
+  const registry = await startRegistry((req, res) => {
+    if (req.url === `/${PLUGIN}/latest`) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ name: PLUGIN, version: '0.2.0', dshMobileReleaseNotes: { version: '0.1.0', kinds: [], notes: { en: 'old' } } }));
+      return;
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+  });
+  try {
+    const result = await checkForUpdate({ base: registry.base, installedVersion: '0.1.60' });
+    assert.equal(result.releaseNotes, null);
+  } finally {
+    await registry.close();
+  }
+});
+
+test('清单里没有更新说明字段：releaseNotes 为 null（App 显示「这版没提供」）', async () => {
+  const registry = await startRegistry(serving('0.2.0'));
+  try {
+    const result = await checkForUpdate({ base: registry.base, installedVersion: '0.1.60' });
+    assert.equal(result.releaseNotes, null);
+  } finally {
+    await registry.close();
+  }
+});
+
 test('盘上就是最新的：不许因为「两个号不一样」就喊有新版', async () => {
   const registry = await startRegistry(serving('0.1.60'));
   try {

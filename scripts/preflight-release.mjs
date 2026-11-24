@@ -32,6 +32,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  notesFilePath,
+  readNotesFile,
+  validatePluginReleaseNotes,
+  compactReleaseNotes,
+  STAMP_FIELD,
+} from './plugin-release-notes.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN = path.resolve(HERE, '..');
@@ -61,7 +68,7 @@ const FORBIDDEN_PREFIXES = ['React/', 'test/', 'scripts/', 'node_modules/'];
 /** 用户提 issue 的地方：插件在 npm 上的公开仓库。 */
 const PUBLIC_REPO = 'WNLUO/dsh-mobile-plugin';
 
-const TOTAL = 8;
+const TOTAL = 9;
 
 class Stop extends Error {
   constructor(reason, hint) {
@@ -173,8 +180,44 @@ function checkClean() {
   );
 }
 
+/**
+ * 这一版必须有更新说明，且已压进包清单。
+ *
+ * 说明是「用户在手机上看到的这一版改了什么」，是发版的一部分，不是可选项。规格见
+ * `docs/plugin-release-notes.md`；随包清单发布后，旧版本查「有没有新版」时从 npm 注册表就能读到。
+ */
+function checkReleaseNotes(version) {
+  step(`4/${TOTAL} 插件更新说明`);
+  const file = notesFilePath(version);
+  if (!fs.existsSync(file)) {
+    throw new Stop(
+      `缺少这一版的更新说明：${path.relative(REPO, file)}`,
+      '插件发版必须带更新说明。先写：node dsh-mobile-plugin/scripts/plugin-release-notes.mjs '
+      + `--version ${version} --draft，补全十门语言后 --check，再 --stamp 压进包清单。规格见 docs/plugin-release-notes.md。`,
+    );
+  }
+  const data = readNotesFile(file);
+  const problems = validatePluginReleaseNotes(data, { version });
+  if (problems.length > 0) {
+    throw new Stop(
+      `插件更新说明不合规（${path.relative(REPO, file)}）：\n  ${problems.join('\n  ')}`,
+      '按提示补齐十门语言、修好版本号后再发。',
+    );
+  }
+  const pkg = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'package.json'), 'utf8'));
+  const stamped = pkg[STAMP_FIELD];
+  const expected = compactReleaseNotes(data);
+  if (!stamped || JSON.stringify(stamped) !== JSON.stringify(expected)) {
+    throw new Stop(
+      'package.json 里的插件更新说明与说明文件对不上（或还没写进去）',
+      `先跑 node dsh-mobile-plugin/scripts/plugin-release-notes.mjs --version ${version} --stamp 再发。`,
+    );
+  }
+  ok('更新说明齐全（十门语言），并已写进包清单');
+}
+
 function checkAuthorDocs() {
-  step(`4/${TOTAL} 作者文档与样例`);
+  step(`5/${TOTAL} 作者文档与样例`);
   // 唯一来源是本仓顶层的 dsh-mobile-extensions；本包 docs/ 是它同步过来的副本，随 npm 包发。
   // 两边对不上就说明改了源码没同步（或改了插件包里那份手抄本）。本机没有来源检出时该脚本
   // 自己跳过、这里不拦（公开仓库单独检出跑不到这条，与跨仓对账同一口径）。
@@ -194,7 +237,7 @@ function checkAuthorDocs() {
 }
 
 function checkPanelArtifact() {
-  step(`5/${TOTAL} 面板产物`);
+  step(`6/${TOTAL} 面板产物`);
   if (!fs.existsSync(path.join(PLUGIN, PANEL_ARTIFACT))) {
     throw new Stop(
       `包里缺 ${PANEL_ARTIFACT}`,
@@ -228,7 +271,7 @@ function checkPanelArtifact() {
 }
 
 function runTests() {
-  step(`6/${TOTAL} 整套测试`);
+  step(`7/${TOTAL} 整套测试`);
   const result = spawnSync('npm', ['test'], { cwd: PLUGIN, stdio: 'inherit' });
   if (result.status !== 0) {
     throw new Stop(
@@ -240,7 +283,7 @@ function runTests() {
 }
 
 function checkPackage(version) {
-  step(`7/${TOTAL} 真打一次包`);
+  step(`8/${TOTAL} 真打一次包`);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-release-'));
   try {
     const packed = sh('npm', ['pack', '--json', '--pack-destination', dir], { cwd: PLUGIN });
@@ -317,7 +360,7 @@ function fetchOpenIssues() {
 }
 
 function checkPublicIssues() {
-  step(`8/${TOTAL} 公开仓库的 issue（只提醒，不挡发版）`);
+  step(`9/${TOTAL} 公开仓库的 issue（只提醒，不挡发版）`);
   const issues = fetchOpenIssues();
   if (issues === null) {
     process.stdout.write('  · 连不上 GitHub 或本机没有 gh，跳过这一条\n');
@@ -349,6 +392,7 @@ function main() {
   checkCheckout();
   const version = checkVersionAndTag();
   checkClean();
+  checkReleaseNotes(version);
   checkAuthorDocs();
   checkPanelArtifact();
   runTests();
