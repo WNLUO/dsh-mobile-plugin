@@ -1,3 +1,4 @@
+// 2026-11-24 用户要求：更新按钮挪到顶栏后底部空横条已撤，下面两条断言跟着改。
 'use strict';
 
 /**
@@ -50,7 +51,7 @@ test('P2P 弹窗对老宿主的缺字段兜底，不白屏', () => {
   assert.doesNotMatch(dialog, /status\.candidates\.(?:length|map)/, '不许直接读可能不存在的字段');
 });
 
-test('异常走红色感叹号弹窗可复制，动作区独占一排', () => {
+test('异常走红色感叹号弹窗可复制，更新卡逻辑仍挂在控制台', () => {
   const mark = read('components/IssueMark.tsx');
   const consoleSrc = read('Console.tsx');
   const update = read('components/UpdateCard.tsx');
@@ -62,8 +63,10 @@ test('异常走红色感叹号弹窗可复制，动作区独占一排', () => {
   assert.doesNotMatch(update, /<p className="mt-2 text-xs text-foreground-muted">\s*\{t\('panel\.update\.(?:versionDrift|diskDrift)'/, '版本对不上的两段话不再铺正文');
   assert.match(update, /onIssues\(issues\)/, '版本对不上交给上层');
   assert.match(consoleSrc, /versionIssues/, '控制台把详情挂到左列');
-  // 动作区在整卡里独占一排，与上面三列之间有分隔，不受上面内容高度推动。
-  assert.match(consoleSrc, /<div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">\s*<UpdateCard/, '动作区独占一排且垂直居中');
+  // 2026-11-24 用户要求：重启 / 检查更新全挪到顶栏后底部空了，固定高度横条撤掉；
+  // 组件留着，顶栏按钮的 portal 与版本提示仍挂在它上面。
+  assert.doesNotMatch(consoleSrc, /mt-4 flex h-12 items-center justify-end border-t border-border-muted/, '空横条已撤');
+  assert.match(consoleSrc, /<UpdateCard\s+bare/, '更新卡组件仍在，顶栏按钮与版本提示照旧');
   assert.match(connection, /labelExtra=\{[^}]*IssueMark/, '连接状态各行把感叹号挂在标签旁');
   assert.match(connection, /status\.mirror\.ok === false \? <IssueMark/, '会话镜像只在真推送失败（ok===false）挂感叹号，良性跳过不挂');
   // 2026-11-20 用户要求：不可用的长说明不铺在正文，行里只报短状态词，长文进感叹号；复制文案就是「复制」。
@@ -90,7 +93,7 @@ test('主页二维码放大并保留白边，默认隐藏时不渲染 SVG', () =
   assert.match(card, /dangerouslySetInnerHTML=\{\{ __html: pairing\.svg \}\}/);
 });
 
-test('配对与更新合成一张无标题整卡：左六放二维码与控件，右四放网络面板，更新动作独占一排', () => {
+test('配对与更新合成一张无标题整卡：左六放二维码与控件，右四放网络面板，更新卡逻辑照旧', () => {
   const app = read('Console.tsx');
   const card = read('components/PairingCard.tsx');
   const update = read('components/UpdateCard.tsx');
@@ -101,7 +104,9 @@ test('配对与更新合成一张无标题整卡：左六放二维码与控件�
   assert.match(app, /className="min-w-0 min-\[880px\]:w-3\/5">\s*<PairingCard\s+bare/, '左列放二维码与控件');
   assert.ok(card.includes('ALIGNED_ROWS'), '二维码旁的控件行沿用同一套行高');
   assert.match(app, /<NetworkPanel status=\{status\} \/>/, '右列装网络面板');
-  assert.match(app, /<div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">\s*<UpdateCard\s+bare/, '更新动作独占一排且垂直居中');
+  // 2026-11-24 用户要求：更新动作挪到顶栏，底部横条空了就撤，组件逻辑照旧。
+  assert.doesNotMatch(app, /mt-4 flex h-12 items-center justify-end border-t border-border-muted/, '底部空横条已撤');
+  assert.match(app, /<UpdateCard\s+bare/, '更新卡仍挂着，顶栏按钮照常');
   assert.match(update, /flex flex-wrap justify-end gap-1 lg:flex-nowrap/, '宽屏动作行不换行，四颗按钮横着排；小屏才允许折行');
   assert.doesNotMatch(app, /<PairingCard\s+fill|<UpdateCard\s+fill/, '等高开关已撤');
   assert.match(card, /bare = false/, '配对卡有裸内容模式');

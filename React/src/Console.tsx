@@ -1,3 +1,4 @@
+// 2026-11-24 用户要求：更新按钮挪到顶栏后底部横条空了，撤掉固定高度的空容器，组件逻辑照旧。
 // 2026-11-24：远程控制总开关按 applyError 报下发失败，不再弹「已停用/已启用」的成功回执。
 // 2026-11-24：重启 sidecar / 检查更新两颗图标按钮从更新卡挪进顶栏，位置在这页给。
 // 2026-11-24：顶栏那颗「网络配置」按钮已撤——配置自 11-23 起铺在首页，按钮只把它滚进视野，多余。
@@ -538,18 +539,16 @@ export function Console() {
             </div>
           </div>
 
-          {/* 更新区独占一排：上面两列内容再怎么变，都不推动这一排按钮。
-              版本对不上的详情交给连接状态卡「运行中版本」那行的感叹号。 */}
-          <div className="mt-4 flex h-12 items-center justify-end border-t border-border-muted">
-            <UpdateCard
-              bare
-              version={status.appVersion || ''}
-              busy={busy}
-              onRestartSidecar={() => void restartSidecar()}
-              actionsSlot={updateActionsSlot}
-              onIssues={setVersionIssues}
-            />
-          </div>
+          {/* 2026-11-24 用户要求：重启 / 检查更新已挪到顶栏，这一排没有内容了，撤掉固定高度
+              与分隔线。组件本身留着——顶栏按钮的 portal 和版本对不上的提示还挂在它上面。 */}
+          <UpdateCard
+            bare
+            version={status.appVersion || ''}
+            busy={busy}
+            onRestartSidecar={() => void restartSidecar()}
+            actionsSlot={updateActionsSlot}
+            onIssues={setVersionIssues}
+          />
         </Card>
 
         {/* 网络配置：首页第二行（顶栏整卡之下、连接与设备之上）。 */}
