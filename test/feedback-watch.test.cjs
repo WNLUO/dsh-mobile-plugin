@@ -54,7 +54,7 @@ test('watchFeedback：公开 SSE 地址，跳过心跳/快照/用户，返回首
     assert.deepEqual(reply, { id: 8, author: 'staff', content: '请看版本号', created_at: '2026-11-24T10:01:00Z' });
   });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'https://app.wnluo.com/api/sdk/feedback/events?thread_key=tk-1');
+  assert.equal(calls[0].url, 'https://app.wnluo.com/api/sdk/feedback/events?thread_key=tk-1&after=6');
   assert.equal(calls[0].init.method, 'GET');
   assert.equal(calls[0].init.headers.accept, 'text/event-stream');
   assert.ok(calls[0].init.signal instanceof AbortSignal);
@@ -76,6 +76,16 @@ test('watchFeedback：旧 id、user 与未知 event 都不算；默认水位是 
   ], init.signal), []), async () => {
     assert.equal((await watchFeedback('tk-2')).content, '默认从 0 起');
   });
+});
+
+test('watchFeedback：断流前回放的历史 staff reply 也算，默认 after=0 覆盖提交后立刻回复', async () => {
+  const calls = [];
+  const frames = [replyFrame(2, 'staff', '刚提交就回了', '2026-11-24T10:02:00Z')];
+  await withFetch(fetchCalls(init => sseResponse(frames, init.signal), calls), async () => {
+    const reply = await watchFeedback('tk-history');
+    assert.deepEqual(reply, { id: 2, author: 'staff', content: '刚提交就回了', created_at: '2026-11-24T10:02:00Z' });
+  });
+  assert.equal(calls[0].url, 'https://app.wnluo.com/api/sdk/feedback/events?thread_key=tk-history&after=0');
 });
 
 test('watchFeedback：超时与断流返回 timedOut，不抛错', async () => {
@@ -122,7 +132,8 @@ test('dsh_feedback.watch：submit 后按 threadKey 等回复，执行结果与�
   assert.equal(registered.output.schema.properties.timedOut.type, 'boolean');
 
   const frames = [replyFrame(5, 'staff', '请升级到 0.5.51', '2026-11-24T11:00:00Z')];
-  await withFetch(fetchCalls(init => sseResponse(frames, init.signal), []), async () => {
+  const calls = [];
+  await withFetch(fetchCalls(init => sseResponse(frames, init.signal), calls), async () => {
     const result = await registered.execute({ action: 'watch', threadKey: 'tk-5', afterMessageId: 4 });
     assert.deepEqual(result, {
       action: 'watch',
@@ -131,6 +142,7 @@ test('dsh_feedback.watch：submit 后按 threadKey 等回复，执行结果与�
     });
     assert.match(registered.output.render({}, result)[0].text, /请升级到 0\.5\.51/);
   });
+  assert.equal(calls[0].url, 'https://app.wnluo.com/api/sdk/feedback/events?thread_key=tk-5&after=4');
 
   await withFetch(async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); }, async () => {
     const result = await registered.execute({ action: 'watch', threadKey: 'tk-6' });
