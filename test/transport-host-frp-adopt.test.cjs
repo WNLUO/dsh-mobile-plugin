@@ -137,3 +137,71 @@ function adoptSwapTest(label, serviceName) {
 
 adoptSwapTest('隧道助手', 'dshMobileTransportTailcat');
 adoptSwapTest('点对点', 'dshMobileTransportP2P');
+
+// ── 三条主链路：提交时才换实例；失败回滚保留旧实例，旧实例一直活到提交成功 ──
+function swapHarness() {
+  return import('../lib/shell/transport-host.js').then(({ installTransportHosts }) => {
+    const box = fakeCtx()
+    installTransportHosts(box.ctx)
+    return box.services
+  })
+}
+
+test('sidecar：boot 建并启动；换指纹只登记待建、不动旧实例；commit 才停旧建新起新；rollback 丢待建', async () => {
+  const services = await swapHarness()
+  const host = services.dshMobileSidecarHost
+  const swap = services.dshMobileTransportSwap
+  const made = []; const starts = []; const stops = []
+  const mk = ({ token } = {}) => {
+    const h = { token, started: false, sidecarToken: token, start() { this.started = true; starts.push(this) }, stop() { this.started = false; stops.push(this) }, isStarted() { return this.started }, setProviders() {}, onTunnelUp() { return () => {} }, onRouteAdopted() { return () => {} }, syncSidecar() {}, tunnelConnected: () => false, getSnapshot: () => ({}) }
+    made.push(h); return h
+  }
+  const f1 = host.adopt({ fingerprint: 'a', create: mk })
+  assert.equal(made.length, 1, 'boot 应立即建实例'); assert.equal(starts.length, 1, 'boot 应启动')
+  assert.match(String(f1.sidecarToken), /^[0-9a-f]{64}$/, '门面属性应读到稳定 token')
+  host.adopt({ fingerprint: 'b', create: mk })
+  assert.equal(made.length, 1, '换指纹时不得在 apply 期建实例'); assert.equal(stops.length, 0, '换指纹时不得先停旧实例')
+  swap.commit()
+  assert.equal(made.length, 2, '提交时才建新实例'); assert.equal(stops.length, 1, '提交时才停旧实例'); assert.equal(starts.length, 2, '新实例要启动')
+  host.adopt({ fingerprint: 'c', create: mk })
+  assert.equal(made.length, 2, '再次换指纹仍只在提交时建')
+  swap.rollback()
+  assert.equal(made.length, 2, '回滚丢弃待建（不建）'); assert.equal(stops.length, 1, '回滚保留当前实例在跑')
+})
+
+test('控制上报：提交时才换客户端；待建期 setProviders 缓存，提交后用到新客户端', async () => {
+  const services = await swapHarness()
+  const host = services.dshMobileTransportControl
+  const swap = services.dshMobileTransportSwap
+  const made = []; const stops = []
+  const mk = (store) => { const c = { store, started: false, start() { this.started = true }, stop() { stops.push(this) }, sync() {}, snapshot: () => ({}), targetUrl: '' }; made.push(c); return c }
+  host.adopt({ fingerprint: 'a', create: mk })
+  assert.equal(made.length, 1, 'boot 建客户端')
+  host.setProviders({ getState: () => ({ tag: 'a' }) })
+  assert.equal(made[0].started, true, 'boot 后 setProviders 应启动当前客户端')
+  host.adopt({ fingerprint: 'b', create: mk })
+  assert.equal(made.length, 1, '换指纹时不在 apply 期建客户端')
+  host.setProviders({ getState: () => ({ tag: 'b' }) })
+  assert.equal(stops.length, 0, '待建期不停止当前客户端')
+  swap.commit()
+  assert.equal(made.length, 2, '提交时才建新客户端'); assert.equal(stops.length, 1, '提交时停旧客户端')
+  assert.equal(made[1].store.getState().tag, 'b', '新客户端用到待建期缓存的来源')
+})
+
+test('mux：提交时才换服务；回滚保留旧服务', async () => {
+  const services = await swapHarness()
+  const host = services.dshMobileTransportMux
+  const swap = services.dshMobileTransportSwap
+  const made = []; const drops = []
+  const mkMux = () => { const s = { dropAll() { drops.push(this) }, dropDevice() {}, reassignInstance() {}, handleUpgrade() {} }; made.push(s); return s }
+  host.adopt({ fingerprint: 'a', create: mkMux })
+  assert.equal(made.length, 1, 'boot 建服务')
+  host.setProviders({ authorize: () => true })
+  host.adopt({ fingerprint: 'b', create: mkMux })
+  assert.equal(made.length, 1, '换指纹时不在 apply 期建服务')
+  swap.commit()
+  assert.equal(made.length, 2, '提交时才建新服务'); assert.equal(drops.length, 1, '提交时旧服务应 dropAll 释放旧长连接')
+  host.adopt({ fingerprint: 'c', create: mkMux })
+  swap.rollback()
+  assert.equal(made.length, 2, '回滚丢待建')
+})

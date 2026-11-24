@@ -733,7 +733,7 @@ test('换代：指纹盖住外壳实际加载的每个文件（漏一个就必�
   const { updater } = await loadShellModules();
   const shellFiles = updater.shellFiles(PKG_DIR);
   assert.ok(shellFiles.length >= 8, `外壳文件数不对，引用走查可能坏了：${shellFiles.length}`);
-  for (const rel of ['lib/index.js', 'lib/shell/transport-host.js', 'lib/sidecar-lifecycle.cjs', 'lib/sidecar-facade.cjs', 'lib/relay/control.js']) {
+  for (const rel of ['lib/index.js', 'lib/shell/transport-host.js', 'lib/http/routing.js', 'lib/shared/http-util.js', 'lib/shell/manager.js']) {
     assert.ok(shellFiles.includes(rel), `清单没走到 ${rel}：多级引用或 CJS 的 require 没跟上`);
   }
   for (const name of fs.readdirSync(path.join(PKG_DIR, 'lib', 'shell'))) {

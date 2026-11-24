@@ -9,8 +9,8 @@
  * 一份清单——手写的一定会落后，落后一个就会让某一版更新静默不生效。这里用**前缀**兜住整类线路
  * 目录，而不是逐个文件列名：漏列一个就等于没守住。
  *
- * 注意：中转 sidecar、总控上报、长连接 mux 是**稳定通道本身**，刻意留在外壳里（启动即冻结、
- * 改它们要重启）——它们不在这份名单里。这里钉的是「可选线路 / 纯计算」这些高频改动。
+ * 注意：三条主链路（中转 sidecar / 总控上报 / mux）的实现也搬进了「代」，外壳以「稳定门面 + 提交时
+ * 换实例」持有（见 transport-host），它们在下面的名单里。外壳里只剩内核与更新机制本身。
  */
 
 const assert = require('node:assert/strict');
@@ -36,6 +36,14 @@ const LINE_IMPL_FILES = [
   'lib/relay/provider-lines.cjs',
   'lib/relay/lan-network.cjs',
   'lib/relay/tunnel-forwarder.cjs',
+  // 三条主链路实现：外壳按「提交时换实例」持有（见 transport-host），实现本身住代里。
+  'lib/sidecar-lifecycle.cjs',
+  'lib/sidecar-facade.cjs',
+  'lib/sidecar-facade-worker.cjs',
+  'lib/relay/apply-ledger.cjs',
+  'lib/relay/control.js',
+  'lib/mobile/mux.js',
+  'lib/mobile/permissions.js',
 ];
 
 test('外壳的引用图里不许出现任何线路实现（前缀 + 点名）', async () => {

@@ -219,8 +219,8 @@ test('更新没动外壳：外壳指纹一致时仍按「无需重启」上报',
 });
 
 // 这些是当前仍在「稳定外壳」里的文件（改它们才算外壳变化、要重启）；可选线路（frpc/tailcat/p2p）已搬进代，不在其中。
-const HOST_FILES = ['lib/relay/control.js', 'lib/sidecar-lifecycle.cjs', 'lib/http/routing.js',
-  'lib/shared/private-address.js', 'lib/shared/http-util.js', 'lib/mobile/mux.js'];
+const HOST_FILES = ['lib/http/routing.js', 'lib/shared/http-util.js', 'lib/shared/private-address.js',
+  'lib/shared/e2ee.js', 'lib/shared/paths.js', 'lib/shared/e2ee-request.js'];
 
 function addTailcatHostFiles(pkgDir) {
   addShellFiles(pkgDir);
