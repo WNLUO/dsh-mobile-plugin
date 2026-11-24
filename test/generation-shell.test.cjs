@@ -792,17 +792,29 @@ test('传输归外壳：FRP 进程管理器跨代存活（换代不换一份）'
   await waitForStatus(runtime);
 
   const host = ctx.get('dshMobileTransportFrp');
-  assert.ok(host && host.runner, '外壳应 provide dshMobileTransportFrp 服务');
+  assert.ok(host, '外壳应 provide dshMobileTransportFrp 服务');
+  // 2026-11-24：frpc 实现搬进「代」，外壳不再自己建 runner；改成当前这一代 `adopt` 交进来，
+  // 外壳按实现指纹持有。守卫随之改钉「addopt 契约」——同一指纹跨代必须是同一个 runner。
+  assert.equal(typeof host.adopt, 'function', '实现由当前这一代 adopt 交给外壳');
   assert.equal(typeof host.setPortProvider, 'function', '端口来源要能被当前这一代注入');
-  assert.equal(typeof host.runner.status, 'function', 'runner 应是 frpc 进程管理器');
-  const beforeRunner = host.runner;
+
+  const made = [];
+  const create = () => {
+    const r = { portOf: () => 0, shouldAutoStart: () => false, start() {}, status: () => ({ running: false }), dispose() {} };
+    made.push(r);
+    return r;
+  };
+  const beforeRunner = host.adopt({ fingerprint: 'same', create });
+  assert.equal(typeof beforeRunner.status, 'function', 'runner 应是 frpc 进程管理器');
 
   install(makeGeneration('frp-host-b', '0.9.9', goodGeneration('b-0.9.9')));
   const after = await runtime.reload();
   assert.equal(after.version, '0.9.9');
 
   const hostAfter = ctx.get('dshMobileTransportFrp');
-  assert.equal(hostAfter.runner, beforeRunner, 'frpc 进程管理器必须跨代是同一份（否则换代就重启了直连）');
+  const reused = hostAfter.adopt({ fingerprint: 'same', create });
+  assert.equal(reused, beforeRunner, '指纹不变时 frpc 进程管理器必须跨代是同一份（否则换代就重启了直连）');
+  assert.equal(made.length, 1, '指纹不变不得重建 runner');
 });
 
 test('传输归外壳：总控上报客户端跨代存活（换代不断开上报）', async t => {
