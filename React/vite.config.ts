@@ -1,50 +1,19 @@
-// 面板使用与移动 App 一致的低版本内核目标，现代样式在构建时转换；开发代理自己找宿主端口。
-import { execFileSync } from 'node:child_process'
+// 面板使用与移动 App 一致的低版本内核目标，现代样式在构建时转换；开发代理只连显式指定的宿主。
 import cascadeLayers from '@csstools/postcss-cascade-layers'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
 /**
- * 开发时把 /api 转发给本机 DSH 宿主（控制面只认本机来源）。桌面版默认用系统分配的
- * 端口、每次启动都可能变，所以先认显式配置，再扫监听端口探状态接口自己找。
+ * 开发代理只连**显式指定**的宿主：`DSH_WEB_URL` 一刀切；没设就用 `dsh web` 的默认 19387。
+ *
+ * 刻意**不再扫本机监听端口自动挑宿主**。桌面版 DSH 用的是系统随机端口，扫端口会把它误当成
+ * 「本机 DSH 网页端」连上去——于是随手在开发页面上点几下（比如把引导走一遍），就把这台机器
+ * 正在用的真实配置改掉了。前端只用来预览界面时不该有这条写穿通道：要看真实数据，用
+ * `DSH_WEB_URL=http://127.0.0.1:<端口> pnpm dev` 明确点名；纯演示用 `pnpm demo`（假宿主，不连任何宿主）。
  */
-async function findHostUrl() {
-  const configured = process.env.DSH_WEB_URL
-  if (configured) return configured
-
-  const ports = new Set([3080, 19387])
-  try {
-    const raw = execFileSync('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-    for (const line of raw.split('\n')) {
-      const match = /:(\d+) \(LISTEN\)$/.exec(line.trim())
-      if (!match) continue
-      const port = Number(match[1])
-      if (port > 1024 && port < 65536) ports.add(port)
-    }
-  } catch {
-    // 没有 lsof 就只探默认端口。
-  }
-
-  for (const port of ports) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/api/relay/status`, {
-        signal: AbortSignal.timeout(800),
-      })
-      if (!response.ok) continue
-      const status: unknown = await response.json()
-      // 只认本插件答的那一份：别的本地服务也可能 200 回一段 JSON。
-      if (status && typeof status === 'object' && 'localPort' in status
-        && typeof status.localPort === 'number') return `http://127.0.0.1:${port}`
-    } catch {
-      // 连不上就换下一个。
-    }
-  }
-  // 宿主还没起来时留个默认值，页面照开，只是 /api 会失败。
-  return 'http://127.0.0.1:19387'
+function findHostUrl() {
+  return process.env.DSH_WEB_URL || 'http://127.0.0.1:19387'
 }
 
 export async function createConfig() {
