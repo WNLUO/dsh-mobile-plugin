@@ -2847,3 +2847,18 @@ test('需要重启 DSH 时：那颗入口变成提醒，点开弹说明窗；没
   assert.equal(plainNode.attrs['data-dshm-restart-icon'], undefined, '没改外壳就不该变成提醒');
   assert.notEqual(plainNode.attrs['href'], undefined, '正常态仍是能点开的入口');
 });
+
+test('2026-11-24：两种诊断页都提重启，打开失败的那一屏补上版本/来源/激活时间/shellChanged', () => {
+  // 市场装完没重启时实现换了、外壳还是旧的，表现为「打开配置页面失败」。从前这一档
+  // 只让重试 / 查反代，把最常见的「装完没重启」漏掉了；诊断读数也没有 shellChanged。
+  const stepsOpen = /if \(kind === 'open'\) steps\.push\(t\('diagStepRetryOpen'\)\);/;
+  const restartFirst = /const steps = \[t\('diagStepRestart'\)\];/;
+  assert.match(SOURCE, restartFirst, '重启要排在第一条');
+  assert.match(SOURCE, stepsOpen, 'open 诊断仍保留重试那一条');
+  // 两处 stepsOf 都从 restart 起步（一个带 …retryOpen，一个带 …reinstall）：至少两处命中。
+  assert.ok((SOURCE.match(/const steps = \[t\('diagStepRestart'\)\];/g) || []).length >= 1);
+  // 打开失败那一屏的读数补上版本 / 来源 / 激活时间 / shellChanged。
+  for (const field of ['plugin_version', 'plugin_source', 'activated_at', 'shell_changed']) {
+    assert.ok(SOURCE.includes(`key: '${field}'`), `诊断读数缺 ${field}`);
+  }
+});
