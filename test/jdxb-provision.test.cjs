@@ -31,21 +31,27 @@ function fakeRun(result = { code: 0, stdout: '', stderr: '' }) {
   return { calls, run };
 }
 
-test('平台表：只认 macOS 的两种架构，Linux / Windows 如实说不支持', () => {
+test('平台表：mac / Windows x64 / Linux 两种架构都有安装入口，别的平台如实说不支持', () => {
   assert.equal(provision.platformKey('darwin', 'arm64'), 'darwin-arm64');
   assert.equal(provision.platformKey('darwin', 'x64'), 'darwin-x64');
-  assert.equal(provision.platformKey('linux', 'x64'), '');
-  assert.equal(provision.platformKey('win32', 'x64'), '');
-  const result = provision.install({ platform: 'linux', arch: 'x64' });
+  assert.equal(provision.platformKey('win32', 'x64'), 'win32-x64');
+  assert.equal(provision.platformKey('linux', 'x64'), 'linux-x64');
+  assert.equal(provision.platformKey('linux', 'arm64'), 'linux-arm64');
+  assert.equal(provision.platformKey('win32', 'ia32'), '');
+  assert.equal(provision.platformKey('darwin', 'ia32'), '');
+  const result = provision.install({ platform: 'win32', arch: 'ia32' });
   return result.then((r) => {
     assert.equal(r.ok, false);
-    assert.match(r.error, /macOS/);
+    assert.match(r.error, /只接了/);
   });
 });
 
-test('下载地址就是官方 CDN 上按架构区分的那个文件', () => {
+test('下载地址：macOS 是官方二进制，Windows / Linux 是官方一键安装脚本', () => {
   assert.equal(provision.downloadUrl('darwin-arm64').endsWith('/NodeBabyLinkService.darwin.arm64.4.3.5'), true);
   assert.equal(provision.downloadUrl('darwin-x64').endsWith('/NodeBabyLinkService.darwin.amd64.4.3.5'), true);
+  assert.equal(provision.downloadUrl('win32-x64'), 'https://iepose.com/install.ps1');
+  assert.equal(provision.downloadUrl('linux-x64'), 'https://iepose.com/install.sh');
+  assert.equal(provision.downloadUrl('linux-arm64'), 'https://iepose.com/install.sh');
 });
 
 test('装成功：走系统授权、写的是它自己的 Label，装完等管理口应答', async () => {
@@ -108,4 +114,89 @@ test('装好了但管理口没起来：如实报「没起来」，不假装可�
   assert.equal(result.installed, true);
   assert.equal(result.started, false);
   assert.match(result.error, /没起来/);
+});
+
+test('Windows：跑官方 PowerShell 脚本并经 UAC 提权，装完问它的虚拟回环', async () => {
+  const { calls, run } = fakeRun();
+  const probed = [];
+  const result = await provision.install({
+    platform: 'win32',
+    arch: 'x64',
+    fetchImpl: async (url) => {
+      assert.equal(url, 'https://iepose.com/install.ps1');
+      return { ok: true, arrayBuffer: async () => Buffer.from('$ErrorActionPreference = "Stop"\nWrite-Output "install"\n') };
+    },
+    probeStatus: async () => ({ installed: false }),
+    run,
+    probePort: async (port, opts) => { probed.push({ port, host: opts.host }); return { ok: true }; },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.started, true);
+  const ps = calls.find((call) => call.file === 'powershell.exe');
+  assert.ok(ps, '必须经 PowerShell 提权，不能悄悄跑脚本');
+  assert.match(ps.args.join(' '), /-Verb RunAs/, '必须弹 UAC');
+  assert.match(ps.args.join(' '), /-File/, '跑的是下载下来的官方脚本');
+  assert.equal(probed[0].host, '127.66.36.18');
+  assert.equal(probed[0].port, 2080);
+});
+
+test('Linux：跑官方安装脚本并经 pkexec 弹授权，装完问 9118', async () => {
+  const { calls, run } = fakeRun();
+  const probed = [];
+  const result = await provision.install({
+    platform: 'linux',
+    arch: 'x64',
+    fetchImpl: async (url) => {
+      assert.equal(url, 'https://iepose.com/install.sh');
+      return { ok: true, arrayBuffer: async () => Buffer.from('#!/bin/bash\necho install\n') };
+    },
+    probeStatus: async () => ({ installed: false }),
+    run,
+    probePort: async (port, opts) => { probed.push({ port, host: opts.host }); return { ok: true }; },
+  });
+  assert.equal(result.ok, true);
+  const pk = calls.find((call) => call.file === 'pkexec');
+  assert.ok(pk, '必须经 pkexec 弹系统授权框');
+  assert.equal(pk.args[0], 'bash');
+  assert.equal(probed[0].port, 9118);
+});
+
+test('已经装了就不重复跑官方脚本（它会进卸载 / 升级菜单）', async () => {
+  const { calls, run } = fakeRun();
+  const result = await provision.install({
+    platform: 'win32',
+    arch: 'x64',
+    probeStatus: async () => ({ installed: true }),
+    fetchImpl: async () => { throw new Error('不该下载'); },
+    run,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 0);
+});
+
+test('Windows 取消 UAC：不报成功，也不说成装坏了', async () => {
+  const { run } = fakeRun({ code: 1, stdout: '', stderr: 'canceled by the user' });
+  const result = await provision.install({
+    platform: 'win32',
+    arch: 'x64',
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => Buffer.from('Write-Output "install"') }),
+    probeStatus: async () => ({ installed: false }),
+    run,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /取消/);
+});
+
+test('安装脚本被门户换成网页：当场拒装，不去提权', async () => {
+  const { calls, run } = fakeRun();
+  const result = await provision.install({
+    platform: 'linux',
+    arch: 'x64',
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => Buffer.from('<!doctype html><html>blocked</html>') }),
+    probeStatus: async () => ({ installed: false }),
+    run,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /安装脚本/);
+  assert.equal(calls.some((call) => call.file === 'pkexec'), false);
 });
