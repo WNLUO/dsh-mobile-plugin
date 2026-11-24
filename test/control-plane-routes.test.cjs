@@ -198,7 +198,7 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  */
 function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
   localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0, getPluginRuntime = () => null,
-  reconnectTunnel, frp, tailcat, cloudflare, syncSidecar = async () => {},
+  reconnectTunnel, frp, tailcat, cloudflare, zeroNews, syncSidecar = async () => {},
   registerRoutes = registerControlPlaneRoutes } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
@@ -228,6 +228,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     frp,
     tailcat,
     cloudflare,
+    zeroNews,
     sidecarToken: 'test',
     lanPortInUse: () => 18787,
     getLanPortAdjusted: () => false,
@@ -909,6 +910,25 @@ test('ZeroNews 公网地址路由：本机客户端在跑时回可用隧道，�
   assert.equal(res.body.ok, true);
   assert.deepEqual(res.body.urls, ['https://zn.takin.cc']);
   assert.equal(res.body.available, true);
+});
+
+test('ZeroNews 彻底清理：有清理能力才做，失败按 200 把 ok / error 如实带回', async () => {
+  let calls = 0;
+  const table = controlRoutes({ state: {}, zeroNews: {
+    purge: async () => { calls += 1; return { ok: false, reset: { attempted: true, ok: false, error: 'need admin' }, cacheRemoved: false, error: 'need admin' }; },
+  } });
+  const res = {};
+  await table.get('/api/relay/zeronews/purge')({}, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, false);
+  assert.match(res.body.error, /need admin/);
+  assert.equal(calls, 1);
+
+  const missing = controlRoutes({ state: {} });
+  const unavailable = {};
+  await missing.get('/api/relay/zeronews/purge')({}, unavailable);
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.body.error.code, 'zeronews-unavailable');
 });
 
 test('节点小宝线路：设备端在跑时报安装与绑定状态，顺带把已填的地址回给面板', async () => {

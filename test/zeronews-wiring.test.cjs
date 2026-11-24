@@ -11,7 +11,7 @@ function mountWith(runner, overrides = {}) {
   const updates = [];
   let cleanup = null;
   const ctx = { effect: (fn) => { cleanup = fn(); return () => {}; } };
-  mountZeroNews({
+  const facade = mountZeroNews({
     mount: (_name, run) => run(),
     settings: { update: async (patch) => { updates.push(patch); } },
     getState: () => overrides.state || { zeroNewsEnabled: true },
@@ -23,11 +23,53 @@ function mountWith(runner, overrides = {}) {
     retryBaseMs: 5,
     runnerFactory: () => runner,
     ensure: async () => ({ ok: true, path: '/x' }),
+    purgeLocal: overrides.purgeLocal,
   });
-  return { updates, cleanup: () => cleanup && cleanup() };
+  return { facade, updates, cleanup: () => cleanup && cleanup() };
 }
 
 const tick = (ms = 60) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test('彻底清理：停进程、跑 reset、三格状态一次清掉（与断开分开）', async () => {
+  const calls = [];
+  const runner = {
+    start: async () => ({ phase: 'off' }),
+    stop: () => { calls.push('stop'); return { phase: 'off' }; },
+    status: () => ({ phase: 'off' }),
+  };
+  const env = mountWith(runner, {
+    state: { zeroNewsEnabled: false },
+    purgeLocal: async () => {
+      calls.push('purge');
+      return { ok: true, reset: { attempted: true, ok: true, error: '' }, cacheRemoved: true, error: '' };
+    },
+  });
+  const result = await env.facade.purge();
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, ['stop', 'purge'], '先停进程再清本机客户端');
+  assert.ok(
+    env.updates.some((p) => p.zeroNewsUrl === '' && p.zeroNewsEnabled === false && p.zeroNewsBound === false),
+    '地址、开关、已绑定标记一次清掉',
+  );
+  env.cleanup();
+});
+
+test('彻底清理：reset 失败也清插件状态，但把失败如实带回去', async () => {
+  const runner = {
+    start: async () => ({ phase: 'off' }),
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'off' }),
+  };
+  const env = mountWith(runner, {
+    state: { zeroNewsEnabled: false },
+    purgeLocal: async () => ({ ok: false, reset: { attempted: true, ok: false, error: 'need admin' }, cacheRemoved: false, error: 'need admin' }),
+  });
+  const result = await env.facade.purge();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /need admin/);
+  assert.ok(env.updates.some((p) => p.zeroNewsBound === false), '失败也不让界面继续说已绑定');
+  env.cleanup();
+});
 
 test('启动失败会按退避自动重试，连上后把地址写回状态', async () => {
   let calls = 0;

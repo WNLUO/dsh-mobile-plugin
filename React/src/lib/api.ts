@@ -1,10 +1,11 @@
+// 2026-11-24：ZeroNews 的「彻底清理」端点（断开之外单独一条，面板二次确认后调用）。
 // 本机面板状态包含 Tailcat 内部落点端口，反馈可区分监听与助手就绪。
 // 本机面板读取真实上报去向，并区分入口恢复与 FRP 启用、启动、待重试状态。
 // Cloudflare 兜底隧道：状态读 `/api/relay/status` 的 cloudflare 格，开关走 start/stop 两条管理路由。
 /**
  * 控制面客户端：只碰 `/api/relay/*` 这一组本机接口。
  *
- * 这页读的是宿主已有的那份契约（`../lib/routes/control-plane.js`），不新增任何端点：
+ * 这页读的是宿主已有的那份契约（`../lib/routes/control-plane.js`）：
  * 所有接口只放行本机来源，所以浏览器直接打开也能用，不需要 token。
  * 开发时靠 Vite 的 `/api` 代理打到 DSH 网页端口；打包后由宿主自己把这页发出来，
  * 同源，路径一个字都不用改。
@@ -996,6 +997,19 @@ export function zeroNewsConnect(token?: string): Promise<ZeroNewsActionReply> {
 /** 断开 ZeroNews 线路：停客户端、撤域名。 */
 export function zeroNewsDisconnect(): Promise<ZeroNewsActionReply> {
   return apiPost('/api/relay/zeronews/disconnect')
+}
+
+/** 彻底清理的结果：reset 与删缓存各自做没做成、失败原因都带回来。 */
+export type ZeroNewsPurgeReply = {
+  ok: boolean
+  reset?: { attempted: boolean; ok: boolean; error: string }
+  cacheRemoved?: boolean
+  error?: string
+}
+
+/** 彻底清理 ZeroNews：官方 reset 清本机身份与配置、删缓存客户端、清插件状态。面板二次确认后调用。 */
+export function zeroNewsPurge(): Promise<ZeroNewsPurgeReply> {
+  return apiPost('/api/relay/zeronews/purge')
 }
 
 /**

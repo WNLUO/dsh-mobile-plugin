@@ -1,3 +1,4 @@
+// 2026-11-24：概览卡加「彻底清理」入口，二次确认后把本机登录、配置与缓存一次清掉。
 // ZeroNews 服务商主页：账号概览 + 隧道 / 设备左右两栏。进入即看，数据本地留底。
 /**
  * ZeroNews 的配置页（2026-11-23 第二次重做）。
@@ -21,7 +22,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
 
 import type { StatusView, ZeroNewsAccount } from '../lib/api.ts'
-import { zeroNewsAccount, zeroNewsConnect, zeroNewsDisconnect, zeroNewsPrepare } from '../lib/api.ts'
+import { zeroNewsAccount, zeroNewsConnect, zeroNewsDisconnect, zeroNewsPrepare, zeroNewsPurge } from '../lib/api.ts'
 import { cn, timeText, toneText, type Tone } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
 import { Dot } from './InfoRow.tsx'
@@ -86,6 +87,8 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
   const [loading, setLoading] = useState(false)
   /** 页面里的提示（连接结果 / 失败原因 / 打开浏览器失败时的地址）。 */
   const [note, setNote] = useState('')
+  /** 提示是清理成功还是失败：成功用普通色，失败才用错误色。 */
+  const [noteOk, setNoteOk] = useState(false)
   /** 连接 / 安装 / 断开进行中。 */
   const [linkBusy, setLinkBusy] = useState(false)
   /** 已点「连接」，正在等浏览器里点确认登录。 */
@@ -211,6 +214,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     if (linkBusy && !force) return
     setLinkBusy(true)
     setNote(auto ? t('panel.zeronews.loginDetected') : '')
+    setNoteOk(false)
     let needSetup = false
     try {
       const res = await zeroNewsConnect()
@@ -237,6 +241,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     if (linkBusy || !value) return
     setLinkBusy(true)
     setNote('')
+    setNoteOk(false)
     try {
       const res = await zeroNewsConnect(value)
       const error = typeof res.error === 'string' ? res.error : res.error?.message
@@ -260,6 +265,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     if (linkBusy) return
     setLinkBusy(true)
     setNote('')
+    setNoteOk(false)
     let autoConnect = false
     try {
       const res = await zeroNewsPrepare()
@@ -290,11 +296,34 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     if (linkBusy) return
     setLinkBusy(true)
     setNote('')
+    setNoteOk(false)
     try {
       const res = await zeroNewsDisconnect()
       const error = typeof res.error === 'string' ? res.error : res.error?.message
       if (!res.ok && error) setNote(error)
       await refresh(false)
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setLinkBusy(false)
+    }
+  }
+
+  /** 彻底清理：与「断开」分开的破坏性入口，二次确认后才动本机的登录身份与配置。 */
+  async function purge() {
+    if (linkBusy || !window.confirm(t('panel.zeronews.purgeConfirm'))) return
+    setLinkBusy(true)
+    setNote('')
+    setNoteOk(false)
+    try {
+      const res = await zeroNewsPurge()
+      const error = typeof res.error === 'string' ? res.error : ''
+      if (!res.ok && error) setNote(error)
+      else { setNote(t('panel.zeronews.purgeDone')); setNoteOk(true) }
+      await refresh(false)
+      if (res.ok) {
+        try { localStorage.removeItem(CACHE_KEY) } catch { /* 留底删不掉不影响清理本身 */ }
+      }
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error))
     } finally {
@@ -407,7 +436,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
                 ) : null}
               </div>
             ) : null}
-            {!waiting && note ? <p className="text-xs text-error">{note}</p> : null}
+            {!waiting && note ? <p className={cn('text-xs', noteOk ? 'text-foreground-muted' : 'text-error')}>{note}</p> : null}
 
             {!loggedIn ? (
               <div className="flex flex-col gap-2 rounded-md border border-border-muted p-3">
@@ -428,6 +457,9 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
 
             {!firstTime ? (
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button variant="ghost" size="sm" disabled={!canSave || linkBusy || waiting} onClick={() => void purge()}>
+                  {t('panel.zeronews.purge')}
+                </Button>
                 <Button
                   variant={connected ? 'ghost' : 'primary'}
                   size="sm"
