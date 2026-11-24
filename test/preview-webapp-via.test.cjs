@@ -55,16 +55,15 @@ async function fixture(handler) {
   return { host, hostPort, service, seen, sockets, open, close, pipeSocket: () => pipeSocket };
 }
 
-test('webapp每次keepalive请求都覆盖via，网页版请求按本机界面放行控制面', async () => {
+test('webapp每次keepalive请求都覆盖via，控制面仍被localOnly拒绝', async () => {
   const f = await fixture();
   const phone = await f.open();
   try {
     const request = 'POST /api/relay/config HTTP/1.1\r\nHost: localhost\r\nX-Dsh-Via: \r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n';
     phone.ws.send(request);
-    await until(() => f.seen.length === 1 && phone.text().includes('200 OK'));
-    // 客户端自带的 lan 标记会被管道覆盖成 preview-webapp：手机上打开的整份网页版仍能进控制面。
+    await until(() => f.seen.length === 1 && phone.text().includes('local_only'));
     phone.ws.send(request.replace('X-Dsh-Via: ', 'x-dsh-via: lan'));
-    await until(() => f.seen.length === 2 && (phone.text().match(/200 OK/g) || []).length === 2);
+    await until(() => f.seen.length === 2 && (phone.text().match(/403 Forbidden/g) || []).length === 2);
     assert.deepEqual(f.seen, ['preview-webapp', 'preview-webapp']);
   } finally { phone.ws.terminate(); await f.close(); }
 });
