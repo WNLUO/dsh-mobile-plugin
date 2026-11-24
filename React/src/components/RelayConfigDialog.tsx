@@ -519,7 +519,11 @@ export function RelayConfigDialog({
         {/* 一屏两列（宽够时）：6 个 Field 交给 grid 按行自动填（grid-auto-flow: row），
             每项增减都会自动重排、两列行数均衡；窄窗口自动收成一列。 */}
         <div className="flex flex-col gap-5 p-4">
-          <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
+            {/* 还在走公用中转的人：在「网络配置」标题右侧用红字提醒它以后不再提供，别用弹窗打断。 */}
+            {publicActive ? <span className="text-xs font-medium text-error">{t('panel.relay.publicRetiring')}</span> : null}
+          </div>
           <section className="flex flex-col gap-3">
             <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
               {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。

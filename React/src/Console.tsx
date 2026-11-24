@@ -46,7 +46,6 @@ import type { Issue } from './components/IssueMark.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { P2PDialog } from './components/P2PDialog.tsx'
 import { PortDialog } from './components/PortDialog.tsx'
-import { PublicRelayNoticeDialog } from './components/PublicRelayNoticeDialog.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { TailcatDialog } from './components/TailcatDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
@@ -64,7 +63,6 @@ import {
 } from './lib/api.ts'
 import { Dot } from './components/InfoRow.tsx'
 import { type Tone } from './lib/format.ts'
-import { isPublicRelayUrl } from './lib/links.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
 import { hashOfPage, pageFromHash, PROVIDERS, type NetworkPage, type NetworkProvider, type NetworkRegion, type ProviderPage } from './lib/network-region.ts'
 import { reportPanelState } from './lib/panel-load.ts'
@@ -153,12 +151,8 @@ export function Console() {
     else if (hash) window.location.hash = hash
     else window.location.hash = ''
   }
-  /** 网络配置铺在首页：公用中转提示弹窗那颗「网络配置」用它把这块滚进视野。 */
+  /** 网络配置铺在首页；这一格留个锚点，方便以后从别处滚进来。 */
   const configRef = useRef<HTMLDivElement | null>(null)
-  const openNetwork = () => {
-    if (page !== 'home') showPage('home', true)
-    window.setTimeout(() => configRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
-  }
   /** 进地区子页：地址栏留一层历史，浏览器返回键就回首页（网络配置在首页）。 */
   const openRegion = (region: NetworkRegion) => showPage(region)
   const backToHome = () => showPage('home', true)
@@ -664,13 +658,6 @@ export function Console() {
           </DialogBody>
         </DialogContent>
       </Dialog>
-
-      {/* 公用中转体验提示：只在公用中转启用时弹（relayUrl 命中内置清单），停用时整扇不渲染。
-          「网络配置」按钮直接把上面那扇配置窗打开。 */}
-      <PublicRelayNoticeDialog
-        visible={isPublicRelayUrl(status.relayUrl)}
-        onOpenConfig={openNetwork}
-      />
     </main>
   )
 }

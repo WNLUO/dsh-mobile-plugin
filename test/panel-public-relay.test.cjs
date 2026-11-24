@@ -25,49 +25,24 @@ const path = require('node:path');
 const SRC = path.join(__dirname, '..', 'React', 'src');
 const read = (...parts) => fs.readFileSync(path.join(SRC, ...parts), 'utf8');
 
-const dialog = read('components', 'PublicRelayNoticeDialog.tsx');
 const consoleSrc = read('Console.tsx');
 const config = read('components', 'RelayConfigDialog.tsx');
-const noticeDict = read('lib', 'i18n', 'messages', 'notice.ts');
 const panelDict = read('lib', 'i18n', 'messages', 'panel.ts');
 
 /** 从字典文件里数某个键出现几次（每门语言一次）。 */
 const countKey = (dict, key) => dict.split(`'${key}'`).length - 1;
 
-test('公用中转提示弹窗：只在公用启用时显示、可关闭、挂控制台，文案十门齐', () => {
-  // 只在公用启用时显示：Console 从 status.relayUrl 判，停用时整扇不渲染。
-  assert.match(dialog, /visible: boolean/, '组件收 visible 判定');
-  assert.match(dialog, /if \(!visible \|\| dismissed\) return null/, '停用或已关过就不渲染');
-  // 判定与网络配置同源：用 links 的 isPublicRelayUrl，不在组件里另写一份。
-  const links = read('lib', 'links.ts');
-  assert.match(links, /export function isPublicRelayUrl/, '公用地址判定在 links 一份');
-  assert.match(consoleSrc, /visible=\{isPublicRelayUrl\(status\.relayUrl\)\}/, 'Console 用它算 visible 传进来');
-  // 可关闭：dismissed 状态关窗，Dialog 的 onOpenChange 也接上（遮罩 / Esc 能关）。
-  assert.match(dialog, /useState\(false\)/, 'Dismissed 初始为假');
-  assert.match(dialog, /<Dialog open onOpenChange=\{\(open\) => \{ if \(!open\) setDismissed\(true\) \}\}>/, '弹窗要能靠遮罩 / Esc 关');
-  assert.match(dialog, /onClick=\{\(\) => setDismissed\(true\)\}/, '「我已知晓」按钮要能关窗');
-  // 三类文案都走字典，不写死中文。
-  for (const key of ['title', 'body', 'action']) {
-    assert.match(dialog, new RegExp(`t\\('panel\\.publicRelayNotice\\.${key}'\\)`), `${key} 要走字典`);
-    assert.equal(countKey(noticeDict, `panel.publicRelayNotice.${key}`), 10, `${key} 要十门齐全`);
-  }
-  // 正文的 \n\n 分段靠 whitespace-pre-line 还原，不拆成多条键。
-  assert.match(dialog, /whitespace-pre-line/, '正文的分段要能显示出来');
-  // 挂在控制台根部，并把网络配置那扇窗的开关传进去。
-  // 2026-11-22 需求变更：网络配置改成独立页、用 hash 路由，打开回调由 openNetwork 承载。
-  assert.match(consoleSrc, /<PublicRelayNoticeDialog[\s\S]*?onOpenConfig=\{openNetwork\}/, '弹窗要挂在控制台上并接好开配置的回调');
-});
-
-test('提示弹窗的「网络配置」按钮：关掉自己、打开配置窗', () => {
-  // 收件区两颗按钮：「网络配置」在左、「我已知晓」在右（先网络配置后知晓）。
-  const footer = dialog.slice(dialog.indexOf('<DialogFooter'));
-  const configAt = footer.indexOf("t('panel.pairing.openConfig')");
-  const gotItAt = footer.indexOf("t('panel.publicRelayNotice.action')");
-  assert.ok(configAt > 0 && gotItAt > configAt, '「网络配置」要在「我已知晓」左边');
-  // 点击时先关自己、再开配置窗，避免两扇叠着；文案复用现成那条（十门已齐）。
-  assert.match(footer, /onClick=\{\(\) => \{ setDismissed\(true\); onOpenConfig\(\) \}\}/, '关掉提示、打开网络配置');
-  assert.match(dialog, /onOpenConfig: \(\) => void/, '组件要收开配置的回调');
-  assert.match(panelDict, /'panel\.pairing\.openConfig': '网络配置'/, '复用现成的网络配置文案');
+test('公用中转提示：改成「网络配置」标题右侧的红字，不再弹窗打断', () => {
+  // 2026-11-24 需求变更：不用弹窗，改成网络配置标题右侧的红字，进面板就能看到、不打断。
+  assert.ok(!/PublicRelayNoticeDialog|publicRelayNotice/.test(consoleSrc), '控制台不再挂公用中转弹窗');
+  assert.match(config, /t\('panel\.relay\.publicRetiring'\)/, '标题右侧要显示红字提醒');
+  assert.match(config, /text-error/, '提醒用红字');
+  assert.match(config, /publicActive \?/, '只在还在走公用中转时显示');
+  assert.match(config, /const publicActive = !!activePublicRelay && !publicDisabled && !publicRelayBlocked/, '判据仍是「正在用公用」');
+  assert.equal(countKey(panelDict, 'panel.relay.publicRetiring'), 10, '红字文案十门齐全');
+  // 老的弹窗与其文案彻底撤掉，别留死键死组件。
+  assert.ok(!/publicRelayNotice/.test(read('lib', 'i18n', 'messages', 'notice.ts')), '弹窗文案已删干净');
+  assert.ok(!fs.existsSync(path.join(SRC, 'components', 'PublicRelayNoticeDialog.tsx')), '弹窗组件已删');
 });
 
 test('网络配置：公用中转内置只读排第一，自建可编辑，清单弹窗已撤', () => {

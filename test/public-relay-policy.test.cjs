@@ -300,3 +300,16 @@ test('显式停用接线：schema、configOf、控制面/手机 status 都带上
   const mobile = fs.readFileSync(path.join(__dirname, '..', 'lib', 'routes', 'mobile-api.js'), 'utf8');
   assert.match(mobile, /publicRelayDisabled: state\.publicRelayDisabled === true/, '手机心跳也带这一格');
 });
+
+// 新用户引导页：进页把「公用中转」显式停用（publicRelayDisabled），之后再启用远程控制也不能
+// 把公用地址补回来 —— 二维码里不该带公用中转。判据就在 expandDefaultPublicRelays 开头那条
+// publicRelayDisabled 分支，这里钉住它真的挡住了回补。
+test('新用户：显式停用公用中转后，启用也不回补（二维码不带公用地址）', () => {
+  const state = { enabled: false, relayUrl: '', relayUrls: [], publicRelayDisabled: true };
+  assert.equal(core.expandDefaultPublicRelays(state), false, '没启用时本来就补不了');
+  assert.deepEqual(state.relayUrls, []);
+  state.enabled = true;
+  assert.equal(core.expandDefaultPublicRelays(state), false, '启用后也不许把公用补回来');
+  assert.deepEqual(state.relayUrls, [], '列表仍为空 = 二维码里没有公用地址');
+  assert.equal(state.relayUrl, '');
+});
