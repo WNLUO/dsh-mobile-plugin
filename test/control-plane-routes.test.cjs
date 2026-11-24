@@ -161,6 +161,19 @@ test('不挂 localOnly 的内部路由都真的校验 sidecarToken', () => {
   assert.match(source.slice(at, end < 0 ? at + 800 : end), /pairingApproval\.evaluate\(state\.pairingPolicy, body\.device\)/);
 });
 
+test('不挂 localOnly 的内部路由对宿主层声明匿名，身份仍靠 sidecarToken', () => {
+  // 新版宿主把未声明 auth 的路由按 required 处理。旁车（局域网代理）没有桌面会话，
+  // 不声明匿名就会被网关层 401 拦掉、根本到不了 handler 里的 sidecarToken 校验，
+  // 表现为扫码配对永远失败（反馈 #39）。这里钉住这四条都必须声明 auth: 'anonymous'。
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const byPath = new Map(registrations(source).map((r) => [r.path, r.handler]));
+  for (const route of NO_LOCAL_ONLY.keys()) {
+    const slice = byPath.get(route);
+    assert.ok(slice, `${route} 找不到`);
+    assert.match(slice, /auth:\s*'anonymous'/, `${route} 必须对宿主层声明 auth: 'anonymous'`);
+  }
+});
+
 test('改配置的路由逐字段校验，不接受任意键', () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
   const at = source.indexOf("'/api/relay/config'");
