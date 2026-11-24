@@ -1,3 +1,4 @@
+// 2026-11-25：状态路由改成逐路安全取值，接线断言跟到新写法。
 'use strict';
 
 /**
@@ -222,7 +223,9 @@ test('status 路由真的带出了台账（加了模块没接线 = 台账永远�
   const segments = new Map(routeSegments(source).map((r) => [r.path, r.handler]));
   const status = segments.get('/api/relay/status');
   assert.ok(status, '控制面少了 /api/relay/status');
-  assert.ok(status.includes('selfCheck: selfCheck.snapshot()'), '/api/relay/status 的返回体里没有 selfCheck');
+  assert.match(status, /readStatusSafely\(req\)/, '/api/relay/status 没走逐路安全取值');
+  assert.match(source, /fields\.selfCheck\s*=\s*take\('selfCheck',\s*\(\)\s*=>\s*selfCheck\.snapshot\(\)\)/,
+    '逐路取值里没有 selfCheck');
 });
 
 test('装配层把四个取值器真的转交下去了（台账拿不到 ctx 之外的就等于空壳）', () => {

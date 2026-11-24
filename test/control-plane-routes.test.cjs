@@ -1,3 +1,4 @@
+// 2026-11-25：状态接口逐路隔离，一路抛错不再整条 400。
 // 2026-11-24：公用中转改成「码里没自己的线路才塞」的兜底，只配服务商的机器靠服务商地址出码。
 // 2026-11-24：总开关下发失败要带 applyError，并钉住面板据此报失败。
 // 二维码等待隧道窗口后读取当前票据与身份，换码期间出码仍可真实验票。
@@ -1095,6 +1096,27 @@ test('行为：/status 如实报「外壳改过、要重启」，供侧边栏那
   const res2 = {};
   await plain.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res2);
   assert.equal(res2.body.shellChanged, false);
+});
+
+test('状态接口一路取值抛错只点名该路，其余照常回，不再整条 400', async () => {
+  const written = [];
+  const originalWrite = process.stderr.write;
+  process.stderr.write = (chunk) => { written.push(String(chunk)); return true };
+  try {
+    const table = controlRoutes({
+      state: { enabled: true, instanceId: 'i1' },
+      tailcat: { status: () => { throw new Error('tailcat snapshot exploded') } },
+    });
+    const res = {};
+    await table.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res);
+    assert.equal(res.status, 200, '一路坏不该把整条状态拖成 400');
+    assert.equal(res.body.tailcat, null, '坏的那路如实报未取到');
+    assert.match(res.body.panelUrl, /\/api\/relay\/panel$/, '其余取值照常回');
+    assert.deepEqual(res.body.statusErrors.map((item) => item.field), ['tailcat']);
+    assert.ok(written.join('').includes('tailcat snapshot exploded'), '异常原因要连堆栈写进宿主日志');
+  } finally {
+    process.stderr.write = originalWrite;
+  }
 });
 
 /**
