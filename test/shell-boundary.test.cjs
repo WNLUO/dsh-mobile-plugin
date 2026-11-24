@@ -51,6 +51,13 @@ test('外壳的引用图里不许出现任何线路实现（前缀 + 点名）',
   assert.deepEqual(hits, [], `外壳不许静态引用线路实现，请改成由「代」注入：${hits.join('、')}`);
 });
 
+test('外壳不许把信封三件套再拉回来（否则改信封/移动鉴权又要重启 DSH）', async () => {
+  const { shellFiles } = await import('../lib/shell/loaded-files.js');
+  const files = shellFiles(ROOT);
+  const back = files.filter(rel => rel.startsWith('lib/shared/e2ee'));
+  assert.deepEqual(back, [], `外壳不许静态引用信封模块：它们会把移动端守卫重新拖进外壳、改一次就重启。请让代持有，或注入进外壳：${back.join('、')}`);
+});
+
 test('总控上报不再自己 require 服务商清单（改由代注入）', () => {
   const src = fs.readFileSync(CONTROL, 'utf8');
   assert(
