@@ -11,6 +11,8 @@
  *      被逐位探测；
  *   3. 三条 App 侧鉴权路径（Bearer 宿主令牌 / dsh_lan cookie / dshc_ 设备凭据）都能打通到
  *      宿主，且设备凭据被吊销后立即失效。
+ *
+ * 本次改动：假上游记录收到的 Host，钉住 health 与鉴权后的 API 转发出去的都是本机上游地址。
  */
 
 const assert = require('node:assert/strict')
@@ -26,6 +28,7 @@ process.env.DEVICE_CREDENTIALS_FILE = path.join(tmp, 'relay-device-credentials.j
 const { createLanProxy } = require('../lib/relay/lan-proxy.js')
 const core = require('../lib/relay/core.js')
 const e2ee = require('../lib/shared/e2ee.js')
+const { VIA_HEADER, withViaHeader } = require('../lib/shared/via-header.js')
 const credentials = require('../dsh-mobile-credentials/lib/credentials.js')
 
 const INSTANCE = 'lane2e01'
@@ -34,15 +37,17 @@ const CODE = '135790'
 const TICKET = 'Qk3Yb7mZ0pXc1vTn5rLd8sHf2gWj4uAy6ePi9oKt3Nx'
 const SECRET = 'lan-e2e-secret-0123456789'
 const LAN_PORT = Number(process.env.LAN_E2E_PORT || 18731)
+/** 手机同 Wi-Fi 直连时发给代理的 Host：与缺陷工单里的局域网地址同一形态。 */
+const PHONE_LAN_HOST = `192.168.31.143:${LAN_PORT}`
 
-/** 假宿主：记录每个请求看到的 URL 与 Authorization，用于验证代理透传与令牌替换。 */
+/** 假宿主：记录每个请求看到的 URL、Authorization 与 Host，用于验证代理透传与令牌替换。 */
 function startUpstream() {
   const seen = []
   const server = http.createServer((req, res) => {
     let body = ''
     req.on('data', (chunk) => { body += chunk })
     req.on('end', () => {
-      seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization || '' })
+      seen.push({ method: req.method, url: req.url, authorization: req.headers.authorization || '', host: req.headers.host || '' })
       // 定长响应（显式给 content-length）：代理必须把它原样转出去。显式 writeHead 之后
       // Node 不会再自己补长度，正好用来验这条转发。
       const payload = JSON.stringify({
@@ -118,6 +123,19 @@ const leaksIdentity = (res) => /dsh|token|授权|配对|插件|移动/i.test(res
     const health = await call(LAN_PORT, { path: '/healthz' })
     assert.equal(health.status, 200, 'healthz 应返回 200')
     assert.equal(health.body, 'ok')
+
+    // 1b. 局域网探测走的 /api/mobile/v1/health 不经鉴权、直接 proxyToUpstream。手机发来的
+    //     Host 是局域网 IP，宿主 trustedHosts 默认只信回环与监听地址；代理若原样带过去，
+    //     这一步就 403，App 会判定整个局域网地址不可用。
+    const healthMark = upstream.seen.length
+    const healthViaLan = await call(LAN_PORT, {
+      path: '/api/mobile/v1/health', headers: { host: PHONE_LAN_HOST },
+    })
+    assert.ok(isProxied(healthViaLan), '未鉴权的 health 应直达宿主')
+    assert.equal(
+      upstream.seen[healthMark]?.host, `127.0.0.1:${upstream.port}`,
+      'health 转发给宿主的 Host 必须是本机上游，不能是手机的局域网 Host',
+    )
 
     // 2. 未出示凭据的 API 请求 → 不带身份信息的 404（**不能**是 200 + 任何网页，也不能是
     //    能认出产品的 401）。
@@ -260,14 +278,20 @@ const leaksIdentity = (res) => /dsh|token|授权|配对|插件|移动/i.test(res
 
     // 7. App 主路径：Bearer 宿主令牌 + cookie（authHeaders 同时带两者，与中转态一致）
     const appHeaders = {
+      host: PHONE_LAN_HOST,
       authorization: `Bearer ${grant.token}`,
       cookie: grant.cookie,
       'x-dsh-instance': INSTANCE,
       'x-dsh-device': grant.deviceId,
       'x-dsh-device-credential': grant.deviceCredential,
     }
+    const appMark = upstream.seen.length
     const viaApp = await call(LAN_PORT, { path: '/api/mobile/v1/status', headers: appHeaders })
     assert.ok(isProxied(viaApp), 'App 契约应打通到宿主')
+    assert.equal(
+      upstream.seen[appMark]?.host, `127.0.0.1:${upstream.port}`,
+      '鉴权后的 API 转发给宿主的 Host 必须是本机上游，不能是手机的局域网 Host',
+    )
     assert.equal(JSON.parse(viaApp.body).path, '/api/mobile/v1/status')
     // 上游声明的长度必须原样转给手机：`content-length` 不是逐跳头（中转那边同样保留，见
     // `headers.rs` 的 `forwardable_response_header`）。代理把它丢掉的话，每一发响应都退化成
@@ -351,6 +375,25 @@ const leaksIdentity = (res) => /dsh|token|授权|配对|插件|移动/i.test(res
     const logout = await call(LAN_PORT, { path: '/__lan_logout' })
     assert.ok(isAnonymousNotFound(logout), '登出路由已删，应按未知路径处理')
     assert.equal(logout.headers['set-cookie'], undefined, '不得再下发清 cookie 的响应头')
+
+    // 15. 全局改写不能只修好局域网这一条路：relay / tunnel / mux / preview 共用同一个
+    //     助手，各自都必须把 Host 写成自己的本机上游，并覆盖掉客户端带来的通道标记。
+    for (const [via, fallback] of [
+      ['relay', '127.0.0.1:41001'],
+      ['tunnel', '[::1]:41002'],
+      ['mux', '127.0.0.1:41003'],
+      ['preview-webapp', 'localhost:41004'],
+    ]) {
+      const forwarded = withViaHeader(
+        { host: PHONE_LAN_HOST, 'X-Dsh-Via': ['lan', via] }, via, fallback,
+      )
+      assert.equal(forwarded.host, fallback, `${via} 的 Host 必须是本机上游`)
+      assert.equal(forwarded['X-Dsh-Via'], undefined, `${via} 不得留下客户端的通道标记`)
+      assert.equal(forwarded[VIA_HEADER], via, `${via} 的通道标记必须被覆盖写入`)
+      const mixedCase = withViaHeader({ Host: PHONE_LAN_HOST }, via, fallback)
+      assert.equal(mixedCase.host, fallback, `${via} 的大小写变体 Host 也必须被覆盖`)
+      assert.equal(mixedCase.Host, undefined, `${via} 不得留下大小写变体的 Host`)
+    }
 
     console.log('lan direct e2e tests passed')
   } finally {
