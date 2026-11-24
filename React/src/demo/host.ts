@@ -25,6 +25,7 @@ import type {
 import qr1 from './qr-1.svg?raw'
 import qr2 from './qr-2.svg?raw'
 import qr3 from './qr-3.svg?raw'
+import { PUBLIC_RELAY_URL } from '../lib/links.ts'
 
 /** 画面上报的那个版本。必须跟插件包一致，否则演示里会出现一个不存在的版本号（守卫钉着）。 */
 export const DEMO_VERSION = '0.5.104'
@@ -85,19 +86,26 @@ type DemoState = {
  * 共享的 `Root.tsx` 一个字都不用改。
  */
 function initial(): DemoState {
-  // `scene=console` 是「配过之后进控制台」那一幕：那种状态下宿主得说「配过了」，
-  // 否则控制台会因为它自己的分流把画面换成引导页。
-  const configured = ['settings', 'console'].includes(new URLSearchParams(window.location.search).get('scene') ?? '')
+  // 演示有几种「配过之后进控制台」的起点，判据只看演示页自己的地址栏：
+  //   console / settings  已配置（一条自建中转，正常老用户）
+  //   public              只走公用中转：自建中转 / 直连 / TCP / FRP / 服务商全没配
+  //   bare                什么线路都没有，只开着远程控制
+  // 这几种宿主都得说「配过了」，否则控制台的分流会把画面换成引导页。
+  const scene = new URLSearchParams(window.location.search).get('scene') ?? ''
+  const configured = ['settings', 'console', 'public', 'bare'].includes(scene)
+  const onlyPublic = scene === 'public'
+  const noRoute = scene === 'bare'
   return {
     // 从「还没配过」开始：这样打开就是引导页，配完才进主页（用户要的演示流程）。
     enabled: configured,
     onboarded: configured,
     name: DEMO_NAME,
-    relayUrl: configured ? 'https://relay.example.com' : '',
+    // public 只挂公用中转那一条；bare 什么都没有；其余已配置给一条自建中转。
+    relayUrl: onlyPublic ? PUBLIC_RELAY_URL : configured && !noRoute ? 'https://relay.example.com' : '',
     pairingCode: FAKE_QR[0].code,
     pairingPolicy: 'code',
-    // 直连一开始就开着（真机默认也是开着的），但隧道 / 监听要按「启用」之后才算起来。
-    lanEnabled: true,
+    // 直连默认开着；「什么都没有」那一幕连局域网也关掉，才符合要看的处境。
+    lanEnabled: !noRoute,
     lanPort: DEMO_LAN_PORT,
     lanPortFixed: false,
     preferredLanAddress: '',
