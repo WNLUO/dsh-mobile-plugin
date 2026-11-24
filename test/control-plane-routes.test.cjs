@@ -497,6 +497,13 @@ test('局域网与公网部署：不按来源拦截，只拒绝转发来的请�
     assert.equal(qr.status, 403, JSON.stringify(qr.body));
     assert.equal(qr.body.error.code, 'local_only');
   }
+  // 手机「网页版」那条预览管道（preview-webapp）按本机界面放行：手机上打开的整份网页版
+  // 要用这里的插件管理页，而它由已配对设备建立、只拨宿主自己的 web 端口。
+  const hostWeb = networkResponse();
+  await table.get('/api/relay/pairing')(networkRequest('/api/relay/pairing', '127.0.0.1', '127.0.0.1:19387',
+    { headers: { 'x-dsh-via': 'preview-webapp' } }), hostWeb);
+  assert.equal(hostWeb.status, 200, JSON.stringify(hostWeb.body));
+  assert.match(hostWeb.body.svg, /<svg/);
   // 2026-11-21 需求变更：控制面不再按跨站来源拒绝，局域网直连带 cross-site 也照常出码。
   const crossSiteLan = networkResponse();
   await table.get('/api/relay/pairing')(networkRequest('/api/relay/pairing', '192.168.1.2', '192.168.1.20:19387',

@@ -123,6 +123,25 @@ test('控制面：代理转发来的一律不算本机（即使它长得和本�
   }
 });
 
+test('控制面：网页版预览管道按本机界面放行', async () => {
+  // 手机「网页版」是已配对设备通过预览管道打开宿主自己的 web 端口（见 lib/relay/preview.js
+  // 的 webapp 档），手机上那整份网页版要用插件管理页，所以这一条必须能进控制面。
+  for (const value of ['preview-webapp', 'PREVIEW-WEBAPP']) {
+    const res = fakeRes();
+    let reached = false;
+    await routing.localOnly('GET', async () => { reached = true; })(fakeReq({ 'x-dsh-via': value }), res);
+    assert.equal(reached, true, `${value} 应放行`);
+  }
+  // 同名头混进别的转发值时仍按远程处理，不能靠伪造第二个头绕过。
+  const mixed = fakeRes();
+  await routing.localOnly('GET', async () => { throw new Error('handler 不该被调用'); })(
+    { headers: { 'x-dsh-via': ['preview-webapp', 'lan'] }, method: 'GET' },
+    mixed,
+  );
+  assert.equal(mixed.status, 403);
+  assert.equal(mixed.body.error.code, 'local_only');
+});
+
 test('控制面：转发标记为空不算转发，值大小写不敏感', async () => {
   const blank = fakeRes();
   let reached = false;
