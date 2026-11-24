@@ -221,3 +221,57 @@ test('sidecar 实现指纹覆盖 worker 的依赖闭包（改 relay/* 会触发�
     assert.ok(files.includes(rel), `sidecar 指纹没覆盖 ${rel}（共 ${files.length} 个）；漏了改它就不会重建`)
   }
 })
+
+test('同指纹就地热重载：隧道连上 / 线路回写的订阅随代退订，反复热重载不累积泄漏', async () => {
+  const services = await swapHarness()
+  const host = services.dshMobileSidecarHost
+  const swap = services.dshMobileTransportSwap
+  const subs = new Set()
+  const mk = () => ({
+    token: 't', sidecarToken: 't', start() {}, stop() {},
+    isStarted: () => true, setProviders() {}, syncSidecar() {}, tunnelConnected: () => false, getSnapshot: () => ({}),
+    onTunnelUp(cb) { subs.add(cb); return () => subs.delete(cb) },
+    onRouteAdopted(cb) { subs.add(cb); return () => subs.delete(cb) },
+  })
+  // boot（非事务期）：直接登记，拿到的是真退订
+  host.adopt({ fingerprint: 'same', create: mk })
+  let offUp = host.onTunnelUp(() => {})
+  let offRt = host.onRouteAdopted(() => {})
+  assert.equal(subs.size, 2, 'boot 后各登记一个订阅')
+  // 连续三次同指纹热重载：每代登记自己的订阅、退订上一代；总数必须恒为 2，不往上爬
+  for (let i = 0; i < 3; i += 1) {
+    swap.begin()
+    host.adopt({ fingerprint: 'same', create: mk }) // 同指纹：不换实例，只走换代事务
+    const nextUp = host.onTunnelUp(() => {})
+    const nextRt = host.onRouteAdopted(() => {})
+    await swap.commit()
+    if (typeof offUp === 'function') offUp() // 模拟运行时兑现上一代的退订
+    if (typeof offRt === 'function') offRt()
+    offUp = nextUp; offRt = nextRt
+    assert.equal(subs.size, 2, `第 ${i + 2} 代提交并退订上一代后，订阅数应恒为 2（退订被吞就会累积）`)
+  }
+  if (typeof offUp === 'function') offUp()
+  if (typeof offRt === 'function') offRt()
+  assert.equal(subs.size, 0, '整代销毁后订阅应清空')
+})
+
+test('控制上报：提交时新客户端启动失败 → 保留旧客户端、不把没起来的设成当前', async () => {
+  const services = await swapHarness()
+  const host = services.dshMobileTransportControl
+  const swap = services.dshMobileTransportSwap
+  const made = []; const starts = []; const stops = []
+  let failNext = false
+  const mk = store => { const c = { store, start() { if (failNext) { failNext = false; throw new Error('boom') } starts.push(c) }, stop() { stops.push(c) }, sync() {}, snapshot: () => ({}), targetUrl: '' }; made.push(c); return c }
+  host.adopt({ fingerprint: 'a', create: mk })
+  host.setProviders({ getState: () => ({ tag: 'a' }) })
+  const first = made[0]
+  swap.begin(); host.adopt({ fingerprint: 'b', create: mk }); failNext = true
+  await swap.commit()
+  assert.equal(made.length, 2, '提交时确实尝试建了新客户端')
+  assert.ok(stops.includes(first), '旧客户端被停过一次')
+  assert.equal(starts.filter(c => c === first).length, 2, '旧客户端被重启恢复（boot 一次 + 失败后一次）')
+  assert.ok(!starts.includes(made[1]), '没起来的新客户端不算启动成功')
+  host.setProviders({ getState: () => ({ tag: 'after' }) })
+  assert.equal(first.store.getState().tag, 'after', '失败后当前仍是旧客户端（新来源落到它）')
+  assert.notEqual((made[1].store.getState() || {}).tag, 'after', '没起来的新客户端不该被当成当前')
+})
