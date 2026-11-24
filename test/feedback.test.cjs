@@ -91,7 +91,8 @@ test('channels：两条途径都在，说明里写明不用查明根因、也不
   assert.ok(distribution, '缺少分发平台那条');
   assert.equal(distribution.endpoint, `${PLATFORM_ORIGIN}${FEEDBACK_PATH}`);
   assert.equal(distribution.requiresLogin, false);
-  assert.match(distribution.description, /read 动作查看官方回复/);
+  assert.match(distribution.description, /watch 动作实时等官方回复，不要反复 read 轮询/);
+  assert.match(distribution.description, /需要看历史再 read/);
   assert.match(distribution.description, /submit 带 threadKey 继续补充/);
   assert.match(distribution.description, /不会写进 App 的反馈列表/);
   assert.match(distribution.description, /没配手机也能提交/);
@@ -286,7 +287,7 @@ test('工具：说明不再要求查明根因、改为现象/已查/不确定；
   const ctx = { tools: { register: (tool) => { registered = tool; } } };
   registerFeedbackTool(ctx, depsFor([]));
   assert.equal(registered.name, 'dsh_feedback');
-  assert.deepEqual([...registered.parameters.properties.action.enum].sort(), ['channels', 'read', 'submit']);
+  assert.deepEqual([...registered.parameters.properties.action.enum].sort(), ['channels', 'read', 'submit', 'watch']);
   assert.match(registered.description, /distribution platform/);
   assert.match(registered.description, new RegExp(GITHUB_REPO));
   assert.match(registered.description, /Use `read` with the thread key/);
