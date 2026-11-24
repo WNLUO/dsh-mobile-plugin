@@ -725,7 +725,7 @@ test('换代：外壳指纹如实上报，盘上外壳与跑着的一致时不�
  * 就是用户在界面上看着「更新成功」、跑的却是旧代码 —— 静默失效是最贵的失效。
  *
  * 清单本身由外壳顺着入口的引用算（手写一份必然落后），所以这里钉的是三件别的事：清单确实
- * 走到了 CJS 与多级引用（Tailcat、中转客户端那几份都在）、`lib/shell` 下没有逃过指纹的孤立
+ * 走到了 CJS 与多级引用（中转客户端、sidecar facade 那几份都在）、`lib/shell` 下没有逃过指纹的孤立
  * 文件、以及逐个改一个字节指纹都会变。
  */
 test('换代：指纹盖住外壳实际加载的每个文件（漏一个就必须报「外壳变了」）', async () => {
@@ -733,7 +733,7 @@ test('换代：指纹盖住外壳实际加载的每个文件（漏一个就必�
   const { updater } = await loadShellModules();
   const shellFiles = updater.shellFiles(PKG_DIR);
   assert.ok(shellFiles.length >= 8, `外壳文件数不对，引用走查可能坏了：${shellFiles.length}`);
-  for (const rel of ['lib/index.js', 'lib/shell/transport-host.js', 'lib/sidecar-lifecycle.cjs', 'lib/tailcat/wiring.cjs', 'lib/relay/control.js']) {
+  for (const rel of ['lib/index.js', 'lib/shell/transport-host.js', 'lib/sidecar-lifecycle.cjs', 'lib/sidecar-facade.cjs', 'lib/relay/control.js']) {
     assert.ok(shellFiles.includes(rel), `清单没走到 ${rel}：多级引用或 CJS 的 require 没跟上`);
   }
   for (const name of fs.readdirSync(path.join(PKG_DIR, 'lib', 'shell'))) {

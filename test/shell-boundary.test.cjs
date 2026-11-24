@@ -25,6 +25,9 @@ const LINE_IMPL_DENY = [
   'lib/relay/lan-network.cjs',
   'lib/frpc/runner.cjs',
   'lib/frpc/provision.cjs',
+  'lib/tailcat/wiring.cjs',
+  'lib/tailcat/ingress.cjs',
+  'lib/tailcat/session.cjs',
 ];
 
 test('外壳的引用图里不许出现线路实现（第一批）', async () => {

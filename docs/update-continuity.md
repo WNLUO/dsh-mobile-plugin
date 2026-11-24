@@ -36,8 +36,8 @@
   （`test/shell-boundary.test.cjs` 钉着外壳引用图里不许再出现它们）。
 - **常驻传输进程的代码也要能换**：实现放「代」里、由这一代 `adopt` 交给外壳，外壳按「实现指纹」
   持有 —— 指纹不变就沿用（换代不断线），变了只换这一条（这条线路短暂重连，DSH 不重启）。
-  FRP 已按此改造（`test/transport-host-frp-adopt.test.cjs` 钉着 adopt 契约）；隧道助手、点对点、
-  中转侧车后续同法逐条搬。
+  FRP、隧道助手已按此改造（`test/transport-host-frp-adopt.test.cjs` 钉着契约）；点对点、中转侧车
+  后续同法逐条搬。
 
 ## 已知限制（如实）
 
