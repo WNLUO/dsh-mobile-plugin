@@ -17,6 +17,9 @@
  *     否则界面会显示「可以改」，而实际写入会被拒。
  *
  * 本测试驱动真实的 handler（不是转写实现）：起一个只挂它们的真 http 服务，用真 req/res。
+ *
+ * 权限档（permission）那一项的档位目录由本插件从宿主 permissionPresets 服务补回，这里
+ * 端到端验它确实补进 value、又不碰别的命名空间；降级路径单测确认不写垃圾值。
  */
 
 const test = require('node:test');
@@ -30,6 +33,7 @@ const {
   handleLlmProviders,
   boundValue,
   normalizeNamespace,
+  augmentPermissionPresets,
   normalizeProvider,
 } = require('../lib/mobile/host-settings.js');
 
@@ -59,6 +63,7 @@ async function serve(impls) {
         },
       },
     },
+    get: typeof impls.get === 'function' ? impls.get : () => null,
   };
   const server = http.createServer((req, res) => {
     // 复刻 lib/index.js 的 guarded()：handler 抛错就回 500 JSON —— 真机上那个
@@ -545,4 +550,72 @@ test('host-settings：键值映射推成 map 字段（权限档的 presets 那�
     schema: { uid: 3, refs: { 1: { type: 'dict', inner: 2 }, 2: { type: 'string' }, 3: { type: 'object', dict: { m: 1 } } } },
   });
   assert.equal(shallow.fields, undefined);
+});
+
+test('宿主设置：permission 档位目录从宿主 permissionPresets 服务补回', async () => {
+  const catalog = () => ({
+    options: [
+      { value: 'workspace-write', name: 'Workspace Write', description: 'write' },
+      { value: 'danger-full-access', name: 'Full access', description: 'full' },
+      { value: 'auto', name: 'Auto' },
+    ],
+    // 只认配置表里的档，不含 per-call 的 auto。
+    defaultOptions: [
+      { value: 'workspace-write', name: 'Workspace Write', description: 'write' },
+      { value: 'danger-full-access', name: 'Full access', description: 'full' },
+    ],
+    defaultPreset: 'workspace-write',
+  });
+  const host = await serve({
+    describe: () => okValue({
+      writable: true,
+      hasDocument: true,
+      namespaces: [
+        { ns: 'permission', value: { defaultPreset: 'workspace-write' }, applies: 'live', revision: 1, secrets: [] },
+        { ns: 'ui-chat', value: { enabled: true }, applies: 'live', revision: 2, secrets: [] },
+      ],
+    }),
+    get: (name) => (name === 'permissionPresets' ? { catalog } : null),
+  });
+  try {
+    const body = await (await fetch(host.settings)).json();
+    const permission = body.namespaces.find((row) => row.ns === 'permission');
+    assert.deepEqual(permission.value, {
+      defaultPreset: 'workspace-write',
+      presets: {
+        'workspace-write': { name: 'Workspace Write', description: 'write' },
+        'danger-full-access': { name: 'Full access', description: 'full' },
+      },
+    });
+    // 别的命名空间一点不动。
+    assert.deepEqual(body.namespaces.find((row) => row.ns === 'ui-chat').value, { enabled: true });
+  } finally {
+    await host.close();
+  }
+});
+
+test('宿主设置：permission 补档位目录的降级路径不误伤', () => {
+  // 没有 permission 项 / 没有宿主服务 / catalog 抛错 / 空目录：都原样返回，不写垃圾值。
+  const ns = (name, value) => ({ ns: name, value, applies: 'live', revision: 1, secrets: [] });
+  const noService = [ns('permission', { defaultPreset: 'workspace-write' })];
+  augmentPermissionPresets({ get: () => null }, noService);
+  assert.deepEqual(noService[0].value, { defaultPreset: 'workspace-write' });
+
+  const throwing = [ns('permission', { defaultPreset: 'workspace-write' })];
+  augmentPermissionPresets({ get: () => ({ catalog: () => { throw new Error('no host'); } }) }, throwing);
+  assert.deepEqual(throwing[0].value, { defaultPreset: 'workspace-write' });
+
+  const empty = [ns('permission', { defaultPreset: 'workspace-write' })];
+  augmentPermissionPresets({ get: () => ({ catalog: () => ({ defaultOptions: [] }) }) }, empty);
+  assert.deepEqual(empty[0].value, { defaultPreset: 'workspace-write' });
+
+  // 没有 permission 命名空间时连 get 都不该碰。
+  const other = [ns('ui-chat', { enabled: true })];
+  augmentPermissionPresets({ get: () => { throw new Error('should not be called'); } }, other);
+  assert.deepEqual(other[0].value, { enabled: true });
+
+  // value 不是对象时补成只有 presets 的对象，不会在 null 上展开。
+  const malformed = [ns('permission', 7)];
+  augmentPermissionPresets({ get: () => ({ catalog: () => ({ defaultOptions: [{ value: 'only' }] }) }) }, malformed);
+  assert.deepEqual(malformed[0].value, { presets: { only: {} } });
 });
