@@ -200,9 +200,9 @@ export function Onboarding({ onDone }: Props) {
   const openedRef = useRef(false)
   useEffect(() => {
     if (openedRef.current) return
-    if (addresses === null) return
+    if (addresses === null || status === null) return
     openedRef.current = true
-    if (status && status.enabled) return
+    if (status.enabled) return
     void connect()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只要第一次那一轮
   }, [addresses, status])
