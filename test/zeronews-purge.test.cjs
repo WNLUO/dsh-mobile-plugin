@@ -64,7 +64,7 @@ test('提权脚本内容是定位到的客户端 + reset，跑完删掉临时脚
     scriptText = fs.readFileSync(scriptPath, 'utf8');
     return { code: 0, stdout: '', stderr: '' };
   };
-  await runElevatedReset(SYSTEM_BIN, { run });
+  await runElevatedReset(SYSTEM_BIN, { run, platform: 'darwin' });
   assert.ok(scriptText.includes(`'${SYSTEM_BIN}' reset`), '脚本里是单引号包住的客户端路径 + reset');
   assert.equal(fs.existsSync(scriptPath), false, '临时脚本跑完即删');
 });
