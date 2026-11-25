@@ -98,3 +98,21 @@ test('十门语言的跳过文案齐全、非空', () => {
   }
   assert.equal((messages.match(/'panel\.onboarding\.skipSetup':/g) || []).length, langs.length, '跳过文案只落在十门语言各一处');
 });
+
+test('第三页先自检再出码：检查中、一条都不通时都不摆二维码', () => {
+  const step3 = page.slice(page.indexOf('{step === 3 ? ('), page.indexOf('{/* 服务商面板'))
+  assert.match(page, /\/api\/relay\/pairing-check/, '自检打宿主那条只读路由');
+  assert.match(page, /const qrBlocked = checkRunning \|\| checkSummary\?\.allFailed === true/, '检查中或全失败都不出码');
+  assert.match(step3, /qrReady && !qrBlocked \? \(/, '二维码要等自检通过才画');
+  assert.match(step3, /checkRunning \? \([\s\S]{0,160}<Spinner \/>/, '检查中给的是转圈');
+  assert.match(step3, /checkSummary\?\.allFailed \? \(/, '全失败要在原地说明');
+  // 进第三页就查一次；回第二页换服务商再进来会重查（码里的地址变了）。
+  assert.match(page, /if \(step !== 3 \|\| !status\?\.enabled\) return/, '第三页才查');
+});
+
+test('自检结论分两档：只有本机回环通时不许说成「局域网正常」', () => {
+  assert.match(page, /checkSummary\?\.remoteOk \? \(/, '外部线路通了才说可以扫码');
+  assert.match(page, /checkSummary && !checkSummary\.remoteOk && checkSummary\.localOk/, '只剩回环时另说一句');
+  assert.match(page, /panel\.onboarding\.check\.loopbackOnly/, '回环那一句走自己的文案键');
+  assert.match(page, /first\.local \?/, '行里也要标出这条是本机回环');
+});
