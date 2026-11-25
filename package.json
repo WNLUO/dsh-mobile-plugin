@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.116",
+  "version": "0.5.117",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -117,22 +117,23 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.116",
+    "version": "0.5.117",
     "kinds": [
+      "fix",
       "feature"
     ],
     "notes": {
-      "zh-Hans": "- 首次接入引导页新增「跳过配置」：不想接服务商的用户可以直接进入控制台，自己配好网络后再回来扫码。",
-      "zh-Hant": "- 首次接入引導頁新增「跳過設定」：不想接服務商的使用者可以直接進入控制台，自己配好網路後再回來掃碼。",
-      "en": "- Added a Skip setup option to the first-time guide. If you don't want a service provider, you can go straight to the console and scan the QR code after setting up your own network.",
-      "ja": "- 初回セットアップ画面に「設定をスキップ」を追加しました。プロバイダーを利用したくない場合は、コンソールに直接入り、自分でネットワークを設定してから QR コードをスキャンできます。",
-      "ko": "- 첫 연결 안내 화면에 «설정 건너뛰기»를 추가했습니다. 서비스 제공자를 원하지 않으면 콘솔로 바로 들어가 직접 네트워크를 설정한 뒤 QR 코드를 스캔할 수 있습니다.",
-      "de": "- Der Ersteinrichtungsseite wurde «Einrichtung überspringen» hinzugefügt. Ohne Dienstanbieter geht es direkt in die Konsole; nach der eigenen Netzwerkeinrichtung kann der QR-Code gescannt werden.",
-      "es": "- Se añadió «Omitir la configuración» a la guía inicial. Si no quieres usar un proveedor, entra directamente en la consola y escanea el código QR después de configurar tu red.",
-      "fr": "- Ajout de « Passer la configuration » dans le guide de première connexion. Sans fournisseur, vous pouvez entrer directement dans la console et scanner le code QR après avoir configuré votre réseau.",
-      "pt": "- Adicionado «Pular a configuração» ao guia de primeira conexão. Sem um provedor, você pode entrar direto no console e escanear o código QR após configurar sua rede.",
-      "ru": "- В экран первичной настройки добавлена команда «Пропустить настройку». Без провайдера можно сразу открыть консоль и отсканировать QR-код после настройки своей сети.",
-      "tr": "- İlk kurulum ekranına «Kurulumu atla» eklendi. Bir sağlayıcı kullanmak istemiyorsanız doğrudan konsola girebilir, kendi ağınızı kurduktan sonra QR kodunu tarayabilirsiniz."
+      "zh-Hans": "- 修复零讯线路的问题：客户端意外退出后不再一直显示「已连接」，会定期检查客户端状态，掉线后自动恢复。\n- 从引导页或失败页提交问题时，会自动带上问题来源、场景和版本信息，反馈更容易被定位。",
+      "zh-Hant": "- 修復零訊線路的問題：用戶端意外結束後不再一直顯示「已連線」，會定期檢查用戶端狀態，掉線後自動恢復。\n- 從引導頁或失敗頁提交問題時，會自動帶上問題來源、場景與版本資訊，讓回報更容易被定位。",
+      "en": "- Fixed an issue where the ZeroNews route kept showing \"Connected\" after the client exited unexpectedly and never reconnected. The client is now checked periodically and the route is restored automatically after a drop.\n- Feedback sent from the guide or an error page now includes its source, scenario and version details, making reports easier to trace.",
+      "ja": "- クライアントが予期せず終了しても ZeroNews 回線が「接続済み」のまま自動再接続しない問題を修正しました。定期的にクライアントの状態を確認し、切断後は自動で復旧します。\n- ガイド画面やエラー画面から問題を送信すると、発生元・場面・バージョン情報が自動で付き、報告を追いやすくなりました。",
+      "ko": "- 클라이언트가 예기치 않게 종료된 뒤에도 ZeroNews 회선이 '연결됨'으로만 표시되고 자동 재연결되지 않던 문제를 수정했습니다. 이제 클라이언트 상태를 주기적으로 확인하고, 연결이 끊기면 자동으로 복구합니다.\n- 안내 화면이나 오류 화면에서 문제를 제출할 때 출처, 상황, 버전 정보가 함께 전송되어 보고 내용을 더 쉽게 추적할 수 있습니다.",
+      "de": "- Behoben: Die ZeroNews-Verbindung zeigte nach einem unerwarteten Client-Absturz weiterhin „Verbunden\" und stellte die Verbindung nicht wieder her. Der Client wird jetzt regelmäßig geprüft und nach einem Abbruch automatisch wiederhergestellt.\n- Feedback aus dem Einrichtungs- oder Fehlerbildschirm enthält jetzt automatisch Quelle, Szene und Versionsangaben, sodass Meldungen leichter nachvollziehbar sind.",
+      "es": "- Se corrigió un problema por el cual la línea ZeroNews seguía mostrando «Conectado» después de que el cliente saliera de forma inesperada y nunca se reconectaba. Ahora se comprueba periódicamente el cliente y la línea se restaura automáticamente tras una caída.\n- Los informes enviados desde la guía o una pantalla de error incluyen automáticamente el origen, la situación y la versión, lo que facilita su seguimiento.",
+      "fr": "- Correction d'un problème où la ligne ZeroNews affichait toujours « Connecté » après la fermeture inattendue du client et ne se reconnectait jamais. Le client est désormais vérifié régulièrement et la ligne est restaurée automatiquement après une coupure.\n- Les signalements envoyés depuis le guide ou un écran d'erreur incluent désormais automatiquement la source, le contexte et la version, ce qui facilite leur suivi.",
+      "pt": "- Corrigido um problema em que a linha ZeroNews continuava mostrando \"Conectado\" depois que o cliente saía inesperadamente e nunca se reconectava. Agora o cliente é verificado periodicamente e a linha é restaurada automaticamente após uma queda.\n- Os relatórios enviados pelo guia ou por uma tela de erro agora incluem automaticamente a origem, o cenário e a versão, facilitando o acompanhamento.",
+      "ru": "- Исправлена проблема, при которой линия ZeroNews продолжала показывать «Подключено» после непредвиденного завершения клиента и не восстанавливала соединение. Теперь состояние клиента проверяется периодически, и после обрыва линия восстанавливается автоматически.\n- Отзывы, отправленные из руководства или экрана ошибки, теперь автоматически содержат источник, сценарий и версию, что упрощает их отслеживание.",
+      "tr": "- İstemci beklenmedik şekilde kapandıktan sonra ZeroNews hattının \"Bağlı\" görünmeye devam edip hiç yeniden bağlanmaması sorunu düzeltildi. Artık istemci düzenli olarak kontrol ediliyor ve kopma sonrası hat otomatik olarak geri yükleniyor.\n- Kılavuz veya hata ekranından gönderilen geri bildirimler artık kaynak, senaryo ve sürüm bilgilerini otomatik olarak içeriyor; böylece takip kolaylaşıyor."
     }
   }
 }
