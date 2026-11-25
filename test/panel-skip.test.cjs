@@ -42,14 +42,28 @@ test('引导页是三页：下载 App → 配网络 → 扫码，同一时刻只
 
 test('第二页常驻「跳过」按钮，且它不受 anyReady 门禁', () => {
   const step2 = page.slice(page.indexOf('{step === 2 ? ('), page.indexOf('{step === 3 ? ('));
-  const skipAt = step2.indexOf("t('panel.onboarding.skipSetup')");
+  const skipAt = step2.indexOf('void skipSetup()');
   assert.notEqual(skipAt, -1, '第二页要有跳过按钮');
-  const skip = step2.slice(Math.max(0, skipAt - 260), skipAt + 60);
-  assert.match(skip, /onClick=\{\(\) => void skipSetup\(\)\}/, '跳过按钮要接到 skipSetup');
+  const skip = step2.slice(skipAt - 120, skipAt + 120);
+  assert.match(skip, /t\('panel\.onboarding\.skipSetup'\)/, '跳过按钮要有文案键');
   assert.doesNotMatch(skip, /disabled=/, '跳过按钮不许被 anyReady 或别的门禁禁用');
 
   const step3 = page.slice(page.indexOf('{step === 3 ? ('), page.indexOf('{/* 服务商面板'));
   assert.ok(!step3.includes('skipSetup'), '第三页不再放跳过：走到扫码这一步就该连上');
+});
+
+test('第二页服务商一家一行：接好就不给「去配置」，跳过与下一步并排靠右', () => {
+  const step2 = page.slice(page.indexOf('{step === 2 ? ('), page.indexOf('{step === 3 ? ('));
+  // 一行一家，不铺两列大卡、也不摆每家那段说明 —— 服务商以后会越来越多。
+  assert.match(step2, /<div className="flex flex-col gap-2">/, '服务商竖着排，一家一行');
+  assert.doesNotMatch(step2, /sm:grid-cols-2/, '不再两列大卡');
+  assert.doesNotMatch(step2, /look\.hint/, '卡片上不再写服务商说明');
+  // 接好之后这一行只剩状态。
+  assert.match(step2, /\{ready \? null : \(/, '已就绪就不再给「去配置」');
+  // 两个按钮都靠右，跳过在下一步左边；没配好时下一步点不动。
+  const footer = step2.slice(step2.indexOf('justify-end gap-2 px-4 pb-4'));
+  assert.ok(footer.indexOf('skipSetup') !== -1 && footer.indexOf('skipSetup') < footer.indexOf('setStep(3)'), '跳过在下一步左边');
+  assert.match(step2, /disabled=\{!anyReady\} onClick=\{\(\) => setStep\(3\)\}/, '没配好时下一步是禁用的');
 });
 
 test('skipSetup 先落 onboarded 再进门，避免下次又回到引导页', () => {

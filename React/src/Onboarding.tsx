@@ -1,4 +1,5 @@
 // 2026-11-26：引导页拆成三页——下载 App / 配网络（可跳过，跳过直接进控制台）/ 扫码连接。
+// 2026-11-26：第二页服务商改一行一家，接好之后不再给「去配置」；跳过与下一步并排靠右。
 // 2026-11-25：兜底仍不可用时在引导页弹端口冲突指引，配服务商时也认这条状态。
 // 2026-11-25：引导页加「跳过」出口——不想接服务商的人也能进控制台自己配线路。
 // 2026-11-25：直连那一行复用错误档带回环 health 被抢的原因。
@@ -12,9 +13,8 @@
  *      **跳过**，跳过就直接进控制台（不接线路、也不去第三页）；
  *   3. **扫码连接** —— 线路接好之后才放二维码，手机扫了才能连。
  *
- * 2026-11-24 起不再默认把「公用中转」塞进配置：新用户得自己配一条能用的网络。局域网直连照旧
- * 一起开着，在家同一 Wi-Fi 也能扫。兜底的隧道（Tailcat / Cloudflare / P2P）只当兜底，不再写
- * 公用中转。
+ * 局域网直连照旧一起开着，在家同一 Wi-Fi 也能扫。兜底的隧道（Tailcat / Cloudflare / P2P）
+ * 只当兜底，新装用户只靠局域网、自己配的线路和兜底隧道。
  *
  * 服务商清单来自 `lib/onboarding-providers.tsx`，加一家只改那份注册表，不碰这一页。
  */
@@ -210,10 +210,7 @@ export function Onboarding({ onDone }: Props) {
   }, [])
 
   /**
-   * 进页把局域网直连打开、并把远程控制启用（不写公用中转）。
-   *
-   * `publicRelayDisabled` 只在「这台机器本来一条中转都没有」时置真：这样宿主启用时不会再把
-   * 公用中转补回来（新装用户不该默认吃公用中转）；老用户已有中转的不动它，照旧能用。
+   * 进页把局域网直连打开、并把远程控制启用；新装用户得自己配一条能用的网络。
    */
   const openedRef = useRef(false)
   useEffect(() => {
@@ -227,7 +224,7 @@ export function Onboarding({ onDone }: Props) {
 
   /**
    * 国际：Cloudflare 快隧道自动开（用户点进引导页就该能扫）。
-   * 国内不吃公用中转，要靠用户在服务商卡片里自己把 ZeroNews / 节点小宝接上。
+   * 国内靠用户在服务商卡片里自己把 ZeroNews / 节点小宝接上。
    */
   const autoStartedCf = useRef(false)
   useEffect(() => {
@@ -350,8 +347,6 @@ export function Onboarding({ onDone }: Props) {
       pairingPolicy: 'code',
     }
     if (preferred) patch.preferredLanAddress = preferred
-    // 本来就没有中转的机器：明确停用公用中转，别让宿主在启用时把它补回来。
-    if (status && !status.relayUrl && status.publicRelayDisabled !== true) patch.publicRelayDisabled = true
     try {
       setStatus(await apiPost<StatusView>('/api/relay/config', patch))
       if (toggle) {
@@ -638,7 +633,9 @@ export function Onboarding({ onDone }: Props) {
               </p>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
+            {/* 一家一行：图标、名字、推荐标签、状态，没接好时右边再放一颗「去配置」。
+                服务商以后只会越来越多，所以不做大卡片；接好之后这一行就是纯状态，改配置去控制台。 */}
+            <div className="flex flex-col gap-2">
               {providers.map((entry) => {
                 const look = PROVIDER_LOOK[entry.provider]
                 const ready = status !== null && entry.ready(readyCtx)
@@ -646,20 +643,17 @@ export function Onboarding({ onDone }: Props) {
                   <div
                     key={entry.provider}
                     className={cn(
-                      'flex flex-col gap-2 rounded-lg border border-border-muted p-3',
+                      'flex flex-wrap items-center gap-2 rounded-lg border border-border-muted p-3',
                       entry.primary ? 'bg-primary-subtle' : '',
                     )}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="flex size-6 items-center justify-center">{look.icon}</span>
-                      <span className="text-sm font-medium text-foreground-strong">{t(look.name)}</span>
-                      {entry.primary ? <Badge variant="soft" size="xs">{t('panel.onboarding.providerRecommended')}</Badge> : null}
-                      <span className={cn('ml-auto text-xs', ready ? 'text-foreground-strong' : 'text-foreground-muted')}>
-                        {ready ? t('panel.onboarding.providerReady') : t('panel.onboarding.providerNotReady')}
-                      </span>
-                    </div>
-                    <p className="text-xs leading-5 text-foreground-muted">{t(look.hint)}</p>
-                    <div className="flex justify-end">
+                    <span className="flex size-6 items-center justify-center">{look.icon}</span>
+                    <span className="text-sm font-medium text-foreground-strong">{t(look.name)}</span>
+                    {entry.primary ? <Badge variant="soft" size="xs">{t('panel.onboarding.providerRecommended')}</Badge> : null}
+                    <span className={cn('ml-auto text-xs', ready ? 'text-foreground-strong' : 'text-foreground-muted')}>
+                      {ready ? t('panel.onboarding.providerReady') : t('panel.onboarding.providerNotReady')}
+                    </span>
+                    {ready ? null : (
                       <Button
                         variant={entry.primary ? 'primary' : 'outline'}
                         size="sm"
@@ -668,18 +662,18 @@ export function Onboarding({ onDone }: Props) {
                       >
                         {t('panel.onboarding.configure')}
                       </Button>
-                    </div>
+                    )}
                   </div>
                 )
               })}
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4">
+          <div className="flex flex-wrap items-center justify-end gap-2 px-4 pb-4">
             <Button variant="ghost" onClick={() => void skipSetup()}>
               {t('panel.onboarding.skipSetup')}
             </Button>
             <Button variant="primary" disabled={!anyReady} onClick={() => setStep(3)}>
-              {anyReady ? t('panel.onboarding.next') : t('panel.onboarding.providerNotReady')}
+              {t('panel.onboarding.next')}
             </Button>
           </div>
         </Card>
