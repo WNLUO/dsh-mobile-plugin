@@ -1,3 +1,4 @@
+// 2026-11-25：新版 CLI 只报 connected 不报 running，体检仍要认出客户端活着。
 // 2026-11-25：端口失配给错误打上 reason，接线层据此清掉状态里的旧地址。
 // 2026-11-25：体检守卫——守护进程死了打回 error 并自愈；CLI 读不到时别抖线路。
 // 2026-11-25：端口失配守卫：旧端口隧道不复用、字段缺失仍复用。
@@ -517,4 +518,32 @@ test('体检读不到 CLI 状态时不抖掉一条还能用的线路', async () 
   failCli = true;
   await runner.checkAlive();
   assert.equal(runner.status().phase, 'connected', '读不到状态不等于客户端死了，别抖线路');
+});
+
+test('新版 CLI 只报 connected 不报 running：体检不误判掉线、不重复拉起客户端', async () => {
+  const exits = [];
+  const spawnCalls = [];
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'x.example.com', status: 'active' }] } }) };
+    if (key === '/healthz') return { ok: true, json: async () => ({}) };
+    return { ok: false };
+  };
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl,
+    // 厂商 4.1.0 的 status --json 报的是 connected:true，没有 running 字段。
+    runImpl: async (bin, args) => {
+      if (args[0] === 'status') return { code: 0, stdout: '{"login":true,"connected":true}', stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {}, kill() {} }; },
+    sleepImpl: () => Promise.resolve(),
+    onUnexpectedExit: (message) => exits.push(message),
+  });
+  const connected = await runner.start();
+  assert.equal(connected.phase, 'connected');
+  assert.ok(!spawnCalls.includes('start'), 'CLI 报 connected 就该认出本机已有客户端，不再重复拉起');
+  await runner.checkAlive();
+  assert.equal(runner.status().phase, 'connected', 'connected 就是活着，别十几秒抖成掉线');
+  assert.equal(exits.length, 0, '不该安排自愈重连');
 });
