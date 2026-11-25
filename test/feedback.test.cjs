@@ -91,7 +91,9 @@ test('channels：两条途径都在，说明里写明不用查明根因、也不
   assert.ok(distribution, '缺少分发平台那条');
   assert.equal(distribution.endpoint, `${PLATFORM_ORIGIN}${FEEDBACK_PATH}`);
   assert.equal(distribution.requiresLogin, false);
-  assert.match(distribution.description, /watch 动作实时等官方回复，不要反复 read 轮询/);
+  assert.match(distribution.description, /watch 定时轮询现有反馈端点等第一条官方回复/);
+  assert.match(distribution.description, /超时提示改用 read/);
+  assert.doesNotMatch(distribution.description, /长连接|实时等官方回复/);
   assert.match(distribution.description, /需要看历史再 read/);
   assert.match(distribution.description, /submit 带 threadKey 继续补充/);
   assert.match(distribution.description, /不会写进 App 的反馈列表/);
