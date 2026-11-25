@@ -66,6 +66,8 @@ function component(file, name, imports = {}, context = {}, mutate = (source) => 
       useSelfCheck: () => ({ data: null, checking: false, error: '', missing: false, ensure() {}, refresh() {} }),
       selfCheckRow: () => ({ tone: 'off', text: 'panel.selfcheck.notChecked' }),
     };
+    // 港口兜底引导弹窗不在这条守卫的射程内，给个不渲染的桩，让 Console 的渲染路径跑通。
+    if (id.includes('PortConflictDialog')) return { PortConflictDialog: () => null, portConflictReason: (reason) => reason };
     return ui;
   };
   vm.runInNewContext(code, { module, exports: module.exports, require: requireStub, AbortController, performance,
@@ -119,6 +121,8 @@ async function consoleEnvironment(overrides = {}) {
   const calls = [];
   const api = {
     pairingRenewIn: () => null, errorText: (error) => error.message,
+    // Console 会读港口的冲突原因决定要不要弹兜底引导，这里给「没有待处理问题」。
+    lanFallbackReason: () => '',
     apiGet: async (url) => { calls.push(['get', url]); return url.includes('status') ? STATUS : url.includes('addresses') ? BOOK : {}; },
     apiPost: async (url, body) => { calls.push(['post', url, body]); return STATUS; },
     importFrp: async () => { calls.push(['import']); return { ok: true, status: { running: true, error: '', remoteAddress: 'example.com:6000' } }; },
