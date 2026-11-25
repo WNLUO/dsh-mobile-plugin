@@ -86,6 +86,24 @@ test('status() 在没有当前 sidecar 快照时仍返回完整状态', () => {
   assert.equal(status.relayRoute, null);
 });
 
+test('status() 的 lan 段带出专属入口、绕开账与兜底原因码', () => {
+  const lan = createStatusView(baseDeps({
+    getIngressView: () => ({ ingressPort: 52831, bypassing: true, conflict: 'shadowed', fallbackReason: 'external-target' }),
+  }))().lan;
+  assert.equal(lan.ingressPort, 52831);
+  assert.equal(lan.bypassing, true);
+  assert.equal(lan.conflict, 'shadowed');
+  assert.equal(lan.fallbackReason, 'external-target');
+});
+
+test('status() 没接入口视图时按缺省（不绕开、无原因码）', () => {
+  const lan = createStatusView(baseDeps())().lan;
+  assert.equal(lan.ingressPort, 0);
+  assert.equal(lan.bypassing, false);
+  assert.equal(lan.conflict, '');
+  assert.equal(lan.fallbackReason, '');
+});
+
 test('status() 如实区分「哪一层能重启」', () => {
   const sidecar = createStatusView(baseDeps())().sidecar;
   assert.deepEqual(sidecar.scope, { worker: 'restartable', facade: 'restartable', host: 'needs-host-restart' });

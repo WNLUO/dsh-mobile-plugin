@@ -54,7 +54,7 @@ It connects to **your own DeepSeek Harness**, not to some cloud service.
 
 ### Connection
 
-- Two ways in: back over the relay v2 tunnel from anywhere, or straight through the LAN proxy on the same Wi-Fi.
+- Two ways in: back over the relay v2 tunnel from anywhere, or straight through the LAN proxy on the same Wi-Fi. Public entry points now use a dedicated loopback ingress managed by the plugin instead of relying on port 18787; the plugin routes around conflicts automatically and shows an in-panel prompt when it cannot.
 - Pairing codes with an optional pairing policy; device credentials can be revoked one by one or all at once.
 - Optional iOS push notifications; leaving it off affects nothing else.
 

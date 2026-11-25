@@ -547,3 +547,18 @@ test('新版 CLI 只报 connected 不报 running：体检不误判掉线、不�
   assert.equal(runner.status().phase, 'connected', 'connected 就是活着，别十几秒抖成掉线');
   assert.equal(exits.length, 0, '不该安排自愈重连');
 });
+
+test('已有隧道时把它的端口报出来，接线层据此原地复用', async () => {
+  const { runner } = tunnelHarness({ localPort: 28787 });
+  const before = runner.status();
+  assert.equal(before.tunnelLocalPort, 0, '还没查过 endpoints 时是 0');
+  const s = await runner.start();
+  assert.equal(s.phase, 'connected');
+  assert.equal(s.tunnelLocalPort, 28787, '连上之后要记住这条隧道用的端口');
+});
+
+test('变异证明：不记录隧道端口，接线层就会把在用的隧道改到新端口', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'runner.cjs'), 'utf8');
+  assert.match(source, /tunnelLocalPort = Number\.isInteger\(found\.localPort\)/, '复用分支要记下隧道端口');
+  assert.match(source, /tunnelLocalPort,\s*\n\s*\}/, 'status 要把这个端口交给接线层');
+});

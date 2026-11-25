@@ -62,6 +62,82 @@ function mountWith(runner, state) {
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
+/** 注入回环判据的挂载：信号与「有没有别的公网线路」都由测试现给。 */
+function mountGated(runner, state, { signals, route }) {
+  const updates = [];
+  const settings = {
+    update: async (patch) => {
+      updates.push(patch);
+      for (const [k, v] of Object.entries(patch)) state[k] = v;
+    },
+    watch: (fn) => { settings._watch = fn; return () => {}; },
+  };
+  const api = mountCloudflare({
+    mount: (_label, fn) => fn(),
+    warn: () => {},
+    state,
+    settings,
+    portOf: () => 52831,
+    signals: () => signals(),
+    hasUsableRoute: () => route(),
+    ctx: { get: () => ({ runner }), effect: (fn) => fn() },
+    name: 'test',
+  });
+  return { api, updates };
+}
+
+test('兜底：回环被遮蔽且无可用线路才起，先备份再收起手填地址', async () => {
+  const state = { cloudflareUrl: '', manualLanUrl: 'https://mine.example.com', manualTcpUrl: '', manualIpv6Url: '', manualIpv4Url: '' };
+  const runner = fakeRunner();
+  const { api, updates } = mountGated(runner, state, { signals: () => ({ needsBypass: true }), route: () => false });
+  await api.reconcile(true);
+  // 备份那次把原值存进备份字段，紧接着一次把四个手填格清空。
+  assert.deepEqual(updates[0], { cloudflareFallbackBackup: { manualLanUrl: 'https://mine.example.com', manualIpv6Url: '', manualIpv4Url: '', manualTcpUrl: '' } });
+  assert.equal(state.manualLanUrl, '', '被遮蔽的入口要收起，别让手机继续拨过去');
+});
+
+test('兜底：自己拿到地址后不被当成「已有线路」而自停', async () => {
+  const state = { cloudflareUrl: '', manualLanUrl: '', manualTcpUrl: '', manualIpv6Url: '', manualIpv4Url: '' };
+  const runner = fakeRunner({ running: true });
+  const stops = [];
+  const realStop = runner.stop;
+  runner.stop = async () => { stops.push(1); return realStop(); };
+  const { api } = mountGated(runner, state, { signals: () => ({ needsBypass: true }), route: () => false });
+  await api.reconcile(true);
+  // 隧道真连上、地址写回状态：判「要不要再起一条」用的是「别的线路」，自己那条不算。
+  state.cloudflareUrl = LIVE;
+  await api.reconcile();
+  assert.equal(stops.length, 0, '刚拿到地址就停掉自己会来回抖');
+});
+
+test('兜底：已有可用线路时不起第二条', async () => {
+  const state = { cloudflareUrl: '', manualLanUrl: '', manualTcpUrl: '', manualIpv6Url: '', manualIpv4Url: '' };
+  const runner = fakeRunner();
+  const starts = [];
+  runner.start = async () => { starts.push(1); return runner.status(); };
+  const { api } = mountGated(runner, state, { signals: () => ({ needsBypass: true }), route: () => true });
+  await api.reconcile(true);
+  assert.equal(starts.length, 0, '已经有线路就不要重复起兜底');
+});
+
+test('兜底：线路恢复后停掉并原样还原手填地址', async () => {
+  const state = {
+    cloudflareUrl: '', manualLanUrl: '', manualTcpUrl: '', manualIpv6Url: '', manualIpv4Url: '',
+    cloudflareFallbackBackup: { manualLanUrl: 'https://mine.example.com', manualIpv6Url: '', manualIpv4Url: '', manualTcpUrl: '' },
+  };
+  const runner = fakeRunner({ running: true, url: LIVE });
+  let bypass = true;
+  let hasRoute = false;
+  const { api } = mountGated(runner, state, { signals: () => ({ needsBypass: bypass }), route: () => hasRoute });
+  await api.reconcile(true);
+  // 线路接上：不再需要绕开，兜底要停并把备份还原。
+  bypass = false;
+  hasRoute = true;
+  await api.reconcile();
+  assert.equal(state.manualLanUrl, 'https://mine.example.com', '还原用户原本手填的直连地址');
+  assert.deepEqual(state.cloudflareFallbackBackup, { manualLanUrl: '', manualIpv6Url: '', manualIpv4Url: '', manualTcpUrl: '' });
+});
+
 test('连上边缘后才把地址写回状态，撤回时清空', async () => {
   const state = { cloudflareUrl: '' };
   const runner = fakeRunner();

@@ -1,3 +1,4 @@
+// 2026-11-25：兜底仍不可用时弹端口冲突指引，按钮直接打开已有的端口设置弹窗。
 // 2026-11-24 用户要求：更新按钮挪到顶栏后底部横条空了，撤掉固定高度的空容器，组件逻辑照旧。
 // 2026-11-24：远程控制总开关按 applyError 报下发失败，不再弹「已停用/已启用」的成功回执。
 // 2026-11-24：重启 sidecar / 检查更新两颗图标按钮从更新卡挪进顶栏，位置在这页给。
@@ -47,6 +48,7 @@ import type { Issue } from './components/IssueMark.tsx'
 import { PairingCard } from './components/PairingCard.tsx'
 import { P2PDialog } from './components/P2PDialog.tsx'
 import { PortDialog } from './components/PortDialog.tsx'
+import { PortConflictDialog, portConflictReason } from './components/PortConflictDialog.tsx'
 import { RelayConfigDialog } from './components/RelayConfigDialog.tsx'
 import { TailcatDialog } from './components/TailcatDialog.tsx'
 import { UpdateCard } from './components/UpdateCard.tsx'
@@ -54,6 +56,7 @@ import {
   apiGet,
   apiPost,
   errorText,
+  lanFallbackReason,
   stopFrp,
   pairingRenewIn,
   type AddressBook,
@@ -644,6 +647,12 @@ export function Console() {
         fixed={status.lanPortFixed === true}
         forwarding={status.lanPortLockReason === 'forwarding'}
         onSave={(port, fixed) => void saveLanPort(port, fixed)}
+      />
+
+      <PortConflictDialog
+        reason={portConflictReason(lanFallbackReason(status))}
+        port={status.lan.ingressPort || status.lan.port}
+        onOpenPortSettings={() => setPortOpen(true)}
       />
 
       {/* 收件文件：原先常驻的那张卡，现在收进这扇弹窗，由顶栏那颗垃圾桶图标打开。 */}

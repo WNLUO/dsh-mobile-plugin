@@ -1,3 +1,4 @@
+// 2026-11-25：状态契约补回环入口端口、绕开标记、冲突形态与兜底原因码（老宿主缺格按缺省）。
 // 2026-11-25：自检的直连那一格带回环 health 结果，端口被抢也能看得见。
 // 2026-11-24：ZeroNews 的「彻底清理」端点（断开之外单独一条，面板二次确认后调用）。
 // 本机面板状态包含 Tailcat 内部落点端口，反馈可区分监听与助手就绪。
@@ -256,6 +257,14 @@ export type TrafficView = {
 export type TrafficSample = { at: number; sentBytes: number; receivedBytes: number }
 export type TrafficSeries = TrafficView & { samples: TrafficSample[] }
 
+/** 端口冲突之后兜底仍不可用的原因码；空串表示目前没有待用户处理的问题。 */
+export type LanFallbackReason = '' | 'port-conflict' | 'external-target' | 'zeronews-stale' | 'cloudflare-unavailable' | 'port-locked'
+
+/** 老宿主没有原因码那一格：读成空串，别拿 undefined 去弹窗。 */
+export function lanFallbackReason(status: StatusView | null): LanFallbackReason {
+  return status?.lan.fallbackReason ?? ''
+}
+
 export type StatusView = {
   enabled: boolean
   instanceId: string
@@ -316,6 +325,18 @@ export type StatusView = {
     adjusted: boolean
     discovery?: { state: string; error: string | null }
     recovery?: { state: string; changedAt: number; recoveredAt: number }
+    /** 专属回环入口的实际端口；老宿主没有这一格时读成 `port`。 */
+    ingressPort?: number
+    /** 端口被占后是否已绕开到专属入口；老宿主没有这一格时读成 false。 */
+    bypassing?: boolean
+    /** 端口冲突形态：'' | 'occupied' | 'shadowed'；老宿主没有这一格时读成 ''。 */
+    conflict?: '' | 'occupied' | 'shadowed'
+    /**
+     * 自动绕开与兜底之后仍不可用的原因码：'' | 'port-conflict' | 'external-target' |
+     * 'zeronews-stale' | 'cloudflare-unavailable' | 'port-locked'。
+     * 老宿主没有这一格时读成 ''（没有 unresolved 的问题）。
+     */
+    fallbackReason?: LanFallbackReason
   }
   sidecar: {
     state: string

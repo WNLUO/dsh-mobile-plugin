@@ -1190,3 +1190,23 @@ test('面板总开关读 applyError 报失败，不弹成功提示', () => {
   assert.match(body, /payload\.applyError/, '下发失败要据此改走失败提示');
   assert.match(body, /panel\.shell\.toggleApplyFailed/, '失败提示不是「已启用/已停用」那种成功回执');
 });
+
+test('自检把回环判据记进 ingress-guard，且判定变化才触发重报', () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const handler = registrations(source).find((r) => r.path === '/api/relay/selfcheck');
+  assert.ok(handler, '自检路由还在');
+  assert.match(handler.handler, /noteLoopbackVerdict\(/, '回环判据要交给 ingress-guard，状态视图才读得到');
+  assert.match(handler.handler, /ingressGuard\.signalsOf\(/, '重报与否按同一份判据算，不在别处各判一遍');
+  assert.match(handler.handler, /onIngressVerdictChanged\(/, '判据变了让总控重报当前线路');
+  // 变异：把触发重报那一行整段抹掉，重新解析出的自检段必须不再命中。
+  const mutatedSource = source.replace(/if \(typeof onIngressVerdictChanged === 'function'\) \{[\s\S]*?\n    \}/, '');
+  const mutatedHandler = registrations(mutatedSource).find((r) => r.path === '/api/relay/selfcheck');
+  assert.doesNotMatch(mutatedHandler.handler, /onIngressVerdictChanged\(/, '抹掉重报接线后这条守卫必须转红');
+});
+
+test('控制面不再把「局域网能绑」当成公网落点可用', () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const handler = registrations(source).find((r) => r.path === '/api/relay/check-port');
+  assert.ok(handler, '检查端口路由还在');
+  assert.match(handler.handler, /canListen\(port, '0\.0\.0\.0'\)/, '端口探针仍只回答局域网能不能绑，语义不许改');
+});

@@ -476,3 +476,28 @@ test('端口失配：清掉状态里的旧地址，配对码整串都不带失�
   assert.match(source, /result\.errorReason === 'port-mismatch'/, '要按 reason 认出端口失配');
   assert.match(source, /zeroNewsUrl: '' \}, \{ notify: false \}/, '清地址要 notify:false，避免通知循环');
 });
+
+test('落点端口：已有隧道时沿用它自己的端口，不当成「指向旧端口」', () => {
+  let received = null;
+  const runner = {
+    start: async () => ({ phase: 'off' }),
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'connected', url: 'https://x.example', tunnelLocalPort: 41081 }),
+  };
+  const env = mountWith(runner, { runnerFactory: (opts) => { received = opts; return runner; } });
+  assert.ok(received, 'runner 工厂拿到端口取值器');
+  assert.equal(received.portOf(), 41081, '隧道已经在 41081 上，就必须继续用它');
+  env.cleanup();
+});
+
+test('落点端口：还没有隧道时用判据给的首选值', () => {
+  let received = null;
+  const runner = {
+    start: async () => ({ phase: 'off' }),
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'off', tunnelLocalPort: 0 }),
+  };
+  const env = mountWith(runner, { runnerFactory: (opts) => { received = opts; return runner; } });
+  assert.equal(received.portOf(), 18787, '没有隧道才按首选值建');
+  env.cleanup();
+});

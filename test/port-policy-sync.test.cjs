@@ -74,9 +74,14 @@ test('变异：去掉固定入口保护会被同一断言拒绝', async () => {
 test('固定开关进配置但不重建健康监听，实际监听状态驱动总控与穿透', () => {
   const impl = fs.readFileSync(path.join(__dirname, '../lib/impl.js'), 'utf8');
   const worker = fs.readFileSync(path.join(__dirname, '../lib/sidecar-facade-worker.cjs'), 'utf8');
-  assert.match(impl, /onLanState = lan => \{ lanPorts\.apply\(lan\); syncNetwork\(\) \}/);
   // 监听状态变化时才同步：总控报地址、frp 与 cloudflare 各自同步端口。旧断言钉的是单行
   // 写法，Cloudflare 接入后 syncNetwork 变为多行且多了 cloudflare 一路，这里按现状重钉。
+  // 2026-11-25：专属入口实绑端口也要在这一拍落盘（notify:false 只写盘），所以 onLanState
+  // 不再是单行；判据仍是「监听状态驱动同步」，新增的那一格由下面的变异证明钉住。
+  const ingressWrite = /onLanState = lan => \{[\s\S]*?lanPorts\.apply\(lan\)[\s\S]*?tunnelIngressPort: ingress[\s\S]*?syncNetwork\(\)\s*\}/;
+  assert.match(impl, ingressWrite);
+  // 变异：把落盘那一格抹掉，同一条守卫必须转红。
+  assert.equal(ingressWrite.test(impl.replace('tunnelIngressPort: ingress', 'tunnelIngressPort: 0')), false);
   assert.match(impl, /syncNetwork = \(\) => \{[\s\S]*?control\.sync\(\)[\s\S]*?frpRunner\.syncLocalPort\?\.\(\)[\s\S]*?cloudflare\.syncLocalPort\?\.\(\)/);
   assert.match(impl, /lanPortLockReason: portLock\(\)/);
   assert.match(worker, /lockReason: config\.lanPortLockReason/);

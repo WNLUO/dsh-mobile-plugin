@@ -92,7 +92,11 @@ test('装配层回到一个可读的行数区间（兜底判据）', () => {
   // 实现仍在 cloudflared/wiring.cjs。
   // 2026-11-23 +4：FRP 独立成一条线路后，地址回写要认「只写 `frpUrl`」这条口径（一个闭包三行 +
   // 监听转接一行）；发现、重连与进程仍全在 `lib/frpc/runner.cjs`，装配层没有搬回实现。
-  assert.ok(lines <= 496, `lib/impl.js 回到 ${lines} 代码行了；超过 496 说明实现又被搬回装配层`);
+  // 2026-11-25 +35：回环入口判据的接线（一个 require、落盘入口端口的 onLanState 闭包、入口账与
+  // 线路落点两个取值器、可用线路判定、状态视图那格、自检 note 与重报两个转交、三条线路的
+  // portOf 改接与注释）。判据住在 `relay/ingress-guard.cjs`、兜底启停住在 `cloudflared/wiring.cjs`，
+  // 装配层没有搬回实现，上限只随接线声明抬高。
+  assert.ok(lines <= 535, `lib/impl.js 回到 ${lines} 代码行了；超过 535 说明实现又被搬回装配层`);
 });
 
 test('sidecar 生命周期与镜像推送的实现没有回到装配层', () => {

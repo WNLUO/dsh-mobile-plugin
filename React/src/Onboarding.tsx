@@ -1,3 +1,4 @@
+// 2026-11-25：兜底仍不可用时在引导页弹端口冲突指引，配服务商时也认这条状态。
 // 2026-11-25：引导页加「跳过」出口——不想接服务商的人也能进控制台自己配线路。
 // 2026-11-25：直连那一行复用错误档带回环 health 被抢的原因。
 // 用途：首次接入引导页；错误处可直接提交脱敏摘要与诊断附件，并回显反馈编号。
@@ -30,6 +31,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LanguageMenu } from './components/LanguageMenu.tsx'
 import { PanelWindowActions } from './components/PanelWindowActions.tsx'
+import { PortConflictDialog, portConflictReason } from './components/PortConflictDialog.tsx'
 import { ConsoleThemeToggle } from './components/ThemeToggle.tsx'
 import { connectionFeedbackFacts } from './lib/feedback-diagnostics.ts'
 import { DownloadChannelsGrid } from './components/DownloadAppButton.tsx'
@@ -44,6 +46,7 @@ import {
   cloudflareStart,
   errorText,
   jdxbStatus,
+  lanFallbackReason,
   pairingRenewIn,
   type AddressBook,
   type ConfigPatch,
@@ -317,6 +320,7 @@ export function Onboarding({ onDone }: Props) {
 
   /** 弹窗里点名用的端口。 */
   const lanPortText = String(status?.lan.port || addresses?.port || 18787)
+  const portConflict = portConflictReason(lanFallbackReason(status))
 
   const showSelfcheckVerdict =
     status !== null &&
@@ -664,7 +668,7 @@ export function Onboarding({ onDone }: Props) {
               </div>
             )}
             <p className="min-h-4 max-w-[320px] text-center text-xs leading-4 text-foreground-muted">
-              {!anyReady ? t('panel.onboarding.waitNetwork') : ''}
+              {!anyReady ? t(portConflict ? 'panel.onboarding.routeBlocked' : 'panel.onboarding.waitNetwork') : ''}
             </p>
           </div>
 
@@ -755,6 +759,10 @@ export function Onboarding({ onDone }: Props) {
       ) : null}
 
       <FirewallDialog open={firewallOpen} onOpenChange={setFirewallOpen} port={lanPortText} />
+      <PortConflictDialog
+        reason={portConflict}
+        port={status?.lan.ingressPort || status?.lan.port || 18787}
+      />
 
       <Dialog open={qrZoomOpen} onOpenChange={setQrZoomOpen}>
         <DialogContent className="w-[min(680px,94vw)] max-w-none" closeLabel={t('panel.common.close')}>

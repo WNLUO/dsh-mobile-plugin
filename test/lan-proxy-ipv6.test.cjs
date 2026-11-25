@@ -1,3 +1,4 @@
+// 2026-11-25：专属回环入口的独立端口与共用 handler。
 // 验证直连双栈与关闭 IPv4 后独立保留 IPv6 的真实监听。
 'use strict'
 // 监听关闭必须完成，端口冲突不在代理层自行迁移。
@@ -334,3 +335,27 @@ test('IPv6-only：LAN关闭仍能访问IPv6，同端口IPv4不监听', async (t)
     await assert.rejects(request(port, { host: '127.0.0.1', family: 4, path: '/healthz' }), { code: 'ECONNREFUSED' });
   } finally { await proxy.stop(); await new Promise((resolve) => upstream.server.close(resolve)); }
 });
+
+// 专属回环入口：端口独立落盘、与主入口共用同一条 handler；首选被占时内核另分一次。
+test('专属回环入口端口独立、共用 handler、被占另分', async () => {
+  const upstream = await startUpstream()
+  const holder = net.createServer()
+  const occupied = await new Promise((resolve) => {
+    holder.listen(0, '127.0.0.1', () => resolve(holder.address().port))
+  })
+  const { proxy, port, logs } = await startProxy(upstream.port, { ingressPort: occupied })
+  try {
+    const ingress = proxy.ingressPort()
+    assert.ok(ingress > 0, '专属入口真的在听')
+    assert.notEqual(ingress, port, '与主入口是两个端口')
+    assert.notEqual(ingress, occupied, '被占后内核另分了一个')
+    const health = await request(ingress, { path: '/healthz' })
+    assert.equal(health.status, 200, '共用同一条 handler')
+    assert.equal(health.body, 'ok')
+    assert.ok(logs.some(line => line.includes('改由内核另分')), '端口被占要留下日志')
+  } finally {
+    await proxy.stop()
+    await new Promise((resolve) => holder.close(resolve))
+    await new Promise((resolve) => upstream.server.close(resolve))
+  }
+})
