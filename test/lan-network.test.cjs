@@ -1,3 +1,4 @@
+// 反馈 1012：172.16/12 整段都算局域网候选，容器 / 虚拟网卡靠网卡名黑名单挡；用户已确认需求变化，旧断言照此改。
 'use strict'
 
 /**
@@ -116,11 +117,14 @@ test('isPublicAddress 只认真能从外网拨过来的地址', () => {
   assert.equal(isPublicAddress('100.63.255.255'), true)
 })
 
-test('172.16/12 里被容器/虚拟机默认占掉的段不算局域网候选', () => {
-  // 客户现场：一块网卡带着 172.17.0.1 —— 那是 docker0 的网桥地址，手机拨过去到不了。
-  // 它**仍然是私有地址**（isPrivateLanAddress 为真），但不是「能当候选」的地址。
+test('172.16/12 整段都是局域网候选，Docker 默认段不再按地址排除', () => {
+  // 需求变化（反馈 1012，用户已确认）：用户 Wi-Fi 是 172.17.153.88 —— 路由器把 Wi-Fi 划在
+  // Docker 默认的 172.17/16。原先按网段排除把真实 Wi-Fi 一并砍掉，局域网自动发现整个失效。
+  // 按项目规矩改断言：容器 / 虚拟网卡改由网卡名黑名单挡，地址段不再排除；isPrivateLanAddress
+  // 这个事实判断与另外两段 RFC1918 一个字没动。
   assert.equal(isPrivateLanAddress('172.17.0.1'), true)
-  assert.equal(isLanCandidateAddress('172.17.0.1'), false)
+  assert.equal(isLanCandidateAddress('172.17.0.1'), true)
+  assert.equal(isLanCandidateAddress('172.17.153.88'), true)
 
   for (const address of [
     '172.18.0.1', // docker compose 默认网络
@@ -129,13 +133,14 @@ test('172.16/12 里被容器/虚拟机默认占掉的段不算局域网候选', 
     '172.24.0.1', // kubeadm / overlay
     '172.31.255.254',
   ]) {
-    assert.equal(isLanCandidateAddress(address), false, address)
-  }
-
-  // 172.16/12 里没被主流工具默认占用的部分照旧是候选，别把整段砍了。
-  for (const address of ['172.16.0.1', '172.21.5.9', '172.23.255.254']) {
     assert.equal(isLanCandidateAddress(address), true, address)
   }
+
+  // 172.16/12 边界：段内全收，段外不收。
+  assert.equal(isLanCandidateAddress('172.16.0.1'), true)
+  assert.equal(isLanCandidateAddress('172.23.255.254'), true)
+  assert.equal(isLanCandidateAddress('172.15.0.1'), false)
+  assert.equal(isLanCandidateAddress('172.32.0.1'), false)
   // 另外两段 RFC1918 一个字都没变。
   assert.equal(isLanCandidateAddress('10.0.0.5'), true)
   assert.equal(isLanCandidateAddress('192.168.31.69'), true)
@@ -143,16 +148,36 @@ test('172.16/12 里被容器/虚拟机默认占掉的段不算局域网候选', 
   assert.equal(isLanCandidateAddress('169.254.1.1'), false)
 })
 
-test('docker 网桥上的 172.17.0.1 不会被当成局域网地址摆出来', () => {
-  // 网卡名不在黑名单里也拦得住：判据是地址段，不是网卡叫什么 ——
-  // 有人把 docker 网桥改名成 en0 也不可能因此变成候选。
-  const host = ifaces({
-    en0: '192.168.31.69',
+test('172.17 地址：普通网卡名下是候选，容器 / 虚拟网卡名仍被挡', () => {
+  // 判据从地址段换成网卡名：把 docker 网桥改名成 en0 确实会因此变成候选 —— 这是用户已确认
+  // 的取舍，为的是不再误伤真实 Wi-Fi。docker0 / br- 这类名字照旧挡在门外。
+  assert.deepEqual(lanUrls(18787, ifaces({
+    eth0: '172.17.153.88',
     eth1: '172.17.0.1',
+  })), ['http://172.17.153.88:18787', 'http://172.17.0.1:18787'])
+
+  // 黑名单里的网卡名就算挂着 172.17 也不摆出来。
+  assert.deepEqual(lanUrls(18787, ifaces({
+    docker0: '172.17.0.1',
+    'br-4fda23006641': '172.17.18.1',
+  })), [])
+})
+
+test('反馈 1012：Wi-Fi 落在 172.17/16 时局域网自动发现恢复', () => {
+  // 用户现场快照：Wi-Fi(en0) = 172.17.153.88，docker0 网桥 = 172.17.0.1。
+  // 修复前 lan 为空；修复后只留 Wi-Fi 那条，网桥那条靠网卡名挡掉。
+  const host = ifaces({
+    lo0: '127.0.0.1',
+    en0: '172.17.153.88',
+    docker0: '172.17.0.1',
+    'br-4fda23006641': '172.18.0.1',
   })
-  assert.deepEqual(lanUrls(18787, host), ['http://192.168.31.69:18787'])
-  // 一台机器**只有** 172.17 的时候，候选为空：给一个连不上的地址不如不给。
-  assert.deepEqual(lanUrls(18787, ifaces({ eth1: '172.17.0.1' })), [])
+  assert.deepEqual(lanUrls(18787, host), ['http://172.17.153.88:18787'])
+  assert.deepEqual(lanCandidates(18787, host), [
+    { url: 'http://172.17.153.88:18787', interface: 'en0', family: 'IPv4', address: '172.17.153.88' },
+  ])
+  // 私网归私网：这份快照在公网清单里依然一条都不给。
+  assert.deepEqual(publicUrls(18787, host), [])
 })
 
 test('publicInterfaces 与 lanInterfaces 共用同一套网卡黑名单与排序', () => {
