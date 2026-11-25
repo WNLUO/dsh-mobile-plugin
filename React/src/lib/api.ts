@@ -1,3 +1,4 @@
+// 2026-11-25：自检的直连那一格带回环 health 结果，端口被抢也能看得见。
 // 2026-11-24：ZeroNews 的「彻底清理」端点（断开之外单独一条，面板二次确认后调用）。
 // 本机面板状态包含 Tailcat 内部落点端口，反馈可区分监听与助手就绪。
 // 本机面板读取真实上报去向，并区分入口恢复与 FRP 启用、启动、待重试状态。
@@ -707,6 +708,11 @@ export type SelfCheck = {
     urls: string[]
     /** 首选端口被占用时退到了别的端口。 */
     portAdjusted: boolean
+    /**
+     * 回环 health 探针：端口在听不代表 127.0.0.1 上答的是本插件。老宿主没这一格，
+     * 所以可选；`blocked` 要复用直连那一行的错误档把原因带出来。
+     */
+    loopback?: { state: 'ok' | 'blocked' | 'unknown'; reason: string } | null
   }
   tunnel: {
     state: 'connected' | 'off' | 'error'

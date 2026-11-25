@@ -1,3 +1,4 @@
+// 2026-11-25：回环被抢复用直连那一行的错误档与现成文案键。
 'use strict';
 
 /**
@@ -57,4 +58,17 @@ test('「没开」那句文案说清它不拦，不只是干巴巴一句「防�
   // 十门语言都得改到，不能只换中文。
   const rows = dict.split("'panel.selfcheck.firewallOff'").length - 1;
   assert.equal(rows, 10, `firewallOff 只落在 ${rows} 门语言里，十门都要有`);
+});
+
+test('回环被抢：复用直连那一行的错误档与现成文案键，原因走 detail', () => {
+  const source = read('Onboarding.tsx');
+  assert.match(source, /loopbackInfo\?\.state === 'blocked' \? 'error'/, '被抢就落到已有的 error 档');
+  assert.match(source, /detail=\{loopbackInfo\?\.state === 'blocked' \? loopbackInfo\.reason : undefined\}/, '失败原因走现成的 detail');
+  assert.match(source, /lanText\(lanState, true\)/, '文案仍走直连那一行，不另起一套');
+  assert.doesNotMatch(source, /loopbackInfo\?\.state === 'blocked' \? 'warn'/, '不新增黄档');
+
+  const api = read('lib', 'api.ts');
+  assert.match(api, /loopback\?: \{ state: 'ok' \| 'blocked' \| 'unknown'; reason: string \} \| null/, '契约里带这一格，老宿主可缺');
+  const format = read('lib', 'format.ts');
+  assert.match(format, /if \(state === 'error'\) return t\('panel\.lan\.error'\)/, '错误档用的是现成文案键');
 });

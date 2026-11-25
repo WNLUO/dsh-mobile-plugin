@@ -1,3 +1,4 @@
+// 2026-11-25：回环 health 探针守卫，端口被抢不再误报 ok。
 'use strict';
 
 /**
@@ -14,6 +15,8 @@
  */
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -27,7 +30,7 @@ const {
   readFirewall,
   resetFirewallCache,
 } = require('../lib/relay/firewall-probe.js');
-const { MOBILE_RECENT_MS, verdictOf, createConnectionCheck } = require('../lib/relay/connection-check.js');
+const { MOBILE_RECENT_MS, verdictOf, loopbackVerdictOf, createConnectionCheck } = require('../lib/relay/connection-check.js');
 
 /** 假执行器：按命令行回预置的 stdout，并记下被调了几次。 */
 function fakeExec(answers) {
@@ -404,6 +407,7 @@ test('自检载荷：四行数据与结论对得上，字段缺了也不抛', as
     port: 18787,
     urls: ['http://192.168.1.5:18787'],
     portAdjusted: true,
+    loopback: null,
   });
   assert.deepEqual(view.tunnel, { state: 'connected', relayUrl: 'https://relay.example.com' });
   assert.equal(view.mobile.idle, false);
@@ -477,4 +481,71 @@ test('直连隧道：自检真去拨下游端口，ready 但下游没人听要�
   // 宿主根本没这条通道 → tailcat 为 null。
   const none = await mk(null, async () => true).run();
   assert.equal(none.tailcat, null);
+});
+
+test('回环 health 判据：只认本插件形状，403/异 service/没报 ok 都算被抢', () => {
+  assert.deepEqual(
+    loopbackVerdictOf({ ok: true, service: 'dsh-mobile-plugin' }),
+    { state: 'ok', reason: '' },
+  );
+  // 代理客户端回 403 页面时裸 TCP 探针解不出 JSON，body 是 null。
+  assert.equal(loopbackVerdictOf(null).state, 'blocked');
+  assert.match(loopbackVerdictOf(null).reason, /被抢占/);
+  // 别的服务占着回环，TCP 也照通，但 service 不是我们。
+  assert.equal(loopbackVerdictOf({ ok: true, service: 'dsh-mobile-relay' }).state, 'blocked');
+  assert.match(loopbackVerdictOf({ ok: true, service: 'dsh-mobile-relay' }).reason, /别的程序/);
+  assert.equal(loopbackVerdictOf({ ok: false, service: 'dsh-mobile-plugin' }).state, 'blocked');
+});
+
+/** 回环探针假体：只关心 lan 那一格，其余取值都给确定值。 */
+function loopbackCheck({ lan = { state: 'listening', port: 18787 }, probeLoopback }) {
+  return createConnectionCheck({
+    platform: 'linux',
+    now: () => 1_000_000,
+    status: () => ({ lan }),
+    lanCandidates: () => [],
+    mobileActivity: () => ({ lastMobileAt: 0 }),
+    probeFirewall: async () => ({ supported: true, enabled: false, allowsApp: null }),
+    probeLoopback,
+  });
+}
+
+test('自检载荷：回环被抢报出来，正常插件形状不报，0 端口 / 没监听不拨', async () => {
+  const normal = await loopbackCheck({
+    probeLoopback: async (port) => {
+      assert.equal(port, 18787, '探的是当前直连端口的回环');
+      return { ok: true, service: 'dsh-mobile-plugin' };
+    },
+  }).run();
+  assert.deepEqual(normal.listening.loopback, { state: 'ok', reason: '' });
+  assert.equal(normal.verdict, 'unknown', 'ok 的语义不动：手机没来过就不许说 ok');
+
+  const hijacked = await loopbackCheck({
+    probeLoopback: async () => ({ ok: true, service: 'other-proxy' }),
+  }).run();
+  assert.equal(hijacked.listening.loopback.state, 'blocked');
+  assert.match(hijacked.listening.loopback.reason, /别的程序.*被抢占/);
+
+  let dialed = 0;
+  const count = async () => { dialed += 1; return null; };
+  const zero = await loopbackCheck({ lan: { state: 'listening', port: 0 }, probeLoopback: count }).run();
+  assert.equal(zero.listening.loopback, null, 'port=0 没得探，留 null');
+  const off = await loopbackCheck({ lan: { state: 'off', port: 18787 }, probeLoopback: count }).run();
+  assert.equal(off.listening.loopback, null, 'LAN 未监听就跳过');
+  assert.equal(dialed, 0, '跳过时一次都不该拨回环');
+});
+
+test('探测异常降级为 unknown，接口照旧返回 200 载荷', async () => {
+  const view = await loopbackCheck({
+    probeLoopback: async () => { throw new Error('timeout'); },
+  }).run();
+  assert.equal(view.ok, true);
+  assert.equal(view.listening.loopback.state, 'unknown');
+  assert.match(view.listening.loopback.reason, /探测失败/);
+});
+
+test('变异证明：去掉 service 校验或不挂到 listening，上面两条就红', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'relay', 'connection-check.js'), 'utf8');
+  assert.match(source, /body\.ok === true && body\.service === LOOPBACK_SERVICE/, '校验必须同时认 ok 与 service');
+  assert.match(source, /loopbackVerdictOf\(await probeLoopback\(port\)\)/, '探针结果要挂到自检载荷');
 });

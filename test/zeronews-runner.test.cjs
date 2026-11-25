@@ -1,7 +1,10 @@
+// 2026-11-25：端口失配守卫：旧端口隧道不复用、字段缺失仍复用。
 // ZeroNews 线路：自动下载→浏览器登录→起客户端→建隧道→读域名，整条链用注入假体验证。
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const {
   platformId, downloadUrlOf, runDir, extractFromTar, ensureZeroNews,
@@ -314,6 +317,70 @@ test('已有隧道不重复建（免费档只有一条额度）', async () => {
   const s = await runner.start();
   assert.equal(s.phase, 'connected');
   assert.equal(added, false, '已有隧道绝不重复建');
+});
+
+/** 隧道复用假体：endpoints 里那条 active 的 HTTPS 隧道可带 local_port。 */
+function tunnelHarness({ localPort, port = 28787 } = {}) {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
+    if (key !== '/api/v1/endpoints') return { ok: false };
+    const item = { type: 'HTTPS', domain: 'old.example.com', status: 'active' };
+    if (localPort !== undefined) item.local_port = localPort;
+    return { ok: true, json: async () => ({ data: { items: [item] } }) };
+  };
+  const runImpl = async (_bin, args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'status') return { code: 0, stdout: '{"login":true}', stderr: '' };
+    if (args[0] === 'add') return { code: 0, stdout: JSON.stringify({ public_url: 'https://new.example.com' }), stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => port,
+    fetchImpl, runImpl, spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve(),
+  });
+  return { runner, calls };
+}
+
+test('旧隧道指向旧端口：标 error、不可重试，且不猜命令去删/建云端隧道', async () => {
+  const { runner, calls } = tunnelHarness({ localPort: 18787 });
+  const s = await runner.start();
+  assert.equal(s.phase, 'error');
+  assert.match(s.error, /旧隧道指向旧端口.*删除后重试/);
+  assert.equal(s.retryable, false, '换端口后旧隧道不会自己变，自动重试只会反复超时');
+  assert.ok(!calls.some((c) => c.startsWith('add ')), '失配时不自动建新隧道（免费档只有一条额度）');
+});
+
+test('endpoints 没有 local_port 仍复用（老数据不误报失配）', async () => {
+  const { runner, calls } = tunnelHarness({});
+  const s = await runner.start();
+  assert.equal(s.phase, 'connected');
+  assert.equal(s.url, 'https://old.example.com');
+  assert.ok(!calls.some((c) => c.startsWith('add ')), '字段缺失按老数据复用');
+});
+
+test('local_port 与当前端口一致仍复用', async () => {
+  const { runner, calls } = tunnelHarness({ localPort: 28787 });
+  const s = await runner.start();
+  assert.equal(s.phase, 'connected');
+  assert.equal(s.url, 'https://old.example.com');
+  assert.ok(!calls.some((c) => c.startsWith('add ')));
+});
+
+test('账号侧那套嵌套后端端口形状也能判失配', () => {
+  // 直接验端口读取：嵌套形状同样来自 ZeroNews，不能只在平铺字段上做比对。
+  const payload = { data: { items: [{ type: 'HTTPS', domain: 'old.example.com', status: 'active',
+    route_rules: [{ forward_rules: [{ load_balance_policy: { backend_endpoints: [{ local_port: 18787 }] } }] }] }] } };
+  const runner = createZeroNewsRunner({ ensure: async () => ({ ok: true, path: '/x' }) });
+  assert.equal(runner.pickEndpoint(payload), 'https://old.example.com', '没传当前端口时照旧返回');
+  assert.equal(runner.pickEndpoint(payload, 28787), '', '显式传当前端口时旧端口隧道不算可用');
+});
+
+test('变异证明：拿掉 local_port 比对，旧端口隧道就会继续被静默复用', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'runner.cjs'), 'utf8');
+  assert.match(source, /found\.localPort > 0 && found\.localPort !== current/, '失配判据要在复用分支里');
+  assert.match(source, /旧隧道指向旧端口.*请删除后重试/, '报错要说清是旧端口、要手动删');
 });
 
 test('一直没登录也不假装连上，下载失败也给出明确错误', async () => {

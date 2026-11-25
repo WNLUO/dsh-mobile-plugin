@@ -1,3 +1,4 @@
+// 2026-11-25：直连那一行复用错误档带回环 health 被抢的原因。
 // 用途：首次接入引导页；错误处可直接提交脱敏摘要与诊断附件，并回显反馈编号。
 /**
  * 首次接入引导（一页）：宿主还没配过、或走 `/api/relay/panel/setup` 时进这一页。
@@ -129,6 +130,10 @@ export function Onboarding({ onDone }: Props) {
   )
   const firewallInfo = firewallRow(selfcheck.data)
   const selfcheckVerdict = selfcheck.data?.verdict ?? ''
+  // verdict 的 ok 仍只说「手机从任意路径来过」，不改它的含义；端口被抢单独把直连那行标红，
+  // 复用已有的错误档与 panel.lan.error 文案，原因塞进现成的 detail，不加新颜色 / 新行。
+  const loopbackInfo = selfcheck.data?.listening?.loopback
+  const lanState = loopbackInfo?.state === 'blocked' ? 'error' : (status?.lan.state ?? 'off')
 
   /** 轮询要能被卸载打断，否则关掉页面后它还在打接口。 */
   const alive = useRef(true)
@@ -655,7 +660,11 @@ export function Onboarding({ onDone }: Props) {
           <div className="w-full [&_dt]:text-foreground-strong">
             <InfoList>
               <InfoRow label={t('panel.onboarding.direct')}>
-                <ToneValue tone={lanTone(status?.lan.state ?? 'off', true)} text={lanText(status?.lan.state ?? 'off', true)} />
+                <ToneValue
+                  tone={lanTone(lanState, true)}
+                  text={lanText(lanState, true)}
+                  detail={loopbackInfo?.state === 'blocked' ? loopbackInfo.reason : undefined}
+                />
               </InfoRow>
               <InfoRow label={t('panel.connection.tunnel')}>
                 <ToneValue tone={tunnelTone(status?.tunnel.state ?? 'off')} text={tunnelText(status?.tunnel.state ?? 'off')} />
