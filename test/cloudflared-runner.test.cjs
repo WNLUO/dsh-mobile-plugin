@@ -1,4 +1,5 @@
 // Cloudflare 快速隧道 runner：banner 地址解析、起停状态、崩溃退避重连与用户开关标记回归。
+// 钉住进程消失的清理契约：exit 单独到也清状态撤地址重连，exit+close 幂等，spawn error 后能重新起进程。
 'use strict';
 
 /**
@@ -167,6 +168,75 @@ test('崩溃按退避有限重连（用户仍开启），封顶后不再重试',
   assert.equal(runner.shouldAutoStart(), false);
   assert.equal(runner.status().error, '');
   assert.equal(runner.status().retrying, false);
+});
+
+test('只来 exit 不来 close：清状态、撤地址、按退避重连', async () => {
+  const clock = retryClock();
+  const published = [];
+  const gone = [];
+  const { runner, children } = harness({
+    port: 18787,
+    clock,
+    onAddress: async (value, isCurrent) => { if (isCurrent()) published.push(value); },
+    onAddressGone: () => gone.push(1),
+  });
+  await runner.start();
+  children[0].stderr.emit('data', `${BANNER}\n${REGISTERED}\n`);
+  assert.equal(runner.status().running, true);
+  assert.deepEqual(published, ['https://brave-lamp-trycloudflare.trycloudflare.com']);
+
+  // stdio 管道被第三方占住时 close 永远不来，只有 exit 到。
+  children[0].emit('exit', 1, null);
+  const st = runner.status();
+  assert.equal(st.running, false, '进程没了就不能再报运行中');
+  assert.equal(st.pid, null);
+  assert.equal(st.url, '');
+  assert.match(st.error, /cloudflared 已退出/);
+  assert.deepEqual(gone, [1], '进程没了要撤回上报过的地址，别让总控继续发死链');
+  assert.equal(st.retrying, true, '按退避排一次重连');
+  assert.equal([...clock.timers.values()][0].ms, 1000);
+
+  await clock.tick();
+  assert.equal(children.length, 2, '退避到点后起的是新进程');
+  await runner.stop();
+});
+
+test('exit 与 close 都到：清理只做一次，close 补最终退出原因', async () => {
+  const clock = retryClock();
+  const gone = [];
+  const { runner, children } = harness({ port: 18787, clock, onAddressGone: () => gone.push(1) });
+  await runner.start();
+  children[0].stderr.emit('data', `${BANNER}\n${REGISTERED}\n`);
+  children[0].emit('exit', 1, null);
+  children[0].emit('close', 7, null);
+
+  assert.deepEqual(gone, [1], '退出+关闭只撤一次地址');
+  assert.equal(clock.timers.size, 1, '只排一次重连，不因两个事件重复退避');
+  assert.match(runner.status().error, /code=7/, 'close 到得晚，用它补最终退出原因');
+
+  await clock.tick();
+  assert.equal(children.length, 2, '一次 tick 只起一个新进程');
+  assert.equal(clock.timers.size, 0);
+  await runner.stop();
+});
+
+test('spawn error 后清掉僵住的 child，再 start 能起新进程', async () => {
+  const clock = retryClock();
+  const gone = [];
+  const { runner, children } = harness({ port: 18787, clock, onAddressGone: () => gone.push(1) });
+  await runner.start();
+  children[0].stderr.emit('data', `${BANNER}\n${REGISTERED}\n`);
+
+  children[0].emit('error', Object.assign(new Error('系统拒绝运行'), { code: 'UNKNOWN' }));
+  assert.equal(runner.status().pid, null, 'error 后必须清掉 child，否则 launch 的 if(child) return 永久卡死');
+  assert.equal(runner.status().url, '');
+  assert.deepEqual(gone, [1], 'error 也要撤回上报过的地址');
+  assert.equal(runner.status().retrying, true, 'error 同样进退避重连');
+
+  const st = await runner.start();
+  assert.equal(children.length, 2, '再次 start 真的起了新进程');
+  assert.equal(st.pid, 4242);
+  await runner.stop();
 });
 
 test('崩溃时用户显式关掉（写了 disabled 标记）则不重连', async () => {
