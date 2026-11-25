@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.115",
+  "version": "0.5.116",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -117,22 +117,22 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.115",
+    "version": "0.5.116",
     "kinds": [
-      "fix"
+      "feature"
     ],
     "notes": {
-      "zh-Hans": "- 修复连接状态偶尔打不开的问题：后台数据为空时不再报错。\n- 修复插件更新异常（失败回滚）时，电脑端插件可能直接崩退、需要重启的问题。",
-      "zh-Hant": "- 修正連線狀態偶爾打不開的問題：後台資料為空時不再報錯。\n- 修正外掛更新異常（失敗復原）時，電腦端外掛可能直接崩退、需要重新啟動的問題。",
-      "en": "- Fixed an occasional failure to open the connection status page; it no longer errors when the backend snapshot is empty.\n- Fixed a case where the desktop plugin could crash and require a restart when a plugin update failed and rolled back.",
-      "ja": "- 接続ステータスが時々開けない問題を修正しました。バックエンドのデータが空でもエラーにならなくなりました。\n- プラグイン更新の異常（失敗によるロールバック）時に、PC 側のプラグインが落ちて再起動が必要になることがある問題を修正しました。",
-      "ko": "- 연결 상태가 간혹 열리지 않던 문제를 수정했습니다. 백엔드 데이터가 비어 있어도 더 이상 오류가 나지 않습니다.\n- 플러그인 업데이트가 실패해 롤백될 때 PC 쪽 플러그인이 종료되어 재시작이 필요할 수 있던 문제를 수정했습니다.",
-      "de": "- Gelegentliches Nichtöffnen der Verbindungsstatus-Seite behoben; bei leerer Backend-Datenlage tritt kein Fehler mehr auf.\n- Ein Fall behoben, in dem das Desktop-Plugin bei einem fehlgeschlagenen Plugin-Update (Rollback) abstürzen und einen Neustart erfordern konnte.",
-      "es": "- Corregido el fallo ocasional al abrir el estado de conexión; ya no da error cuando los datos del backend están vacíos.\n- Corregido un caso en el que el plugin de escritorio podía cerrarse y requerir reinicio cuando una actualización del plugin fallaba y se revertía.",
-      "fr": "- Correction de l'ouverture parfois impossible de l'état de connexion : plus d'erreur lorsque les données du backend sont vides.\n- Correction d'un cas où le plugin de bureau pouvait planter et nécessiter un redémarrage lorsqu'une mise à jour du plugin échouait et était annulée.",
-      "pt": "- Corrigida a falha ocasional ao abrir o status da conexão; não ocorre mais erro quando os dados do backend estão vazios.\n- Corrigido um caso em que o plugin do desktop podia fechar e exigir reinício quando uma atualização do plugin falhava e era revertida.",
-      "ru": "- Исправлена периодическая невозможность открыть статус подключения: теперь нет ошибки, когда данные бэкенда пусты.\n- Исправлен случай, когда плагин на компьютере мог аварийно завершиться и требовал перезапуска при неудачном обновлении плагина (откате).",
-      "tr": "- Bağlantı durumunun ara sıra açılamaması düzeltildi; arka uç verisi boşken artık hata vermiyor.\n- Eklenti güncellemesi başarısız olup geri alındığında masaüstü eklentisinin çökebildiği ve yeniden başlatma gerektirebildiği bir durum düzeltildi."
+      "zh-Hans": "- 首次接入引导页新增「跳过配置」：不想接服务商的用户可以直接进入控制台，自己配好网络后再回来扫码。",
+      "zh-Hant": "- 首次接入引導頁新增「跳過設定」：不想接服務商的使用者可以直接進入控制台，自己配好網路後再回來掃碼。",
+      "en": "- Added a Skip setup option to the first-time guide. If you don't want a service provider, you can go straight to the console and scan the QR code after setting up your own network.",
+      "ja": "- 初回セットアップ画面に「設定をスキップ」を追加しました。プロバイダーを利用したくない場合は、コンソールに直接入り、自分でネットワークを設定してから QR コードをスキャンできます。",
+      "ko": "- 첫 연결 안내 화면에 «설정 건너뛰기»를 추가했습니다. 서비스 제공자를 원하지 않으면 콘솔로 바로 들어가 직접 네트워크를 설정한 뒤 QR 코드를 스캔할 수 있습니다.",
+      "de": "- Der Ersteinrichtungsseite wurde «Einrichtung überspringen» hinzugefügt. Ohne Dienstanbieter geht es direkt in die Konsole; nach der eigenen Netzwerkeinrichtung kann der QR-Code gescannt werden.",
+      "es": "- Se añadió «Omitir la configuración» a la guía inicial. Si no quieres usar un proveedor, entra directamente en la consola y escanea el código QR después de configurar tu red.",
+      "fr": "- Ajout de « Passer la configuration » dans le guide de première connexion. Sans fournisseur, vous pouvez entrer directement dans la console et scanner le code QR après avoir configuré votre réseau.",
+      "pt": "- Adicionado «Pular a configuração» ao guia de primeira conexão. Sem um provedor, você pode entrar direto no console e escanear o código QR após configurar sua rede.",
+      "ru": "- В экран первичной настройки добавлена команда «Пропустить настройку». Без провайдера можно сразу открыть консоль и отсканировать QR-код после настройки своей сети.",
+      "tr": "- İlk kurulum ekranına «Kurulumu atla» eklendi. Bir sağlayıcı kullanmak istemiyorsanız doğrudan konsola girebilir, kendi ağınızı kurduktan sonra QR kodunu tarayabilirsiniz."
     }
   }
 }

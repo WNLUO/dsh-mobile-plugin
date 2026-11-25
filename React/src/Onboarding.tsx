@@ -1,3 +1,4 @@
+// 2026-11-25：引导页加「跳过」出口——不想接服务商的人也能进控制台自己配线路。
 // 2026-11-25：直连那一行复用错误档带回环 health 被抢的原因。
 // 用途：首次接入引导页；错误处可直接提交脱敏摘要与诊断附件，并回显反馈编号。
 /**
@@ -385,6 +386,16 @@ export function Onboarding({ onDone }: Props) {
     else window.location.assign('/')
   }
 
+  /**
+   * 跳过服务商配置：不接线路也让人进控制台自己配（局域网直连进页时已开好）。
+   * 进页那一发 `connect()` 会写 onboarded，这里再补一次幂等写入 —— 万一点得比它快，
+   * 下次打开 /panel 又会被判成「没配过」弹回引导页。
+   */
+  async function skipSetup() {
+    await apiPost('/api/relay/onboarded', {}).catch(() => undefined)
+    enterNow()
+  }
+
   async function copyTailcatPrompt() {
     const text = [
       t('panel.onboarding.tailcatPrompt.intro'),
@@ -718,6 +729,11 @@ export function Onboarding({ onDone }: Props) {
           <Button variant="primary" disabled={!anyReady} onClick={enterNow}>
             {anyReady ? t('panel.onboarding.enterPlugin') : t('panel.onboarding.providerNotReady')}
           </Button>
+          {!anyReady ? (
+            <Button variant="ghost" onClick={() => void skipSetup()}>
+              {t('panel.onboarding.skipSetup')}
+            </Button>
+          ) : null}
         </div>
       </Card>
 
