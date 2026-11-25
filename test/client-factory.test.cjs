@@ -1038,6 +1038,7 @@ async function assertOpenFailureFeedback(source = SOURCE) {
     const context = JSON.parse(submitted.get('context'));
     assert.equal(context.code, String(entry.status));
     assert.equal(context.error_code, entry.expected);
+    assert.equal(context.submit_kind, 'diagnosis', '面板诊断自报应标 submit_kind，供排查侧与真人/AI 反馈分流');
     const text = await submitted.get('files').text();
     assert.match(text, new RegExp(`error_code=${entry.expected}`));
     assert.match(text, /plugin_source=npm/);

@@ -1,4 +1,5 @@
 // 用途：验证插件反馈提交、线程读取与续回复共用服务，保留身份、附件和重试契约。
+// 2026-11-25：context 增加结构化上报（submit_kind / scene / harness_version 等）。
 'use strict';
 
 /**
@@ -154,6 +155,37 @@ test('表单：设备身份逐格对齐，新字段与 text/plain 诊断附件�
   assert.equal(fallback.get('package_id'), DEFAULT_PACKAGE_ID);
 });
 
+test('表单 context 带结构化上报：AI 代发标 submit_kind，宿主版本/场景/手机版本收窄落库', () => {
+  const form = buildFeedbackForm(deviceRow(), '插件连不上', null, {
+    localDeviceId: 'inst-1',
+    submissionId: 'sub-kind',
+    submitKind: 'ai',
+    scene: 'pair.auth',
+    harnessVersion: '0.2.2-rc.5',
+    appVersion: '0.5.82',
+    buildNumber: '498',
+  });
+  const context = JSON.parse(form.get('context'));
+  assert.equal(context.submit_kind, 'ai');
+  assert.equal(context.scene, 'pair.auth');
+  assert.equal(context.harness_version, '0.2.2-rc.5');
+  assert.equal(context.app_version, '0.5.82');
+  assert.equal(context.build_number, '498');
+});
+
+test('结构化上报白名单与收窄：脏 submit_kind 丢弃、场景/版本只留纯 ASCII 短串', () => {
+  const clean = JSON.parse(buildFeedbackForm(null, 'x', null, {
+    submitKind: 'bogus', scene: 'pair auth!@#$%^', harnessVersion: '<script>x</script>',
+  }).get('context'));
+  assert.equal(clean.submit_kind, undefined);
+  assert.equal(clean.scene, 'pairauth@');
+  assert.equal(clean.harness_version, 'scriptxscript');
+  // 收不到宿主版本时不伪造字段，宁缺勿假。
+  const blank = JSON.parse(buildFeedbackForm(null, 'x', null, { submitKind: 'ai' }).get('context'));
+  assert.equal(blank.submit_kind, 'ai');
+  assert.equal(blank.harness_version, undefined);
+});
+
 test('没有设备：用本机安装 id，受影响手机那几格留空，不伪造平台或机型', () => {
   const form = buildFeedbackForm(null, '面板打不开', undefined, {
     localDeviceId: 'local-random-id',
@@ -272,6 +304,25 @@ test('submitFeedback：直连表单带 files 附件，字段名、文件名与�
     const context = JSON.parse(form.get('context'));
     assert.deepEqual(context.files, { name: ATTACHMENT_NAME, type: 'text/plain' });
     assert.equal(context.attachment, undefined);
+  });
+});
+
+test('submitFeedback：AI 代发从 deps 读宿主版本写进 context，缺省也标 ai', async () => {
+  const fake = fakeFetch({ data: { thread_key: 'tk-ai' } });
+  await withFetch(fake, async () => {
+    const deps = { ...depsFor([deviceRow()]), hostVersion: () => '0.2.2-rc.5' };
+    await submitFeedback(deps, 'AI 代发的现场', undefined, 'phone-1');
+    const context = JSON.parse(fake.calls[0].body.get('context'));
+    assert.equal(context.submit_kind, 'ai');
+    assert.equal(context.harness_version, '0.2.2-rc.5');
+    assert.equal(context.app_version, '0.5.50');
+  });
+  const fake2 = fakeFetch({ data: { thread_key: 'tk-ai2' } });
+  await withFetch(fake2, async () => {
+    await submitFeedback(depsFor([]), '没有宿主版本也不伪造');
+    const context = JSON.parse(fake2.calls[0].body.get('context'));
+    assert.equal(context.harness_version, undefined);
+    assert.equal(context.submit_kind, 'ai');
   });
 });
 
