@@ -138,7 +138,7 @@ test('本地快照仍留全份：局域网直连的读取隔离不能被一起�
     // （用调用点的字面量而不是函数定义：定义在文件上半部分，按字符串位置比会永远通过。）
     const source = require('node:fs').readFileSync(path.join(__dirname, '..', 'lib', 'sidecar-facade-worker.cjs'), 'utf8');
     const assignAt = source.indexOf('localSnapshot = body');
-    const frameCallAt = source.indexOf('tunnel.sendJson(frameType, 0, frameForTunnel(body, relayMirror === false))');
+    const frameCallAt = source.indexOf('tunnel.sendJson(T.sync, 0, frameForTunnel(body, relayMirror === false))');
     assert.ok(assignAt > 0, '没找到本地快照赋值');
     assert.ok(frameCallAt > 0, '没找到上隧道的调用点');
     assert.ok(assignAt < frameCallAt, '本地快照必须在裁剪之前落地，否则读取隔离会一起丢正文');
@@ -147,10 +147,10 @@ test('本地快照仍留全份：局域网直连的读取隔离不能被一起�
   }
 });
 
-test('非 sync 的帧（推送令牌）一个字段都不裁', async () => {
+test('非 sync 的帧（历史 blob）一个字段都不裁', async () => {
   const rig = await startRig();
   try {
-    // push 帧走 pushRegister / pushSend，形状与镜像无关；这里确认它没被顺手裁掉。
+    // blob 帧与镜像无关；这里确认它没被顺手裁掉。
     const source = require('node:fs').readFileSync(path.join(__dirname, '..', 'lib', 'sidecar-facade-worker.cjs'), 'utf8');
     const fn = source.slice(source.indexOf('function frameForTunnel'), source.indexOf('function frameForTunnel') + 400);
     assert.match(fn, /kind !== 'sync'/, '只对 sync 帧生效，其余原样返回');

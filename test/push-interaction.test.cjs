@@ -6,8 +6,7 @@
  * 这一版要钉住的东西：
  *   1. `notifyInteraction` 把两类卡帧归一成给原生挂按钮用的 `interaction`：审批带 approvalId、
  *      提问带 options/multiSelect/intent，摘要是一句人话，`category` 与 `pushKind` 对得上。
- *   2. 推送帧的 `kind` 恒为 `'push'`（worker 靠它分流到 PUSH_SEND），事件种类放 `pushKind`；
- *      旧实现同一个对象写了两次 `kind`，后者覆盖前者，帧被当 sync 发进黑洞。
+ *   2. 请求直接打总控（`POST /push/send`），带本机那枚设备令牌；发不出去不记去重账。
  *   3. 同一张卡（会话:rpcId）只推一帧 —— 例外只有一种：approvalId 从 `approvals.js` 铸的占位
  *      （`m-…`）换成 `approval/asked` 带来的真 id。那一帧是内容升级，吃掉它通知里就留着占位 id，
  *      用户点「允许」回 409、白点一下。
@@ -21,15 +20,17 @@ const { createPushNotifier } = require('../lib/mobile/push-notify.js');
 const approvals = require('../lib/mobile/approvals.js');
 const questions = require('../lib/mobile/questions.js');
 
-/** 假 sidecar：pushSync 把 payload 记进数组，永远成功。 */
-function fakeNotifier() {
+/** 假总控：fetch 把请求正文记进数组，永远 200。 */
+function fakeNotifier(target = { baseUrl: 'https://control.test', token: 'tok', instanceId: 'inst-1' }) {
   const pushed = [];
-  const notifier = createPushNotifier({
-    getSidecar: () => ({ pushSync: async (payload) => { pushed.push(payload); } }),
-    tunnelConnected: () => true,
-    instanceId: () => 'inst-1',
-  });
-  return { notifier, pushed };
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url, headers: init.headers });
+    pushed.push(JSON.parse(init.body));
+    return { ok: true };
+  };
+  const notifier = createPushNotifier({ controlTarget: () => target });
+  return { notifier, pushed, requests };
 }
 
 const approvalCard = (overrides = {}) => ({
@@ -75,9 +76,7 @@ test('notifyInteraction：审批卡组出正确的 interaction 与推送帧', as
   await flush();
   assert.equal(pushed.length, 1, '一张卡应只推一帧');
   const frame = pushed[0];
-  assert.equal(frame.kind, 'push', 'kind 必须是 push（不能被事件种类覆盖）');
-  assert.equal(frame.pushFrame, 'send');
-  assert.equal(frame.pushKind, 'approval');
+  assert.equal(frame.interaction.kind, 'approval');
   assert.equal(frame.category, 'dsh.approval');
   assert.equal(frame.title, '我的会话');
   assert.equal(frame.body, '允许本次操作使用 danger-full-access 权限', 'body 用 reason 当摘要');
@@ -110,8 +109,7 @@ test('notifyInteraction：提问卡的 options / multiSelect / intent 原样进 
   await notifier.notifyInteraction('s-2', card);
   await flush();
   const frame = pushed[0];
-  assert.equal(frame.kind, 'push', 'kind 必须是 push');
-  assert.equal(frame.pushKind, 'plan-review');
+  assert.equal(frame.interaction.kind, 'plan-review');
   assert.equal(frame.category, 'dsh.pending');
   assert.equal(frame.body, '选哪个方案？');
   const q = frame.interaction.questions[0];
@@ -121,11 +119,11 @@ test('notifyInteraction：提问卡的 options / multiSelect / intent 原样进 
   assert.deepEqual(q.intent, { kind: 'plan-review', approve: '允许执行' });
 });
 
-test('notifyInteraction：普通提问 pushKind=question、category=dsh.question', async () => {
+test('notifyInteraction：普通提问 interaction.kind=question、category=dsh.question', async () => {
   const { notifier, pushed } = fakeNotifier();
   await notifier.notifyInteraction('s-2', questionCard());
   await flush();
-  assert.equal(pushed[0].pushKind, 'question');
+  assert.equal(pushed[0].interaction.kind, 'question');
   assert.equal(pushed[0].category, 'dsh.question');
   assert.equal(pushed[0].interaction.approvalId, undefined, '提问卡不带 approvalId');
 });
@@ -159,13 +157,19 @@ test('notifyInteraction：真 id 反过来换成占位不重推', async () => {
   assert.equal(pushed.length, 1, '只认「占位 → 真 id」这一个方向');
 });
 
-test('notifyTurnEnded：kind 恒为 push，结局放 pushKind', async () => {
-  const { notifier, pushed } = fakeNotifier();
+test('notifyTurnEnded：完成 / 失败各推一条，正文是成没成的符号', async () => {
+  const { notifier, pushed, requests } = fakeNotifier();
   notifier.notifyTurnEnded('s-3', { turn: 7, status: 'completed' }, '会话三');
+  notifier.notifyTurnEnded('s-4', { turn: 8, status: 'failed' }, '会话四');
   await flush();
-  assert.equal(pushed[0].kind, 'push');
-  assert.equal(pushed[0].pushKind, 'completed');
+  assert.equal(pushed.length, 2);
   assert.equal(pushed[0].body, '✓');
+  assert.equal(pushed[0].title, '会话三');
+  assert.equal(pushed[0].sessionId, 's-3');
+  assert.equal(pushed[1].body, '✗');
+  assert.equal(requests[0].url, 'https://control.test/push/send');
+  assert.equal(requests[0].headers.authorization, 'Bearer tok');
+  assert.equal(requests[0].headers['x-dsh-instance'], 'inst-1');
 });
 
 // ---------------------------------------------------------------------------
