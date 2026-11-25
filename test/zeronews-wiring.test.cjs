@@ -1,11 +1,15 @@
+// 2026-11-25：端口失配要清掉状态里的旧地址，别让它进配对码。
 // 2026-11-25：连上后定时体检发现客户端没了，要自动安排重连。
 // ZeroNews 接线层：插件自动更新 / 就地重载把客户端弄断后要能自愈，别卡死在错误上。
 // 打开登录页走真实等待路径的用例要钉住：命令退出就得返回，报错就如实说没打开。
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { mountZeroNews, AGENT_INVITE_URL } = require('../lib/zeronews/wiring.cjs');
+const { pairingPayload } = require('../lib/relay/pairing-payload.cjs');
 
 /** 拼一份最小装配，effect 立即建立并给出清理函数；runnerFactory 换成假体。 */
 function mountWith(runner, overrides = {}) {
@@ -407,4 +411,68 @@ test('login 直接撞上客户端数量上限：prepare 把原文翻成可操作
   assert.match(result.error, /名额|控制台|恢复客户端/, '要说明免费套餐一台的名额怎么释放');
   assert.doesNotMatch(result.error, /client count limit/, '不要把英文原文直接甩给用户');
   cleanup();
+});
+
+test('端口失配：清掉状态里的旧地址，配对码整串都不带失效线路', async () => {
+  const writes = [];
+  let starts = 0;
+  const state = { zeroNewsEnabled: true, zeroNewsUrl: 'https://stale.example.com' };
+  const runner = {
+    start: async () => {
+      starts += 1;
+      return {
+        phase: 'error',
+        error: '旧隧道指向旧端口，请删除后重试（旧端口 18787，当前本机端口 19797）',
+        errorReason: 'port-mismatch',
+        retryable: false,
+      };
+    },
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'off' }),
+  };
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: {
+      update: async (patch, options) => {
+        writes.push({ patch, options });
+        Object.assign(state, patch);
+      },
+    },
+    getState: () => state,
+    control: {},
+    warn: () => {},
+    // 不让 mount 那条 effect 自动起连接：这里手动调 start，时序可控。
+    ctx: { effect: () => () => {} },
+    name: 'test-port-mismatch',
+    portOf: () => 19797,
+    retryBaseMs: 5,
+    runnerFactory: () => runner,
+    ensure: async () => ({ ok: true, path: '/x' }),
+  });
+
+  await facade.start();
+  assert.equal(state.zeroNewsUrl, '', '失配后状态里的旧域名要清掉');
+  assert.ok(
+    writes.some((w) => w.patch.zeroNewsUrl === '' && w.options && w.options.notify === false),
+    '清旧地址只落盘、不通知重配，免得和自动重连的 mount effect 互相触发',
+  );
+  assert.equal(starts, 1, '确定性错误不安排自动重试');
+
+  const { payload, text } = pairingPayload({
+    ...state,
+    name: 'host',
+    instanceId: 'i',
+    pairingCode: '123456',
+    pairingTicket: 'x'.repeat(43),
+    relayUrl: '',
+    lanEnabled: false,
+  }, 19797);
+  assert.equal(payload.routes, undefined, 'routes 不再带失效的服务商线路');
+  assert.ok(!payload.lanUrls.includes('https://stale.example.com'), 'lanUrls 不带失效域名');
+  assert.ok(!text.includes('stale.example.com'), '整串二维码原文里都没有那条失效域名');
+
+  // 变异证明：接线层必须按 reason 认出失配，并用 notify:false 只落盘。
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'wiring.cjs'), 'utf8');
+  assert.match(source, /result\.errorReason === 'port-mismatch'/, '要按 reason 认出端口失配');
+  assert.match(source, /zeroNewsUrl: '' \}, \{ notify: false \}/, '清地址要 notify:false，避免通知循环');
 });

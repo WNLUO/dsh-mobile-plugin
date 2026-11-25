@@ -1,3 +1,4 @@
+// 2026-11-25：端口失配给错误打上 reason，接线层据此清掉状态里的旧地址。
 // 2026-11-25：体检守卫——守护进程死了打回 error 并自愈；CLI 读不到时别抖线路。
 // 2026-11-25：端口失配守卫：旧端口隧道不复用、字段缺失仍复用。
 // ZeroNews 线路：自动下载→浏览器登录→起客户端→建隧道→读域名，整条链用注入假体验证。
@@ -349,6 +350,7 @@ test('旧隧道指向旧端口：标 error、不可重试，且不猜命令去�
   const s = await runner.start();
   assert.equal(s.phase, 'error');
   assert.match(s.error, /旧隧道指向旧端口.*删除后重试/);
+  assert.equal(s.errorReason, 'port-mismatch', '给出可识别的 reason，接线层据此清掉旧地址');
   assert.equal(s.retryable, false, '换端口后旧隧道不会自己变，自动重试只会反复超时');
   assert.ok(!calls.some((c) => c.startsWith('add ')), '失配时不自动建新隧道（免费档只有一条额度）');
 });
@@ -382,6 +384,13 @@ test('变异证明：拿掉 local_port 比对，旧端口隧道就会继续被�
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'runner.cjs'), 'utf8');
   assert.match(source, /found\.localPort > 0 && found\.localPort !== current/, '失配判据要在复用分支里');
   assert.match(source, /旧隧道指向旧端口.*请删除后重试/, '报错要说清是旧端口、要手动删');
+});
+
+test('变异证明：端口失配必须带 reason，接线层才清得掉旧地址', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'runner.cjs'), 'utf8');
+  assert.match(source, /terminalError\(`旧隧道指向旧端口[^`]*`, 'port-mismatch'\)/, '失配错误要打上 port-mismatch');
+  assert.match(source, /error\.reason = reason \|\| ''/, '错误要带上 reason');
+  assert.match(source, /errorReason,/, 'status 要把 reason 交给接线层');
 });
 
 test('一直没登录也不假装连上，下载失败也给出明确错误', async () => {
