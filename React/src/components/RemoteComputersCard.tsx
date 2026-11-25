@@ -3,6 +3,7 @@
 // 线路检测每行带上 host:port 区分同通道的两条；窗口开着时改挡位单独说明重新打开后生效。
 // 2026-11-20：窗口按钮（浏览器打开 / 关闭）改由 Remote 页面层渲染一次，卡片不再重复挂。
 // 2026-11-22：线路名的 keys 补上 cloudflare，兜底隧道路由能显示成档。
+// 2026-11-25：清单轮询里取到壳晚崩的一次性标记就补开浏览器，正常关窗不带标记。
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
@@ -20,7 +21,9 @@ import { t } from '../lib/i18n/index.ts'
 import { isPublicRelayUrl } from '../lib/links.ts'
 import { useNotify } from '../lib/notify.ts'
 import {
+  crashedShellIds,
   openRemoteComputer,
+  recoverCrashedShell,
   remoteComputers,
   remoteErrorText,
   remoteModes,
@@ -134,6 +137,12 @@ export function RemoteComputersCard() {
       setList(next)
       setLocalOnly(false)
       setLoadError('')
+      // 壳熬过宽限后才崩：后端在清单里带一次性标记，这里补开浏览器。正常关窗没有标记。
+      for (const id of crashedShellIds(next)) {
+        void recoverCrashedShell(id)
+          .then(() => notify('ok', t('panel.remote.shellFellBack')))
+          .catch((error) => notify('error', remoteErrorText(error)))
+      }
     } catch (error) {
       if (!mounted.current) return
       const denied = error instanceof ApiError && error.status === 403

@@ -1,5 +1,6 @@
 /** 远程电脑控制契约与有证据的网络、助手恢复诊断。 */
 // 2026-11-19：回退浏览器时把「没装桌面端」和「壳没起来」分开标记，前者单独提示；新增错误码补上词条映射。
+// 2026-11-25：壳熬过宽限后才崩的，经清单轮询取一次性标记补开浏览器；正常关窗不带标记。
 import { ApiError, apiGet, apiPost } from './api.ts'
 import { t } from './i18n/index.ts'
 
@@ -25,6 +26,8 @@ export type RemoteComputer = {
   expiresAt: number | null
   /** 桌面窗口此刻是否还连着；关掉后回到未打开状态。 */
   attached: boolean
+  /** 这一帧清单里壳是否刚异常退出（一次性，取走即清）。 */
+  shellCrashed?: boolean
   lastError?: string
   lastErrorCode?: string | null
   routes: RemoteComputerRoute[]
@@ -130,6 +133,16 @@ export async function openRemoteComputer(id: string): Promise<RemoteComputerOpen
     // 而不是壳没起来——以前这条会被静默吞掉，用户永远看不到提示。
     return { ...(await openInBrowser(id)), shellMissing: true }
   }
+}
+
+/** 清单里带一次性「壳晚崩」标记的设备；窗口仍连着时不补开，避免还有桌面可用时弹浏览器。 */
+export function crashedShellIds(list: RemoteComputerList): string[] {
+  return (list.devices ?? []).filter((device) => device.shellCrashed && !device.attached).map((device) => device.id)
+}
+
+/** 壳熬过宽限后才崩：沿同一条浏览器通道补开，和起手闪退的回退走同一实现。 */
+export async function recoverCrashedShell(id: string): Promise<RemoteComputerOpen> {
+  return openInBrowser(id)
 }
 
 /** 普通网页预开窗口；桌面壳通过同源顶层导航交系统浏览器。 */

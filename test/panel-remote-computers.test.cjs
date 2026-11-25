@@ -1,4 +1,5 @@
 /** 远程电脑面板：既有错误展示映射真实网络与助手恢复诊断。 */
+// 2026-11-25：壳熬过宽限后才崩的，清单带一次性标记；面板取到后补开浏览器，正常关窗不补。
 'use strict';
 
 const test = require('node:test');
@@ -211,6 +212,30 @@ test('桌面端可用时只调 open-shell，不预开窗口也不导航', async 
   assert.equal(calls.length, 1);
   assert.match(String(calls[0]), /\/open-shell$/);
   assert.deepEqual(events, []);
+});
+
+test('清单里的壳晚崩标记只取窗口已关的那台，补开走同一条浏览器通道', async (t) => {
+  const { crashedShellIds, recoverCrashedShell } = await load();
+  const list = { ok: true, devices: [
+    { id: 'crashed', attached: false, shellCrashed: true },
+    { id: 'still-open', attached: true, shellCrashed: true },
+    { id: 'normal-close', attached: false },
+  ], authorizedComputers: [], serverNow: 100 };
+  assert.deepEqual(crashedShellIds(list), ['crashed']);
+
+  const events = [];
+  const view = browser(events);
+  install(t, 'window', view.window);
+  install(t, 'fetch', async () => json({ ok: true, url: 'http://127.0.0.1:49152/#late', expiresAt: 3600_000 }));
+  await recoverCrashedShell('crashed');
+  assert.deepEqual(events.at(-1), ['navigate', 'http://127.0.0.1:49152/#late']);
+});
+
+test('面板轮询接到晚崩标记才补开，不碰可见样式与文案', () => {
+  assert.match(component, /crashedShellIds\(next\)/);
+  assert.match(component, /recoverCrashedShell\(id\)/);
+  assert.match(component, /panel\.remote\.shellFellBack/, '补开沿用既有回退提示，不新增文案');
+  assert.doesNotMatch(component, /#[\da-fA-F]{3,8}|style=\{/);
 });
 
 test('浏览器点击同步预开，取得入口前不导航，切断 opener 后交给本机代理', async (t) => {

@@ -1,6 +1,7 @@
 // 第一批远程电脑修复的回归断言：网卡集合两步变化只采纳一次、丢网只断连不探活、
 // 换网后按通道各取一条候选（中转必进）、并发探测先成功者直接用于打开、固定挡位缺路按自动兜底、
 // 多窗口最后一个退出才算关窗、壳进程异步失败按没打开处理、入口票未消费时重复签不换新。
+// 2026-11-25：宽限之后崩的壳留一次性标记给清单轮询，正常关窗不留，前端据此补开浏览器。
 'use strict';
 
 const test = require('node:test');
@@ -10,7 +11,7 @@ const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 const { createNetworkMonitor } = require('../lib/remote/network.cjs');
 const { createRemoteRouter } = require('../lib/remote/router.cjs');
-const { spawnFailed, launchShell } = require('../lib/remote/shell.cjs');
+const { spawnFailed, launchShell, shellCrashed } = require('../lib/remote/shell.cjs');
 const { createRemoteRoutes } = require('../lib/remote/routes.cjs');
 const { createLocalGateway, OPEN_MS } = require('../lib/remote/local.cjs');
 
@@ -341,6 +342,46 @@ test('多窗口：第一个退出仍 attached，最后一个退出才回到未�
   assert.equal((await controller.list())[0].attached, true, '重新拉起窗口后又算打开');
 });
 
+test('壳晚崩：最后一个窗口异常退出留下一次性标记，正常关窗不留', async (t) => {
+  const { createRemoteController } = injectControllerDeps(t);
+  const transport = { pairComputer: async () => ({ id: 'A', instanceId: 'A', name: '电脑A', routes: [] }) };
+  const controller = createRemoteController({ store: memoryStore(), transport, name: '本机' });
+  t.after(() => controller.close());
+  await controller.add('invite');
+
+  const normal = new EventEmitter(); normal.exitCode = null;
+  controller.watchWindow('A', normal);
+  normal.emit('exit', 0, null);
+  const afterClose = (await controller.list())[0];
+  assert.equal(afterClose.attached, false);
+  assert.equal(afterClose.shellCrashed, false, '用户主动关窗不算崩');
+
+  const crash = new EventEmitter(); crash.exitCode = null;
+  controller.watchWindow('A', crash);
+  crash.emit('exit', 0xC0000409, null);
+  const first = (await controller.list())[0];
+  assert.equal(first.shellCrashed, true, 'Windows 异常退出码要带出来');
+  assert.equal(first.attached, false);
+  const second = (await controller.list())[0];
+  assert.equal(second.shellCrashed, false, '标记一次性消费，后续轮询不重复弹浏览器');
+});
+
+test('壳晚崩：还有窗口开着就不算整台崩，最后一个异常退出才算', async (t) => {
+  const { createRemoteController } = injectControllerDeps(t);
+  const transport = { pairComputer: async () => ({ id: 'A', instanceId: 'A', name: '电脑A', routes: [] }) };
+  const controller = createRemoteController({ store: memoryStore(), transport, name: '本机' });
+  t.after(() => controller.close());
+  await controller.add('invite');
+  const first = new EventEmitter(); first.exitCode = null;
+  const last = new EventEmitter(); last.exitCode = null;
+  controller.watchWindow('A', first);
+  controller.watchWindow('A', last);
+  first.emit('exit', 0xC0000409, null);
+  assert.equal((await controller.list())[0].shellCrashed, false, '还有窗口时不补开浏览器');
+  last.emit('exit', 0xC0000409, null);
+  assert.equal((await controller.list())[0].shellCrashed, true);
+});
+
 test('换网 lost:true 只断开已打开设备的连接，不改状态也不探活', async (t) => {
   const { createRemoteController, state } = injectControllerDeps(t);
   let n = 0;
@@ -417,6 +458,18 @@ test('有 pid 且没有 error 时 spawnFailed 为假', () => {
   assert.equal(spawnFailed({ pid: 4242, on() {}, unref() {} }), false);
 });
 
+test('退出原因按退出码与信号区分：正常关窗不算崩，异常退出和致命信号才算', () => {
+  assert.equal(shellCrashed(0, null), false, '正常关窗');
+  assert.equal(shellCrashed(null, null), false, '没有退出信息不能凭空判崩');
+  assert.equal(shellCrashed(0, 'SIGTERM'), false, '用户主动结束不算崩');
+  assert.equal(shellCrashed(1, null), true, '非 0 退出码算异常');
+  assert.equal(shellCrashed(0xC0000409, null), true, 'Windows 栈缓冲溢出');
+  assert.equal(shellCrashed(0xC0000005, null), true, 'Windows 访问违规');
+  assert.equal(shellCrashed(-1073740791, null), true, '带符号写法也是 0xC0000409');
+  assert.equal(shellCrashed(null, 'SIGSEGV'), true, '致命信号算崩');
+  assert.equal(shellCrashed(null, 'SIGABRT'), true);
+});
+
 test('壳没有 pid 时按没打开处理，回 shellOpened:false 且不记窗口', async () => {
   const watchCalls = { count: 0 };
   const launch = () => {
@@ -448,6 +501,34 @@ test('壳收到 error 事件时按没打开处理，回 shellOpened:false 且不
   assert.equal(res.status, 200);
   assert.equal(res.body.shellOpened, false);
   assert.equal(watchCalls.count, 0);
+});
+
+test('端到端：宽限后已回 shellOpened:true，之后才崩仍经清单一次带给面板', async (t) => {
+  const { createRemoteController } = injectControllerDeps(t);
+  const transport = { pairComputer: async () => ({ id: 'A', instanceId: 'A', name: '电脑A', routes: [] }) };
+  const controller = createRemoteController({ store: memoryStore(), transport, name: '本机' });
+  t.after(() => controller.close());
+  await controller.add('invite');
+  const child = new EventEmitter();
+  child.pid = 4242; child.exitCode = null; child.signalCode = null; child.unref = () => {};
+  const host = { mintInvite: async () => ({}), revoke() {} };
+  const credentials = { listRemoteComputers: () => [], revokeDevice: () => 1 };
+  const routes = createRemoteRoutes({ controller, host, credentials, instanceId: 'A', now: () => 100, launch: () => child });
+
+  const opened = await invokeOpenShell(routes);
+  assert.equal(opened.body.shellOpened, true, '熬过宽限先回 true，响应此刻已经发出');
+
+  child.emit('exit', 0xC0000409, null);
+  const req = new EventEmitter();
+  Object.assign(req, { method: 'GET', url: '/api/relay/remote-computers',
+    socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:1234' } });
+  req.setEncoding = () => {};
+  const res = { status: 0, headers: {}, setHeader() {}, writeHead(status) { this.status = status; },
+    end(raw) { this.body = JSON.parse(raw); } };
+  await routes.handler('')(req, res);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.devices[0].shellCrashed, true, '晚崩不能丢在已经发出的响应之后');
+  assert.equal(res.body.devices[0].attached, false);
 });
 
 // ——— local.cjs ———
