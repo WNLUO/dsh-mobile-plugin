@@ -1,3 +1,4 @@
+// 2026-11-25：体检守卫——守护进程死了打回 error 并自愈；CLI 读不到时别抖线路。
 // 2026-11-25：端口失配守卫：旧端口隧道不复用、字段缺失仍复用。
 // ZeroNews 线路：自动下载→浏览器登录→起客户端→建隧道→读域名，整条链用注入假体验证。
 'use strict';
@@ -454,4 +455,57 @@ test('连上后客户端意外退出：状态转 error 并回调交接线层自�
   assert.equal(runner.status().phase, 'error');
   assert.equal(runner.status().running, false);
   assert.equal(exits.length, 1, '意外退出要回调交接线层，安排自愈重连');
+});
+
+test('连上后守护进程死了：体检把 connected 打回 error 并回调自愈', async () => {
+  let daemonAlive = true;
+  const exits = [];
+  const runImpl = async (bin, args) => {
+    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, running: daemonAlive }), stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'x.example.com', status: 'active' }] } }) };
+    if (key === '/healthz') return { ok: true, json: async () => ({}) };
+    return { ok: false };
+  };
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl, runImpl,
+    spawnImpl: () => ({ on() {}, unref() {}, kill() {} }), sleepImpl: () => Promise.resolve(),
+    onUnexpectedExit: (message) => exits.push(message),
+  });
+  const connected = await runner.start();
+  assert.equal(connected.phase, 'connected');
+  assert.equal(connected.running, true, '连上后报的是守护进程在跑，不是那个早退出的启动进程');
+  daemonAlive = false;
+  await runner.checkAlive();
+  assert.equal(runner.status().phase, 'error', '客户端没了就不能继续报已连接');
+  assert.equal(runner.status().url, '');
+  assert.equal(runner.status().running, false);
+  assert.equal(exits.length, 1, '要交接线层安排自愈重连，别让线路卡在旧状态');
+});
+
+test('体检读不到 CLI 状态时不抖掉一条还能用的线路', async () => {
+  let failCli = false;
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'x.example.com', status: 'active' }] } }) };
+    if (key === '/healthz') return { ok: true, json: async () => ({}) };
+    return { ok: false };
+  };
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl,
+    runImpl: async (bin, args) => {
+      if (args[0] === 'status' && failCli) throw new Error('status 暂时读不到');
+      if (args[0] === 'status') return { code: 0, stdout: '{"login":true,"running":true}', stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+    spawnImpl: () => ({ on() {}, unref() {}, kill() {} }), sleepImpl: () => Promise.resolve(),
+    onUnexpectedExit: () => { throw new Error('不该安排重连'); },
+  });
+  await runner.start();
+  failCli = true;
+  await runner.checkAlive();
+  assert.equal(runner.status().phase, 'connected', '读不到状态不等于客户端死了，别抖线路');
 });

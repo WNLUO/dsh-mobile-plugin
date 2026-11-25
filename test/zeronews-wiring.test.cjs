@@ -1,3 +1,4 @@
+// 2026-11-25：连上后定时体检发现客户端没了，要自动安排重连。
 // ZeroNews 接线层：插件自动更新 / 就地重载把客户端弄断后要能自愈，别卡死在错误上。
 // 打开登录页走真实等待路径的用例要钉住：命令退出就得返回，报错就如实说没打开。
 'use strict';
@@ -21,9 +22,10 @@ function mountWith(runner, overrides = {}) {
     name: 'test',
     portOf: () => 18787,
     retryBaseMs: 5,
-    runnerFactory: () => runner,
+    runnerFactory: overrides.runnerFactory || (() => runner),
     ensure: async () => ({ ok: true, path: '/x' }),
     purgeLocal: overrides.purgeLocal,
+    ...(overrides.healthCheckMs ? { healthCheckMs: overrides.healthCheckMs } : {}),
   });
   return { facade, updates, cleanup: () => cleanup && cleanup() };
 }
@@ -254,6 +256,29 @@ test('客户端意外退出回调会触发自愈重连', async () => {
   await tick();
   assert.ok(calls > before, '客户端意外退出后应再起一次连接');
   cleanup && cleanup();
+});
+
+test('连上后定时体检发现客户端没了：自动安排重连', async () => {
+  let checks = 0;
+  let onExit = null;
+  let starts = 0;
+  let phase = 'connected';
+  const runner = {
+    start: async () => { starts += 1; return { phase: 'connected', url: 'https://ok.example.com', running: true }; },
+    stop: () => { phase = 'off'; return { phase: 'off' }; },
+    status: () => ({ phase, running: phase === 'connected' }),
+    checkAlive: async () => {
+      checks += 1;
+      if (checks === 1) { phase = 'error'; onExit && onExit(); }
+      return { phase };
+    },
+  };
+  const env = mountWith(runner, { healthCheckMs: 5,
+    runnerFactory: (options) => { onExit = options.onUnexpectedExit; return runner; } });
+  await tick(80);
+  assert.ok(checks >= 1, '连着的时候要定时体检客户端还在不在');
+  assert.ok(starts >= 2, '体检发现客户端没了要自动重连，不能卡在旧状态上');
+  env.cleanup();
 });
 
 test('显式断开后不再自动重连', async () => {
