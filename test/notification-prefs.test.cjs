@@ -45,9 +45,10 @@ function fakeRes() {
   return res;
 }
 
-test('默认表：done 静默，其余响铃；键齐全', () => {
+// 2026-11-25 需求变更：默认档五类全响铃（原先 done 静默，装上像没提示音）；用户改过的值仍以用户为准。
+test('默认表：五类全响铃；键齐全', () => {
   assert.deepEqual(prefs.defaultEvents(), {
-    done: 'silent',
+    done: 'ring',
     failed: 'ring',
     approval: 'ring',
     question: 'ring',
@@ -62,7 +63,7 @@ test('读缺失文件：逐键回默认，不 404', async () => {
     assert.deepEqual(got.events, prefs.defaultEvents());
     // 默认表是新对象，不共享引用
     got.events.done = 'off';
-    assert.equal(prefs.defaultEvents().done, 'silent');
+    assert.equal(prefs.defaultEvents().done, 'ring');
   });
 });
 
