@@ -111,6 +111,33 @@ test('下发配置的闭包不读失效的 ctx.webServer，父端口在挂载时
   assert.doesNotMatch(src, /upstreamPort: ctx\.webServer\.port/, '下发时读失效 context 会让重启与 TCP 直连全失败');
 });
 
+test('隧道助手/点对点的父地址取值器挂载时缓存，跨代回滚后不读失效 ctx.webServer', () => {
+  // 稳定外壳会跨代持有并回调这两个 provider（见 shell/transport-host.js 的 ensure）。换代回滚
+  // 或半装载失败时，交出这些闭包的那一代 ctx 已 inactive，现读 ctx.webServer 会抛
+  // "cannot get required service webServer in inactive context"，经 tunnel-forwarder 的
+  // forwardRequest 放大成 Host 致命未捕获异常（GitHub issue #42）。
+  const src = read(INDEX);
+  assert.doesNotMatch(src, /webPort:\s*\(\)\s*=>\s*ctx\.webServer\.port/, '隧道/点对点 provider 仍在现读失效的 ctx.webServer.port');
+  assert.doesNotMatch(src, /webHost:\s*\(\)\s*=>\s*ctx\.webServer\.host/, '隧道/点对点 provider 仍在现读失效的 ctx.webServer.host');
+  // 两处 provider + 两处「外壳不在」的兜底挂载，都必须用挂载时缓存的那对常量。
+  const cachedPort = (src.match(/webPort:\s*\(\)\s*=>\s*webPortForSidecar/g) || []).length;
+  const cachedHost = (src.match(/webHost:\s*\(\)\s*=>\s*webHostForSidecar/g) || []).length;
+  assert.ok(cachedPort >= 4, `隧道/点对点的端口取值器应改用挂载时缓存的常量（预期 4 处，实得 ${cachedPort}）`);
+  assert.ok(cachedHost >= 4, `隧道/点对点的地址取值器应改用挂载时缓存的常量（预期 4 处，实得 ${cachedHost}）`);
+});
+
+test('变异：把隧道/点对点取值器改回现读 ctx.webServer 会被上面那条守卫拒绝', () => {
+  const src = read(INDEX);
+  const mutated = src
+    .replace('webPort: () => webPortForSidecar', 'webPort: () => ctx.webServer.port')
+    .replace('webHost: () => webHostForSidecar', 'webHost: () => ctx.webServer.host');
+  assert.notEqual(mutated, src, '变异替换必须命中源码');
+  assert.throws(
+    () => assert.doesNotMatch(mutated, /webPort:\s*\(\)\s*=>\s*ctx\.webServer\.port/),
+    assert.AssertionError,
+  );
+});
+
 test('装配层不再自己开定时器（健康轮询与后台补推各自归属明确）', () => {
   const src = read(INDEX);
   assert.ok(!/setInterval\(/.test(src), 'impl.js 又开始开定时器了：健康轮询归 lifecycle，后台补推归 pusher');
