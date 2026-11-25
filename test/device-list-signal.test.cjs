@@ -1,3 +1,4 @@
+// 启动即广播清单首帧；后续tick保持同版去重，真正变更继续推送。
 'use strict';
 
 /**
@@ -211,8 +212,7 @@ test('会话清单变化经变更信号总线送到手机那条设备级 SSE 连
   const stop = pusher.start();
   try {
     await flush();
-    // 兜底轮询也会看到这条变化，但那是「最多 3 分钟后」的事；这里要的是变更信号先到。
-    res.chunks.length = 0;
+    // 清单独立推进后，启动已先广播首帧；保留它，再验证tick不会重复同一版本。
     h.tick(500);
     await flush();
 

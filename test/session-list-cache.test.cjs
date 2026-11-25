@@ -1,3 +1,4 @@
+// 条件刷新只认未失效的构建，桌面变更期间迟到的旧列表不能登记为最新。
 'use strict';
 
 /**
@@ -22,15 +23,20 @@
 const { Readable } = require('node:stream');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const Module = require('node:module');
+const { listSignal } = require('../lib/shared/list-signal.js');
 const {
   handleSessions,
+  buildSessionsResponse,
   handleRename,
   handleFork,
   handleNew,
   invalidateSessionList,
 } = require('../lib/mobile/sessions.js');
 const { handleArchiveSession, handleMoveSession } = require('../lib/mobile/workspaces.js');
-const { dropSessionListCache, completionGenerationOf } = require('../lib/mobile/session-cache.js');
+const { dropSessionListCache, completionGenerationOf, sessionListResponseState } = require('../lib/mobile/session-cache.js');
 
 function makeReq(body, deviceHeader) {
   const req = Readable.from([Buffer.from(JSON.stringify(body || {}))]);
@@ -126,9 +132,11 @@ function makeCtx() {
 }
 
 /** 走一次真实的 GET /sessions（带同一台设备的头），返回响应体。 */
-async function readSessions(ctx, deviceKey) {
+async function readSessions(ctx, deviceKey, revision, handler = handleSessions) {
   const res = makeRes();
-  await handleSessions(ctx, makeReq({}, deviceKey), res);
+  const req = makeReq({}, deviceKey);
+  req.url = '/api/mobile/v1/sessions' + (revision ? `?rev=${encodeURIComponent(revision)}` : '');
+  await handler(ctx, req, res);
   assert.equal(res.status, 200, `GET /sessions 应返回 200，实际 ${res.status}`);
   return res.body;
 }
@@ -303,4 +311,239 @@ test('变更信号挡住在飞构建把变更前的清单写回缓存', async ()
 
   assert.deepEqual(titlesOf(await readSessions(ctx)), ['变更后的标题', '留下的会话'],
     '变更前发起的构建把旧清单按新时间戳写回了缓存，又会多活 10 秒');
+});
+
+async function lateConditionalReadContract(handler = handleSessions, invalidate = dropSessionListCache) {
+  const ctx = makeCtx();
+  let release, started;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const reading = new Promise((resolve) => { started = resolve; });
+  let listCalls = 0;
+  ctx.apiProxy.sessions.list = async () => {
+    const items = ctx.state.items;
+    listCalls += 1;
+    started();
+    if (listCalls === 1) await gate;
+    return { result: { ok: true, value: { items } } };
+  };
+  const unwatch = listSignal.watch();
+  listSignal.bump('conditional-before');
+  try {
+    const pending = readSessions(ctx, undefined, undefined, handler);
+    await reading;
+    ctx.state.items = [...ctx.state.items, mkSession('desktop-new', '电脑新建', '/ws/a', 3000)];
+    invalidate(ctx);
+    listSignal.bump('conditional-after');
+    release();
+    const old = await pending;
+    assert.equal(old.items.length, 2);
+    const latest = await readSessions(ctx, undefined, old.revision, handler);
+    assert.notEqual(latest.unchanged, true, '旧构建不能把新变更登记为已同步');
+    assert.ok(latest.items.some((item) => item.sessionId === 'desktop-new'), '条件刷新必须拿回桌面新会话');
+    assert.equal(listCalls, 2, '有新信号时必须重新读取宿主');
+  } finally {
+    release();
+    unwatch();
+  }
+}
+
+test('构建期间桌面新建会话，带旧 revision 的下一读不能短路', async () => {
+  await lateConditionalReadContract();
+  await lateConditionalReadContract(handleSessions, invalidateSessionList);
+});
+
+function mutatedSessions(before, after) {
+  const file = path.join(__dirname, '../lib/mobile/sessions.js');
+  const source = fs.readFileSync(file, 'utf8');
+  assert.equal(source.split(before).length, 2, '变异必须命中唯一列表缓存判据');
+  const mod = new Module(file, module);
+  mod.filename = file;
+  mod.paths = Module._nodeModulePaths(path.dirname(file));
+  mod._compile(source.replace(before, after), file);
+  return mod.exports;
+}
+
+test('变异：旧构建仍登记条件刷新基准，会被同一桌面新建断言拒绝', async () => {
+  const broken = mutatedSessions(
+    '      if (!archivedOnly) rememberListBuild(cache, response.body, generation);',
+    '    }\n    if (response.status === 200) rememberListBuild(cache, response.body, completionGenerationOf(ctx, deviceKey));\n    if (false) {',
+  );
+  await assert.rejects(lateConditionalReadContract(broken.handleSessions), { code: 'ERR_ASSERTION' });
+});
+
+async function conditionalPreviewContract(handler = handleSessions) {
+  const ctx = makeCtx();
+  const old = await readSessions(ctx, undefined, undefined, handler);
+  ctx.state.items = [...ctx.state.items, mkSession('preview-new', '新对话', '/ws/a', 4000)];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  ctx.apiProxy.sessions.history = async () => {
+    await gate;
+    return { result: { ok: true, value: { events: [
+      { event: { type: 'assistant/message', seq: 1, time: 5, data: { message: { role: 'assistant', content: [{ type: 'text', text: '预览补齐' }] } } } },
+    ] } } };
+  };
+  dropSessionListCache(ctx);
+  let response;
+  const pending = readSessions(ctx, undefined, old.revision, handler).then((body) => { response = body; });
+  try {
+    for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(response?.items.some((item) => item.sessionId === 'preview-new'), '实时条件读必须先显示新会话');
+    release(); await pending;
+    for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    const latest = await readSessions(ctx, undefined, response.revision, handler);
+    assert.notEqual(latest.unchanged, true, '异步预览补齐后必须作废条件短路基准');
+    assert.equal(latest.items.find((item) => item.sessionId === 'preview-new').lastMessage.text, '预览补齐');
+  } finally { release(); await pending; }
+}
+
+test('实时条件读先显示新会话，异步预览补齐后能再次读到', () => conditionalPreviewContract());
+
+test('变异：条件读等待预览或不作废旧短路，均被同一新对话断言拒绝', async () => {
+  for (const [before, after] of [
+    ['const buildOptions = revEligible && rev ? {', 'const buildOptions = false ? {'],
+    ['onPreviewsReady: () => dropSessionListCache(ctx, deviceKey),', 'onPreviewsReady: () => {},'],
+  ]) {
+    await assert.rejects(conditionalPreviewContract(mutatedSessions(before, after).handleSessions), { code: 'ERR_ASSERTION' });
+  }
+});
+
+async function deferredPreviewContract(build = buildSessionsResponse) {
+  const ctx = makeCtx();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  ctx.apiProxy.sessions.history = async () => {
+    await gate;
+    return { result: { ok: true, value: { events: [
+      { event: { type: 'assistant/message', seq: 1, time: 5, data: { message: { id: 'preview', role: 'assistant', content: [{ type: 'text', text: '最后一句' }] } } } },
+    ] } } };
+  };
+  let ready = 0, response;
+  const options = { awaitPreviews: false, onPreviewsReady: () => { ready += 1; } };
+  const pending = build(ctx, 'legacy', undefined, false, false, null, options).then((value) => { response = value; });
+  try {
+    for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(response, '清单不得等消息预览读取结束');
+    assert.equal(response.body.items.length, 2);
+    const original = JSON.stringify(response.body);
+    release(); await pending;
+    for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(ready, 1, '预览补齐后必须通知下一轮清单');
+    assert.equal(JSON.stringify(response.body), original, '预览补齐不能偷偷修改已发清单与revision');
+    const next = await build(ctx, 'legacy', undefined, false, false, null, options);
+    assert.equal(next.body.items[0].lastMessage.text, '最后一句');
+    for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(ready, 1, '预览没变不能每轮重扫清单');
+  } finally { release(); await pending; }
+}
+
+test('实时清单不等慢消息预览，补齐后仅通知一次且保持已发快照不变', async () => {
+  await deferredPreviewContract();
+});
+
+test('变异：清单重新等待预览，会被同一慢历史断言拒绝', async () => {
+  const broken = mutatedSessions('const deferPreviews = buildOptions.awaitPreviews === false;', 'const deferPreviews = false;');
+  await assert.rejects(deferredPreviewContract(broken.buildSessionsResponse), { code: 'ERR_ASSERTION' });
+});
+
+test('变异：异步预览修改已发清单，会被同一快照断言拒绝', async () => {
+  const broken = mutatedSessions('const base = deferPreviews ? { ...listed } : listed;', 'const base = listed;');
+  await assert.rejects(deferredPreviewContract(broken.buildSessionsResponse), { code: 'ERR_ASSERTION' });
+});
+
+async function underlyingRpcContract(handler = handleSessions, invalidate = dropSessionListCache) {
+  const ctx = makeCtx();
+  let release, started;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const reading = new Promise((resolve) => { started = resolve; });
+  let calls = 0;
+  ctx.apiProxy.sessions.list = async () => {
+    const items = ctx.state.items;
+    calls += 1;
+    started();
+    if (calls === 1) await gate;
+    return { result: { ok: true, value: { items } } };
+  };
+  const old = readSessions(ctx, undefined, undefined, handler);
+  await reading;
+  ctx.state.items = [...ctx.state.items, mkSession('rpc-new', '新会话', '/ws/a', 5000)];
+  invalidate(ctx);
+  let response;
+  const latest = readSessions(ctx, undefined, 'old', handler).then((body) => { response = body; });
+  try {
+    for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(response?.items.some((item) => item.sessionId === 'rpc-new'), '新构建不得加入变更前的底层宿主RPC');
+    assert.equal(calls, 2);
+  } finally { release(); await Promise.all([old, latest]); }
+}
+
+test('失效后的新构建不加入底层旧宿主 RPC', async () => {
+  await underlyingRpcContract();
+  await underlyingRpcContract(handleSessions, invalidateSessionList);
+});
+
+test('变异：底层宿主 RPC 跨失效代次合流，会被同一新会话断言拒绝', async () => {
+  const rpcFile = path.join(__dirname, '../lib/mobile/rpc.js');
+  const source = fs.readFileSync(rpcFile, 'utf8');
+  const before = 'if (existing && existing.epoch === epoch) return existing.promise;';
+  assert.equal(source.split(before).length, 2);
+  const rpc = new Module(rpcFile, module);
+  rpc.filename = rpcFile; rpc.paths = Module._nodeModulePaths(path.dirname(rpcFile));
+  rpc._compile(source.replace(before, 'if (existing) return existing.promise;'), rpcFile);
+  const file = path.join(__dirname, '../lib/mobile/sessions.js');
+  const mod = new Module(file, module);
+  mod.filename = file; mod.paths = Module._nodeModulePaths(path.dirname(file));
+  const originalRequire = mod.require.bind(mod);
+  mod.require = (name) => name === './rpc.js' ? rpc.exports : originalRequire(name);
+  mod._compile(fs.readFileSync(file, 'utf8'), file);
+  await assert.rejects(underlyingRpcContract(mod.exports.handleSessions), { code: 'ERR_ASSERTION' });
+});
+
+async function detachedConstructionContract(drop = dropSessionListCache) {
+  const ctx = makeCtx();
+  let release;
+  const old = new Promise((resolve) => { release = resolve; });
+  const state = sessionListResponseState(ctx);
+  state.promise = old;
+  const generation = completionGenerationOf(ctx, 'legacy');
+  drop(ctx);
+  const pending = readSessions(ctx);
+  let response;
+  pending.then((value) => { response = value; });
+  try {
+    for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(response, '变更后的新请求不能再搭旧构建');
+    assert.equal(completionGenerationOf(ctx, 'legacy'), generation, '不能为清缓存抹掉完成态');
+  } finally {
+    release({ status: 200, body: { ok: true, items: [], revision: 'old' } });
+    await pending;
+  }
+}
+
+test('清单信号断开旧构建合流，后来的读取直接重建', () => detachedConstructionContract());
+
+test('变异：清单信号只清结果不清在途合流，会被后续读取断言拒绝', async () => {
+  const file = path.join(__dirname, '../lib/mobile/session-cache.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const before = "    state.promise = null;\n    state.lastRevision = '';\n    state.droppedAt =";
+  assert.equal(source.split(before).length, 2);
+  const mod = new Module(file, module);
+  mod.filename = file; mod.paths = Module._nodeModulePaths(path.dirname(file));
+  mod._compile(source.replace(before, "    state.lastRevision = '';\n    state.droppedAt ="), file);
+  // 独立加载的WeakMap仍要喂同一份真实状态入口。
+  const drop = (ctx) => {
+    const actual = sessionListResponseState(ctx);
+    const isolated = mod.exports.sessionListResponseState(ctx);
+    Object.assign(isolated, actual);
+    mod.exports.dropSessionListCache(ctx);
+    Object.assign(actual, isolated);
+  };
+  await assert.rejects(detachedConstructionContract(drop), { code: 'ERR_ASSERTION' });
+});
+
+test('变异：补齐不通知或重复通知，均被同一预览断言拒绝', async () => {
+  for (const predicate of ['false', 'true']) {
+    const broken = mutatedSessions('previewsBefore !== JSON.stringify(completed)', predicate);
+    await assert.rejects(deferredPreviewContract(broken.buildSessionsResponse), { code: 'ERR_ASSERTION' });
+  }
 });

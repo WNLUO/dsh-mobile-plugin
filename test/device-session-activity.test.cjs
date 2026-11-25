@@ -1,3 +1,4 @@
+// 清单确认过期不吞已落地正文水位，延迟ACK回归与内存变异共用消费断言。
 'use strict';
 
 /**
@@ -24,6 +25,8 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const Module = require('node:module');
+const { createListSignal } = require('../lib/shared/list-signal.js');
 
 const { createMirrorPusher } = require('../lib/mirror/pusher.cjs');
 const { createSessionSignal, sessionSignal: sharedSessionSignal, MAX_TRACKED } = require('../lib/shared/session-signal.js');
@@ -376,6 +379,97 @@ test('隧道断开/局域网模式：正文水位照样广播，且不往 sideca
     if (previousHome === undefined) delete process.env.DSH_HOME;
     else process.env.DSH_HOME = previousHome;
   }
+});
+
+async function assertLateBodyActivity(create = createMirrorPusher, archive = false) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-activity-ack-'));
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  const h = harness();
+  sharedSessionSignal.reset();
+  const state = { items: [mkItem()], events: [assistantEvent(7)] };
+  const ctl = pushableMux();
+  let openGate;
+  const gate = new Promise(resolve => { openGate = resolve; });
+  const ctx = makeCtx(state, { mirror: ctl.mux, other: idleMux(gate).mux });
+  const listSignal = createListSignal();
+  let releaseAck;
+  const ack = new Promise(resolve => { releaseAck = resolve; });
+  let held = false;
+  let holdBody = false;
+  const pushed = [];
+  const pusher = create({
+    ctx, listSignal,
+    tunnelConnected: () => true,
+    getSidecar: () => ({ pushSync: async payload => {
+      pushed.push(payload);
+      if (holdBody && !held && (payload.messages[SID]?.items || []).some(item => item.seq === 9)) {
+        held = true;
+        await ack;
+      }
+    } }),
+  });
+  const res = response();
+  const pending = handleDeviceStream(ctx, request(), res);
+  const stop = pusher.start();
+  try {
+    assert.ok(await waitFor(() => activityOf(res).some(frame => frame.seq === 7)), '首轮正文水位必须已到达');
+    state.events = [assistantEvent(7), assistantEvent(9)];
+    holdBody = true;
+    const pushing = pusher.pushSessionImmediately(SID);
+    assert.ok(await waitFor(() => held), '正文推送必须真的停在ACK之前');
+    assert.equal(sharedSessionSignal.peek(SID), 7, '正文ACK之前不应提前宣布水位');
+    state.items = archive ? [] : [mkItem({ updatedAt: state.items[0].updatedAt + 1000 })];
+    ctl.push({ type: 'host/workspace' });
+    await flush();
+    h.tick(500);
+    assert.ok(await waitFor(() => {
+      const latest = pushed.at(-1)?.sessions;
+      const rows = latest?.items || [];
+      const changed = archive ? rows.length === 0 : rows.some(row => row.sessionId === SID && row.updatedAt === state.items[0].updatedAt);
+      return changed && listSignal.snapshot().revision === latest.revision;
+    }), '较新的清单必须先独立确认');
+    await flush();
+    const revision = listSignal.snapshot().revision;
+    releaseAck();
+    await pushing;
+    await flush();
+    assert.equal(listSignal.snapshot().revision, revision, '正文旧ACK不得倒推清单信号');
+    if (archive) {
+      assert.equal(sharedSessionSignal.peek(SID), 0, '已归档会话的迟到正文ACK不得复活水位');
+    } else {
+      assert.equal(sharedSessionSignal.peek(SID), 9, '正文已落地，清单ACK过期也必须广播唯一正文水位');
+      assert.equal(activityOf(res).filter(frame => frame.seq === 9).length, 1, '同一正文水位仍然只广播一次');
+    }
+  } finally {
+    releaseAck(); stop(); res.emit('close'); ctl.close(); openGate();
+    await flush();
+    await pending.catch(() => {});
+    h.restore(); sharedSessionSignal.reset();
+    fs.rmSync(home, { recursive: true, force: true });
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+  }
+}
+
+test('正文ACK晚于新清单时仍广播水位，且不倒推清单', async () => {
+  await assertLateBodyActivity();
+});
+
+test('已归档会话的迟到正文ACK不复活水位', async () => {
+  await assertLateBodyActivity(createMirrorPusher, true);
+});
+
+test('变异：旧清单ACK早退吞正文水位会被同一广播断言拒绝', async () => {
+  const filename = path.join(__dirname, '..', 'lib', 'mirror', 'pusher.cjs');
+  const source = fs.readFileSync(filename, 'utf8');
+  const before = 'announceSessionActivity(Object.fromEntries(Object.entries(payload.messages || {}).filter(([id]) => currentIds.has(id))));';
+  assert.equal(source.split(before).length, 2, '变异必须命中唯一迟到正文广播');
+  const instance = new Module(filename, module);
+  instance.filename = filename;
+  instance.paths = module.paths;
+  instance._compile(source.replace(before, ''), filename);
+  await assert.rejects(() => assertLateBodyActivity(instance.exports.createMirrorPusher), { code: 'ERR_ASSERTION' });
 });
 
 test('水位总线：按会话判重、当前集合完整保留、非当前超限淘汰最早项', () => {

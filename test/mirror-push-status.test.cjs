@@ -1,3 +1,4 @@
+// 清单独立推进后仍保持记账、离线短路与推送成功再广播的约束。
 // Source-contract tests for mirror push accounting and failure outcomes.
 'use strict'
 const assert = require('node:assert/strict')
@@ -40,7 +41,7 @@ test('三条推送路径都记账（成功、失败、跳过）', () => {
     assert.notEqual(start, -1, `缺少 ${fn}`)
     const asyncStart = SOURCE.indexOf('async ', start)
     assert.notEqual(asyncStart, -1, `${fn} 缺少 async 实现`)
-    const endMarker = fn === 'pushSessionNow' ? '\n  });' : '\n  };'
+    const endMarker = '\n  };'
     const end = SOURCE.indexOf(endMarker, asyncStart)
     assert.notEqual(end, -1, `${fn} 函数边界无法识别`)
     return SOURCE.slice(asyncStart, end)
@@ -129,10 +130,14 @@ test('后台队列 tick 在「隧道未连接且没人在听变更信号」时�
   // 离线但有人听：只广播、不推送也不记账（否则 500ms 一条假故障）。
   const offline = body.indexOf('if (!online) {')
   assert.notEqual(offline, -1, '离线分支必须显式分流，不能顺手把推送状态记成失败')
-  assert.ok(offline < body.indexOf('pushMirrorPayload('), '离线分支必须在推送之前返回')
-  // 在线：先把镜像推进中转、再广播，手机紧跟信号的那次读取才不会读到旧镜像。
-  const announce = body.lastIndexOf('announceSessionsRevision(')
-  assert.ok(announce > body.indexOf('pushMirrorPayload('), '在线路径必须先推镜像、后广播信号')
+  assert.ok(offline < body.indexOf('await pushListSnapshot()'), '离线分支必须在推送之前返回')
+  // 清单独立推进：在线广播由唯一发送出口负责，不能在后台正文轮次末尾提前广播。
+  assert.equal((body.match(/announceSessionsRevision\(/g) || []).length, 1, '后台轮次只有离线分支可直接广播')
+  const wrapper = SOURCE.indexOf('const pushMirrorPayload =')
+  const sendBody = SOURCE.slice(wrapper, SOURCE.indexOf('\n  }', wrapper))
+  const send = sendBody.indexOf('await getSidecar().pushSync(payload)')
+  const announce = sendBody.lastIndexOf('announceSessionsRevision(')
+  assert.ok(send !== -1 && announce > send, '在线路径必须先推镜像、后广播信号')
 })
 
 test('清单变更信号只有一个出口，且必须同时丢掉本地列表缓存', () => {

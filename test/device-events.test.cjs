@@ -1,3 +1,4 @@
+// 清单摘要覆盖事件双形状转发、正文剥离及同断言内存变异。
 /**
  * 设备级 SSE（`/api/v1/events/stream`）的两组守卫。
  *
@@ -21,6 +22,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const Module = require('node:module');
 const { handleDeviceStream } = require('../lib/mobile/events.js');
 const { listSignal: sharedListSignal } = require('../lib/shared/list-signal.js');
 const { sessionSignal: sharedSessionSignal } = require('../lib/shared/session-signal.js');
@@ -56,7 +58,7 @@ function framesFrom(res) {
   return frames;
 }
 
-async function streamWith(frames, req = request()) {
+async function streamWith(frames, req = request(), openStream = handleDeviceStream) {
   const res = response();
   const ctx = { apiProxy: { events: { mux: async function* (_request, signal) {
     for (const frame of frames) {
@@ -64,8 +66,33 @@ async function streamWith(frames, req = request()) {
       yield frame;
     }
   } } } };
-  await handleDeviceStream(ctx, req, res);
+  await openStream(ctx, req, res);
   return { req, res, events: framesFrom(res) };
+}
+
+function memoryDeviceStream(before, after) {
+  const file = require.resolve('../lib/mobile/events.js');
+  assert.equal(SOURCE.split(before).length, 2, '变异必须命中唯一生产逻辑');
+  const instance = new Module(file, module);
+  instance.filename = file;
+  instance.paths = Module._nodeModulePaths(path.dirname(file));
+  instance._compile(SOURCE.replace(before, after), file);
+  return instance.exports.handleDeviceStream;
+}
+
+async function eventShapeContract(openStream = handleDeviceStream, shape = 'type') {
+  for (const [index, type] of ['turn/start', 'turn/end', 'session/title', 'session/disposed'].entries()) {
+    const event = shape === 'type'
+      ? { type, seq: index + 1, time: 42, data: { content: '不应转发的正文' } }
+      : { seq: index + 1, time: 42, data: { type, content: '不应转发的正文' } };
+    const result = await streamWith([{ payload: { type: 'session/event', sessionId: 's-shape', event } }], request(), openStream);
+    assert.equal(result.events.length, 1, `${shape} 形状的 ${type} 必须转发`);
+    assert.equal(result.events[0].eventId, `s-shape:${index + 1}`);
+    assert.deepEqual(result.events[0].payload, {
+      type: 'session/event', sessionId: 's-shape',
+      event: { ...(shape === 'type' ? { type } : {}), seq: index + 1, time: 42, ...(shape === 'data.type' ? { data: { type } } : {}) },
+    });
+  }
 }
 
 test('forwards only list-relevant session/event frames, slimmed, with a stable seq id', async () => {
@@ -78,6 +105,20 @@ test('forwards only list-relevant session/event frames, slimmed, with a stable s
     // the sidebar needs survives.
     payload: { type: 'session/event', sessionId: 's-1', event: { type: 'turn/start', seq: 42, data: { type: 'turn/start' } } },
   });
+});
+
+test('event.type 单独携带的清单事件转发且剥离正文', () => eventShapeContract());
+
+test('event.data.type 单独携带的清单事件转发且剥离正文', () => eventShapeContract(handleDeviceStream, 'data.type'));
+
+test('变异：只认 data.type 会被同一 type 形状断言拒绝', async () => {
+  const broken = memoryDeviceStream('LIST_EVENT_INNER.has(ev && ev.type) || LIST_EVENT_INNER.has(inner)', 'LIST_EVENT_INNER.has(inner)');
+  await assert.rejects(eventShapeContract(broken), { code: 'ERR_ASSERTION', message: /type 形状的 turn\/start 必须转发/ });
+});
+
+test('变异：只认 type 会被同一 data.type 形状断言拒绝', async () => {
+  const broken = memoryDeviceStream('LIST_EVENT_INNER.has(ev && ev.type) || LIST_EVENT_INNER.has(inner)', 'LIST_EVENT_INNER.has(ev && ev.type)');
+  await assert.rejects(eventShapeContract(broken, 'data.type'), { code: 'ERR_ASSERTION', message: /data.type 形状的 turn\/start 必须转发/ });
 });
 
 test('drops assistant/message session events from the device-wide stream', async () => {

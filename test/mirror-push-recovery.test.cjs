@@ -1,3 +1,4 @@
+// 清单先独立推进，正文相关断言等待对应正文到达，保留原恢复与退避契约。
 'use strict';
 
 /**
@@ -183,7 +184,7 @@ test('高优先会话镜像构建并发全局限制为2', async () => {
       updatedAt: Date.now(),
     }));
     await withPusher({ items, events: [] }, async ({ pushed }) => {
-      await waitFor(() => pushed.length >= 1);
+      await waitFor(() => pushed.some(payload => Object.keys(payload.messages).length === items.length));
       assert.equal(maxActive, 2, '全局会话构建应限制为两路并发，而不是按 highPrio 数量展开');
     });
   } finally {
@@ -283,6 +284,7 @@ test('失败的会话只按退避到期重试（冷轮转不许绕过）', async
       assert.equal(failures[0].attempts, 1);
       assert.ok(failures[0].dueAt > 0, '必须带退避到期时间');
       assert.equal(pushed.length, 0);
+      const failedBuildCount = buildCount;
 
       const realNow = Date.now;
       try {
@@ -290,7 +292,7 @@ test('失败的会话只按退避到期重试（冷轮转不许绕过）', async
         h.tick(500);
         await flush();
         assert.equal(pusher.getPushFailures()[0]?.attempts, 1, '未到 dueAt 不得重试');
-        assert.equal(buildCount, 1, '未到 dueAt 的 500ms 冷轮转不得重建失败会话');
+        assert.equal(buildCount, failedBuildCount, '未到 dueAt 的 500ms 冷轮转不得重建失败会话');
 
         // 到期后恢复隧道。会话仍是 running（高优先），必须由定向重试恢复。
         sidecar.fail = false;
@@ -298,7 +300,7 @@ test('失败的会话只按退避到期重试（冷轮转不许绕过）', async
         h.tick(500);
         // 重试那一趟是异步的（建快照 + 推送都要等），固定等几轮微任务在慢机器上会抢跑：
         // 等到「真的推出去」为止，判据仍然只看结果，不看等了几拍。
-        await waitFor(() => pushed.length >= 1);
+        await waitFor(() => pushed.some(payload => payload.messages[SID] !== undefined));
       } finally {
         Date.now = realNow;
       }
@@ -354,7 +356,7 @@ test('真被清空的清单也要推镜像（带 emptyConfirmed），不能只�
 test('同一会话连续两次推送不许复用旧正文（noCache）', async () => {
   const state = { items: [mkItem()], events: [assistantEvent(7)] };
   await withPusher(state, async ({ pusher, pushed }) => {
-    await waitFor(() => pushed.length >= 1);
+    await waitFor(() => pushed.some(payload => payload.messages[SID] !== undefined));
 
     // 把时钟钉住：旧实现是「传 Date.now() 当指纹」，同一毫秒里的两次推送指纹完全相同，
     // 必然命中 2 分钟缓存。钉住时钟让这个坑**确定性**复现，而不是靠跑得快。
@@ -363,7 +365,7 @@ test('同一会话连续两次推送不许复用旧正文（noCache）', async (
     try {
       state.events = [assistantEvent(7), assistantEvent(9)];
       pusher.pushSessionImmediately(SID);
-      await waitFor(() => pushed.length >= 2);
+      await waitFor(() => (pushed.at(-1)?.messages[SID]?.items || []).some(item => item.seq === 9));
     } finally {
       Date.now = realNow;
     }
@@ -433,8 +435,8 @@ test('子会话正文刻意不建：不发那次注定被拒的读，也不进 s
   const child = { ...mkItem({ sessionId: CHILD }), origin: 'subagent', parentSessionId: SID };
   await withPusher({ items: [parent, child], events: [] }, async ({ pusher, pushed, ctx }) => {
     // 初始那次推送（start() 里的 pushMirror）已经把两个会话都过了一遍：用它钉载荷形状。
-    await waitFor(() => pushed.length >= 1);
-    const first = pushed[0];
+    await waitFor(() => pushed.some(payload => payload.messages[SID] !== undefined));
+    const first = pushed.find(payload => payload.messages[SID] !== undefined);
     // 清单规模也要真的记下来：自检台账读的就是这三个数（记漏了台账就永远 0）。
     const diag = pusher.getMirrorPush();
     assert.equal(diag.listSessions, 2, '清单里的会话总数要记下来');
