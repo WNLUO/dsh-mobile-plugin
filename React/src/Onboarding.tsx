@@ -56,6 +56,8 @@ import {
   pairingRenewIn,
   type AddressBook,
   type ConfigPatch,
+  type PairingCheck,
+  type PairingCheckRow,
   type PairingInfo,
   type StatusView,
 } from './lib/api.ts'
@@ -123,6 +125,10 @@ export function Onboarding({ onDone }: Props) {
   const [region, setRegion] = useState<NetworkRegion>(detectRegion)
   /** 走到第几页：1 下载 App、2 配网络、3 扫码连接。 */
   const [step, setStep] = useState<1 | 2 | 3>(1)
+  /** 第三页出码前的自检结果：码里的地址宿主真拨了一遍。 */
+  const [check, setCheck] = useState<PairingCheck | null>(null)
+  const [checkRunning, setCheckRunning] = useState(false)
+  const [checkError, setCheckError] = useState('')
   /** 正在配置哪家服务商（null = 没开面板）；开了就把它自己那一页铺上来。 */
   const [providerOpen, setProviderOpen] = useState<OnboardingProvider['provider'] | null>(null)
   /** 节点小宝的外网地址：它不在 /status 里，只在国内时单独读，用来判「这条接好了没有」。 */
@@ -282,6 +288,30 @@ export function Onboarding({ onDone }: Props) {
     }
   }
 
+  /**
+   * 出码前先自检：让宿主把二维码里会带的那几条地址真拨一遍。
+   *
+   * 扫不上比扫得慢糟得多 —— 原来这一页把码一摆就不管了，码里那条地址其实早就拨不通（端口没
+   * 听、防火墙拦、服务商断了），用户只能拿着手机反复扫。自检放在这里，全不通就不出码，先让
+   * 人把路弄通。
+   *
+   * 这条请求**证明不了手机能连上**：拨的是本机网卡出去的请求，同一台电脑上永远不过防火墙与
+   * 无线链路，所以结果分两档，界面照两档说话（本机回环可达 / 外部线路可达）。
+   */
+  async function startCheck() {
+    if (checkRunning) return
+    setCheckRunning(true)
+    setCheckError('')
+    try {
+      const result = await apiGet<PairingCheck>('/api/relay/pairing-check')
+      if (alive.current) setCheck(result)
+    } catch (error) {
+      if (alive.current) setCheckError(errorText(error))
+    } finally {
+      if (alive.current) setCheckRunning(false)
+    }
+  }
+
   /** 服务商清单（主推排最前）+ 当前地区是否已有能用的线路。 */
   const providers = onboardingProvidersOf(region)
   const readyCtx = { status: status as StatusView, jdxbUrl }
@@ -326,6 +356,16 @@ export function Onboarding({ onDone }: Props) {
   /** 弹窗里点名用的端口。 */
   const lanPortText = String(status?.lan.port || addresses?.port || 18787)
   const portConflict = portConflictReason(lanFallbackReason(status))
+
+  /**
+   * 进第三页就查一次。回第二页换了一家服务商再进来会重查 —— 码里的地址跟着变了，旧结论作废。
+   * 「重新检查」那颗按钮另走 `startCheck`。
+   */
+  useEffect(() => {
+    if (step !== 3 || !status?.enabled) return
+    void startCheck()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在进出这一页时查一次，重查由按钮发起
+  }, [step, status?.enabled])
 
   const showSelfcheckVerdict =
     status !== null &&
@@ -495,6 +535,40 @@ export function Onboarding({ onDone }: Props) {
    */
   const qrCurrent = pairing?.pairingCode !== undefined && pairing.pairingCode === status?.pairingCode
   const qrReady = qrCurrent && qrSvg !== ''
+
+  /** 自检过一遍之后才谈出码：正在查、或一条地址都拨不通时，码先不摆出来。 */
+  const checkRows = check?.targets ?? []
+  const lanRows = checkRows.filter((row) => row.kind === 'lan' || row.kind === 'direct')
+  const routeRows = checkRows.filter((row) => row.kind === 'route')
+  const checkSettled = check !== null && !checkRunning && !checkError
+  const checkSummary = checkSettled && check ? check.summary : null
+  const qrBlocked = checkRunning || checkSummary?.allFailed === true
+
+  /**
+   * 一条自检结论并进原来那一行：通了说「可达」，没通说「拨不通」，地址与原因收进 detail。
+   *
+   * 局域网那几条就落在这台电脑自己的网卡上，通了也只说明本机回环好 —— 这一行的说法跟着
+   * 走 `local`，不许把「拨自己通了」写成「局域网正常」。
+   */
+  function probeRow(rows: PairingCheckRow[], label: string) {
+    const first = rows.find((row) => row.ok) ?? rows[0]
+    const tone: Tone = checkRunning ? 'off' : first.ok ? 'ok' : 'error'
+    const text = checkRunning
+      ? t('panel.onboarding.check.running')
+      : first.ok
+        ? t('panel.onboarding.check.reachable')
+        : t('panel.onboarding.check.unreachable')
+    const detail = [
+      first.local ? `${first.url}（${t('panel.onboarding.check.loopback')}）` : first.url,
+      rows.length > 1 ? `+${rows.length - 1}` : '',
+      first.ok ? '' : first.error || first.detail || '',
+    ].filter(Boolean).join(' · ')
+    return (
+      <InfoRow key={label} label={label}>
+        <ToneValue tone={tone} text={text} detail={detail} />
+      </InfoRow>
+    )
+  }
 
   const tailcat = status?.tailcat ?? null
   const tailcatState = !tailcat || !tailcat.available
@@ -701,7 +775,7 @@ export function Onboarding({ onDone }: Props) {
                   </button>
                 ) : null}
               </div>
-              {qrReady ? (
+              {qrReady && !qrBlocked ? (
                 <button
                   type="button"
                   className="cursor-zoom-in rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -712,14 +786,27 @@ export function Onboarding({ onDone }: Props) {
                 </button>
               ) : (
                 <div className="flex size-[320px] max-w-full items-center justify-center rounded-lg border border-border-muted p-4 text-center text-xs leading-5 text-foreground-muted">
-                  {pairingError && anyReady ? (
+                  {checkRunning ? (
+                    <span className="flex flex-col items-center gap-2">
+                      <Spinner />
+                      {t('panel.onboarding.check.running')}
+                    </span>
+                  ) : checkSummary?.allFailed ? (
+                    <span role="alert">{t('panel.onboarding.check.allFailed')}</span>
+                  ) : pairingError && anyReady ? (
                     <div className="flex flex-col items-center gap-2">
                       <span role="alert">{pairingError}</span>
                       <Button variant="ghost" size="sm" disabled={busy} onClick={() => void loadPairing()}>
                         {t('panel.console.retryPairing')}
                       </Button>
                     </div>
-                  ) : busy ? <Spinner /> : t('panel.onboarding.qrPending')}
+                  ) : busy ? (
+                    <Spinner />
+                  ) : check === null ? (
+                    t('panel.onboarding.check.pending')
+                  ) : (
+                    t('panel.onboarding.qrPending')
+                  )}
                 </div>
               )}
               <p className="min-h-4 max-w-[320px] text-center text-xs leading-4 text-foreground-muted">
@@ -729,13 +816,19 @@ export function Onboarding({ onDone }: Props) {
 
             <div className="w-full [&_dt]:text-foreground-strong">
               <InfoList>
-                <InfoRow label={t('panel.onboarding.direct')}>
-                  <ToneValue
-                    tone={lanTone(lanState, true)}
-                    text={lanText(lanState, true)}
-                    detail={loopbackInfo?.state === 'blocked' ? loopbackInfo.reason : undefined}
-                  />
-                </InfoRow>
+                {/* 直连那一行换成自检结论：码里那条局域网地址到底通不通，比「在监听」这句话有用。 */}
+                {lanRows.length > 0 ? (
+                  probeRow(lanRows, t('panel.onboarding.direct'))
+                ) : (
+                  <InfoRow label={t('panel.onboarding.direct')}>
+                    <ToneValue
+                      tone={lanTone(lanState, true)}
+                      text={lanText(lanState, true)}
+                      detail={loopbackInfo?.state === 'blocked' ? loopbackInfo.reason : undefined}
+                    />
+                  </InfoRow>
+                )}
+                {routeRows.length > 0 ? probeRow(routeRows, t('panel.onboarding.check.provider')) : null}
                 <InfoRow label={t('panel.connection.tunnel')}>
                   <ToneValue tone={tunnelTone(status?.tunnel.state ?? 'off')} text={tunnelText(status?.tunnel.state ?? 'off')} />
                 </InfoRow>
@@ -759,6 +852,15 @@ export function Onboarding({ onDone }: Props) {
                   <ToneValue tone={firewallInfo.tone} text={firewallInfo.text} detail={firewallInfo.detail} />
                 </InfoRow>
               </InfoList>
+
+              {/* 自检的结论单独说一句：只有外部线路通了才配得上「可以扫码了」，
+                  只有拨自己通则必须说清「手机能不能连上还没验证」。 */}
+              {checkSummary?.remoteOk ? (
+                <p className={`mt-2 text-sm leading-relaxed break-words ${toneText.ok}`}>{t('panel.onboarding.check.ready')}</p>
+              ) : null}
+              {checkSummary && !checkSummary.remoteOk && checkSummary.localOk ? (
+                <p className={`mt-2 text-sm leading-relaxed break-words ${toneText.warn}`}>{t('panel.onboarding.check.loopbackOnly')}</p>
+              ) : null}
 
               {showSelfcheckVerdict ? (
                 <p className={`mt-2 text-sm leading-relaxed break-words ${toneText[verdictTone(selfcheckVerdict)]}`}>
@@ -785,6 +887,9 @@ export function Onboarding({ onDone }: Props) {
             >
               {t('panel.onboarding.checkFirewall')}
             </button>
+            <Button variant="ghost" size="sm" disabled={checkRunning} onClick={() => void startCheck()}>
+              {t('panel.onboarding.check.retry')}
+            </Button>
             <Button variant="primary" disabled={!anyReady} onClick={enterNow}>
               {anyReady ? t('panel.onboarding.enterPlugin') : t('panel.onboarding.providerNotReady')}
             </Button>

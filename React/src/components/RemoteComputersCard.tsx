@@ -18,7 +18,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '../lib/api.ts'
 import { pageVisible } from '../lib/embed-visibility.ts'
 import { t } from '../lib/i18n/index.ts'
-import { isPublicRelayUrl } from '../lib/links.ts'
 import { useNotify } from '../lib/notify.ts'
 import {
   crashedShellIds,
@@ -75,14 +74,11 @@ function TrashIcon() {
   )
 }
 
-function channelText(channel: string | null, url?: string | null): string {
+function channelText(channel: string | null): string {
   const keys: Record<string, string> = {
     auto: 'auto', lan: 'lan', direct: 'direct', ipv6: 'ipv6', relay: 'relay', tunnel: 'tailcat', tailcat: 'tailcat', p2p: 'p2p', tcp: 'tcp', cloudflare: 'cloudflare',
   }
   if (!channel) return t('panel.common.none')
-  // 中转分「自建 / 公用」：公用中转只是没自建时的便利通道，配了任一公网可达的自建后公用会被停用。
-  // 按地址判，判据与网络配置那栏同源（公用清单）。
-  if (channel === 'relay' && url && isPublicRelayUrl(url)) return t('panel.remote.channel.publicRelay')
   return keys[channel] ? t(`panel.remote.channel.${keys[channel]}`) : channel
 }
 
@@ -332,7 +328,7 @@ export function RemoteComputersCard() {
                       </Button>
                       {opened ? (
                         <span className="whitespace-nowrap px-1 text-xs text-foreground-muted">
-                          {channelText(device.mode, device.url)} · {channelText(device.channel, device.url)}
+                          {channelText(device.mode)} · {channelText(device.channel)}
                           {device.latencyMs !== null && Number.isFinite(device.latencyMs) ? ` · ${Math.round(device.latencyMs)} ms` : ''}
                         </span>
                       ) : (
@@ -430,9 +426,8 @@ export function RemoteComputersCard() {
             {modeDevice?.attached ? <p className="text-xs leading-5 text-foreground-muted">{t('panel.remote.routeReopenNote')}</p> : null}
             <RadioGroup className="flex flex-col gap-2" value={mode} onValueChange={(next) => { if (typeof next === 'string') setMode(next) }}>
               {remoteModes(modeDevice?.routes ?? []).map((channel) => {
-                const sampleUrl = (modeDevice?.routes ?? []).find((route) => route.channel === channel)?.url
                 return (
-                  <label key={channel} className="flex cursor-pointer items-center gap-2"><Radio value={channel} /><span>{channelText(channel, sampleUrl)}</span></label>
+                  <label key={channel} className="flex cursor-pointer items-center gap-2"><Radio value={channel} /><span>{channelText(channel)}</span></label>
                 )
               })}
             </RadioGroup>
@@ -448,7 +443,7 @@ export function RemoteComputersCard() {
                 <ul className="mt-1 flex flex-col gap-1">
                   {diagnoseRoutes.map((route) => (
                     <li key={`${route.channel}:${route.url}`} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="truncate">{channelText(route.channel, route.url)} · {endpointText(route.url)}</span>
+                      <span className="truncate">{channelText(route.channel)} · {endpointText(route.url)}</span>
                       <span className="shrink-0 whitespace-nowrap text-foreground-muted">
                         {route.ok ? t('panel.remote.diagnoseOk') : t('panel.remote.diagnoseFail')}
                         {route.ok && route.latencyMs !== null ? ` · ${route.latencyMs} ms` : ''}

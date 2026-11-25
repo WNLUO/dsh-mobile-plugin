@@ -1,4 +1,5 @@
 // 验证当前注册中转与独立 IPv6 地址的总控发布契约。
+// 公用中转正式退役：总控不再有「停用公用」这类状态，下面旧文案不再成立。
 'use strict';
 
 const { test } = require('node:test');
@@ -40,8 +41,8 @@ test('局域网关掉仍上报独立IPv6，IPv4候选不出现', () => {
   assert.equal(addresses.some((item) => item.kind === 'lan'), false);
 });
 
-test('TCP 直连目标也上报（配了 TCP 会停公用中转，这时总控是手机拿到它的唯一途径）', () => {
-  // 这与现实一致的组合：配了 TCP 直连 → 公用中转被停 → 局域网关掉 → 只剩这一条能连。
+test('TCP 直连目标也上报（没配中转时总控是手机拿到它的唯一途径）', () => {
+  // 这与现实一致的组合：没配中转 → 局域网关掉 → 只剩这一条能连。
   // 漏报它，总控这条兜底就永远连不上。
   const state = { lanEnabled: false, relayUrls: [], manualTcpUrl: '103.40.14.14:51543' };
   assert.deepEqual(ca(state, 0), [{ kind: 'tcp', url: '103.40.14.14:51543' }]);

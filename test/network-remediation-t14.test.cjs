@@ -1,3 +1,4 @@
+// 2026-11-26 需求变更：公用中转面板与内置清单已退役，相关 mock 和探测守卫撤掉，自建中转检测保留。
 // T14：用真实监听端口驱动配置与组件回调，覆盖取消、探测、地址状态及对应变异。
 'use strict';
 const test = require('node:test');
@@ -17,8 +18,6 @@ const preset = requireApp ? requireApp.resolve('@react-native/babel-preset') : n
 const text = (file) => fs.readFileSync(path.join(SRC, file), 'utf8');
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const t = (key, params = {}) => key + (params.target ? `:${params.target}` : '');
-const PUBLIC_RELAYS = [{ url: 'https://public.example' }];
-const isPublicRelayUrl = (url) => PUBLIC_RELAYS.some((item) => item.url === url.replace(/\/+$/, ''));
 
 /** 沿用现有 Babel/VM 与最小 hooks 假体，执行实际 TSX 导出的回调及 effect。 */
 function component(file, name, imports = {}, context = {}, mutate = (source) => source) {
@@ -53,9 +52,7 @@ function component(file, name, imports = {}, context = {}, mutate = (source) => 
     if (id === 'react/jsx-runtime' || id === 'react/jsx-dev-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }), jsxDEV: (type, props) => ({ type, props }), Fragment: 'Fragment' };
     if (Object.hasOwn(imports, id)) return imports[id];
     if (id.includes('i18n/index')) return { t };
-    if (id.includes('links.ts')) return { PUBLIC_RELAYS, isPublicRelayUrl };
     if (id.includes('format.ts')) return { cn: (...values) => values.filter(Boolean).join(' '), timeText: String };
-    if (id.includes('latency-sparkline.ts')) return { latencyLevel: () => 'fast', latencySparklinePath: () => '', latencyColorClass: () => '', latencyStrokeColor: () => '' };
     if (id.includes('embed-visibility')) return { pageVisible: () => true };
     if (id.includes('panel-load')) return { reportPanelState() {} };
     if (id.includes('notify')) return { useNotify: () => () => {} };
@@ -164,46 +161,6 @@ test('PLUG-34 地址失败单独显示并复用重试，成功空清单清错误
   nodes(tree, 'RelayConfigDialog')[0].props.onRetryAddresses(); await settle(); tree = env.render();
   assert.equal(nodes(tree, 'RelayConfigDialog')[0].props.addressError, '');
   assert.equal(nodes(tree, 'RelayConfigDialog')[0].props.addressBook.public.length, 0);
-});
-
-async function probeContract(mutate) {
-  const timers = new Map();
-  const pending = [];
-  let id = 0;
-  const env = component('components/PublicRelayPanelDialog.tsx', 'PublicRelayPanelDialog', {
-    '../lib/api.ts': { errorText: (error) => error.message, apiPost: (_url, body) => new Promise((resolve, reject) => pending.push({ body, resolve, reject })) },
-  }, { setInterval: (fn) => { timers.set(++id, fn); return id; }, clearInterval: (key) => timers.delete(key) }, mutate);
-  let props = { open: true, activeUrl: 'https://private.example/', onOpenChange() {} };
-  env.render(props); env.flush();
-  // 2026-11-23 需求变了：公用中转面板只列内置公用地址，自建那条归它自己那栏的「检测」。
-  assert.deepEqual(Array.from(pending[0].body.urls), ['https://public.example']);
-  assert(!pending[0].body.urls.includes('https://private.example'), '自建中转不混进公用面板');
-  for (const tick of timers.values()) { tick(); tick(); }
-  assert.equal(pending.length, 1, '未完成的轮次必须互斥');
-  props = { ...props, open: false }; env.render(props); env.flush();
-  props = { ...props, open: true }; env.render(props); env.flush();
-  pending[0].resolve({ results: [{ url: 'https://public.example', ms: 123 }] }); await settle();
-  assert.doesNotMatch(JSON.stringify(env.render(props)), /123 ms/, '旧窗口结果不得污染新窗口');
-  for (const tick of timers.values()) tick();
-  assert.equal(pending.length, 2);
-  pending[1].resolve({ results: [{ url: 'https://public.example', ms: 123 }] }); await settle();
-  assert.match(JSON.stringify(env.render(props)), /123 ms/);
-  for (const tick of timers.values()) tick();
-  pending[2].reject(new Error('probe rejected')); await settle();
-  assert.doesNotMatch(JSON.stringify(env.render(props)), /123 ms/, '整轮请求异常不得沿用旧成功值');
-  assert.match(JSON.stringify(env.render(props)), /probe rejected/);
-  for (const tick of timers.values()) tick();
-  pending[3].resolve({ results: [{ url: 'https://public.example', ms: null }] }); await settle();
-  assert.doesNotMatch(JSON.stringify(env.render(props)), /123 ms/, '新失败不得沿用旧成功值');
-  env.render({ ...props, open: false }); env.flush();
-  assert.equal(timers.size, 0);
-}
-test('PLUG-32 慢请求互斥、只测公用地址、关窗失效且失败不冒充旧成功', runtimeOptions, () => probeContract());
-test('变异：去掉探测互斥会被实际在飞请求数拒绝', runtimeOptions, async () => {
-  await assert.rejects(probeContract((source) => source.replace('!alive || inFlightRef.current', '!alive')), assert.AssertionError);
-});
-test('变异：请求异常不记空采样会被旧成功值断言拒绝', runtimeOptions, async () => {
-  await assert.rejects(probeContract((source) => source.replace("setHistory((previous) => Object.fromEntries(urls.map((url) => [url, [...(previous[url] || []), null].slice(-HISTORY_POINTS)])))", 'void 0')), assert.AssertionError);
 });
 
 test('PLUG-31 实际目的地、自建说明和默认开关均来自现有状态', runtimeOptions, () => {

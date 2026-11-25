@@ -29,7 +29,6 @@ const sceneName = new URLSearchParams(window.location.search).get('scene')
  * 那条地址**（演示页的地址是 `/demo.html`，按后缀分不到控制台），直接把组件摆上来：
  *   - `onboarding`：新用户第一次装的样子（假宿主初始状态就是「还没配过」）；
  *   - `console`：配过之后点手机图标进来的样子，数据与真机同形（假宿主 `?scene=settings` 那份）。
- *   - `public`：老用户只走公用中转、其余线路和服务商都没配的样子；
  *   - `bare`：远程开着、却一条线路都没配的样子。
  */
 const scene = sceneName
@@ -40,7 +39,7 @@ function Scene() {
   // 控制台那一幕要连**主题跟随**一起画：外壳在正式页里负责这件事（见 `Shell.tsx`），
   // 而演示版绕过了外壳直接渲染组件，所以自己补上 —— 否则日夜按钮「按了会变、刷新又回去」。
   // Star / 赞助 / 交流群三颗 2026-11-17 已进 Console 顶栏，这里不再单独挂。
-  if (scene === 'console' || scene === 'public' || scene === 'bare') return <ConsoleScene />
+  if (scene === 'console' || scene === 'bare') return <ConsoleScene />
   return <Shell />
 }
 

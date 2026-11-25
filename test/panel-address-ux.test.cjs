@@ -1,3 +1,4 @@
+// 2026-11-26 需求变更：公用中转退役，网络配置不再有内置清单那一栏，守卫跟着改。
 // 2026-11-24 用户要求：那一块一律不显示，异常提示也撤掉，这条守卫跟着改。
 // 2026-11-24 用户要求：自动更新已够用，手动安装按钮撤掉，这条守卫跟着改。
 'use strict';
@@ -123,13 +124,12 @@ test('宿主说没法就地换代时，更新卡不许把用户往插件市场�
   assert.doesNotMatch(body, /<p |<Alert|<InfoList/, '卡片正文不铺任何提示');
 });
 
-test('网络配置弹窗：两列一屏、公用中转内置清单、局域网开关撤掉、配对策略是开关', () => {
+test('网络配置弹窗：两列一屏、局域网开关撤掉、配对策略是开关', () => {
   const dialog = read('RelayConfigDialog.tsx');
-  // 公用中转 2026-11-18 改成内置在主窗第一栏（只读展示 + 「使用」按钮），
-  // 「选择公用中转」清单弹窗随之撤掉 —— 内置的东西不用再选。详见 panel-public-relay.test.cjs。
-  assert.match(dialog, /PUBLIC_RELAYS\.map\(/, '内置公用地址要在主窗第一栏列出来');
-  assert.match(dialog, /readOnly: true/, '内置地址只读');
-  assert.ok(!/relayPickerOpen/.test(dialog), '「选择公用中转」清单弹窗已撤，别留下状态');
+  // 自建中转这一栏保留原来的写法；内置清单与它那颗开关都不在界面里。
+  assert.match(dialog, /t\('panel\.relay\.selfKind'\)/, '自建中转那一栏还在');
+  assert.match(dialog, /patch\.relayUrl\s*=/, '自建中转仍写单条 relayUrl');
+  assert.ok(!/PUBLIC_RELAYS|relayPickerOpen|publicRelayDisabled/.test(dialog), '网络配置里没有内置清单与停用开关');
   // 2026-11-22 需求变更：局域网地址直接用栏内下拉（AddressCombo）选，用户要求撤掉多余的
   // 「选择地址」按钮 —— 下拉本来就能选，那颗按钮纯占位。这里反过来钉「不再有那颗按钮」。
   assert.ok(!/panel\.onboarding\.chooseAddress/.test(dialog), '局域网那栏不再有「选择地址」按钮');

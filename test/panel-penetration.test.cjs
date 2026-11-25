@@ -1,3 +1,4 @@
+// 2026-11-26 需求变更：公用中转退役，引导页不再写 publicRelayDisabled，这条守卫跟着改。
 'use strict';
 
 /**
@@ -26,7 +27,7 @@ test('引导页不再提供内网穿透入口（2026-11-07 起），主流程只
   // 这条路没有消失 —— 它搬到了主页「网络配置」弹窗，下面那条测试钉着。
   assert.ok(
     !/patch\.manualLanUrl\s*=/.test(onboarding),
-    '引导页又写 manualLanUrl 了：那一页现在只配局域网与公用中转，穿透域名归主页',
+    '引导页又写 manualLanUrl 了：那一页现在只配局域网与服务商，穿透域名归主页',
   );
   assert.ok(
     !/savePenetration|penetrationOpen/.test(onboarding),
@@ -35,14 +36,11 @@ test('引导页不再提供内网穿透入口（2026-11-07 起），主流程只
 
   // 主流程配的就是这两条，一条都不许少：少了局域网，家里扫完就要绕中转。
   assert.match(onboarding, /lanEnabled: true/, '局域网直连要一起开着');
-  // 2026-11-24 需求变更：公用中转停止提供，新用户不再默认写公用中转 —— 引导页改为按地区列出
-  // 服务商、接好再出码。本来一条中转都没有的机器明确置 publicRelayDisabled，别让宿主在启用时
-  // 把公用中转补回来；老用户已有中转的不动它，照旧能用。
+  // 引导页只配局域网直连和按地区选服务商，置真停用标志那条路径已经撤掉。
   assert.ok(
-    !/relayUrls: PUBLIC_RELAYS\.map\(/.test(onboarding),
-    '引导页不再默认把公用中转清单写进配置',
+    !/relayUrls:|publicRelayDisabled/.test(onboarding),
+    '引导页不该再写中转清单或停用标志',
   );
-  assert.match(onboarding, /publicRelayDisabled = true/, '本来没有中转时明确停用公用中转，不让宿主补回');
 });
 
 test('宿主把穿透域名报给面板，主页「网络配置」接着改（引导页已不再提供这一格）', () => {

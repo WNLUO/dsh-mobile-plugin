@@ -7,6 +7,7 @@
 // 2026-11-23：线路按地区分页（国内 / 国际入口卡在本页底部）；IPv4 那栏补自动识别与候选下拉；
 // 各栏的检测结论挪进标题行、不再另占一行；自建中转那颗仓库按钮靠右。
 // 2026-11-23：网络配置改回铺在首页（用户要求），不再单开一页；去掉页面标题与「关闭返回」，只留保存。
+// 用途：网络配置——自建中转、直连、IPv4/IPv6、TCP、FRP 与局域网地址都在这一页改。
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import {
@@ -24,12 +25,11 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
 import { frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
-import { PUBLIC_RELAYS, RELAY_REPO_URL } from '../lib/links.ts'
+import { RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import type { NetworkRegion } from '../lib/network-region.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { NetworkRegions } from './NetworkRegions.tsx'
-import { PublicRelayPanelDialog } from './PublicRelayPanelDialog.tsx'
 
 type ComboOption = { value: string; label: string }
 /** 一颗「检测」按钮（回环命中本机）的结果状态。 */
@@ -115,9 +115,7 @@ type Props = {
 /**
  * 网络配置（铺在首页，2026-11-23）：这台宿主能被手机摸到的几条地址都在这里改。
  *
- *   ① 中转地址（`relayUrl`）—— 拆成两栏：第一栏「公用中转」是内置地址（只读展示，标题右侧
- *      一颗「启用 / 停用」切换），第二栏「自建中转」可编辑。2026-11-18 用户要求把公用中转
- *      内置进来、排在第一个，原「选择公用中转」清单弹窗随之撤掉；
+ *   ① 中转地址（`relayUrl`）—— 自建中转，可编辑，右侧给中转仓库与「检测」；
  *   ② 局域网地址（`preferredLanAddress`）—— 网卡候选里「手机优先用哪条」，右上角一颗
  *      「选择地址」开选择弹窗（地址可能好几条，摊在本窗里会把版面撑变形）；
  *   ③ 直连地址（`manualLanUrl`）—— 自己把端口暴露到公网域名 / 公网 IP 时填的那一条；
@@ -128,14 +126,9 @@ type Props = {
  * 只留一个。地址那一块原来分散在两个弹窗里（局域网直连 / 中转配置），用户要求并到一处，
  * 两个入口各改一半迟早对不上。
  *
- * **中转两栏**（2026-11-18 用户要求）：公用内置、排在第一个、只读展示；自建在它下面、可编辑。
- * 公用走整份 `relayUrls`、自建走单条 `relayUrl`：标题右侧「启用」把整份内置清单写进去、「停用」清空
- * 交回局域网直连，自建栏照旧敲。清单弹窗撤掉后，这两颗按钮就是公用的唯一开关。
- *
  * **一屏两列**（2026-11-01 用户要求）：左列是「经公网的那几条」（设备名 / 中转 / 直连），
  * 右列是「局域网这一侧」（局域网地址 / IPv6 / 允许配对）。默认窗口高度下不出现滚动条 ——
- * 矮窗口留 `max-h` 只是兜底。两条会长短不一的东西（公用中转清单、网卡地址清单）都收进
- * 同级弹窗，主窗的尺寸不再随地址条数变。
+ * 矮窗口留 `max-h` 只是兜底。网卡地址清单收进同级弹窗，主窗的尺寸不再随地址条数变。
  *
  * **局域网直连开关已撤**（2026-11-01 用户口径：它是基本能力，不该是个可关的选项）：
  * 宿主那份 `lanEnabled` 配置项原样留着，面板不再改它。
@@ -158,8 +151,6 @@ export function RelayConfigDialog({
   onOpenRegion,
 }: Props) {
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
-  /** 用户显式停用了公用中转（issue #27）：开窗时按宿主 status 灌，保存时把意图发回去。 */
-  const [publicDisabled, setPublicDisabled] = useState(status.publicRelayDisabled === true)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
   const [manualLanUrl, setManualLanUrl] = useState('')
   /** IPv6 直连地址（`manualIpv6Url`）：手填的公网 IPv6 入口；没填过时先显示探测到的那条。 */
@@ -204,8 +195,6 @@ export function RelayConfigDialog({
   const [lanHint, setLanHint] = useState('')
   /** 「选择局域网地址」弹窗开着没有。 */
   const [lanPickerOpen, setLanPickerOpen] = useState(false)
-  /** 「公用中转面板」弹窗开着没有：查看各条入口的延迟与心电图。 */
-  const [publicPanelOpen, setPublicPanelOpen] = useState(false)
   /** 子弹窗的落焦目标：清单让焦点落在容器上，别一开窗就圈住第一行。 */
   const lanPickerRef = useRef<HTMLDivElement | null>(null)
   /** 这一次开窗里用户动过手填那两栏没有：动过就不再拿地址库去盖。 */
@@ -223,7 +212,6 @@ export function RelayConfigDialog({
   useEffect(() => {
     if (!open) return
     setRelayUrl(status.relayUrl)
-    setPublicDisabled(status.publicRelayDisabled === true)
     void loadFrpConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
@@ -289,20 +277,6 @@ export function RelayConfigDialog({
 
   const canSave = busy === ''
 
-  /**
-   * 当前中转地址用的是哪条内置公用地址（命中清单的那条，没命中就是 null）。
-   *
-   * 公用走整份 `relayUrls`、自建走单条 `relayUrl`，没有独立的类型位，所以从地址本身判。
-   * 命中内置清单 = 正在用公用：那一栏只读展示、标「使用中」，自建栏留空；
-   * 没命中 = 正在用自建（或都没用）：自建栏照旧可编辑。
-   */
-  const activePublicRelay = PUBLIC_RELAYS.find((item) => item.url === relayUrl.trim()) ?? null
-  /** 宿主判定公用被强制停用（用户配了公网自建）：地址划删除线、禁用「启用」，只如实展示。 */
-  const publicRelayBlocked = status.publicRelayBlocked === true
-  /** 当前公用是否正被使用：可显示为「停用」按钮（被强制停用或用户已显式停用则否）。 */
-  const publicActive = !!activePublicRelay && !publicDisabled && !publicRelayBlocked
-  /** 公用整栏是否处于「已禁用」展示态：自建强制停用，或用户显式停用（issue #27）。 */
-  const publicOff = publicRelayBlocked || publicDisabled
   /** 直连那两条按宿主口径去掉尾部斜杠：它拼出来的是一条候选 URL，多一个 `/` 就多一条重复项。 */
   const trimUrl = (value: string) => value.trim().replace(/\/+$/, '')
 
@@ -445,17 +419,7 @@ export function RelayConfigDialog({
       return
     }
     const patch: ConfigPatch = {}
-    // 公用走整份 `relayUrls`（电脑在几台内置中转之间选择 / 失败切换）；自建走单条 `relayUrl`。
-    if (activePublicRelay) {
-      patch.relayUrls = PUBLIC_RELAYS.map((r) => r.url)
-    } else if (relayUrl.trim() !== status.relayUrl) {
-      patch.relayUrl = relayUrl.trim()
-    }
-    // 「停用 / 启用公用中转」显式沿用用户的意图（issue #27）：只在这次和落盘的不一致时带上，
-    // 避免每次保存都写一遍。停用时宿主据此不再补回公用地址，跨重启生效。
-    if (publicDisabled !== (status.publicRelayDisabled === true)) {
-      patch.publicRelayDisabled = publicDisabled
-    }
+    if (relayUrl.trim() !== status.relayUrl) patch.relayUrl = relayUrl.trim()
     // 手填地址：空串是合法值（= 清掉这一条），所以这里跟 `name` 不一样，只在**真的变了**时带上，
     // 而不是「非空才带」。
     const direct = trimUrl(manualLanUrl)
@@ -521,76 +485,12 @@ export function RelayConfigDialog({
         <div className="flex flex-col gap-5 p-4">
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
-            {/* 还在走公用中转的人：在「网络配置」标题右侧用红字提醒它以后不再提供，别用弹窗打断。 */}
-            {publicActive ? <span className="text-xs font-medium text-error">{t('panel.relay.publicRetiring')}</span> : null}
           </div>
           <section className="flex flex-col gap-3">
             <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
-              {/* 第一栏：公用中转（内置、只读）。排在第一个；由我们维护，用户改不了地址。
-                  标题右侧两颗文字按钮：「查看面板」在左、「启用 / 停用」在右（2026-11-19 用户要求）。
-                  配了公网自建时宿主会把公用强制停用（status.publicRelayBlocked）：这一栏直接显示
-                  一句「已禁用」，不再列地址、也不划删除线（2026-11-19 用户口径）——判据在宿主那一处，
-                  这里只如实展示。 */}
-                <Field>
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <FieldLabel>{t('panel.relay.publicKind')}</FieldLabel>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => setPublicPanelOpen(true)}>
-                        {t('panel.relay.viewPanel')}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canSave || publicOff}
-                        onClick={() => {
-                          if (publicActive) {
-                            // 没有配任何公网直连入口时停用公用中转，新手机在蜂窝网络下就没有
-                            // 可用于首次配对的地址了：先确认一次，别让用户一脚踩空。
-                            const hasDirectEntry = trimUrl(manualLanUrl) !== '' || trimUrl(manualTcpUrl) !== ''
-                            if (!hasDirectEntry && !window.confirm(t('panel.relay.disablePublicConfirm'))) return
-                            setPublicDisabled(true)
-                            setRelayUrl('')
-                          } else {
-                            setPublicDisabled(false)
-                            setRelayUrl(PUBLIC_RELAYS[0].url)
-                          }
-                        }}
-                      >
-                        {t(publicActive ? 'panel.relay.disablePublic' : 'panel.relay.enablePublic')}
-                      </Button>
-                    </div>
-                  </div>
-                  {/* 停用时只摆一句「已禁用」，不列链接（2026-11-19 用户要求）。 */}
-                  {publicOff ? (
-                    <Input
-                      inputProps={{
-                        className: 'text-foreground-muted',
-                        readOnly: true,
-                        'aria-label': t('panel.relay.publicKind'),
-                      }}
-                      value={t('panel.relay.publicDisabled')}
-                    />
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      {PUBLIC_RELAYS.map((item) => (
-                        <Input
-                          key={item.url}
-                          inputProps={{
-                            className: 'font-mono',
-                            readOnly: true,
-                            'aria-label': t('panel.relay.publicKind'),
-                          }}
-                          value={item.url}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </Field>
-
-                {/* 第二栏：自建中转。用公用时这里留空；敲入任意非内置地址即视为自建。
-                    右侧那颗「中转仓库」跳去中转本体与部署说明的仓库：想自己搭的人不用再去
-                    别处找地址。外链用 `<a>` 而不是 `window.open` —— 桌面壳只把 http(s) 交给
-                    系统浏览器，新标签页由浏览器自己开，脚本被拦也不影响（同 StarButton）。 */}
+              {/* 自建中转。右侧那颗「中转仓库」跳去中转本体与部署说明的仓库：想自己搭的人不用再去
+                  别处找地址。外链用 `<a>` 而不是 `window.open` —— 桌面壳只把 http(s) 交给
+                  系统浏览器，新标签页由浏览器自己开，脚本被拦也不影响（同 StarButton）。 */}
                 <Field>
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -629,11 +529,11 @@ export function RelayConfigDialog({
                   </div>
                   <Input
                     inputProps={{ id: 'relay-url', className: 'font-mono' }}
-                    value={activePublicRelay ? '' : relayUrl}
+                    value={relayUrl}
                     placeholder="https://example.com"
                     onChange={(event) => setRelayUrl(event.target.value)}
                   />
-                  {!activePublicRelay && /^http:\/\//i.test(trimUrl(relayUrl)) ? (
+                  {/^http:\/\//i.test(trimUrl(relayUrl)) ? (
                     <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
                   ) : null}
                 </Field>
@@ -990,12 +890,6 @@ export function RelayConfigDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* 公用中转面板：查看各条内置地址的延迟与心电图，定时重测。 */}
-      <PublicRelayPanelDialog
-        open={publicPanelOpen}
-        onOpenChange={setPublicPanelOpen}
-        activeUrl={status.relayUrl}
-      />
     </>
   )
 }

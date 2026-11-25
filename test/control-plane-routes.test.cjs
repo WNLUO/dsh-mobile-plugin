@@ -1,6 +1,6 @@
 // 2026-11-25：面板保存「手机优先用这条」与手机端同一道校验，存了不生效的地址当场拒。
 // 2026-11-25：状态接口逐路隔离，一路抛错不再整条 400。
-// 2026-11-24：公用中转改成「码里没自己的线路才塞」的兜底，只配服务商的机器靠服务商地址出码。
+// 公用中转正式退役：码里不再塞内置地址、status 不再带两个停用字段，下面旧断言不再成立。
 // 2026-11-24：总开关下发失败要带 applyError，并钉住面板据此报失败。
 // 二维码等待隧道窗口后读取当前票据与身份，换码期间出码仍可真实验票。
 // 网络控制动作必须真实执行；重连失败不报成功，FRP 重试受理与运行状态分开。
@@ -193,6 +193,7 @@ test('改配置的路由逐字段校验，不接受任意键', () => {
   assert.match(route, /typeof body\?\.preferredLanAddress === 'string'/, '优先地址只挡类型');
   assert.match(route, /body\.preferredLanAddress\.length <= 64/, '优先地址要有长度上限');
   assert.ok(!/\.\.\.body\b/.test(route), '不许把请求体整体透传进 settings.update');
+  assert.ok(!route.includes('patch.publicRelayDisabled'), 'config 路由不再收停用标志');
 });
 
 test('面板的地址库把「现在选的是哪条」报出来，界面才回显得出', () => {
@@ -455,12 +456,12 @@ test('行为：二维码按 ?relayUrl= 预览出码，且不把预览地址写�
   assert.equal(blocked.status, 409, '没启用远程控制时不出码，说清该先做什么');
 });
 
-test('行为：只配一家服务商线路、或一条都没有时都能出码', async () => {
-  // 停用公用中转 + 关局域网 + 只接一家服务商：这是支持中的配置，出码判定必须认服务商线路。
+test('行为：只配一家服务商线路时能出码，一条都没有时如实报没地址', async () => {
+  // 关局域网 + 只接一家服务商：这是支持中的配置，出码判定必须认服务商线路。
   const state = {
     enabled: true, instanceId: 'i1', pairingCode: '123456', pairingTicket: 't'.repeat(43),
     relayUrl: '', relayUrls: [], lanEnabled: false, lanPort: 18787,
-    publicRelayDisabled: true, zeroNewsUrl: 'https://zero.example.com',
+    zeroNewsUrl: 'https://zero.example.com',
   };
   const table = controlRoutes({ state });
   const res = {};
@@ -468,13 +469,11 @@ test('行为：只配一家服务商线路、或一条都没有时都能出码',
   assert.equal(res.status, 200, JSON.stringify(res.body));
   assert.match(res.body.svg, /<svg/, '只接服务商也要真正生成二维码');
 
-  // 一条线路都没有的机器，码里仍有内置公用做首次配对兜底，出码判定通过；判据没放宽，
-  // 是码里带了地址。配了 http 服务商的机器则是服务商地址进 lanUrls 供老包拨，不再借公用。
+  // 一条线路都没有的机器：码里不再塞内置地址，判定如实拒绝；判据没放宽，是码里真没地址。
   const none = controlRoutes({ state: { ...state, zeroNewsUrl: '' } });
   const bare = {};
   await none.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, bare);
-  assert.equal(bare.status, 200, '纯新装机器靠公用兜底也能出码');
-  assert.match(bare.body.svg, /<svg/, '带公用兜底的码也要真正生成');
+  assert.equal(bare.status, 409, '空配置不再靠内置兜底出码');
 });
 
 /** 使用真实来源守卫，验证局域网网页访问而不是绕过校验的路由假体。 */
@@ -581,7 +580,7 @@ test('行为：局域网地址栏不回显混进来的中转地址（2026-11-18 
   });
   const pubRes = {};
   await pub.get('/api/relay/addresses')({ method: 'GET' }, pubRes);
-  assert.equal(pubRes.body.preferred, '', '公用中转 host 同样不许回显');
+  assert.equal(pubRes.body.preferred, '', '中转 host 同样不许回显');
 });
 
 test('面板读不到时报的是能定位的诊断，不是一句「还没构建」', () => {
@@ -1112,7 +1111,7 @@ async function probeCleanupContract(mutate) {
   assert.equal(res.body.results[0].ms, null);
   assert.equal(timers.size, 0, '异常路径也必须撤销6秒探测期限');
 }
-test('公用中转探测失败后释放总期限计时器', () => probeCleanupContract());
+test('中转探测失败后释放总期限计时器', () => probeCleanupContract());
 test('变异：异常分支漏清计时器会被资源断言拒绝', async () => {
   await assert.rejects(probeCleanupContract(source => source.replace('} finally {\n        clearTimeout(timer)\n      }', '}')), assert.AssertionError);
 });
@@ -1151,6 +1150,15 @@ test('状态接口一路取值抛错只点名该路，其余照常回，不再�
   } finally {
     process.stderr.write = originalWrite;
   }
+});
+
+test('状态接口不再带两个停用字段', async () => {
+  const table = controlRoutes({ state: { enabled: true, instanceId: 'i1', publicRelayDisabled: true } });
+  const res = {};
+  await table.get('/api/relay/status')({ method: 'GET', headers: { host: '127.0.0.1:19387' } }, res);
+  assert.equal(res.status, 200);
+  assert.equal('publicRelayBlocked' in res.body, false);
+  assert.equal('publicRelayDisabled' in res.body, false);
 });
 
 /**

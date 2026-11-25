@@ -1,5 +1,5 @@
 // 验证容灾配置完整保留，而移动端只获得当前注册线路。
-// 2026-11-24：配对二维码不再往自建配置后附公用兜底——配了自建就不塞，只有新装才靠公用配对。
+// 公用中转正式退役：空配置不再补内置地址、废弃地址改为读盘/落盘直接清理，以下旧断言不再成立。
 // 2026-11-21：TCP 目标同时进 lanUrls，让现网 App 扫码配对时能拨它。
 'use strict';
 
@@ -133,6 +133,38 @@ test('默认状态里两格俱在（新装的机器不必先写一次才有这�
   const state = core.defaultState();
   assert.equal(state.relayUrl, '');
   assert.deepEqual(state.relayUrls, []);
+  assert.equal('publicRelayDisabled' in state, false, '退役后状态里不再有停用标志');
+});
+
+test('废弃的内置中转地址：读盘与落盘都直接清掉，自建地址原样保留', () => {
+  const stale = [
+    'https://ai-hub-de-1.wnluo.com',
+    'https://ai-hub-jd-1.wnluo.com',
+    'https://dsh.iouf.cn',
+    'https://dsh.yfyidc.cn/healthz',
+  ];
+  // 空配置不再补任何内置地址：新机没自己的线路就是没有。
+  const empty = roundTripState({ enabled: true, relayUrl: '', relayUrls: [] });
+  assert.equal(empty.relayUrl, '');
+  assert.deepEqual(empty.relayUrls, []);
+
+  for (const url of stale) {
+    const loaded = roundTripState({ enabled: true, relayUrl: url, relayUrls: [url] });
+    assert.equal(loaded.relayUrl, '', `${url} 读盘即清掉`);
+    assert.deepEqual(loaded.relayUrls, []);
+  }
+  const mixed = roundTripState({ enabled: true, relayUrl: A, relayUrls: [A, 'https://dsh.iouf.cn', B] });
+  assert.deepEqual(mixed.relayUrls, [A, B], '只剔废弃项，自己配的地址原样保留');
+  assert.equal(mixed.relayUrl, A, '首项恒等于 relayUrl');
+
+  // 保存路径同样无条件清理：写进去的废弃地址不会落到盘上。
+  const state = { ...core.defaultState(), enabled: true, relayUrl: 'https://dsh.yfyidc.cn', relayUrls: ['https://dsh.yfyidc.cn', B] };
+  core.saveState(state);
+  assert.deepEqual(state.relayUrls, [B]);
+  assert.equal(state.relayUrl, B);
+  const reloaded = core.loadState();
+  assert.deepEqual(reloaded.relayUrls, [B], '落盘那份也不含废弃地址');
+  assert.equal(reloaded.relayUrl, B);
 });
 
 // ── 设置命名空间与配置写入 ──────────────────────────────────────────────────
@@ -215,23 +247,21 @@ test('配对二维码 payload 两格都在：老手机读 relayUrl，新手机�
   };
   const { payload } = pairingPayload({ ...base, relayUrl: A, relayUrls: [A, B] }, 18787);
   assert.equal(payload.relayUrl, A, '老手机只认这一格，一个字都不能少');
-  // 自建两条是老包能拨的线路：码里照旧带整组，公用兜底不再写入。
   assert.deepEqual(payload.relayUrls, [A, B]);
   assert.equal(payload.relayUrls[0], payload.relayUrl);
 
   const legacy = pairingPayload({ ...base, relayUrl: A }, 18787).payload;
-  assert.equal(legacy.relayUrl, A, '自建仍排第一，不受公用兜底影响');
-  // 单自建不写数组（同一串地址不写两遍）；配了自建就不塞公用，码里只有自建这一条。
+  assert.equal(legacy.relayUrl, A, '自建仍排第一');
+  // 单自建不写数组（同一串地址不写两遍）。
   assert.equal(legacy.relayUrls, undefined);
   assert.equal(legacy.relayUrls?.[0] ?? legacy.relayUrl, legacy.relayUrl);
   const listed = pairingPayload({ ...base, relayUrl: A, relayUrls: [A, B] }, 18787).payload;
-  assert.deepEqual(listed.relayUrls, [A, B], '自建多条，不带公用兜底');
+  assert.deepEqual(listed.relayUrls, [A, B], '自己配的多条照旧带整组');
 
   const none = pairingPayload({ ...base, relayUrl: '', relayUrls: [] }, 18787).payload;
-  // 什么都没配的新机器：公用是首次配对唯一的通道，才写进码里（只进码、不写回 state）。
-  assert.equal(none.relayUrl, core.PUBLIC_RELAY_URLS[0]);
-  assert.equal(none.relayUrls, undefined, '只有公用这一条时不写数组');
-  assert.equal(none.relayUrls?.[0] ?? none.relayUrl, none.relayUrl, '首项恒等于 relayUrl');
+  // 什么都没配的新机器：码里不再塞内置地址，蜂窝首次配对失败属于预期。
+  assert.equal(none.relayUrl, '');
+  assert.equal(none.relayUrls, undefined, '空配置不写数组');
   assert.ok(!none.lanUrls.length, '局域网关着时也不该冒出地址');
 });
 

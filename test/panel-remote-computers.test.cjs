@@ -1,3 +1,4 @@
+// 2026-11-26 需求变更：按内置地址区分公用中转的分支已撤，线路名只认通道，守卫跟着改。
 /** 远程电脑面板：既有错误展示映射真实网络与助手恢复诊断。 */
 // 2026-11-25：壳熬过宽限后才崩的，清单带一次性标记；面板取到后补开浏览器，正常关窗不补。
 'use strict';
@@ -136,9 +137,8 @@ test('每设备一行：窗口连着才算打开，线路位与按钮按设备�
   // busy 用数组按设备键区分：一台在忙不连累别的设备，也不再整张列表一起变灰（2026-11-15）。
   assert.match(component, /const deviceBusy = \(id: string\) => busy\.some\(/);
   assert.match(component, /endsWith\(`:\$\{id\}`\)/);
-  // 2026-11-19 起 channelText 多收了 url 参（用来判公用中转），这里放开成可选的第二参；
-  // 只放宽结构钉的形状，不退回旧的单参调用。
-  assert.match(component, /channelText\(device\.mode(?:, device\.url)?\)\} · \{channelText\(device\.channel(?:, device\.url)?\)\}/);
+  // 线路名只按通道取词，不再传地址作第二参。
+  assert.match(component, /channelText\(device\.mode\)\} · \{channelText\(device\.channel\)\}/);
   assert.match(component, /aria-label=\{t\('panel\.remote\.open'\)\}/);
   assert.match(component, /aria-label=\{t\('panel\.remote\.remove'\)\}/);
   assert.match(component, /disabled=\{rowBusy/);

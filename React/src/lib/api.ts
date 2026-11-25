@@ -292,17 +292,6 @@ export type StatusView = {
   tunnel: TunnelSnapshot
   /** 手机直连隧道（Tailcat）的状态；老宿主没有这个字段时按「不可用」处理。 */
   tailcat?: TailcatStatus | null
-  /**
-   * 公用中转是否被强制停用（host 判定：用户配了公网可达的自建——自建中转 / 直连 / TCP
-   * 直连，排除局域网与 IPv6）。为真时内置公用地址不可用，面板划删除线、禁用「启用」。
-   * 老宿主没有这一格，读成 undefined 时按未停用处理。
-   */
-  publicRelayBlocked?: boolean
-  /**
-   * 用户显式「停用公用中转」（issue #27）：为真时宿主不再补回公用地址，面板显示「已禁用」并给出「启用」。
-   * 老宿主没有这一格，读成 undefined 时按未停用处理。
-   */
-  publicRelayDisabled?: boolean
   /** 点对点隧道（P2P）的状态；老宿主没有这个字段时按「不可用」处理。 */
   p2p?: P2PStatus | null
   /**
@@ -660,10 +649,8 @@ export type PortCheck = {
 /** `/api/relay/config` 只认这几个字段，其余一律忽略（宿主侧白名单）。 */
 export type ConfigPatch = {
   relayUrl?: string
-  /** 整份内置公用中转清单（公用走整份 relayUrls、自建走单条 relayUrl）。 */
+  /** 中转地址清单（宿主保留字段）。 */
   relayUrls?: string[]
-  /** 显式「停用公用中转」（issue #27）：true 时宿主不再补回公用地址；重新启用时写回 false。 */
-  publicRelayDisabled?: boolean
   lanEnabled?: boolean
   lanPort?: number
   lanPortFixed?: boolean
@@ -762,6 +749,46 @@ export type SelfCheck = {
   }
 }
 
+/**
+ * `/api/relay/pairing-check` 的回答：码里会带的每条地址，宿主真拨了一次。
+ *
+ * 这一份**证明不了手机能连上**：拨的是本机网卡出去的请求，同一台电脑上永远不经过防火墙与
+ * 无线链路。所以 `local` 那一格必须一路带到界面上 —— 只有 `remoteOk` 才配得上「可以扫码了」。
+ */
+export type PairingCheckRow = {
+  kind: 'lan' | 'direct' | 'route' | 'relay' | 'tcp'
+  url: string
+  /** 服务商线路的名字（`ZeroNews` 之类）。 */
+  name?: string
+  /** `tcp` 类走的是裸连接，不是 HTTP。 */
+  transport?: 'tcp'
+  /** 这条地址就在这台电脑自己的网卡上：通了也只说明本机回环好。 */
+  local: boolean
+  ok: boolean
+  /** 通了的时候是状态码（`HTTP 200`），没通的时候是原因（`ECONNREFUSED` / `timeout`）。 */
+  detail?: string
+  error?: string
+}
+
+export type PairingCheck = {
+  ok: true
+  checkedAt: number
+  timeoutMs: number
+  targets: PairingCheckRow[]
+  /** 拨不了的通道（Tailcat / 点对点）：它们不是 HTTP，要两边同时起。 */
+  notChecked: string[]
+  summary: {
+    total: number
+    okCount: number
+    /** 有外部线路通了 —— 这才值得说「可以扫码了」。 */
+    remoteOk: boolean
+    /** 只有拨自己的那几条通了。 */
+    localOk: boolean
+    allFailed: boolean
+    nothingToCheck: boolean
+  }
+}
+
 export class ApiError extends Error {
   code: string
   status: number
@@ -848,8 +875,8 @@ export async function apiGet<T>(path: string, options?: { timeoutMs?: number }):
  * 管理写请求可选的兜底超时（毫秒）：`timeoutMs` 不给就不设超时，保持原有等待语义
  * （首屏状态读取的那套时限不该套到配置保存 / 解绑这类慢请求上）。
  *
- * 需要防「挂住不回」的调用方自己传一个：解绑 / 清空历史、配置保存、公用中转探测
- * （见 `DevicesCard`、`Console.saveConfig`、`PublicRelayPanelDialog`）。
+ * 需要防「挂住不回」的调用方自己传一个：解绑 / 清空历史、配置保存、中转探测
+ * （见 `DevicesCard`、`Console.saveConfig`、`RelayConfigDialog`）。
  */
 export async function apiPost<T>(
   path: string,

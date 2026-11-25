@@ -31,7 +31,7 @@ description: DSH 手机版（电脑上装的「移动端插件」，手机 App �
    - 回环端口被占（局域网能连、隧道 403、手机从外面进不来）→ `references/port-conflict.md`（先看版本与自动绕开状态，兜底步骤只给老版本或绕不开时）
    - 配对扫码、换凭据阶段失败（含 `stage: auth / parse / cleartext / credential / save / reset`）→ `references/pairing.md`
    - 设备显示离线 / 连上又断 / 失联 /「这台电脑暂时没连上」「电脑没连上中转」「连接未完成」（多为电脑 DSH 没开、换网后没重连，先确认电脑在线 + 换网对比）→ `references/offline.md`
-   - 中转地址、公用中转、自建中转、退役域名、HTTP 522 / 注册超时 → `references/relay.md`（地址与开关，522 看"识别与取证"节；公用中转已停止提供，见开头）
+   - 中转地址、公用中转、自建中转、退役域名、HTTP 522 / 注册超时 → `references/relay.md`（地址与线路，522 看"识别与取证"节；公用中转已正式下线、不再可用，见开头）
    - 连得上但读会话/工作区失败、报 apiProxy 未注入或宿主插件没加载 → `references/plugin-not-loaded.md`（电脑端插件未装载）
    - 单纯「请求超时」（GET /sessions、/workspaces 等，无 apiProxy 报错、无动作刚成功的前提）——弱网或电脑没就绪，确认电脑在线 + 换网对比 + 索要版本，按连接问题走 `references/offline.md`
    - 归档 / 改名成功后目标确实变了，却马上弹「加载失败 · 请求超时（GET /sessions）」→ `references/load-error-after-action.md`（动作成功后的后台对账误报，不是动作失败、不是数据丢失）

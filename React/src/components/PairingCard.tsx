@@ -28,7 +28,6 @@ import { Switch } from '@appica/ui-react/switch'
 import * as React from 'react'
 
 import type { PairingInfo, PairingPolicy, StatusView } from '../lib/api.ts'
-import { isPublicRelayUrl } from '../lib/links.ts'
 import { usePairingCompletion } from '../lib/usePairingCompletion.ts'
 import { AutoUpdateSection } from './AutoUpdateSection.tsx'
 import { DevicesCard } from './DevicesCard.tsx'
@@ -335,7 +334,7 @@ export function PairingPolicyRows({
           <DialogBody className="whitespace-pre-line text-sm leading-6 text-foreground-muted">
             {t('panel.pairing.controlReportDetail')}
             {'\n\n'}{t('panel.pairing.controlReportTarget', { target: status.controlReportTargetUrl || t('panel.pairing.controlReportUnknown') })}
-            {status.relayUrl && !isPublicRelayUrl(status.relayUrl) ? `\n\n${t('panel.pairing.controlReportSelfHosted')}` : ''}
+            {status.relayUrl ? `\n\n${t('panel.pairing.controlReportSelfHosted')}` : ''}
           </DialogBody>
           <DialogFooter className="flex justify-end">
             <Button variant="outline" onClick={() => setControlReportInfoOpen(false)}>

@@ -1,4 +1,4 @@
-// 公用中转兜底后，空的 relayUrl 不再等于没地址；手填直连也不再停用兜底（#125）。
+// 公用中转正式退役：空 relayUrl 不再由内置地址兜底，下面关于兜底的旧断言不再成立。
 'use strict';
 
 /**
@@ -78,12 +78,13 @@ test('没启用 / 没地址 / 没跑过插件：三种现场分开说，且不�
   assert.match(first.stderr, /远程控制还没启用/);
   assert.equal(first.stdout.includes('▄'), false, '没启用时不许打出一张能扫的码');
 
-  // 启用状态下只有手填直连、没有地址时：#125 后手填直连不再停用公用中转，读盘会自动补上
-  // 公用地址，所以这里不再是「无地址」，CLI 正常出码。这条钉住新的兜底口径，别退回旧断言。
+  // 启用状态下只有手填直连、没有任何自己的线路时：码里不塞内置地址，CLI 如实报「没地址」。
+  // 新机没自己的线路时蜂窝首次配对失败属于预期，别退回旧的兜底断言。
   const withDirect = tempHome({ ...ENABLED_STATE, relayUrl: '', relayUrls: [], manualLanUrl: 'home.example.com:8443', lanEnabled: false });
   const second = runCli(withDirect);
-  assert.equal(second.status, 0);
-  assert.match(second.stdout, /▄/, '手填直连不再挡公用兜底，地址补上后照常出码');
+  assert.equal(second.status, 1);
+  assert.match(second.stderr, /没有可用的中转、直连或服务商线路地址/);
+  assert.equal(second.stdout.includes('▄'), false, '没线路就不打一张扫不配成功的码');
 
   const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-pair-cli-empty-'));
   const third = runCli(empty);

@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.119",
+  "version": "0.5.120",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -117,23 +117,22 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.119",
+    "version": "0.5.120",
     "kinds": [
-      "feature",
-      "fix"
+      "feature"
     ],
     "notes": {
-      "zh-Hans": "- 网络：电脑上端口被占用时自动改用专属回环入口继续工作，实在绕不开才弹窗给指引。\n- 修复面板侧栏内容改动后手机端要等一会儿才同步的问题。\n- 修复新版电脑端只报告「已连接」时插件误判为掉线、反复重连的问题。\n- 手机通知默认档改为五类提醒都响铃，完成类提醒不再默认静默。",
-      "zh-Hant": "- 網路：電腦上連接埠被佔用時自動改用專屬回環入口繼續運作，真的繞不開才彈窗給指引。\n- 修正面板側欄內容變更後手機端要等一下才同步的問題。\n- 修正新版電腦端只回報「已連線」時外掛誤判為離線、反覆重連的問題。\n- 手機通知預設改為五類提醒都會響鈴，完成類提醒不再預設靜音。",
-      "en": "- Network: when a port is already taken on the computer, the plugin now falls back to a dedicated loopback entry automatically and only shows guidance when it really cannot get around the conflict.\n- Fixed phone-side sidebar content lagging behind panel edits.\n- Fixed the plugin treating the newer desktop's \"connected\"-only status as a dropped connection and reconnecting repeatedly.\n- Phone notifications now ring for all five reminder types by default; completion alerts are no longer silent by default.",
-      "ja": "- ネットワーク：パソコン側のポートが使用中のときは専用のループバック入口へ自動的に切り替えて動作を続け、どうしても回避できない場合だけ案内を表示します。\n- パネルのサイドバー内容を変更してからスマホ側に同期されるまで待たされる問題を修正しました。\n- 新しいデスクトップ版が「接続済み」だけを報告する場合に、プラグインが切断と誤判定して繰り返し再接続する問題を修正しました。\n- スマホ通知の既定を、5種類のリマインダーすべてが鳴るように変更しました。完了通知は既定で無音になりません。",
-      "ko": "- 네트워크: 컴퓨터에서 포트가 사용 중이면 전용 루프백 진입점으로 자동 전환해 계속 동작하고, 정말 우회할 수 없을 때만 안내 창을 띄웁니다.\n- 패널 사이드바 내용을 바꾼 뒤 휴대폰에서 동기화까지 기다려야 하던 문제를 수정했습니다.\n- 최신 데스크톱이 '연결됨'만 보고할 때 플러그인이 끊김으로 잘못 판단해 반복 재연결하던 문제를 수정했습니다.\n- 휴대폰 알림 기본값을 다섯 가지 알림 모두 울리도록 바꿨습니다. 완료 알림은 더 이상 기본으로 무음이 아닙니다.",
-      "de": "- Netzwerk: Ist ein Port auf dem Computer belegt, weicht das Plugin jetzt automatisch auf einen eigenen Loopback-Einstieg aus und zeigt nur dann einen Hinweis, wenn das wirklich nicht geht.\n- Behoben: Änderungen in der Seitenleiste des Panels kamen auf dem Handy erst mit Verzögerung an.\n- Behoben: Meldete der neuere Desktop nur „verbunden“, hielt das Plugin die Verbindung für verloren und verband sich wiederholt neu.\n- Benachrichtigungen am Handy klingeln in der Standardeinstellung jetzt bei allen fünf Erinnerungsarten; Abschluss-Hinweise sind nicht mehr standardmäßig stumm.",
-      "es": "- Red: si un puerto ya está ocupado en el ordenador, el plugin pasa automáticamente a una entrada de bucle dedicada y solo muestra una guía cuando de verdad no puede evitarlo.\n- Corregido: los cambios en la barra lateral del panel tardaban en llegar al teléfono.\n- Corregido: cuando el escritorio nuevo solo informa \"conectado\", el plugin lo tomaba como desconexión y se reconectaba en bucle.\n- Las notificaciones del teléfono suenan ahora para los cinco tipos de aviso por defecto; los avisos de finalización ya no quedan en silencio.",
-      "fr": "- Réseau : si un port est déjà occupé sur l'ordinateur, le plugin bascule automatiquement sur une entrée de boucle dédiée et n'affiche une aide que s'il ne peut vraiment pas l'éviter.\n- Correction : les modifications de la barre latérale du panneau mettaient du temps à arriver sur le téléphone.\n- Correction : quand le nouveau bureau ne signale que « connecté », le plugin croyait à une déconnexion et se reconnectait en boucle.\n- Les notifications du téléphone sonnent désormais pour les cinq types de rappel par défaut ; les alertes de fin ne sont plus muettes par défaut.",
-      "pt": "- Rede: se uma porta já estiver em uso no computador, o plugin passa automaticamente para uma entrada de loopback dedicada e só mostra orientação quando realmente não consegue contornar.\n- Corrigido: as alterações na barra lateral do painel demoravam a chegar ao telemóvel.\n- Corrigido: quando o ambiente de trabalho novo só informa \"ligado\", o plugin interpretava como queda e reconectava repetidamente.\n- As notificações do telemóvel passam a tocar para os cinco tipos de aviso por predefinição; os avisos de conclusão já não ficam em silêncio.",
-      "ru": "- Сеть: если порт на компьютере уже занят, плагин автоматически переходит на отдельный loopback-вход и показывает подсказку только тогда, когда обойти конфликт действительно нельзя.\n- Исправлено: изменения в боковой панели стали появляться на телефоне с задержкой.\n- Исправлено: когда новая настольная версия сообщает только «подключено», плагин считал соединение потерянным и переподключался по кругу.\n- Уведомления на телефоне теперь по умолчанию звонят для всех пяти типов напоминаний; уведомления о завершении больше не беззвучны.",
-      "tr": "- Ağ: bilgisayarda bağlantı noktası doluysa eklenti artık otomatik olarak kendine ait bir loopback girişine geçiyor; gerçekten kaçınamıyorsa yönlendirme gösteriyor.\n- Düzeltildi: panel kenar çubuğundaki değişikliklerin telefona geç ulaşması.\n- Düzeltildi: yeni masaüstü yalnızca \"bağlı\" bildirdiğinde eklentinin bağlantıyı kopmuş sayıp sürekli yeniden bağlanması.\n- Telefon bildirimleri artık varsayılan olarak beş hatırlatma türünün hepsinde çalıyor; tamamlanma bildirimleri varsayılan olarak sessiz değil."
+      "zh-Hans": "- 公用中转已正式下线、不再可用，面板里相关入口与线路档位已移除。\n- 升级后，老配置里残留的内置中转地址会自动清理。\n- 需要连回电脑时，可改用局域网、自建中转、内置隧道或第三方线路。",
+      "zh-Hant": "- 公用中繼已正式下線、不再可用，面板中相關入口與線路檔位已移除。\n- 升級後，舊設定裡殘留的內建中繼位址會自動清理。\n- 需要連回電腦時，可改用區域網路、自建中繼、內建隧道或第三方線路。",
+      "en": "- The public relay has been formally shut down and is no longer available; its entries and route options have been removed from the panel.\n- After upgrading, built-in relay addresses left in older configurations are cleared automatically.\n- To connect back to your computer, use a LAN connection, a relay you set up yourself, a built-in tunnel, or a third-party route.",
+      "ja": "- 公開中継は正式に終了し、利用できなくなりました。パネルから関連する入口と回線の選択肢も削除されています。\n- アップグレード後、古い設定に残っていた組み込み中継アドレスは自動的に消去されます。\n- パソコンへの接続には、LAN、自身で構築した中継、内蔵トンネル、またはサードパーティの回線をご利用ください。",
+      "ko": "- 공용 릴레이가 공식적으로 종료되어 더 이상 사용할 수 없습니다. 패널에서 관련 진입점과 회선 옵션도 제거되었습니다.\n- 업그레이드 후 이전 설정에 남아 있던 내장 릴레이 주소는 자동으로 정리됩니다.\n- 컴퓨터에 다시 연결하려면 LAN, 직접 구축한 릴레이, 내장 터널 또는 서드파티 회선을 사용하세요.",
+      "de": "- Der öffentliche Relay-Dienst wurde offiziell eingestellt und ist nicht mehr verfügbar; die zugehörigen Einträge und Verbindungsoptionen wurden aus dem Panel entfernt.\n- Nach dem Upgrade werden integrierte Relay-Adressen, die in alten Konfigurationen verblieben sind, automatisch bereinigt.\n- Um wieder eine Verbindung zum Computer herzustellen, nutzen Sie LAN, ein selbst eingerichtetes Relay, einen integrierten Tunnel oder eine Route eines Drittanbieters.",
+      "es": "- El relé público se ha retirado oficialmente y ya no está disponible; sus entradas y opciones de línea se han eliminado del panel.\n- Tras la actualización, las direcciones de relé integradas que quedaron en configuraciones antiguas se limpian automáticamente.\n- Para volver a conectarse al ordenador, use la LAN, un relé propio, un túnel integrado o una línea de terceros.",
+      "fr": "- Le relais public est officiellement arrêté et n'est plus disponible ; ses entrées et options de ligne ont été retirées du panneau.\n- Après la mise à jour, les adresses de relais intégrées restées dans les anciennes configurations sont supprimées automatiquement.\n- Pour vous reconnecter à l'ordinateur, utilisez le LAN, un relais que vous hébergez vous-même, un tunnel intégré ou une ligne tierce.",
+      "pt": "- O relay público foi oficialmente desativado e não está mais disponível; as entradas e opções de linha relacionadas foram removidas do painel.\n- Após a atualização, os endereços de relay integrados que restaram em configurações antigas são limpos automaticamente.\n- Para voltar a ligar-se ao computador, use a LAN, um relay que configure você mesmo, um túnel integrado ou uma linha de terceiros.",
+      "ru": "- Общий ретранслятор официально отключён и больше недоступен; связанные пункты и варианты линий удалены из панели.\n- После обновления встроенные адреса ретранслятора, оставшиеся в старых настройках, очищаются автоматически.\n- Чтобы снова подключиться к компьютеру, используйте LAN, самостоятельно настроенный ретранслятор, встроенный туннель или линию стороннего провайдера.",
+      "tr": "- Genel röle resmi olarak kapatıldı ve artık kullanılamıyor; ilgili girişler ve hat seçenekleri panelden kaldırıldı.\n- Güncellemeden sonra eski yapılandırmalarda kalan yerleşik röle adresleri otomatik olarak temizlenir.\n- Bilgisayara yeniden bağlanmak için LAN, kendinizin kurduğu bir röle, yerleşik tünel veya üçüncü taraf bir hat kullanın."
     }
   }
 }

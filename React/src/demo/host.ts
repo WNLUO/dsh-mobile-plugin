@@ -17,6 +17,8 @@
 import type {
   AddressBook,
   ConfigPatch,
+  PairingCheck,
+  PairingCheckRow,
   PairingInfo,
   RevokeResult,
   StatusView,
@@ -25,10 +27,9 @@ import type {
 import qr1 from './qr-1.svg?raw'
 import qr2 from './qr-2.svg?raw'
 import qr3 from './qr-3.svg?raw'
-import { PUBLIC_RELAY_URL } from '../lib/links.ts'
 
 /** 画面上报的那个版本。必须跟插件包一致，否则演示里会出现一个不存在的版本号（守卫钉着）。 */
-export const DEMO_VERSION = '0.5.119'
+export const DEMO_VERSION = '0.5.120'
 
 /** 固定的演示身份。名字走真机也会有的那种，不写「演示」二字。 */
 const DEMO_NAME = 'Studio-Mac'
@@ -88,20 +89,18 @@ type DemoState = {
 function initial(): DemoState {
   // 演示有几种「配过之后进控制台」的起点，判据只看演示页自己的地址栏：
   //   console / settings  已配置（一条自建中转，正常老用户）
-  //   public              只走公用中转：自建中转 / 直连 / TCP / FRP / 服务商全没配
   //   bare                什么线路都没有，只开着远程控制
   // 这几种宿主都得说「配过了」，否则控制台的分流会把画面换成引导页。
   const scene = new URLSearchParams(window.location.search).get('scene') ?? ''
-  const configured = ['settings', 'console', 'public', 'bare'].includes(scene)
-  const onlyPublic = scene === 'public'
+  const configured = ['settings', 'console', 'bare'].includes(scene)
   const noRoute = scene === 'bare'
   return {
     // 从「还没配过」开始：这样打开就是引导页，配完才进主页（用户要的演示流程）。
     enabled: configured,
     onboarded: configured,
     name: DEMO_NAME,
-    // public 只挂公用中转那一条；bare 什么都没有；其余已配置给一条自建中转。
-    relayUrl: onlyPublic ? PUBLIC_RELAY_URL : configured && !noRoute ? 'https://relay.example.com' : '',
+    // 已配置给一条自建中转；bare 什么都没有；其余是正常老用户。
+    relayUrl: configured && !noRoute ? 'https://relay.example.com' : '',
     pairingCode: FAKE_QR[0].code,
     pairingPolicy: 'code',
     // 直连默认开着；「什么都没有」那一幕连局域网也关掉，才符合要看的处境。
@@ -389,6 +388,52 @@ function pairingInfo(): PairingInfo {
   }
 }
 
+/**
+ * 引导页第三页的出码自检：宿主会把码里的地址真拨一遍，这里按演示状态编一份。
+ *
+ * 默认「都通」，两个地址一条本机回环、一条外部线路，界面上该出码。
+ * `?check=loopback` 让外部那条拨不通（只剩本机回环），`?check=fail` 让两条都不通
+ * （不出码）—— 这两种状态在真机上得靠拔网线才看得到，摆在这里是为了把文案看清楚。
+ */
+function pairingCheck(): PairingCheck {
+  const mode = new URLSearchParams(window.location.search).get('check') || 'ok'
+  const lanOk = mode !== 'fail'
+  const routeOk = mode === 'ok'
+  const targets: PairingCheckRow[] = [
+    {
+      kind: 'lan',
+      url: lanUrls()[0] || `http://192.0.2.10:${state.lanPort}`,
+      local: true,
+      ok: lanOk,
+      ...(lanOk ? { detail: 'HTTP 200' } : { error: 'ECONNREFUSED' }),
+    },
+    {
+      kind: 'route',
+      url: state.cfUrl || 'https://demo-quick.trycloudflare.com',
+      name: 'Cloudflare',
+      local: false,
+      ok: routeOk,
+      ...(routeOk ? { detail: 'HTTP 200' } : { error: 'ETIMEDOUT' }),
+    },
+  ]
+  const okCount = targets.filter((row) => row.ok).length
+  return {
+    ok: true,
+    checkedAt: Date.now(),
+    timeoutMs: 4000,
+    targets,
+    notChecked: [],
+    summary: {
+      total: targets.length,
+      okCount,
+      remoteOk: targets.some((row) => row.ok && !row.local),
+      localOk: targets.some((row) => row.ok && row.local),
+      allFailed: okCount === 0,
+      nothingToCheck: false,
+    },
+  }
+}
+
 /** 宿主那四条更新接口的状态：都在、都是正常值，画面上跟真机一模一样。 */
 function updateStatus() {
   return {
@@ -474,6 +519,8 @@ function route(pathname: string, init?: RequestInit, search = new URLSearchParam
     if (!state.enabled) return json({ ok: false, error: '请先启用远程控制并保存配置' }, 409)
     return json(pairingInfo())
   }
+  // 出码前的自检：`?check=loopback|fail` 可以把结果固定住，看三种文案。
+  if (pathname === '/api/relay/pairing-check' && method === 'GET') return json(pairingCheck())
   // 引导页那一步会同时写 relayUrl 与 lanEnabled；与宿主一样，只认白名单字段。
   if (pathname === '/api/relay/config' && method === 'POST') return json(applyConfig(patch))
   if (pathname === '/api/relay/toggle' && method === 'POST') {

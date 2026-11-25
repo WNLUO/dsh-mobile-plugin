@@ -98,32 +98,3 @@ export const DOWNLOAD_CHANNELS: { platform: DownloadPlatform; channels: Download
     ],
   },
 ]
-
-/**
- * 公用中转的入口清单。
- *
- * 引导页与中转配置弹窗**都从这里渲染**，各写一份必然漏掉一处，表现是「引导页能用、
- * 弹窗里填的是旧地址」——用户当场就能撞上。
- *
- * **加一台就在末尾加一行**，界面两处自动跟上（列表会滚动）。`url` 必须能应答
- * `/healthz`，`name` 只在界面上显示。
- */
-export const PUBLIC_RELAYS: { nameKey: string; url: string }[] = [
-  { nameKey: 'panel.links.publicRelay', url: 'https://ai-hub-de-1.wnluo.com' },
-]
-
-/** 列表里的第一条：没有任何偏好时的默认选择。 */
-export const PUBLIC_RELAY_URL = PUBLIC_RELAYS[0].url
-
-/**
- * 一条地址是不是我们内置的公用中转（按 URL 去尾斜杠比，与清单同源）。
- *
- * 面板两处用同一份判据：网络配置那栏标「公用 / 自建」，通知弹窗据此决定该不该弹
- * （公用停用 — 用户已切自建或清空 — 就不必每次进来都提醒）。别在组件里另写一份 URL 比对，
- * 加一台公用中转要改 PUBLIC_RELAYS 一处，两个消费者自动跟上。
- */
-export function isPublicRelayUrl(url: string): boolean {
-  const trim = (value: string) => value.trim().replace(/\/+$/, '')
-  const target = trim(url)
-  return Boolean(target) && PUBLIC_RELAYS.some((item) => trim(item.url) === target)
-}
