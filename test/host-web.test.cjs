@@ -9,7 +9,7 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 
-const { handleHostWeb } = require('../lib/mobile/host-web.js')
+const { handleHostWeb, launchTokenOf } = require('../lib/mobile/host-web.js')
 
 /** 假 ServerResponse：只记最后一次 writeHead + end（与 mobile-route-dispatch.test.cjs 同一形状）。 */
 function fakeRes() {
@@ -90,4 +90,79 @@ test('上下文本身残缺也不抛（一律当不可用）', async () => {
     assert.equal(res.body.ok, true)
     assert.equal(res.body.available, false)
   }
+})
+
+/**
+ * 新宿主：认证拆到独立包，`connection` 里没有 `browserAuth`，令牌由 entry-url 事件同步交回。
+ * `emit` 按 Cordis 的调用序收 (thisArg, 事件名, baseUrl, entries)，就地往 entries 填入口。
+ */
+function newHostCtx({ port = 3080, entries = [], emit } = {}) {
+  return {
+    webServer: { port },
+    get: (name) => (name === 'connection' ? { browserPeer: {} } : null),
+    emit(thisArg, name, baseUrl, collected) {
+      assert.ok(thisArg, '第一个对象参数应当作为 thisArg 传给事件')
+      assert.equal(name, 'webserver/entry-url')
+      assert.equal(baseUrl, `http://127.0.0.1:${port}`, 'baseUrl 用已知端口自拼，不依赖 getOrigin')
+      for (const entry of entries) collected.push(entry)
+    },
+    ...(emit ? { emit } : {}),
+  }
+}
+
+test('老宿主仍走 browserAuth，取到就不触发 entry-url', () => {
+  let emitted = 0
+  const ctx = newHostCtx({ entries: [{ url: 'http://127.0.0.1:3080/?token=wrong' }] })
+  ctx.get = (name) => (name === 'connection' ? { browserAuth: { launchToken: 'legacy-token' } } : null)
+  ctx.emit = () => { emitted += 1 }
+  assert.equal(launchTokenOf(ctx), 'legacy-token')
+  assert.equal(emitted, 0, '老路径命中就不该去 emit')
+})
+
+test('新宿主没有 browserAuth 时，从 entry-url 同步收回令牌', async () => {
+  const ctx = newHostCtx({
+    port: 51291,
+    entries: [{ url: 'http://127.0.0.1:51291/?token=new-host-token' }],
+  })
+  assert.equal(launchTokenOf(ctx), 'new-host-token')
+  const res = await call(ctx)
+  assert.deepEqual(res.body, {
+    ok: true, available: true, port: 51291, token: 'new-host-token', pluginPages: true,
+  })
+})
+
+test('同事件的别的服务入口不串 token，只认环回且端口匹配的入口', () => {
+  const ctx = newHostCtx({ port: 3080, entries: [
+    { url: 'https://other.example.com/?token=secret-of-other' },
+    { url: 'http://example.com:3080/?token=secret-of-same-port' },
+    { url: 'http://127.0.0.1:9999/?token=secret-of-other-port' },
+    { url: 'http://localhost:3080/?token=mine' },
+  ] })
+  assert.equal(launchTokenOf(ctx), 'mine')
+
+  const onlyForeign = newHostCtx({ port: 3080, entries: [
+    { url: 'http://127.0.0.1:9999/?token=foreign' },
+    { url: 'https://localhost:3080/?token=https-not-web' },
+  ] })
+  assert.equal(launchTokenOf(onlyForeign), null, '没有匹配的入口就回 null，不吃别人家的 token')
+})
+
+test('entry-url 兜底取不到的各种形状都回 null，不抛', async () => {
+  const cases = [
+    newHostCtx(),
+    newHostCtx({ entries: [{ url: 'not a url' }] }),
+    newHostCtx({ entries: [{ url: 'http://127.0.0.1:3080/' }] }),
+    newHostCtx({ entries: [{ url: 'http://127.0.0.1:3080/?token=' }] }),
+  ]
+  for (const ctx of cases) assert.equal(launchTokenOf(ctx), null)
+  assert.equal(launchTokenOf({ webServer: { port: 3080 }, get: () => null }), null, '没有 emit 也回 null')
+  const res = await call(newHostCtx({ entries: [{ url: 'http://127.0.0.1:3080/' }] }))
+  assert.deepEqual(res.body, { ok: true, available: false, reason: 'no-launch-token' })
+})
+
+test('emit 抛异常时回 null，不把能力探测变成 500', async () => {
+  const ctx = newHostCtx({ port: 3080, emit: () => { throw new Error('listener exploded') } })
+  assert.equal(launchTokenOf(ctx), null)
+  const res = await call(ctx)
+  assert.deepEqual(res.body, { ok: true, available: false, reason: 'no-launch-token' })
 })

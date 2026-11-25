@@ -78,6 +78,35 @@ test('声明服务的目标是宿主自己的 web 端口，凭据用 launch toke
   }
 });
 
+test('新宿主没有 browserAuth 时，服务凭据从 entry-url 兜底取到', async () => {
+  const pluginsRoot = makeTmp();
+  const port = 59876;
+  try {
+    makePlugin(pluginsRoot, 'dsh-email-plugin', {
+      dshMobileDataServices: [{ service: 'dsh-email', allow: ['/api/dsh-email/'] }],
+    });
+    const ctx = {
+      webServer: { port },
+      get(name) {
+        // 新宿主：连接服务里已经没有 browserAuth，更没有 launchToken。
+        if (name === 'dshMobilePluginRuntime') return { status: () => ({ profileNodeModules: pluginsRoot }) };
+        return null;
+      },
+      emit(thisArg, name, baseUrl, entries) {
+        assert.equal(name, 'webserver/entry-url');
+        assert.equal(baseUrl, `http://127.0.0.1:${port}`);
+        entries.push({ url: `http://127.0.0.1:${port}/?token=entry-token` });
+      },
+    };
+    const spec = extensionData.specOf(ctx, 'dsh-email');
+    const target = await spec.resolve();
+    assert.equal(target.port, port);
+    assert.equal(target.key, 'entry-token', '取数换票的 key 不能是 null，否则裸请求会被宿主认证打回 401');
+  } finally {
+    fs.rmSync(pluginsRoot, { recursive: true, force: true });
+  }
+});
+
 test('没有 web 端口时 resolve 抛 service-unavailable（调用方回 503）', async () => {
   const pluginsRoot = makeTmp();
   try {
