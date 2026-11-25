@@ -6,7 +6,7 @@
  * 这一页只由开发服务器加载（`React/demo.html`），正式产物不含它。
  */
 import { ToastProvider, Toaster } from '@appica/ui-react/toast'
-import { StrictMode, useEffect } from 'react'
+import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import '../index.css'
 import { Console } from '../Console.tsx'
@@ -36,12 +36,22 @@ const scene = sceneName
 
 function Scene() {
   if (scene === 'status') return <StatusPreview />
-  if (scene === 'onboarding') return <Onboarding />
+  if (scene === 'onboarding') return <OnboardingScene />
   // 控制台那一幕要连**主题跟随**一起画：外壳在正式页里负责这件事（见 `Shell.tsx`），
   // 而演示版绕过了外壳直接渲染组件，所以自己补上 —— 否则日夜按钮「按了会变、刷新又回去」。
   // Star / 赞助 / 交流群三颗 2026-11-17 已进 Console 顶栏，这里不再单独挂。
   if (scene === 'console' || scene === 'public' || scene === 'bare') return <ConsoleScene />
   return <Shell />
+}
+
+/**
+ * 引导页那一幕：走完三步（或第二页直接跳过）之后留在演示页里看控制台，
+ * 不跳去正式页 —— 那边没有假宿主，会去连真宿主。
+ */
+function OnboardingScene() {
+  const [entered, setEntered] = useState(false)
+  if (entered) return <ConsoleScene />
+  return <Onboarding onDone={() => setEntered(true)} />
 }
 
 /** 控制台那一幕：与 `Shell` 里那件事逐条对应（跟随主题）。 */

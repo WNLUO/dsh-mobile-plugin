@@ -1,14 +1,20 @@
+// 2026-11-26：引导页拆成三页——下载 App / 配网络（可跳过，跳过直接进控制台）/ 扫码连接。
 // 2026-11-25：兜底仍不可用时在引导页弹端口冲突指引，配服务商时也认这条状态。
 // 2026-11-25：引导页加「跳过」出口——不想接服务商的人也能进控制台自己配线路。
 // 2026-11-25：直连那一行复用错误档带回环 health 被抢的原因。
 // 用途：首次接入引导页；错误处可直接提交脱敏摘要与诊断附件，并回显反馈编号。
 /**
- * 首次接入引导（一页）：宿主还没配过、或走 `/api/relay/panel/setup` 时进这一页。
+ * 首次接入引导（三步）：宿主还没配过、或走 `/api/relay/panel/setup` 时进这一页。
  *
- * 2026-11-24 起不再默认把「公用中转」塞进配置：新用户得自己配一条能用的网络。这一页按地区
- * （默认看这台电脑的时区，可手动切）列出服务商，主推一家（国内 ZeroNews、国际 Cloudflare），
- * 点进去用各家自己的面板把它接好；**接好之后再放二维码**，手机扫了才能连。局域网直连照旧一起
- * 开着，在家同一 Wi-Fi 也能扫。兜底的隧道（Tailcat / Cloudflare / P2P）只当兜底，不再写公用中转。
+ * 2026-11-26 起一屏拆成三页，顺序照新用户真实的动作走：
+ *   1. **下载 App** —— 手机还没装 App 的话，后面扫码也没处扫；
+ *   2. **配网络** —— 按地区（默认看这台电脑的时区，可手动切）列出服务商，主推一家；这一页可以
+ *      **跳过**，跳过就直接进控制台（不接线路、也不去第三页）；
+ *   3. **扫码连接** —— 线路接好之后才放二维码，手机扫了才能连。
+ *
+ * 2026-11-24 起不再默认把「公用中转」塞进配置：新用户得自己配一条能用的网络。局域网直连照旧
+ * 一起开着，在家同一 Wi-Fi 也能扫。兜底的隧道（Tailcat / Cloudflare / P2P）只当兜底，不再写
+ * 公用中转。
  *
  * 服务商清单来自 `lib/onboarding-providers.tsx`，加一家只改那份注册表，不碰这一页。
  */
@@ -115,6 +121,8 @@ export function Onboarding({ onDone }: Props) {
   const [preferred, setPreferred] = useState('')
   /** 当前地区：默认按系统时区猜，用户可切。 */
   const [region, setRegion] = useState<NetworkRegion>(detectRegion)
+  /** 走到第几页：1 下载 App、2 配网络、3 扫码连接。 */
+  const [step, setStep] = useState<1 | 2 | 3>(1)
   /** 正在配置哪家服务商（null = 没开面板）；开了就把它自己那一页铺上来。 */
   const [providerOpen, setProviderOpen] = useState<OnboardingProvider['provider'] | null>(null)
   /** 节点小宝的外网地址：它不在 /status 里，只在国内时单独读，用来判「这条接好了没有」。 */
@@ -392,6 +400,7 @@ export function Onboarding({ onDone }: Props) {
 
   /**
    * 跳过服务商配置：不接线路也让人进控制台自己配（局域网直连进页时已开好）。
+   * 2026-11-26 起这颗按钮常驻在第二页，跳过就直接进控制台，不再走第三页扫码。
    * 进页那一发 `connect()` 会写 onboarded，这里再补一次幂等写入 —— 万一点得比它快，
    * 下次打开 /panel 又会被判成「没配过」弹回引导页。
    */
@@ -525,6 +534,13 @@ export function Onboarding({ onDone }: Props) {
       }
     : null
 
+  /** 三步的标题都取自现成文案，不另起一套叫法。 */
+  const steps: { value: 1 | 2 | 3; title: string }[] = [
+    { value: 1, title: t('panel.download.title') },
+    { value: 2, title: t('panel.onboarding.setupTitle') },
+    { value: 3, title: t('panel.onboarding.pairingHint') },
+  ]
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 pt-6 pb-24">
       <div className="flex w-full max-w-4xl flex-wrap items-center justify-end gap-1">
@@ -550,196 +566,237 @@ export function Onboarding({ onDone }: Props) {
         </Alert>
       ) : null}
 
-      {/* 选地区 + 服务商：先把网络配好，下面才放二维码。 */}
-      <Card frame="solid" className="w-full max-w-4xl">
-        <div className="flex flex-col gap-4 p-4">
-          <div className="flex flex-col gap-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-foreground-strong">{t('panel.onboarding.setupTitle')}</span>
-              <div className="ml-auto inline-flex rounded-md border border-border-muted p-0.5">
-                {(['cn', 'global'] as NetworkRegion[]).map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setRegion(value)}
+      {/* 步骤条：一屏一页，走过的页点得回去，没走到的点不动。 */}
+      <div className="flex w-full max-w-4xl flex-wrap items-center gap-2">
+        {steps.map((item) => {
+          const reached = item.value <= step
+          return (
+            <button
+              key={item.value}
+              type="button"
+              aria-current={item.value === step ? 'step' : undefined}
+              disabled={!reached}
+              onClick={() => setStep(item.value)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors',
+                item.value === step
+                  ? 'border-primary bg-primary-subtle text-foreground-strong'
+                  : reached
+                    ? 'cursor-pointer border-border-muted text-foreground-muted hover:text-foreground-strong'
+                    : 'border-border-muted text-foreground-muted opacity-60',
+              )}
+            >
+              <span className="font-medium">{item.value}</span>
+              <span>{item.title}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* 第一页：装 App。手机还没装 App 的话，后面扫码也没处扫。 */}
+      {step === 1 ? (
+        <Card frame="solid" className="w-full max-w-4xl">
+          <div className="flex flex-col gap-3 p-4">
+            <p className="text-center text-sm font-medium text-foreground-strong">{t('panel.download.title')}</p>
+            <p className="text-center text-xs leading-5 text-foreground-muted">{t('panel.onboarding.installAppHint')}</p>
+            <DownloadChannelsGrid />
+          </div>
+          <div className="flex items-center justify-end gap-2 px-4 pb-4">
+            <Button variant="primary" onClick={() => setStep(2)}>
+              {t('panel.onboarding.next')}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
+      {/* 第二页：选地区 + 服务商。接好了才放行到扫码页；不想接的人可以直接跳过进控制台。 */}
+      {step === 2 ? (
+        <Card frame="solid" className="w-full max-w-4xl">
+          <div className="flex flex-col gap-4 p-4">
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-foreground-strong">{t('panel.onboarding.setupTitle')}</span>
+                <div className="ml-auto inline-flex rounded-md border border-border-muted p-0.5">
+                  {(['cn', 'global'] as NetworkRegion[]).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setRegion(value)}
+                      className={cn(
+                        'cursor-pointer rounded px-2.5 py-1 text-xs transition-colors',
+                        region === value ? 'bg-primary text-primary-foreground' : 'text-foreground-muted hover:text-foreground-strong',
+                      )}
+                    >
+                      {t(value === 'cn' ? 'panel.region.china' : 'panel.region.global')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs leading-5 text-foreground-muted">
+                {t('panel.onboarding.setupHint')}
+                <span className="ml-1">{t('panel.onboarding.regionAuto')}</span>
+              </p>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              {providers.map((entry) => {
+                const look = PROVIDER_LOOK[entry.provider]
+                const ready = status !== null && entry.ready(readyCtx)
+                return (
+                  <div
+                    key={entry.provider}
                     className={cn(
-                      'cursor-pointer rounded px-2.5 py-1 text-xs transition-colors',
-                      region === value ? 'bg-primary text-primary-foreground' : 'text-foreground-muted hover:text-foreground-strong',
+                      'flex flex-col gap-2 rounded-lg border border-border-muted p-3',
+                      entry.primary ? 'bg-primary-subtle' : '',
                     )}
                   >
-                    {t(value === 'cn' ? 'panel.region.china' : 'panel.region.global')}
-                  </button>
-                ))}
-              </div>
+                    <div className="flex items-center gap-2">
+                      <span className="flex size-6 items-center justify-center">{look.icon}</span>
+                      <span className="text-sm font-medium text-foreground-strong">{t(look.name)}</span>
+                      {entry.primary ? <Badge variant="soft" size="xs">{t('panel.onboarding.providerRecommended')}</Badge> : null}
+                      <span className={cn('ml-auto text-xs', ready ? 'text-foreground-strong' : 'text-foreground-muted')}>
+                        {ready ? t('panel.onboarding.providerReady') : t('panel.onboarding.providerNotReady')}
+                      </span>
+                    </div>
+                    <p className="text-xs leading-5 text-foreground-muted">{t(look.hint)}</p>
+                    <div className="flex justify-end">
+                      <Button
+                        variant={entry.primary ? 'primary' : 'outline'}
+                        size="sm"
+                        disabled={!status}
+                        onClick={() => setProviderOpen(entry.provider)}
+                      >
+                        {t('panel.onboarding.configure')}
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <p className="text-xs leading-5 text-foreground-muted">
-              {t('panel.onboarding.setupHint')}
-              <span className="ml-1">{t('panel.onboarding.regionAuto')}</span>
-            </p>
           </div>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            {providers.map((entry) => {
-              const look = PROVIDER_LOOK[entry.provider]
-              const ready = status !== null && entry.ready(readyCtx)
-              return (
-                <div
-                  key={entry.provider}
-                  className={cn(
-                    'flex flex-col gap-2 rounded-lg border border-border-muted p-3',
-                    entry.primary ? 'bg-primary-subtle' : '',
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="flex size-6 items-center justify-center">{look.icon}</span>
-                    <span className="text-sm font-medium text-foreground-strong">{t(look.name)}</span>
-                    {entry.primary ? <Badge variant="soft" size="xs">{t('panel.onboarding.providerRecommended')}</Badge> : null}
-                    <span className={cn('ml-auto text-xs', ready ? 'text-foreground-strong' : 'text-foreground-muted')}>
-                      {ready ? t('panel.onboarding.providerReady') : t('panel.onboarding.providerNotReady')}
-                    </span>
-                  </div>
-                  <p className="text-xs leading-5 text-foreground-muted">{t(look.hint)}</p>
-                  <div className="flex justify-end">
-                    <Button
-                      variant={entry.primary ? 'primary' : 'outline'}
-                      size="sm"
-                      disabled={!status}
-                      onClick={() => setProviderOpen(entry.provider)}
-                    >
-                      {t('panel.onboarding.configure')}
-                    </Button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </Card>
-
-      {/* 装 App：新用户可能还没装手机 App，先把下载渠道摆出来，按「配网络 → 装 App → 扫码」的顺序走。 */}
-      <Card frame="solid" className="w-full max-w-4xl">
-        <div className="flex flex-col gap-3 p-4">
-          <p className="text-center text-sm font-medium text-foreground-strong">{t('panel.download.title')}</p>
-          <p className="text-center text-xs leading-5 text-foreground-muted">{t('panel.onboarding.installAppHint')}</p>
-          <DownloadChannelsGrid />
-        </div>
-      </Card>
-
-      {/* 二维码 + 状态：接好之后二维码才出来。 */}
-      <Card frame="solid" className="w-full max-w-4xl">
-        <div className="flex flex-col items-center gap-2 px-4 pb-2">
-          <div className="flex flex-col items-center gap-2 md:col-start-1 md:row-start-1">
-            <div className="flex h-5 w-full max-w-[320px] items-center justify-center gap-1.5">
-              <p className="text-sm font-medium leading-5 text-foreground-strong">{t('panel.onboarding.pairingHint')}</p>
-              {qrReady ? (
-                <button
-                  type="button"
-                  aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
-                  title={t('panel.pairing.qrZoom')}
-                  className="cursor-pointer text-foreground-muted hover:text-foreground-strong focus-visible:outline-none"
-                  onClick={() => setQrZoomOpen(true)}
-                >
-                  <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                    <circle cx="10.5" cy="10.5" r="6" />
-                    <path d="m15 15 4.5 4.5M8.5 10.5h4M10.5 8.5v4" />
-                  </svg>
-                </button>
-              ) : null}
-            </div>
-            {qrReady ? (
-              <button
-                type="button"
-                className="cursor-zoom-in rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                onClick={() => setQrZoomOpen(true)}
-                aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
-              >
-                <div className="size-[320px] max-w-full rounded-lg bg-white p-3 [&_svg]:h-full [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: qrSvg }} />
-              </button>
-            ) : (
-              <div className="flex size-[320px] max-w-full items-center justify-center rounded-lg border border-border-muted p-4 text-center text-xs leading-5 text-foreground-muted">
-                {pairingError && anyReady ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <span role="alert">{pairingError}</span>
-                    <Button variant="ghost" size="sm" disabled={busy} onClick={() => void loadPairing()}>
-                      {t('panel.console.retryPairing')}
-                    </Button>
-                  </div>
-                ) : busy ? <Spinner /> : t('panel.onboarding.qrPending')}
-              </div>
-            )}
-            <p className="min-h-4 max-w-[320px] text-center text-xs leading-4 text-foreground-muted">
-              {!anyReady ? t(portConflict ? 'panel.onboarding.routeBlocked' : 'panel.onboarding.waitNetwork') : ''}
-            </p>
-          </div>
-
-          <div className="w-full [&_dt]:text-foreground-strong">
-            <InfoList>
-              <InfoRow label={t('panel.onboarding.direct')}>
-                <ToneValue
-                  tone={lanTone(lanState, true)}
-                  text={lanText(lanState, true)}
-                  detail={loopbackInfo?.state === 'blocked' ? loopbackInfo.reason : undefined}
-                />
-              </InfoRow>
-              <InfoRow label={t('panel.connection.tunnel')}>
-                <ToneValue tone={tunnelTone(status?.tunnel.state ?? 'off')} text={tunnelText(status?.tunnel.state ?? 'off')} />
-              </InfoRow>
-              <InfoRow label={t('panel.tailcat.title')}>
-                <span className="inline-flex items-center justify-end gap-1.5">
-                  <ToneValue tone={tailcatToneValue} text={tailcatText} />
-                  {tailcatAsking ? (
-                    <button
-                      type="button"
-                      aria-label={t('panel.onboarding.tailcatWhy')}
-                      title={t('panel.onboarding.tailcatWhy')}
-                      className="cursor-pointer text-foreground-muted hover:text-foreground-strong focus-visible:outline-none"
-                      onClick={() => setTailcatOpen(true)}
-                    >
-                      <QuestionMark />
-                    </button>
-                  ) : null}
-                </span>
-              </InfoRow>
-              <InfoRow label={t('panel.selfcheck.firewall')}>
-                <ToneValue tone={firewallInfo.tone} text={firewallInfo.text} detail={firewallInfo.detail} />
-              </InfoRow>
-            </InfoList>
-
-            {showSelfcheckVerdict ? (
-              <p className={`mt-2 text-sm leading-relaxed break-words ${toneText[verdictTone(selfcheckVerdict)]}`}>
-                {verdictText(selfcheckVerdict)}
-              </p>
-            ) : null}
-
-            {statusFailure ? (
-              <Alert className="mt-2" variant="error">
-                <AlertIcon />
-                <AlertTitle>{statusFailure.title}</AlertTitle>
-                <AlertDescription>{statusFailure.message}</AlertDescription>
-                {feedbackAction('status', statusFailure.title, statusFailure.message)}
-              </Alert>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-4">
-          <button
-            type="button"
-            className="cursor-pointer text-sm text-foreground-intense underline underline-offset-2 hover:text-foreground-strong"
-            onClick={() => setFirewallOpen(true)}
-          >
-            {t('panel.onboarding.checkFirewall')}
-          </button>
-          <Button variant="primary" disabled={!anyReady} onClick={enterNow}>
-            {anyReady ? t('panel.onboarding.enterPlugin') : t('panel.onboarding.providerNotReady')}
-          </Button>
-          {!anyReady ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4">
             <Button variant="ghost" onClick={() => void skipSetup()}>
               {t('panel.onboarding.skipSetup')}
             </Button>
-          ) : null}
-        </div>
-      </Card>
+            <Button variant="primary" disabled={!anyReady} onClick={() => setStep(3)}>
+              {anyReady ? t('panel.onboarding.next') : t('panel.onboarding.providerNotReady')}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
+      {/* 第三页：二维码 + 状态。接好了二维码才出来，扫完自动进控制台。 */}
+      {step === 3 ? (
+        <Card frame="solid" className="w-full max-w-4xl">
+          <div className="flex flex-col items-center gap-2 px-4 pb-2">
+            <div className="flex flex-col items-center gap-2 md:col-start-1 md:row-start-1">
+              <div className="flex h-5 w-full max-w-[320px] items-center justify-center gap-1.5">
+                <p className="text-sm font-medium leading-5 text-foreground-strong">{t('panel.onboarding.pairingHint')}</p>
+                {qrReady ? (
+                  <button
+                    type="button"
+                    aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
+                    title={t('panel.pairing.qrZoom')}
+                    className="cursor-pointer text-foreground-muted hover:text-foreground-strong focus-visible:outline-none"
+                    onClick={() => setQrZoomOpen(true)}
+                  >
+                    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                      <circle cx="10.5" cy="10.5" r="6" />
+                      <path d="m15 15 4.5 4.5M8.5 10.5h4M10.5 8.5v4" />
+                    </svg>
+                  </button>
+                ) : null}
+              </div>
+              {qrReady ? (
+                <button
+                  type="button"
+                  className="cursor-zoom-in rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  onClick={() => setQrZoomOpen(true)}
+                  aria-label={`${t('panel.pairing.qrZoom')}：${t('panel.pairing.qr')}`}
+                >
+                  <div className="size-[320px] max-w-full rounded-lg bg-white p-3 [&_svg]:h-full [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+                </button>
+              ) : (
+                <div className="flex size-[320px] max-w-full items-center justify-center rounded-lg border border-border-muted p-4 text-center text-xs leading-5 text-foreground-muted">
+                  {pairingError && anyReady ? (
+                    <div className="flex flex-col items-center gap-2">
+                      <span role="alert">{pairingError}</span>
+                      <Button variant="ghost" size="sm" disabled={busy} onClick={() => void loadPairing()}>
+                        {t('panel.console.retryPairing')}
+                      </Button>
+                    </div>
+                  ) : busy ? <Spinner /> : t('panel.onboarding.qrPending')}
+                </div>
+              )}
+              <p className="min-h-4 max-w-[320px] text-center text-xs leading-4 text-foreground-muted">
+                {!anyReady ? t(portConflict ? 'panel.onboarding.routeBlocked' : 'panel.onboarding.waitNetwork') : ''}
+              </p>
+            </div>
+
+            <div className="w-full [&_dt]:text-foreground-strong">
+              <InfoList>
+                <InfoRow label={t('panel.onboarding.direct')}>
+                  <ToneValue
+                    tone={lanTone(lanState, true)}
+                    text={lanText(lanState, true)}
+                    detail={loopbackInfo?.state === 'blocked' ? loopbackInfo.reason : undefined}
+                  />
+                </InfoRow>
+                <InfoRow label={t('panel.connection.tunnel')}>
+                  <ToneValue tone={tunnelTone(status?.tunnel.state ?? 'off')} text={tunnelText(status?.tunnel.state ?? 'off')} />
+                </InfoRow>
+                <InfoRow label={t('panel.tailcat.title')}>
+                  <span className="inline-flex items-center justify-end gap-1.5">
+                    <ToneValue tone={tailcatToneValue} text={tailcatText} />
+                    {tailcatAsking ? (
+                      <button
+                        type="button"
+                        aria-label={t('panel.onboarding.tailcatWhy')}
+                        title={t('panel.onboarding.tailcatWhy')}
+                        className="cursor-pointer text-foreground-muted hover:text-foreground-strong focus-visible:outline-none"
+                        onClick={() => setTailcatOpen(true)}
+                      >
+                        <QuestionMark />
+                      </button>
+                    ) : null}
+                  </span>
+                </InfoRow>
+                <InfoRow label={t('panel.selfcheck.firewall')}>
+                  <ToneValue tone={firewallInfo.tone} text={firewallInfo.text} detail={firewallInfo.detail} />
+                </InfoRow>
+              </InfoList>
+
+              {showSelfcheckVerdict ? (
+                <p className={`mt-2 text-sm leading-relaxed break-words ${toneText[verdictTone(selfcheckVerdict)]}`}>
+                  {verdictText(selfcheckVerdict)}
+                </p>
+              ) : null}
+
+              {statusFailure ? (
+                <Alert className="mt-2" variant="error">
+                  <AlertIcon />
+                  <AlertTitle>{statusFailure.title}</AlertTitle>
+                  <AlertDescription>{statusFailure.message}</AlertDescription>
+                  {feedbackAction('status', statusFailure.title, statusFailure.message)}
+                </Alert>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2 px-4 py-4">
+            <button
+              type="button"
+              className="cursor-pointer text-sm text-foreground-intense underline underline-offset-2 hover:text-foreground-strong"
+              onClick={() => setFirewallOpen(true)}
+            >
+              {t('panel.onboarding.checkFirewall')}
+            </button>
+            <Button variant="primary" disabled={!anyReady} onClick={enterNow}>
+              {anyReady ? t('panel.onboarding.enterPlugin') : t('panel.onboarding.providerNotReady')}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
 
       {/* 服务商面板：复用各家自己的配置页铺满一屏，配完关掉即可。 */}
       {activeEntry && status ? (
