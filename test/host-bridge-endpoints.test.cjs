@@ -88,6 +88,9 @@ const GOLDEN = {
   'account.getProfile': ['account', 'getProfile', ['client']],
   'account.getBalance': ['account', 'getBalance', ['client']],
   'credentials.describe': ['credentials', 'describe', ['refs']],
+  // 取一次凭据的值（一键导入要把它那把 Key 交给手机）。宿主 Service 上 resolve(ref) 与
+  // describe(ref) 是分开的两个方法：describe 只回状态，resolve 才回值。
+  'credentials.resolve': ['credentials', 'resolve', ['ref']],
   'credentials.set': ['credentials', 'set', ['ref', 'value']],
   'credentials.unset': ['credentials', 'unset', ['ref']],
 };
