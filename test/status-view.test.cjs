@@ -75,6 +75,17 @@ test('status() 的 lan 段以本进程解析出的实际端口为准', () => {
   assert.equal(lan.lanUrl, 'http://192.168.1.9');
 });
 
+test('status() 在没有当前 sidecar 快照时仍返回完整状态', () => {
+  // 换代装载失败收回、reset/dispose 之后 sidecarSlot.current 为 null，
+  // 外壳的 getSnapshot() 会直接给 undefined；状态接口不能因此变成 500。
+  const status = createStatusView(baseDeps({ getSidecarSnapshot: () => undefined }))();
+  assert.deepEqual(status.tunnel, { state: 'off', error: null });
+  assert.equal(status.lan.port, 18788);
+  assert.equal(status.lan.adjusted, true);
+  assert.equal(status.lan.requestedPort, 18787);
+  assert.equal(status.relayRoute, null);
+});
+
 test('status() 如实区分「哪一层能重启」', () => {
   const sidecar = createStatusView(baseDeps())().sidecar;
   assert.deepEqual(sidecar.scope, { worker: 'restartable', facade: 'restartable', host: 'needs-host-restart' });
