@@ -1,3 +1,4 @@
+// 2026-11-25：优先地址的拒绝文案由面板与手机共用，手机这条也要钉住同一句。
 // 假响应改用 this 写入，覆盖 EventEmitter 包裹后断言读不到响应体的情况。
 // 验证移动中转配置、有界身份代测与代理诊断，并保留吊销响应收尾。
 // 2026-11-21：「立即同步」只上报、不等查询 —— 查询归手机，这里钉住催发、回执与有界等待。
@@ -230,6 +231,23 @@ test('保存配置：请求体形状不对回 400，且一个字段都不写', a
   await handlers.handleRelayConfigSave({}, reqWith({ relayUrl: 'https://ok.example.com', lanPort: 'abc' }), res);
   assert.equal(res.status, 400);
   assert.equal(calls.update.length, 0, '整次拒绝，不许部分写入');
+});
+
+test('保存配置：优先地址与面板同一道校验，存了不生效的地址当场拒绝', async () => {
+  const realNetworkInterfaces = os.networkInterfaces;
+  os.networkInterfaces = () => ({ en0: [{ address: '192.168.1.5', family: 'IPv4', internal: false }] });
+  try {
+    const { deps, calls, state } = makeDeps();
+    const handlers = createRelayControlHandlers(deps);
+    const res = fakeRes();
+    await handlers.handleRelayConfigSave({}, reqWith({ preferredLanAddress: '100.86.118.125' }), res);
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error.message, '优先的局域网地址不在这台电脑当前检测到的地址里');
+    assert.equal(calls.update.length, 0, '不生效的地址不许落盘');
+    assert.equal(state.preferredLanAddress, '');
+  } finally {
+    os.networkInterfaces = realNetworkInterfaces;
+  }
 });
 
 test('总开关：关掉遥控先回包再推配置', async () => {

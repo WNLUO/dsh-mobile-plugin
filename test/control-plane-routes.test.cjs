@@ -1,3 +1,4 @@
+// 2026-11-25：面板保存「手机优先用这条」与手机端同一道校验，存了不生效的地址当场拒。
 // 2026-11-25：状态接口逐路隔离，一路抛错不再整条 400。
 // 2026-11-24：公用中转改成「码里没自己的线路才塞」的兜底，只配服务商的机器靠服务商地址出码。
 // 2026-11-24：总开关下发失败要带 applyError，并钉住面板据此报失败。
@@ -369,6 +370,39 @@ test('行为：手填的 IPv6 地址坏形状不写进去，也不连累同一�
     assert.equal(res.status, 200);
     assert.equal(Object.prototype.hasOwnProperty.call(calls[0], 'manualIpv6Url'), false, `${JSON.stringify(bad)} 不该写进去`);
     assert.equal(calls[0].name, 'ok', '其余合法字段照旧写入');
+  }
+});
+
+test('行为：面板保存优先地址与手机端同一道校验，存了不生效的地址当场拒', async () => {
+  // 固定候选，避免测试随跑机器上的网卡变化：只有 192.168.1.5 是这台电脑检测到的地址。
+  const os = require('node:os');
+  const realNetworkInterfaces = os.networkInterfaces;
+  os.networkInterfaces = () => ({ en0: [{ address: '192.168.1.5', family: 'IPv4', internal: false }] });
+  try {
+    const state = { preferredLanAddress: '' };
+    const calls = [];
+    const table = controlRoutes({ state, settingsCalls: calls });
+
+    const rejected = {};
+    await table.get('/api/relay/config')({ method: 'POST', body: { preferredLanAddress: '100.86.118.125' } }, rejected);
+    assert.equal(rejected.status, 400, JSON.stringify(rejected.body));
+    assert.equal(rejected.body.error.code, 'bad-request');
+    assert.equal(rejected.body.error.message, '优先的局域网地址不在这台电脑当前检测到的地址里',
+      '面板要回手机端那一句，不能另造措辞');
+    assert.equal(calls.length, 0, '不生效的地址不许落盘');
+    assert.equal(state.preferredLanAddress, '');
+
+    const accepted = {};
+    await table.get('/api/relay/config')({ method: 'POST', body: { preferredLanAddress: '192.168.1.5' } }, accepted);
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+    assert.equal(calls[0].preferredLanAddress, '192.168.1.5', '检测到的地址照旧能存');
+
+    const cleared = {};
+    await table.get('/api/relay/config')({ method: 'POST', body: { preferredLanAddress: '' } }, cleared);
+    assert.equal(cleared.status, 200, '空串 = 清掉这次选择，仍合法');
+    assert.equal(calls[1].preferredLanAddress, '');
+  } finally {
+    os.networkInterfaces = realNetworkInterfaces;
   }
 });
 
