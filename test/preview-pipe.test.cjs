@@ -1,3 +1,4 @@
+// 本次改动：补宿主绑非回环地址时网页版预览仍可通、别的私网主机仍 403 两条守卫。
 'use strict'
 /**
  * 内置预览管道的宿主侧契约：拨号目标（`host` / `scheme`）怎么解析、哪些目标能拨、https 的
@@ -460,6 +461,76 @@ test('mode=webapp：只放行宿主自己的 web 端口，其它端口与主机�
   } finally {
     await front.close()
     await new Promise((resolve) => dev.server.close(resolve))
+    service.close()
+  }
+})
+
+/**
+ * 宿主 web 服务绑在非 127.0.0.1 的本机地址时，App 仍固定送 host=127.0.0.1 —— 判据认这个
+ * 环回写法，拨号却必须跟着宿主实际绑定地址走。用这台机器真实的一块私网网卡当宿主绑定地址
+ * （与反馈里的 192.168.20.21 同类），假 dev server 只听它时，退回旧拨号
+ * （previewDialTargets(target.host)）会拨 127.0.0.1 / ::1 双双落空，下面第一条断言立刻红成
+ * 「网页版上游不可达」。没有私网网卡的机器上这条用例没有意义，跳过。
+ */
+test('mode=webapp：宿主绑非 127.0.0.1 的本机地址也能通（手机仍传 host=127.0.0.1）', async (t) => {
+  const boundHost = privateIpv4()
+  if (!boundHost) { t.skip('本机没有可绑定的私网地址'); return }
+  const dev = startDevServer()
+  const devPort = await new Promise((resolve, reject) => {
+    dev.server.once('error', reject)
+    dev.server.listen(0, boundHost, () => resolve(dev.server.address().port))
+  })
+
+  const service = createPreviewService({
+    authorized: () => true,
+    protectedPorts: () => new Set([devPort]),
+    ownWebPort: () => devPort,
+    ownWebHost: () => boundHost,
+    onLog: () => {},
+  })
+  const front = await startFront(service)
+  try {
+    const webapp = await pipe(front.port, devPort, {
+      request: httpGet(`localhost:${devPort}`),
+      query: 'mode=webapp&host=127.0.0.1',
+    })
+    assert.ok(webapp.text.includes('<h1>dev ok</h1>'),
+      `宿主绑 ${boundHost} 时网页版必须仍可通（回程：${JSON.stringify(webapp.text.slice(0, 120))}）`)
+    assert.equal(dev.seen.length, 1, '拨号应只走宿主绑定地址，不该先拨空再回退')
+    assert.equal(dev.seen[0].host, `localhost:${devPort}`, 'Host 头必须仍是 localhost，不能随拨号地址改写')
+  } finally {
+    await front.close()
+    await new Promise((resolve) => dev.server.close(resolve))
+    service.close()
+  }
+})
+
+/**
+ * 判据只放宽到「恰好等于宿主绑定地址」这一个值：别的私网主机、别的端口照旧 403。
+ * 宿主绑定地址换成一个本机未必存在的局域网地址也无所谓——这里只看握手前的判据，不拨号。
+ */
+test('mode=webapp：别的私网主机仍然 403（判据只放到宿主绑定地址）', async () => {
+  const boundHost = '192.168.20.21'
+  const service = createPreviewService({
+    authorized: () => true,
+    protectedPorts: () => new Set([3080]),
+    ownWebPort: () => 3080,
+    ownWebHost: () => boundHost,
+    onLog: () => {},
+  })
+  const front = await startFront(service)
+  try {
+    for (const host of ['10.1.2.3', '192.168.20.22']) {
+      const outcome = await pipe(front.port, 3080, { request: null, query: `mode=webapp&host=${host}`, settleMs: 800 })
+      assert.match(String(outcome.handshakeError), /403/, `mode=webapp 拨 ${host} 必须 403`)
+      assert.equal(outcome.text, '', '拒绝必须发生在握手之前')
+    }
+    const own = await pipe(front.port, 3080, { request: null, query: `mode=webapp&host=${boundHost}`, settleMs: 400 })
+    assert.equal(own.handshakeError, null, '恰好等于宿主绑定地址才该被放行')
+    const wrongPort = await pipe(front.port, 3081, { request: null, query: `mode=webapp&host=${boundHost}`, settleMs: 800 })
+    assert.match(String(wrongPort.handshakeError), /403/, 'host 恰好等于绑定地址也不放宽端口')
+  } finally {
+    await front.close()
     service.close()
   }
 })
