@@ -508,6 +508,10 @@ function createEnv(options = {}) {
       };
       const child = { effect: (fn, label) => effect(fn, label, owned) };
       entry.names.forEach((name, index) => { child[name] = values[index]; });
+      // 与 Cordis 同形：reflect.get 按服务名直取、不受 inject 门禁约束。
+      // DSH 0.2.3 把 sessionStatus 注册成 uiSession.sessionStatus 独立服务，
+      // 插件靠这条读取；services 里有没有这个名字决定走独立服务还是普通属性回退。
+      child.reflect = { get: (name) => services[name] };
       entry.callback(child);
     }
   }
@@ -2466,6 +2470,37 @@ test('方向一：普通的点开（未读掉出去）照报，不依赖清单�
   // 报过就不再重复（每 2s 扫一次，没去重会变成持续灌流）。
   await env.timers.tick(2000);
   assert.equal(bodiesOf(env, DESKTOP_READ_ENDPOINT).length, 1);
+});
+
+test('方向一：DSH 0.2.3 形状——sessionStatus 是独立服务，靠 reflect.get 读到也能灭灯', async () => {
+  // 0.2.3 把状态表拆成 uiSession.sessionStatus 独立服务（uiSession 上不再有 sessionStatus
+  // 这个普通属性）。插件只能用 reflect.get 按服务名取；裸读 uiSession.sessionStatus
+  // 会被 Cordis 的 inject 门禁拒绝。
+  const store = statusStore([['s1', { completionUnread: true }]]);
+  const env = materialize({
+    storage: createStorage({ 'other.key': '{}' }),
+    services: { uiSession: {}, 'uiSession.sessionStatus': store },
+  });
+  await settle();
+  await env.timers.tick(2000);
+  assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), [], '还没读的不能报');
+
+  store.set([['s1', { completionUnread: false }]]);
+  await env.timers.tick(2000);
+  assert.deepEqual(bodiesOf(env, DESKTOP_READ_ENDPOINT), [{ sessionIds: ['s1'] }]);
+});
+
+test('状态表读取必须兼容两种宿主，且 inject 只钉父服务', () => {
+  // 源码守卫：把子服务名加进 inject 会让 0.2.2 那整条 effect 因依赖永不满足而停摆，
+  // 裸读嵌套属性又会在 0.2.3 被 inject 门禁拒绝。两代都要靠 reflect.get 直取 + 属性回退。
+  assert.match(SOURCE, /readSessionStatusStore\(scope, uiSession\)/);
+  assert.match(SOURCE, /reflect\.get\('uiSession.sessionStatus', false\)/);
+  assert.match(SOURCE, /withClientServices\(ctx, \['uiSession'\], 'uiSession'/);
+  assert.equal(
+    SOURCE.includes("ctx.inject(['uiSession', 'uiSession.sessionStatus']"),
+    false,
+    '不能把子服务名写进 inject 依赖：0.2.2 上没有这个服务，会让绿点同步整条不启动',
+  );
 });
 
 test('方向一：页面打开之后变过、现在不是未读的会话要补报（漏采那一瞬间也能自愈）', async () => {
