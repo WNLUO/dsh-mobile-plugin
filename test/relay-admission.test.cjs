@@ -79,8 +79,10 @@ test('describeTunnel：非错误状态原样返回，空快照兜底成 off', ()
 })
 
 test('status() 用的是 describeTunnel 而不是裸快照', () => {
+  // `sidecarSnapshot` 在换代收手 / reset / dispose 之后可能为 undefined（1023），所以这里走
+  // 可选链；判据仍是「tunnel 段必须过 describeTunnel 判定」，去掉它照样会红。
   assert.ok(
-    /tunnel: describeTunnel\(sidecarSnapshot\.tunnel\)/.test(statusSrc),
+    /tunnel: describeTunnel\(sidecarSnapshot\??\.tunnel\)/.test(statusSrc),
     'status() 里的 tunnel 段必须过判定，否则上面这些全是白写'
   )
 })
