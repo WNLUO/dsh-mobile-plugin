@@ -1,4 +1,5 @@
 // Cloudflare 兜底隧道：ConnectionCard 入口行 + CloudflarePanel 开关/状态源码断言。
+// 等待端口时两处都要带出局域网端口的真实错误，别让用户误判这条隧道。
 // 接口与文案由 api.ts / panel.ts 钉住；管理弹窗与国际线路页共用 CloudflarePanel，不写两份实现。
 'use strict';
 
@@ -58,6 +59,12 @@ test('CloudflarePanel 状态行复用 InfoRow / 状态点，从传入的 status.
   assert.match(panel, /panel\.cloudflare\.url/, '运行中要能显示当前地址');
   assert.match(panel, /cf\.running/, '运行态按 cf.running 判');
   assert.match(panel, /cf\.error/, '错误态按 cf.error 判');
+  assert.match(panel, /cf\?\.waitingForPort && status\.lan\?\.error \? status\.lan\.error/, '等端口时带出局域网真实错误');
+});
+
+test('连接卡的 Cloudflare 行在等待端口时也带出局域网错误', () => {
+  const card = read('React', 'src', 'components', 'ConnectionCard.tsx');
+  assert.match(card, /cloudflare\?\.waitingForPort && status\.lan\?\.error \? \{ detail: status\.lan\.error \}/);
 });
 
 test('CloudflarePanel 失败按现有方式在行下给红字提示', () => {

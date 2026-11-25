@@ -2,6 +2,7 @@
 // 2026-11-20 用户要求：去掉「设备名」「实例 ID」两行与 TCP 直连的地址。
 // 2026-11-22：会话镜像 ok=true 时带的「内容未变，跳过重复推送」是良性跳过，不再当错误挂感叹号。
 // 2026-11-22：Cloudflare 兜底从网络配置弹窗挪到这里，在 TCP 直连行下新起一行，右侧挂「管理」开弹窗。
+// 等待端口时带出局域网那头的真实错误，不把端口没起来说成 Cloudflare 不可用。
 /**
  * 主页右栏「连接状态」卡：只读事实。
  *
@@ -262,7 +263,8 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
             : undefined}
         >
           <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
-            <ToneValue tone={cloudflareTone(cloudflare)} text={t(cloudflareTextKey(cloudflare))} />
+            <ToneValue tone={cloudflareTone(cloudflare)} text={t(cloudflareTextKey(cloudflare))}
+              {...(cloudflare?.waitingForPort && status.lan?.error ? { detail: status.lan.error } : {})} />
             <Button variant="ghost" size="sm" onClick={onManageCloudflare}>
               {t('panel.tailcat.manage')}
             </Button>

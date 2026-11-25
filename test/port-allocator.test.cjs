@@ -1,4 +1,5 @@
 // 原端口优先与配置失效无副作用保持为绑定契约。
+// 没有活设备时占用可换号；有旧手机或能力未知的设备仍保护旧地址。
 'use strict';
 // 需求已确认：原端口优先，已监听且完成发现发布后才能保存新入口。
 const { test } = require('node:test');
@@ -32,8 +33,10 @@ test('自检仍区分空闲和占用，探测不改配置', async () => {
   finally { await new Promise(resolve => held.close(resolve)); }
 });
 
-test('没有设备、旧设备、能力未知都不自动换端口；其他实例和电脑凭据不挡', () => {
-  for (const rows of [[], [{ instanceId: 'i' }], [{ instanceId: 'i', lanDiscovery: 0 }],
+// 用户确认改规格：没有活设备时换号不伤任何已配对手机，允许；旧设备与能力未知仍挡。
+test('没有设备可换端口；旧设备、能力未知都不换；其他实例和电脑凭据不挡', () => {
+  assert.equal(canChangeLanPort(store([]), 'i'), true);
+  for (const rows of [[{ instanceId: 'i' }], [{ instanceId: 'i', lanDiscovery: 0 }],
     [{ instanceId: 'i', lanDiscovery: 1 }, { instanceId: 'i' }]]) assert.equal(canChangeLanPort(store(rows), 'i'), false);
   assert.equal(canChangeLanPort(store([{ instanceId: 'i', lanDiscovery: 1 }, { instanceId: 'x' },
     { instanceId: 'i', kind: 'computer' }]), 'i'), true);
@@ -54,6 +57,13 @@ test('只有真实占用且全部支持发现时才绑定新入口，再发布�
   assert.deepEqual(f.published, [23456]);
 });
 
+test('没有已配对设备且端口真被占用时换号并发布实绑端口', async () => {
+  const f = fixture(busy(), true, store([]));
+  assert.equal((await bindLanEndpoint(f.args)).port, 23456);
+  assert.deepEqual(f.attempts, [18787, 0]);
+  assert.deepEqual(f.published, [23456]);
+});
+
 test('旧手机占用时不换号，权限错误不换号，新入口发布失败就关闭', async () => {
   const old = fixture(busy(), true, store([{ instanceId: 'i' }]));
   await assert.rejects(bindLanEndpoint(old.args), /未自动换端口/);
@@ -66,7 +76,7 @@ test('旧手机占用时不换号，权限错误不换号，新入口发布失�
   assert.deepEqual(noDiscovery.stopped, [18787, 0]);
 });
 
-test('有效凭据的发现能力可落盘、刷新和撤销，电脑凭据不阻止手机入口恢复', () => {
+test('有效凭据的发现能力可落盘、刷新和撤销，撤销后无活设备可换号', () => {
   const fs = require('node:fs'); const path = require('node:path'); const os = require('node:os');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-lan-cap-test-'));
   const before = process.env.DEVICE_CREDENTIALS_FILE;
@@ -82,7 +92,8 @@ test('有效凭据的发现能力可落盘、刷新和撤销，电脑凭据不�
     credentials.touch(record, { meta: { lanDiscovery: 0 } });
     assert.equal(canChangeLanPort(credentials, 'i'), false);
     credentials.revoke(issued.credential, 'i');
-    assert.equal(canChangeLanPort(credentials, 'i'), false);
+    // 用户确认改规格：撤销后没有活设备，换号不伤任何手机，因此允许。
+    assert.equal(canChangeLanPort(credentials, 'i'), true);
   } finally {
     credentials.resetForTest();
     if (before === undefined) delete process.env.DEVICE_CREDENTIALS_FILE; else process.env.DEVICE_CREDENTIALS_FILE = before;
@@ -100,6 +111,18 @@ test('变异：删除旧手机保护时，同一条占用断言必须失败', as
   const protectsOldPhone = bind => assert.rejects(bind(f.args), /未自动换端口/);
   await protectsOldPhone(bindLanEndpoint);
   await assert.rejects(protectsOldPhone(mutated.exports.bindLanEndpoint), { code: 'ERR_ASSERTION' });
+});
+
+test('变异：没有设备时也挡住换号，同一条换号断言必须失败', async () => {
+  const fs = require('node:fs'); const path = require('node:path'); const Module = require('node:module');
+  const file = path.join(__dirname, '../lib/relay/lan-discovery.cjs');
+  const source = fs.readFileSync(file, 'utf8').replace('if (!canChangeLanPort(store, instanceId))', 'if (store.listActive().length === 0 || !canChangeLanPort(store, instanceId))');
+  const mutated = { exports: {} };
+  new Function('require', 'module', 'exports', source)(Module.createRequire(file), mutated, mutated.exports);
+  const original = fixture(busy(), true, store([]));
+  assert.equal((await bindLanEndpoint(original.args)).port, 23456);
+  const blocked = fixture(busy(), true, store([]));
+  await assert.rejects(mutated.exports.bindLanEndpoint(blocked.args), /未自动换端口/);
 });
 
 test('失效配置不能留下监听或新地址', async () => {

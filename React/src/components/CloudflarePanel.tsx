@@ -1,4 +1,5 @@
 // Cloudflare 匿名隧道的管理与状态：国际线路那一页与「连接状态」卡里的管理弹窗共用这一份。
+// 等待端口时把局域网端口的真实错误带出来，免得用户以为这条隧道自己坏了。
 /**
  * Cloudflare 兜底隧道的面板内容（不含窗口外壳）。
  *
@@ -63,8 +64,9 @@ export function CloudflarePanel({ status, onChanged }: Props) {
             : cf.waitingForPort
               ? t('panel.cloudflare.waitingForPort')
               : t('panel.cloudflare.available')
-  /** 状态行的细节：运行中给当前地址，出错给原因；其余不留。 */
-  const detail = cf?.running && cf.url ? `${t('panel.cloudflare.url')}: ${cf.url}` : cf?.error ? cf.error : undefined
+  /** 状态行的细节：运行中给当前地址，出错给原因，等端口时给局域网那头的真实原因；其余不留。 */
+  const detail = cf?.running && cf.url ? `${t('panel.cloudflare.url')}: ${cf.url}` : cf?.error ? cf.error
+    : cf?.waitingForPort && status.lan?.error ? status.lan.error : undefined
   /** 请求在飞、或 cloudflared 未安装时开关不可点。 */
   const disabled = busy || cf?.available === false
 
