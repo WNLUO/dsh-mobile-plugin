@@ -1,4 +1,5 @@
 // 主动重连复用进程和LAN，先等待最新配置；完整重启仍覆盖退出与超时边界。
+// 2026-11-26 需求变更：用户要求顶栏三颗按钮从前端撤掉，重启逻辑与路由都保留。
 // 重启测试假体提供即时状态回写，覆盖重启后的 LAN 入口公布。
 'use strict'
 
@@ -101,9 +102,9 @@ test('重启按钮在控制台顶栏，失败时在界面上显式标红', () =>
   // 钉「那颗按钮用的是字典键」，原话在 `panel.update.restartSidecar` 里（五门语言各一份）。
   const card = read(path.join(PKG_DIR, 'React', 'src', 'components', 'UpdateCard.tsx'))
   assert.ok(card.includes('panel.update.restartSidecar'), '图标按钮的文案要来自字典（重启 sidecar 那条键）')
-  // 2026-11-24 需求变更：按钮位置从卡片挪到顶栏，落脚点由 Console 给。
+  // 2026-11-26 需求变更：用户要求顶栏按钮从前端撤掉，重启的逻辑与这条路由都保留。
   const panel = read(path.join(PKG_DIR, 'React', 'src', 'Console.tsx'))
-  assert.match(panel, /setUpdateActionsSlot/, '顶栏要给更新卡那两颗按钮留落脚点')
+  assert.doesNotMatch(panel, /setUpdateActionsSlot/, '顶栏不再给更新按钮留落脚点')
   assert.equal(
     fs.existsSync(path.join(PKG_DIR, 'React', 'src', 'lib', 'i18n.ts')),
     false,

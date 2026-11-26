@@ -1,3 +1,4 @@
+// 2026-11-26 用户要求：顶栏的重启 / 检查更新 / 收件箱三颗按钮从前端撤掉，功能逻辑与接口不动。
 // 2026-11-25：兜底仍不可用时弹端口冲突指引，按钮直接打开已有的端口设置弹窗。
 // 2026-11-24 用户要求：更新按钮挪到顶栏后底部横条空了，撤掉固定高度的空容器，组件逻辑照旧。
 // 2026-11-24：远程控制总开关按 applyError 报下发失败，不再弹「已停用/已启用」的成功回执。
@@ -24,7 +25,6 @@
 // 2026-11-20 用户要求：顶栏不再写设备名，只留状态点与版本徽标。
 import { Alert, AlertDescription, AlertIcon, AlertTitle } from '@appica/ui-react/alert'
 import { Badge } from '@appica/ui-react/badge'
-import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import { Spinner } from '@appica/ui-react/spinner'
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@appica/ui-react/dialog'
@@ -91,28 +91,6 @@ const STATUS_PHASE_OFFSET_MS = 1500;
  */
 const AFTER_FIRST_PAINT_MS = 600;
 
-/** 收件文件入口的垃圾桶图标：带盖的中性描边图标，不摆成红色/删除动作那一类。 */
-function TrashIcon() {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      className="size-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M4 7h16" />
-      <path d="M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7" />
-      <path d="M6 7l1 12.5A2 2 0 0 0 9 21h6a2 2 0 0 0 2-1.5L18 7" />
-      <path d="M10 11v6M14 11v6" />
-    </svg>
-  )
-}
-
 export function Console() {
   const [status, setStatus] = useState<StatusView | null>(null)
   const [fatal, setFatal] = useState('')
@@ -123,12 +101,6 @@ export function Console() {
   const [addressError, setAddressError] = useState('')
   /** 更新卡报上来的版本对不上详情，挂到左列「运行中版本」那行。 */
   const [versionIssues, setVersionIssues] = useState<Issue[]>([])
-  /**
-   * 顶栏里给更新卡那两颗维护按钮的落脚点。2026-11-24 用户要求把它们从卡片挪到顶栏；
-   * 按钮的 JSX 与逻辑仍在更新卡里，这里只负责给位置。ref 回调直接用 setState 本身
-   * （引用稳定），DOM 就位后重渲一次，portal 才有落点。
-   */
-  const [updateActionsSlot, setUpdateActionsSlot] = useState<HTMLDivElement | null>(null)
   /**
    * 网络配置铺在首页；只有线路分页（国内 / 国际 → 服务商各一页）是独立页，地址进 hash，
    * 刷新与前进后退都停在同一页。
@@ -467,26 +439,12 @@ export function Console() {
         ) : null}
         <div className="flex flex-wrap items-center gap-1">
           {/* 2026-11-17：原先这里有「报错调试」与「重新连接」两颗——调试页整体删掉；
-              重新连接与「插件更新」卡的重启是同一件事，只留卡里那颗，不重复摆。
               2026-11-20 用户要求：公告按钮与它的弹窗一并删掉。 */}
-          {/* 2026-11-17 用户要求：语言、日夜、收件三颗与窗口操作排在顶栏最右，成整齐一排。
-              语言与日夜是「这一页怎么显示」；昼夜拧的是这一窗的主题（默认跟随 DSH，按下
-              之后改手动，见 `lib/shell-theme.ts`）。收件文件是弹窗入口（中性色垃圾桶，不
-              摆成删除动作），点开才拉取与清理。 */}
+          {/* 2026-11-17 用户要求：语言与日夜排在顶栏最右，成整齐一排。语言是「这一页怎么显示」；
+              昼夜拧的是这一窗的主题（默认跟随 DSH，按下之后改手动，见 `lib/shell-theme.ts`）。
+              2026-11-26 用户要求：原先这排的重启 / 检查更新 / 收件箱三颗撤掉，功能逻辑不动。 */}
           <LanguageMenu />
           <ConsoleThemeToggle />
-          {/* 2026-11-24：更新卡那两颗维护按钮（重启 sidecar / 检查更新）的落脚点，排在
-              显示类按钮之后、收件与窗口操作之前。显示条件和逻辑都归更新卡。 */}
-          <div ref={setUpdateActionsSlot} className="flex items-center gap-1" />
-          <Button
-            variant="ghost"
-            size="icon-md"
-            aria-label={t('panel.inbox.title')}
-            title={t('panel.inbox.title')}
-            onClick={() => setInboxOpen(true)}
-          >
-            <TrashIcon />
-          </Button>
           {/* 内嵌窗的窗口操作（浏览器打开 / 关闭）画在页面里，动作交回外壳执行。 */}
           <PanelWindowActions />
         </div>
@@ -542,14 +500,12 @@ export function Console() {
             </div>
           </div>
 
-          {/* 2026-11-24 用户要求：重启 / 检查更新已挪到顶栏，这一排没有内容了，撤掉固定高度
-              与分隔线。组件本身留着——顶栏按钮的 portal 和版本对不上的提示还挂在它上面。 */}
+          {/* 这一排没有内容了，撤掉固定高度与分隔线。组件留着，版本对不上的提示还挂在它上面。 */}
           <UpdateCard
             bare
             version={status.appVersion || ''}
             busy={busy}
             onRestartSidecar={() => void restartSidecar()}
-            actionsSlot={updateActionsSlot}
             onIssues={setVersionIssues}
           />
         </Card>
@@ -655,7 +611,7 @@ export function Console() {
         onOpenPortSettings={() => setPortOpen(true)}
       />
 
-      {/* 收件文件：原先常驻的那张卡，现在收进这扇弹窗，由顶栏那颗垃圾桶图标打开。 */}
+      {/* 收件文件：原先常驻的那张卡收进这扇弹窗，逻辑保留。 */}
       <Dialog open={inboxOpen} onOpenChange={setInboxOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>

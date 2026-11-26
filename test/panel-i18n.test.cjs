@@ -1,3 +1,4 @@
+// 2026-11-26：用户要求顶栏三颗按钮从前端撤掉，位置断言跟着改，字典与其余断言不放宽。
 // 2026-11-26：需求变更——面板语言由 10 门扩到 11 门（补 tr），LANGUAGES 随之加一门；其余断言不放宽。
 // 2026-11-24：总开关那两条提示单独钉住（shell.ts 不进领域字典检查）。
 'use strict';
@@ -349,9 +350,9 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
   const actions = read('components', 'TopRightActions.tsx');
   assert.match(actions, /<LanguageMenu \/>/, '按钮组里缺语言按钮');
   assert.match(actions, /<ThemeToggle \/>/, '按钮组里缺日夜切换');
-  // 2026-11-24 用户要求：重启 sidecar / 检查更新从更新卡挪到顶栏，做成图标按钮。
-  // 按钮的 JSX 与逻辑仍只在更新卡那一份里，靠 Console 给的落脚点画到顶栏。
-  assert.match(consoleSrc, /setUpdateActionsSlot/, '顶栏要给更新按钮留落脚点');
+  // 2026-11-26 需求变更：用户要求顶栏那三颗（重启 / 检查更新 / 收件箱）从前端撤掉，
+  // 功能逻辑与接口不动——Console 不再给更新卡落脚点，更新卡那份按钮代码留着。
+  assert.doesNotMatch(consoleSrc, /setUpdateActionsSlot/, '顶栏不再给更新按钮留落脚点');
   const update = read('components', 'UpdateCard.tsx');
   assert.match(update, /createPortal\(/, '更新按钮借 portal 画到顶栏，逻辑仍归更新卡');
   assert.match(update, /size="icon-md"/, '顶栏那两颗是图标按钮');
