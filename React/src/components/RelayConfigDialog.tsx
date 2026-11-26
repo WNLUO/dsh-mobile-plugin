@@ -7,7 +7,7 @@
 // 2026-11-23：线路按地区分页（国内 / 国际入口卡在本页底部）；IPv4 那栏补自动识别与候选下拉；
 // 各栏的检测结论挪进标题行、不再另占一行；自建中转那颗仓库按钮靠右。
 // 2026-11-23：网络配置改回铺在首页（用户要求），不再单开一页；去掉页面标题与「关闭返回」，只留保存。
-// 2026-11-26：网络配置卡顶部加公告刘海，文案走字典。
+// 2026-11-26：网络配置卡顶部加公告刘海，文案走字典、字重加粗。
 // 用途：网络配置——自建中转、直连、IPv4/IPv6、TCP、FRP 与局域网地址都在这一页改。
 // 2026-11-26：七栏按用户指定顺序重排为一段自然流（局域网 / 自建中转 / IPv4 / IPv6 / TCP 直连 / 直连 / FRP），空位留末尾。
 // 2026-11-26：服务商线路入口挪到字段上方、紧跟标题，让不自建网络的用户先看到可选线路；分隔线改在它下方。
@@ -484,7 +484,7 @@ export function RelayConfigDialog({
           也没有「关闭返回」。字段的初始化仍挂 `open`（首页为真、离开首页为假），离开再回来自动复位。 */}
       {/* 公告刘海贴在卡片上沿：卡片内层 overflow-hidden，所以交给外面这层 relative 定位。 */}
       <div className="relative">
-        <div className="absolute start-1/2 top-0 z-10 min-w-[30rem] max-w-[80%] -translate-x-1/2 rounded-b-2xl border-x border-b border-border-muted bg-background px-8 py-1 text-center text-sm text-foreground-muted">
+        <div className="absolute start-1/2 top-0 z-10 min-w-[30rem] max-w-[80%] -translate-x-1/2 rounded-b-2xl border-x border-b border-border-muted bg-background px-8 py-1 text-center text-sm font-semibold text-foreground-muted">
           {t('panel.notice.text')}
         </div>
         <Card frame="solid">
