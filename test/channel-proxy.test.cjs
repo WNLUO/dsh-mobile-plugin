@@ -1,3 +1,4 @@
+// 2026-11-26：补上「自建渠道查不到退回 DSH 当前渠道」那一组的契约。
 // 2026-11-26：经电脑转发模型请求的契约——只转发对话那一层，地址与 Key 用宿主自己那份。
 'use strict';
 
@@ -19,7 +20,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 
 const { readRouteTable } = require('./lib/wiring.cjs');
-const { handleChannelChat, chatCompletionUrlOf, upstreamBodyOf, createRecordSplitter } = require('../lib/mobile/channel-proxy.js');
+const { handleChannelChat, chatCompletionUrlOf, upstreamBodyOf, createRecordSplitter, dshMessagesOf } = require('../lib/mobile/channel-proxy.js');
 
 const PROVIDERS = {
   'my-gateway': {
@@ -44,6 +45,8 @@ function ctxOf(baseURL, options = {}) {
           : { result: { ok: true, value: { value: 'sk-host', source: 'stored' } } }),
       },
     },
+    // 老宿主没有 llm 服务时只让「退回 DSH」那一路 503，自建渠道那一路不受影响。
+    get: (name) => (name === 'llm' ? options.llm || null : null),
   };
 }
 
@@ -143,14 +146,75 @@ test('上游 401 把状态码带回去（鉴权失败不能被压成「电脑出
   } finally { await api.close(); await up.close(); }
 });
 
-test('渠道不存在回 404，不发任何上游请求', async () => {
+// 需求变更（2026-11-26）：原先「查不到就 404」，现在查不到要退回 DSH 自己的模型服务，
+// 否则当前 DSH 渠道（宿主 / 插件注册的那种）永远没法经电脑代发。下面这组钉住新口径。
+test('自建渠道查不到时退回 DSH 当前渠道，增量翻成手机认得的 chunk', async () => {
+  const seen = [];
+  const llm = {
+    stream: async function* (options) {
+      seen.push(options);
+      yield { type: 'text-delta', text: '你' };
+      yield { type: 'reasoning-delta', text: '想' };
+      yield { type: 'text-delta', text: '好' };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    },
+  };
   const up = await upstream((_req, res) => { res.writeHead(200); res.end(); });
-  const api = await serve(up.base);
+  const api = await serve('', { llm });
   try {
-    const { status } = await api.post({ id: 'not-there', model: 'm', messages: [] });
-    assert.equal(status, 404);
-    assert.equal(up.seen.length, 0);
+    const { status, text } = await api.post({
+      id: 'group',
+      model: 'hy',
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [{ type: 'function', function: { name: 'read', description: '读文件', parameters: { type: 'object' } } }],
+      maxTokens: 64,
+    });
+    assert.equal(status, 200);
+    const frames = framesOf(text);
+    assert.deepEqual(frames.map((frame) => frame.choices?.[0]?.delta).filter(Boolean), [
+      { content: '你' }, { reasoning_content: '想' }, { content: '好' }, {},
+    ]);
+    assert.equal(seen[0].provider, 'group');
+    assert.equal(seen[0].model, 'hy');
+    assert.equal(seen[0].maxTokens, 64);
+    assert.deepEqual(seen[0].tools, [{ name: 'read', description: '读文件', parameters: { type: 'object' } }]);
+    assert.deepEqual(seen[0].messages[0].content, [{ type: 'text', text: 'hi' }]);
+    assert.equal(up.seen.length, 0, '退回 DSH 时不该再打自建渠道的地址');
   } finally { await api.close(); await up.close(); }
+});
+
+test('工具结果与 assistant 工具调用翻成 DSH 的形状', () => {
+  const messages = dshMessagesOf([
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c1', function: { name: 'read', arguments: '{"p":"a"}' } }] },
+    { role: 'tool', tool_call_id: 'c1', content: '正文' },
+  ], 'group', 'hy');
+  assert.deepEqual(messages[0].content, [{ type: 'tool-call', id: 'c1', name: 'read', arguments: '{"p":"a"}' }]);
+  assert.deepEqual(messages[1].content, [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: '正文' }] }]);
+});
+
+test('DSH 的失败块翻成短码，手机不必再猜', async () => {
+  const llm = {
+    stream: async function* () {
+      yield { type: 'text-delta', text: '半' };
+      yield { type: 'finish', reason: { kind: 'error', failure: { status: 401, code: 'auth' } } };
+    },
+  };
+  const api = await serve('', { llm });
+  try {
+    const { text } = await api.post({ id: 'group', model: 'hy', messages: [] });
+    const frames = framesOf(text);
+    assert.ok(frames.some((frame) => frame.choices), '已经收到的正文照旧给手机');
+    assert.ok(frames.some((frame) => frame.dshError?.code === 'http-401'), '401 不能被压成通用失败');
+  } finally { await api.close(); }
+});
+
+test('电脑上没有模型服务时回 503，不假装渠道可用', async () => {
+  const api = await serve('');
+  try {
+    const { status, text } = await api.post({ id: 'group', model: 'hy', messages: [] });
+    assert.equal(status, 503);
+    assert.match(text, /host-llm-unavailable/);
+  } finally { await api.close(); }
 });
 
 test('没配 Key 时不发 Authorization（本地无鉴权端点照样能用）', async () => {
