@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 手机端审批桥的守卫（`lib/mobile/approvals.js`）。
+ * 手机端审批桥的守卫（`lib/mobile/approvals.js`）。2026-11-26：手机在看时也照转，两端同时出卡。
  *
  * 这条链在 0.2.x 上有四处会**静默**失效，所以四处都真跑一遍，不转写实现：
  *
@@ -10,13 +10,14 @@
  *      按钮）。0.2.x 的宿主不再提供任何帧级 rpcId，本桥铸的那个必须真进到帧里，
  *      而且**不许拿 approvalId 冒充** —— 2026-10 那次「审批弹窗点不动」就是这么来的。
  *   2. **谁先答谁算数**。钩子上的下游（桌面窗口 / ACP / 宿主的 fail-closed）必须照旧拿到
- *      这条请求、卡片照旧出现；手机答得早就用手机的。任何一边落定之后，另一个的卡都要被
- *      收掉，否则手机上留一张点不动的卡。
+ *      这条请求、卡片照旧出现（手机在看时也一样，桌面那张卡只由转发长出）；手机答得早就用
+ *      手机的，桌面答得早就用桌面的。任何一边落定之后，另一个的卡都要被收掉，否则留一张
+ *      点不动的卡。与提问桥同一口径。
  *   3. **注册姿势本身就是功能的一部分**。少了 `prepend`，桌面窗口开着时下游会一直等桌面
  *      回答、不调用 `next()`，于是永远轮不到手机（正是这次要修的现象）；少了「只在
  *      0.2.x 装」这道门，0.1.x 上同一个审批会多推一张卡。这两条只能对着注册结果断言。
- *   4. **手机离开要交接**。最后一个观众断开后只转发一次，桌面不可用仍保留手机卡；
- *      手机回来先答时，桌面转发必须撤回。
+ *   4. **手机离开不换答案方**。转发在请求一到时就发出（两端同时出卡），断开 / 重连都不再
+ *      改变；手机先答时只撤回这一条桌面转发，桌面没接手（unavailable / NO_PROVIDER）不算结论。
  */
 
 const test = require('node:test');
@@ -285,8 +286,8 @@ test('网关认不到（老宿主没这道口子）时，手机答完照样 200�
   watch();
 });
 
-test('桌面（下游）先答：钩子返回下游的结论（此场景手机本就没在看，竞速路径）', async () => {
-  // 竞速只发生在「没有观众」时：那时手机没有卡，下游（桌面）是唯一答案方。
+test('桌面（下游）先答：钩子返回下游的结论（谁先答用谁的竞速路径）', async () => {
+  // 手机与桌面同时出卡，谁先答用谁的；这里下游先答，所以取下游结论。
   const { ctx, cards, watch } = setup();
   fire(ctx, 'session/event', { id: 's-1' }, askEvent({ id: 'ap-1', toolName: 'bash', callId: 'call-1' }));
   const held = runHook(ctx, escalation(), () => Promise.resolve('rejected'));
@@ -296,27 +297,27 @@ test('桌面（下游）先答：钩子返回下游的结论（此场景手机�
   watch();
 });
 
-test('手机在看这个会话时不往下游转发：桌面从源头不弹卡，手机答完 agent 照常往下走', async () => {
-  // 在场时仍由手机独占；只有最后一条连接离开才交接，避免手机端操作时桌面重复出卡。
+test('手机在看这个会话也照转：桌面与手机同时出卡，手机先答用手机的', async () => {
+  // 桌面那张卡只由「被转发的请求」长出来 —— 少转这一下，手机看着会话时桌面从源头就没有卡。
   const { ctx, cards, watch } = setup();
   watch('s-1');
   fire(ctx, 'session/event', { id: 's-1' }, askEvent({ id: 'ap-1', toolName: 'bash', callId: 'call-1' }));
   let forwarded = false;
   const held = runHook(ctx, escalation(), () => { forwarded = true; return HOLD(); });
   await flush();
-  assert.equal(forwarded, false, '手机仍在看时不应在桌面重复出卡');
+  assert.equal(forwarded, true, '手机在看也要照转，否则桌面从源头就没有卡');
   const card = cards.find((frame) => frame.type === 'approval/requested');
   const res = jsonResponse();
   await approvals.handleApprovalRespond(ctx, jsonRequest({
     rpcId: card.rpcId, sessionId: 's-1', approvalId: 'ap-1', outcome: 'allowed-once',
   }), res);
   assert.equal(res.status, 200);
-  assert.equal(await held, 'allowed-once', '独家作答也要把结论交回钩子');
+  assert.equal(await held, 'allowed-once', '手机作答照旧把结论交回钩子');
   assert.equal(approvals.hasPending('s-1'), false);
   watch();
 });
 
-test('最后一条手机连接离开才交接给桌面，重复断开与重连不重复转发', async () => {
+test('请求一到就转发给桌面，观众进出都不重复转发', async () => {
   const { ctx, watch } = setup();
   const leaveFirst = watch('s-1');
   const leaveLast = watch('s-1');
@@ -327,25 +328,24 @@ test('最后一条手机连接离开才交接给桌面，重复断开与重连�
     return new Promise((resolve) => { answerDesktop = resolve; });
   });
   await flush();
-  assert.equal(forwarded, 0);
+  assert.equal(forwarded, 1, '手机在看时也立刻转发一次，桌面才有卡');
   leaveFirst();
   await flush();
-  assert.equal(forwarded, 0, '还有手机在看时不能交接');
+  assert.equal(forwarded, 1, '还有手机在看不重复转发');
   leaveLast();
   await flush();
-  assert.equal(forwarded, 1, '最后一条连接离开必须让电脑收到原审批');
-  leaveLast();
+  assert.equal(forwarded, 1, '最后一条离开也不重复转发（转发本就在请求时发出）');
   const leaveReconnected = watch('s-1');
   leaveReconnected();
   await flush();
-  assert.equal(forwarded, 1, '同一审批只能交接一次');
+  assert.equal(forwarded, 1, '重连再断开也不重复转发');
   assert.equal(approvals.hasPending('s-1'), true);
   answerDesktop('allowed-once');
   assert.equal(await held, 'allowed-once');
   assert.equal(approvals.hasPending('s-1'), false);
 });
 
-test('手机交接后回来先答，只撤回这一条桌面审批', async () => {
+test('手机先答时只撤回这一条桌面审批（手机与桌面同时出卡的边角）', async () => {
   const { ctx, cards, watch } = setup();
   const { gateway, cancelled } = fakeGateway();
   ctx.get = (name) => (name === 'typertGateway' ? gateway : undefined);
@@ -355,14 +355,11 @@ test('手机交接后回来先答，只撤回这一条桌面审批', async () =>
   const unrelated = { source: { request: escalation() }, frame: { event: 'approval/request' } };
   gateway.pendingRemoteEvents.set('other', unrelated);
   const held = runHook(ctx, request, () => {
-    gateway.pendingRemoteEvents.set('handoff', forwarded);
+    gateway.pendingRemoteEvents.set('forwarded', forwarded);
     return HOLD();
   });
   await flush();
-  leave();
-  await flush();
-  assert.equal(gateway.pendingRemoteEvents.has('handoff'), true);
-  const leaveAgain = watch('s-1');
+  assert.equal(gateway.pendingRemoteEvents.has('forwarded'), true, '手机在看时桌面那一发也已转发出去');
   const card = cards.find((frame) => frame.type === 'approval/requested');
   const res = jsonResponse();
   await approvals.handleApprovalRespond(ctx, jsonRequest({
@@ -370,26 +367,23 @@ test('手机交接后回来先答，只撤回这一条桌面审批', async () =>
   }), res);
   assert.equal(res.status, 200);
   assert.equal(await held, 'allowed-once');
-  assert.deepEqual(cancelled.map((entry) => entry.item), [forwarded]);
+  assert.deepEqual(cancelled.map((entry) => entry.item), [forwarded], '只撤手机先答这一条桌面审批');
   assert.equal(gateway.pendingRemoteEvents.has('other'), true);
-  leaveAgain();
+  leave();
 });
 
 for (const unavailable of ['unavailable', 'NO_PROVIDER']) {
-  test(`手机离开后桌面回 ${unavailable}，仍等手机回来处理`, async () => {
+  test(`桌面回 ${unavailable} 不算结论，仍等手机作答（与提问桥同一口径）`, async () => {
     const { ctx, cards, watch } = setup();
-    const leave = watch('s-1');
+    watch('s-1');
     let completed = false;
     const held = runHook(ctx, escalation(), () => unavailable === 'unavailable'
       ? Promise.resolve('unavailable')
       : Promise.reject(Object.assign(new Error('no desktop'), { code: 'NO_PROVIDER' })));
     held.then(() => { completed = true; });
     await flush();
-    leave();
-    await flush();
-    assert.equal(completed, false, '交接无人接手不能当成审批结论');
+    assert.equal(completed, false, '桌面没接手不能当成审批结论');
     assert.equal(approvals.hasPending('s-1'), true);
-    const leaveAgain = watch('s-1');
     const card = cards.find((frame) => frame.type === 'approval/requested');
     const res = jsonResponse();
     await approvals.handleApprovalRespond(ctx, jsonRequest({
@@ -397,22 +391,21 @@ for (const unavailable of ['unavailable', 'NO_PROVIDER']) {
     }), res);
     assert.equal(await held, 'rejected');
     assert.equal(res.status, 200);
-    leaveAgain();
   });
 }
 
-test('手机离开前审批已经取消，不再向桌面交接', async () => {
+test('轮次被取消时结算 cancelled，转发那一发不影响结论', async () => {
   const { ctx, watch } = setup();
   const leave = watch('s-1');
   const controller = new AbortController();
   let forwarded = 0;
   const held = runHook(ctx, escalation({ signal: controller.signal }), () => { forwarded += 1; return HOLD(); });
   await flush();
+  assert.equal(forwarded, 1, '转发在请求时就发出，取消不收回这一发');
   controller.abort();
-  leave();
-  assert.equal(await held, 'cancelled');
+  assert.equal(await held, 'cancelled', '取消信号直接收尾，不等桌面');
   await flush();
-  assert.equal(forwarded, 0);
+  leave();
 });
 
 test('手机没在看这个会话时照旧转发：纯桌面的竞速一字不改', async () => {
