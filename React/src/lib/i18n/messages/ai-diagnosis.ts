@@ -1,4 +1,4 @@
-// 2026-11-26 用户要求：悬浮入口按钮改叫「AI网络排查」，十一门语言同步；弹窗标题不动。
+// 2026-11-26 用户要求：按钮与弹窗标题都叫「AI网络排查」，描述说清点下去会发生什么。
 // 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 /**
  * 领域字典：面板全局悬浮的 AI 问诊入口，以及发给对方 AI 的开工引导。
@@ -17,8 +17,8 @@
 export const AI_DIAGNOSIS = {
   'zh-Hans': {
     'panel.aiDiagnosis.label': 'AI网络排查',
-    'panel.aiDiagnosis.title': 'AI 问诊',
-    'panel.aiDiagnosis.hint': '选好工作区和模型，一键在这台电脑上的 AI 里发起排查',
+    'panel.aiDiagnosis.title': 'AI网络排查',
+    'panel.aiDiagnosis.hint': '点「开始排查」会在 DSH 里新建一段对话，让这台电脑上的 AI 帮你查手机连不上、网络不通这类问题；AI 会先问清症状再动手，你在 DSH 那边接着聊就行。',
     'panel.aiDiagnosis.workspace': '工作区',
     'panel.aiDiagnosis.defaultWorkspace': '默认工作区',
     'panel.aiDiagnosis.model': '模型',
@@ -34,8 +34,8 @@ export const AI_DIAGNOSIS = {
   },
   'zh-Hant': {
     'panel.aiDiagnosis.label': 'AI網路排查',
-    'panel.aiDiagnosis.title': 'AI 問診',
-    'panel.aiDiagnosis.hint': '選好工作區與模型，一鍵在這台電腦上的 AI 發起排查',
+    'panel.aiDiagnosis.title': 'AI網路排查',
+    'panel.aiDiagnosis.hint': '點「開始排查」會在 DSH 裡新增一段對話，讓這台電腦上的 AI 幫你查手機連不上、網路不通這類問題；AI 會先問清症狀再動手，你在 DSH 那邊接著聊即可。',
     'panel.aiDiagnosis.workspace': '工作區',
     'panel.aiDiagnosis.defaultWorkspace': '預設工作區',
     'panel.aiDiagnosis.model': '模型',
@@ -51,8 +51,8 @@ export const AI_DIAGNOSIS = {
   },
   en: {
     'panel.aiDiagnosis.label': 'AI network check',
-    'panel.aiDiagnosis.title': 'AI checkup',
-    'panel.aiDiagnosis.hint': 'Pick a workspace and model, then start a diagnosis with the AI on this computer',
+    'panel.aiDiagnosis.title': 'AI network check',
+    'panel.aiDiagnosis.hint': 'Start creates a new chat in DSH where the AI on this computer helps with connection problems such as a phone that cannot connect. It asks about the symptom first; continue the conversation in DSH.',
     'panel.aiDiagnosis.workspace': 'Workspace',
     'panel.aiDiagnosis.defaultWorkspace': 'Default workspace',
     'panel.aiDiagnosis.model': 'Model',
@@ -68,8 +68,8 @@ export const AI_DIAGNOSIS = {
   },
   ja: {
     'panel.aiDiagnosis.label': 'AI ネットワーク診断',
-    'panel.aiDiagnosis.title': 'AI 診断',
-    'panel.aiDiagnosis.hint': 'ワークスペースとモデルを選び、この PC の AI で診断を始めます',
+    'panel.aiDiagnosis.title': 'AI ネットワーク診断',
+    'panel.aiDiagnosis.hint': '「排查を始める」を押すと DSH に新しい会話が作られ、この PC の AI がスマホがつながらないなどの接続問題を調べます。まず症状を確認してから調査します。DSH 側で会話を続けてください。',
     'panel.aiDiagnosis.workspace': 'ワークスペース',
     'panel.aiDiagnosis.defaultWorkspace': '既定のワークスペース',
     'panel.aiDiagnosis.model': 'モデル',
@@ -85,8 +85,8 @@ export const AI_DIAGNOSIS = {
   },
   ko: {
     'panel.aiDiagnosis.label': 'AI 네트워크 진단',
-    'panel.aiDiagnosis.title': 'AI 진단',
-    'panel.aiDiagnosis.hint': '워크스페이스와 모델을 골라 이 컴퓨터의 AI로 진단을 시작하세요',
+    'panel.aiDiagnosis.title': 'AI 네트워크 진단',
+    'panel.aiDiagnosis.hint': '「진단 시작」을 누르면 DSH에 새 대화가 열리고 이 컴퓨터의 AI가 휴대폰 연결 실패 같은 문제를 살펴봅니다. 증상을 먼저 물어본 뒤 살펴보므로 DSH에서 대화를 이어가면 됩니다.',
     'panel.aiDiagnosis.workspace': '워크스페이스',
     'panel.aiDiagnosis.defaultWorkspace': '기본 워크스페이스',
     'panel.aiDiagnosis.model': '모델',
@@ -102,8 +102,8 @@ export const AI_DIAGNOSIS = {
   },
   de: {
     'panel.aiDiagnosis.label': 'KI-Netzwerkcheck',
-    'panel.aiDiagnosis.title': 'KI-Check',
-    'panel.aiDiagnosis.hint': 'Arbeitsbereich und Modell wählen, Diagnose mit der KI auf diesem Rechner starten',
+    'panel.aiDiagnosis.title': 'KI-Netzwerkcheck',
+    'panel.aiDiagnosis.hint': '„Diagnose starten" öffnet einen neuen Chat in DSH, in dem die KI dieses Rechners Verbindungsprobleme wie eine nicht verbundene Smartphone-App untersucht. Sie fragt zuerst nach dem Symptom; führen Sie das Gespräch in DSH weiter.',
     'panel.aiDiagnosis.workspace': 'Arbeitsbereich',
     'panel.aiDiagnosis.defaultWorkspace': 'Standard-Arbeitsbereich',
     'panel.aiDiagnosis.model': 'Modell',
@@ -119,8 +119,8 @@ export const AI_DIAGNOSIS = {
   },
   es: {
     'panel.aiDiagnosis.label': 'Revisión de red IA',
-    'panel.aiDiagnosis.title': 'Revisión IA',
-    'panel.aiDiagnosis.hint': 'Elige espacio de trabajo y modelo; inicia el diagnóstico con la IA de este equipo',
+    'panel.aiDiagnosis.title': 'Revisión de red IA',
+    'panel.aiDiagnosis.hint': '«Iniciar diagnóstico» abre una conversación nueva en DSH donde la IA de este equipo revisa problemas de conexión, como un teléfono que no se conecta. Primero pregunta por el síntoma; continúa la conversación en DSH.',
     'panel.aiDiagnosis.workspace': 'Espacio de trabajo',
     'panel.aiDiagnosis.defaultWorkspace': 'Espacio de trabajo predeterminado',
     'panel.aiDiagnosis.model': 'Modelo',
@@ -136,8 +136,8 @@ export const AI_DIAGNOSIS = {
   },
   fr: {
     'panel.aiDiagnosis.label': 'Diagnostic réseau IA',
-    'panel.aiDiagnosis.title': 'Diagnostic IA',
-    'panel.aiDiagnosis.hint': 'Choisissez l espace de travail et le modèle, lancez le diagnostic avec l IA de cet ordinateur',
+    'panel.aiDiagnosis.title': 'Diagnostic réseau IA',
+    'panel.aiDiagnosis.hint': '«Lancer le diagnostic» ouvre une nouvelle conversation dans DSH où l IA de cet ordinateur examine les problèmes de connexion, par exemple un téléphone qui ne se connecte pas. Elle demande d abord le symptôme ; continuez la conversation dans DSH.',
     'panel.aiDiagnosis.workspace': 'Espace de travail',
     'panel.aiDiagnosis.defaultWorkspace': 'Espace de travail par défaut',
     'panel.aiDiagnosis.model': 'Modèle',
@@ -153,8 +153,8 @@ export const AI_DIAGNOSIS = {
   },
   pt: {
     'panel.aiDiagnosis.label': 'Verificação de rede IA',
-    'panel.aiDiagnosis.title': 'Verificação IA',
-    'panel.aiDiagnosis.hint': 'Escolha o espaço de trabalho e o modelo; inicie o diagnóstico com a IA deste computador',
+    'panel.aiDiagnosis.title': 'Verificação de rede IA',
+    'panel.aiDiagnosis.hint': '«Iniciar diagnóstico» abre uma conversa nova no DSH onde a IA deste computador investiga problemas de conexão, como um celular que não conecta. Ela pergunta o sintoma primeiro; continue a conversa no DSH.',
     'panel.aiDiagnosis.workspace': 'Espaço de trabalho',
     'panel.aiDiagnosis.defaultWorkspace': 'Espaço de trabalho padrão',
     'panel.aiDiagnosis.model': 'Modelo',
@@ -170,8 +170,8 @@ export const AI_DIAGNOSIS = {
   },
   ru: {
     'panel.aiDiagnosis.label': 'Проверка сети ИИ',
-    'panel.aiDiagnosis.title': 'Проверка ИИ',
-    'panel.aiDiagnosis.hint': 'Выберите рабочую область и модель — ИИ на этом компьютере выполнит диагностику',
+    'panel.aiDiagnosis.title': 'Проверка сети ИИ',
+    'panel.aiDiagnosis.hint': '«Начать диагностику» открывает новый чат в DSH, где ИИ этого компьютера разбирает проблемы подключения, например телефон не подключается. Сначала он уточнит симптом; продолжайте диалог в DSH.',
     'panel.aiDiagnosis.workspace': 'Рабочая область',
     'panel.aiDiagnosis.defaultWorkspace': 'Рабочая область по умолчанию',
     'panel.aiDiagnosis.model': 'Модель',
@@ -187,8 +187,8 @@ export const AI_DIAGNOSIS = {
   },
   tr: {
     'panel.aiDiagnosis.label': 'AI ağ kontrolü',
-    'panel.aiDiagnosis.title': 'AI kontrolü',
-    'panel.aiDiagnosis.hint': 'Bir çalışma alanı ve model seçin, sonra bu bilgisayardaki AI ile tanılamayı başlatın',
+    'panel.aiDiagnosis.title': 'AI ağ kontrolü',
+    'panel.aiDiagnosis.hint': '«Tanılamayı başlat» DSH içinde yeni bir sohbet açar; bu bilgisayardaki AI telefonun bağlanmaması gibi bağlantı sorunlarını inceler. Önce belirtiyi sorar; sohbeti DSH içinde sürdürün.',
     'panel.aiDiagnosis.workspace': 'Çalışma alanı',
     'panel.aiDiagnosis.defaultWorkspace': 'Varsayılan çalışma alanı',
     'panel.aiDiagnosis.model': 'Model',

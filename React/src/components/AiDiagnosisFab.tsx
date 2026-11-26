@@ -1,3 +1,4 @@
+// 2026-11-26 用户要求：弹窗标题与描述说清「点下去会发生什么」；工作区默认让宿主决定，不显选技术名。
 // 2026-11-26 用户要求：问诊胶囊改成白底黑字，原先的 bg-surface 在这块看着是透明的。
 /**
  * 面板全局悬浮的 AI 问诊入口：引导页和主页都在，点开选工作区 / 模型，一键发到当前电脑。
@@ -23,6 +24,11 @@ import { useEffect, useState } from 'react'
 import { apiGet, apiPost, errorText } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 
+/**
+ * 工作区选项只用到 id / 标题 / 路径三格：`isDefault` 是宿主给后端排序用的，
+ * 前端不再据此选中某一项——默认落在第一项「默认工作区」（空 id = 让宿主决定），
+ * 免得把宿主内部的技术名（default-workspace）当成用户要选的工作区。
+ */
 type WorkspaceOption = { workspaceId: string; title: string; path: string; isDefault: boolean }
 type ModelOption = { id: string; name: string }
 type ModelGroup = { provider: string; displayName: string; models: ModelOption[] }
@@ -70,8 +76,9 @@ export function AiDiagnosisFab() {
           return
         }
         setOptions(next)
-        // 默认工作区优先；认不出就留空，交给宿主自己的默认落点。
-        setWorkspaceId(next.workspaces.find((item) => item.isDefault)?.workspaceId || '')
+        // 默认落在第一项「默认工作区」（空 id）：让宿主决定建到哪个工作区。
+        // 不再显式选中 isDefault 那条——宿主给它的标题常是内部技术名 default-workspace。
+        setWorkspaceId('')
         const wanted = next.defaultModel
         setSelection(wanted ? `${wanted.provider}\n${wanted.model}` : '')
       } catch (error) {
