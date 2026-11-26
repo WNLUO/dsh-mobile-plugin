@@ -293,7 +293,9 @@ test('按 ctx 隔离的可变状态只在 session-cache.js 与 rpc.js 里', () =
   // 2026-11-13：加进第二十张表 —— 直播中的工作流运行（`workflow-live.js`）。它与直播过程
   // 副本同一类状态（这一轮跑到哪、哪几个成员在跑），按 ctx 隔离的理由一样：两台宿主同时
   // 在跑时，串了就是「A 上的工作流卡长在 B 的对话里」。
-  assert.equal(owners.get('session-cache.js'), 20, '会话侧的二十张表（含已删除会话 ID、上一轮事实、代发轮次、直播过程副本、写入者与清单接收器、隔离树回收节流、交付声明补格、直播工作流）：状态均按 ctx 隔离');
+  // 2026-11-26：加进第二十一张表 —— 学习画像的变化检测节流（`device-profile.js`）。它挂在
+  // 会话 / 工作区清单帧上，同样每台宿主各算各的，串了就是「A 宿主算过，B 宿主这一轮跳过」。
+  assert.equal(owners.get('session-cache.js'), 21, '会话侧的二十一张表（含已删除会话 ID、上一轮事实、代发轮次、直播过程副本、写入者与清单接收器、隔离树回收节流、交付声明补格、直播工作流、学习画像刷新节流）：状态均按 ctx 隔离');
   // session-cache.js 是叶子：它不许反过来依赖任何会话模块。
   assert.doesNotMatch(read(path.join(MOB, 'session-cache.js')), /require\(/);
   // 对外路径不变：这五个访问器仍从 sessions.js 转出。
