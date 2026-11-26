@@ -153,6 +153,65 @@ test('总控客户端：被服务端拒绝时退避递增，不会每秒硬撞',
   assert.ok(gap >= 1500, `被拒后第 2→3 次重连间隔应 ≥1.5s（实际 ${gap}ms），不能恒定每秒硬撞`);
 });
 
+test('总控上报：中转/远程控制关着也照报地址（与总控开关解耦）', async (t) => {
+  const { WebSocketServer } = require('ws');
+  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  await new Promise((resolve) => server.once('listening', resolve));
+  const port = server.address().port;
+
+  process.env.DSH_CONTROL_URL = `http://127.0.0.1:${port}`;
+  delete require.cache[require.resolve('../lib/relay/control.js')];
+  const { createControlClient } = require('../lib/relay/control.js');
+
+  const messages = [];
+  server.on('connection', (ws) => {
+    ws.on('message', (buf) => {
+      const msg = JSON.parse(buf.toString());
+      messages.push(msg);
+      if (msg.type === 'register') ws.send(JSON.stringify({ type: 'registered', instanceId: 'inst-x', token: 'tok-1' }));
+    });
+  });
+
+  // enabled:false = 用户没开中转 / 远程控制；上报开关没关（缺省 true）就该照报地址。
+  const client = createControlClient({
+    state: { enabled: false, instanceId: 'inst-x' },
+    getPort: () => 0,
+    getHistoryKey: () => HK,
+    getAddresses: () => [{ kind: 'lan', url: 'http://192.168.1.5:18787' }],
+  });
+  t.after(() => { client.stop(); server.close(); });
+
+  client.sync();
+  await waitFor(() => messages.some((m) => m.type === 'register'));
+  assert.ok(messages.some((m) => m.type === 'register'), '中转关着也要连总控把地址报上去，别绑在中转总开关上');
+});
+
+test('总控上报：用户关掉「自动上报」就不连（这个开关本身仍是硬条件）', async (t) => {
+  const { WebSocketServer } = require('ws');
+  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  await new Promise((resolve) => server.once('listening', resolve));
+  const port = server.address().port;
+
+  process.env.DSH_CONTROL_URL = `http://127.0.0.1:${port}`;
+  delete require.cache[require.resolve('../lib/relay/control.js')];
+  const { createControlClient } = require('../lib/relay/control.js');
+
+  let connections = 0;
+  server.on('connection', () => { connections += 1; });
+
+  const client = createControlClient({
+    state: { enabled: true, instanceId: 'inst-x', controlReportEnabled: false },
+    getPort: () => 0,
+    getHistoryKey: () => HK,
+    getAddresses: () => [{ kind: 'lan', url: 'http://192.168.1.5:18787' }],
+  });
+  t.after(() => { client.stop(); server.close(); });
+
+  client.sync();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.equal(connections, 0, '自动上报关掉时不该去连总控');
+});
+
 test('总控客户端：连续 identity_conflict 达到阈值触发一次换身份回调', async (t) => {
   const { WebSocketServer } = require('ws');
   const server = new WebSocketServer({ port: 0, host: '127.0.0.1' });
