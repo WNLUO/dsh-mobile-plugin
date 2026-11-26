@@ -38,7 +38,7 @@ description: DSH 手机版（电脑上装的「移动端插件」，手机 App �
    - 自己架中转服务器 / dsh-relay / 部署中转 / 中转体检口 → `references/relay-server.md`（架一台中转程序）
    - 局域网 / 直连 / 只走公网 / 弱网切换等选路 → `references/network.md`
    - IPv6 直连连不上 / 光猫或路由器 IPv6 没开 / IPv6 防火墙 / 公网 IPv6 进不来 → `references/ipv6.md`
-   - 进不去光猫后台 / 忘了光猫后台密码 / 找回光猫管理凭据 / 要进光猫改防火墙或做映射但没密码 → `references/ont-gateway.md`（先确认是自有设备，再识别固件家族；改完的验收另见 IPv4 / IPv6 两篇）
+   - 进不去光猫后台 / 忘了光猫后台密码 / 找回光猫管理凭据 / 要进光猫改防火墙或做映射但没密码 → `references/ont-gateway.md`（先确认自有设备，按型号 / 运营商上网查为主，仓库工具只作一次尝试；改完的验收另见 IPv4 / IPv6 两篇）
    - 公网 IPv4 / 端口映射 / 路由器映射 / 有公网 IP 连不上 → `references/ipv4.md`
    - frp / frps / frpc / 自己架公网服务器做 TCP 直连 → `references/frp.md`
    - ZeroNews / 国内线路 / 面板代装客户端 / 粘 AuthToken / 连接失败且地址为 https 域名 → `references/zeronews.md`（国内一条免注册线路，插件代装代起）
