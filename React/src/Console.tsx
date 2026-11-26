@@ -536,7 +536,6 @@ export function Console() {
               portAdjusted={pairing?.lanPortAdjusted}
               version={status.appVersion || ''}
               versionIssues={versionIssues}
-              onEditPort={() => setPortOpen(true)}
               onStopFrp={stopFrpTunnel}
               onManageTailcat={() => setTailcatOpen(true)}
               onManageP2P={() => setP2POpen(true)}

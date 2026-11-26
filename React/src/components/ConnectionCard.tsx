@@ -1,3 +1,4 @@
+// 2026-11-26 用户要求：撤掉局域网端口那行的编辑按钮；端口只读展示，逻辑与冲突修复入口不动。
 // 复用现有状态行和按钮展示 FRP 运行、恢复与主动停用入口。
 // 2026-11-20 用户要求：去掉「设备名」「实例 ID」两行与 TCP 直连的地址。
 // 2026-11-22：会话镜像 ok=true 时带的「内容未变，跳过重复推送」是良性跳过，不再当错误挂感叹号。
@@ -27,7 +28,6 @@ type Props = {
   portAdjusted?: boolean
   version: string
   versionIssues: Issue[]
-  onEditPort: () => void
   busy: string
   onStopFrp: () => void
   /** 「管理」那颗：打开 Tailcat 隧道的弹窗（查看 / 开关 / 移除手机）。 */
@@ -112,13 +112,14 @@ function cloudflareTone(cf: CloudflareStatus | null): Tone {
  * 任何可执行动作。
  *
  * 「局域网端口」与「运行中版本」两行 2026-11-23 由用户从配对卡挪到这里：它们本来就是只读
- * 事实，和这张卡其余各行放一起更顺。端口那颗编辑按钮仍开同一个弹窗（PortDialog）。
+ * 事实，和这张卡其余各行放一起更顺。端口那颗编辑按钮 2026-11-26 按用户要求撤掉，
+ * 这里只报端口数；端口被占时的修复入口仍在端口冲突弹窗里。
  *
  * **中转地址不在这张卡里**（2026-10-26 用户要求删）：域名长的时候那一行会把「隐藏」那颗
  * 按钮顶下去，而左边的「配对与二维码」里本来就有同一个值 —— 两处摆同一个东西只是多一处
  * 会看错的地方。
  */
-export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, version, versionIssues, onEditPort, onStopFrp, onManageTailcat, onManageP2P, onManageCloudflare, restartError }: Props) {
+export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, version, versionIssues, onStopFrp, onManageTailcat, onManageP2P, onManageCloudflare, restartError }: Props) {
   const tunnel = status.tunnel
   const tailcat = status.tailcat ?? null
   const p2p = status.p2p ?? null
@@ -170,26 +171,6 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
                 <span className="ml-2 font-sans text-xs text-foreground-muted">{t('panel.pairing.portFallback')}</span>
               ) : null}
             </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t('panel.pairing.portTitle')}
-              title={t('panel.pairing.portTitle')}
-              disabled={busy !== ''}
-              onClick={onEditPort}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m16 3 5 5M4 15 16 3a3.54 3.54 0 0 1 5 5L9 20l-6 1 1-6Z" />
-              </svg>
-            </Button>
           </span>
         </InfoRow>
         <InfoRow
