@@ -1,3 +1,4 @@
+// 2026-11-27：明确的工具拒绝回专用短码，400 但不涉及工具仍是通用失败。
 // 2026-11-26：补上「自建渠道查不到退回 DSH 当前渠道」那一组的契约。
 // 2026-11-26：经电脑转发模型请求的契约——只转发对话那一层，地址与 Key 用宿主自己那份。
 'use strict';
@@ -205,6 +206,32 @@ test('DSH 的失败块翻成短码，手机不必再猜', async () => {
     const frames = framesOf(text);
     assert.ok(frames.some((frame) => frame.choices), '已经收到的正文照旧给手机');
     assert.ok(frames.some((frame) => frame.dshError?.code === 'http-401'), '401 不能被压成通用失败');
+  } finally { await api.close(); }
+});
+
+test('上游明确拒绝 tools 时回专用短码，普通 400 不误判', async () => {
+  const toolReject = {
+    stream: async function* () {
+      yield { type: 'finish', reason: { kind: 'error', failure: { status: 400, message: 'unsupported parameter: tools' } } };
+    },
+  };
+  const api = await serve('', { llm: toolReject });
+  try {
+    const { text } = await api.post({ id: 'group', model: 'hy', messages: [], tools: [{ name: 't', description: '', parameters: {} }] });
+    assert.ok(framesOf(text).some((frame) => frame.dshError?.code === 'tools-unsupported'), '工具拒绝要回专用短码');
+  } finally { await api.close(); }
+});
+
+test('400 但没提工具仍按通用失败，不让降级误伤', async () => {
+  const bad = {
+    stream: async function* () {
+      yield { type: 'finish', reason: { kind: 'error', failure: { status: 400, message: 'bad request' } } };
+    },
+  };
+  const api = await serve('', { llm: bad });
+  try {
+    const { text } = await api.post({ id: 'group', model: 'hy', messages: [], tools: [{ name: 't', description: '', parameters: {} }] });
+    assert.ok(!framesOf(text).some((frame) => frame.dshError?.code === 'tools-unsupported'), '普通 400 不能记成不支持工具');
   } finally { await api.close(); }
 });
 
