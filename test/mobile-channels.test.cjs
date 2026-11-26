@@ -177,8 +177,30 @@ test('清单：自建与插件提供分开列，自建带 Key 状态、插件那
   }
 });
 
-test('新增：先写 Key、再按路径写 providers.<id>，id 由名字生成并避开已占用的', async () => {
-  const server = await serve();
+test('清单：内置官方 DeepSeek 标成可导入（带 OpenAI 兼容地址与 Key 状态）', async () => {
+  const state = fixture();
+  state.providers.push({ provider: 'deepseek-official', displayName: 'DeepSeek', active: true });
+  state.groups.push({ id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] });
+  state.credentials.DEEPSEEK_API_KEY = { configured: true, writable: true };
+  const server = await serve({ state });
+  try {
+    const { status, body } = await server.get('/channels');
+    assert.equal(status, 200);
+    const official = body.channels.find((row) => row.id === 'deepseek-official');
+    assert.equal(official.source, 'external');
+    assert.equal(official.importable, true);
+    assert.equal(official.protocol, 'openai-completions');
+    assert.equal(official.baseUrl, 'https://api.deepseek.com');
+    assert.equal(official.keySet, true);
+    // 普通插件渠道没有可导入标记。
+    const buddy = body.channels.find((row) => row.id === 'buddy');
+    assert.equal(buddy.importable, undefined);
+  } finally {
+    await server.close();
+  }
+});
+
+test('新增：先写 Key、再按路径写 providers.<id>，id 由名字生成并避开已占用的', async () => {  const server = await serve();
   try {
     const { status, body } = await server.post('/channels/save', {
       name: 'my gateway 2',

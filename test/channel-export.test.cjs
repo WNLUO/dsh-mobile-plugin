@@ -38,6 +38,10 @@ function ctxWith(options = {}) {
       settings: {
         describe: async () => ({ result: { ok: true, value: { namespaces: [{ ns: 'llm-pi-ai', value: { providers: PROVIDERS } }] } } }),
       },
+      llm: {
+        providers: async () => ({ result: { ok: true, value: { providers: [{ provider: 'deepseek-official', displayName: 'DeepSeek', active: true }] } } }),
+        models: async () => ({ result: { ok: true, value: { groups: [{ id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }] } } }),
+      },
       credentials: {
         resolve: async () => {
           if (options.resolveMissing) return { result: { ok: false, error: { code: 'host-unavailable', message: '没注册' } } };
@@ -98,6 +102,22 @@ test('Key 取不到时如实说没有，整条渠道照样给（导入不该因�
     assert.equal(body.keySet, false);
     assert.equal(body.channel.apiKey, undefined);
     assert.equal(body.channel.baseUrl, 'http://127.0.0.1:11434');
+  } finally { await api.close(); }
+});
+
+test('内置官方 DeepSeek 也能导出：换成手机能拨的 OpenAI 兼容地址，Key 与模型照带', async () => {
+  const api = await serve();
+  try {
+    const { status, body } = await api.post({ id: 'deepseek-official' });
+    assert.equal(status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.keySet, true);
+    assert.equal(body.channel.name, 'DeepSeek');
+    assert.equal(body.channel.protocol, 'openai-completions');
+    assert.equal(body.channel.baseUrl, 'https://api.deepseek.com');
+    assert.deepEqual(body.channel.models.map((row) => row.id), ['deepseek-chat']);
+    assert.equal(body.channel.apiKey, 'sk-imported');
+    assert.deepEqual(body.candidates, ['https://api.deepseek.com']);
   } finally { await api.close(); }
 });
 
