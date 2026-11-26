@@ -13,6 +13,7 @@ import type { ComponentType } from 'react'
 import type { StatusView } from './api.ts'
 import { PROVIDERS, providersOfRegion, type NetworkProvider, type NetworkRegion } from './network-region.ts'
 import { CloudflarePage } from '../components/CloudflarePage.tsx'
+import { FrpProviderPage } from '../components/FrpProviderPage.tsx'
 import { JdxbPage } from '../components/JdxbPage.tsx'
 import { ZeroNewsPage } from '../components/ZeroNewsPage.tsx'
 
@@ -70,6 +71,19 @@ const PROVIDER_SETUP: Record<NetworkProvider, SetupEntry> = {
     primary: false,
     ready: ({ status, jdxbUrl }) => lanRouteUsable(status) && Boolean(jdxbUrl),
     Page: (props) => <JdxbPage open={props.open} onOpenChange={props.onOpenChange} status={props.status} />,
+  },
+  frp: {
+    primary: false,
+    // FRP 整机只有一条线路：-running 且有公网地址才算接好，不认服务商名字。
+    ready: ({ status }) => lanRouteUsable(status) && Boolean(status.frp?.running && status.frp?.remoteAddress),
+    Page: (props) => (
+      <FrpProviderPage
+        open={props.open}
+        onOpenChange={props.onOpenChange}
+        status={props.status}
+        onChanged={props.onChanged ?? (() => {})}
+      />
+    ),
   },
   cloudflare: {
     primary: true,

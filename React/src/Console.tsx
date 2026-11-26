@@ -33,6 +33,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChinaLinesPage } from './components/ChinaLinesPage.tsx'
 import { CloudflareDialog } from './components/CloudflareDialog.tsx'
 import { CloudflarePage } from './components/CloudflarePage.tsx'
+import { FrpProviderPage } from './components/FrpProviderPage.tsx'
 import { GlobalLinesPage } from './components/GlobalLinesPage.tsx'
 import { JdxbPage } from './components/JdxbPage.tsx'
 import { ZeroNewsPage } from './components/ZeroNewsPage.tsx'
@@ -573,6 +574,13 @@ export function Console() {
         open={page === 'cn/jdxb'}
         onOpenChange={(next) => (next ? openProvider('jdxb') : backToRegion('cn'))}
         status={status}
+      />
+
+      <FrpProviderPage
+        open={page === 'cn/frp'}
+        onOpenChange={(next) => (next ? openProvider('frp') : backToRegion('cn'))}
+        status={status}
+        onChanged={() => void loadStatus()}
       />
 
       <GlobalLinesPage

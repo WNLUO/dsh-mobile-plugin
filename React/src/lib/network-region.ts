@@ -10,19 +10,20 @@
  */
 export type NetworkRegion = 'cn' | 'global'
 
-/** 地区下的服务商。国内是 ZeroNews 与节点小宝，国际目前只有 Cloudflare。 */
-export type NetworkProvider = 'zeronews' | 'jdxb' | 'cloudflare'
+/** 地区下的服务商。国内是 ZeroNews、节点小宝与 FRP，国际目前只有 Cloudflare。 */
+export type NetworkProvider = 'zeronews' | 'jdxb' | 'frp' | 'cloudflare'
 
 /** 面板当前停在哪一页。 */
 export type NetworkPage = 'home' | NetworkRegion | ProviderPage
 
 /** 服务商页的页面标识（地区/服务商）。写得实一点，别让类型放开到「国内 + Cloudflare」这种不存在的组合。 */
-export type ProviderPage = 'cn/zeronews' | 'cn/jdxb' | 'global/cloudflare'
+export type ProviderPage = 'cn/zeronews' | 'cn/jdxb' | 'cn/frp' | 'global/cloudflare'
 
 /** 每家服务商属于哪个地区、页面标题用哪个键。 */
 export const PROVIDERS: Record<NetworkProvider, { region: NetworkRegion }> = {
   zeronews: { region: 'cn' },
   jdxb: { region: 'cn' },
+  frp: { region: 'cn' },
   cloudflare: { region: 'global' },
 }
 
@@ -32,6 +33,7 @@ const PAGE_PATHS: Record<Exclude<NetworkPage, 'home'>, string> = {
   global: 'network/global',
   'cn/zeronews': 'network/cn/zeronews',
   'cn/jdxb': 'network/cn/jdxb',
+  'cn/frp': 'network/cn/frp',
   'global/cloudflare': 'network/global/cloudflare',
 }
 
