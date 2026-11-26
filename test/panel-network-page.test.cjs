@@ -31,7 +31,8 @@ test('自建中转有「检测」：确认是不是我们的中转、取版本�
   }
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   for (const key of ['panel.relay.detect', 'panel.relay.detecting', 'panel.relay.detectOk', 'panel.relay.detectNotOurs', 'panel.relay.detectFail']) {
-    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(panel.split(`'${key}':`).length - 1, 11, `${key} 要十一门齐全`);
   }
 });
 
@@ -39,7 +40,8 @@ test('明文 http 的直连 / 自建中转给出 iPhone ATS 提醒', () => {
   const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
   assert.match(page, /panel\.address\.plainHttpWarn/, '明文 http 要提示 ATS');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
-  assert.equal(panel.split("'panel.address.plainHttpWarn':").length - 1, 10, '提示文案十门齐全');
+  // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+  assert.equal(panel.split("'panel.address.plainHttpWarn':").length - 1, 11, '提示文案十一门齐全');
 });
 
 test('直连地址回环检测：打回宿主自己（service=dsh-mobile-plugin 且 instanceId 一致）', () => {
@@ -50,7 +52,8 @@ test('直连地址回环检测：打回宿主自己（service=dsh-mobile-plugin 
   assert.match(page, /hit\.instanceId === status\.instanceId/, 'instanceId 与本机一致才算绕回本机');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   for (const key of ['panel.address.detectLoop', 'panel.address.detectLoopOk', 'panel.address.detectLoopOther', 'panel.address.detectLoopFail']) {
-    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(panel.split(`'${key}':`).length - 1, 11, `${key} 要十一门齐全`);
   }
 });
 
@@ -63,7 +66,8 @@ test('局域网 / IPv6 只选不手填，且能「添加地址」', () => {
   assert.match(page, /extraLan/, '手动添加的局域网地址并入候选');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   for (const key of ['panel.address.add', 'panel.address.addInvalid']) {
-    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(panel.split(`'${key}':`).length - 1, 11, `${key} 要十一门齐全`);
   }
 });
 
@@ -75,7 +79,8 @@ test('FRP 直连管理：读当前配置、保存并启动、停止', () => {
   assert.match(page, /panel\.frp\.manageTitle/, '要有 FRP 管理区');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   for (const key of ['panel.frp.manageTitle', 'panel.frp.configLabel', 'panel.frp.saveStart', 'panel.frp.statusRun', 'panel.frp.statusStop']) {
-    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(panel.split(`'${key}':`).length - 1, 11, `${key} 要十一门齐全`);
   }
 });
 
@@ -94,7 +99,8 @@ test('公网 IPv4 有独立一栏，写 manualIpv4Url', () => {
   assert.match(page, /addressBook\?\.manualIpv4/, '现值从地址库 manualIpv4 预填');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   for (const key of ['panel.address.ipv4Url', 'panel.address.ipv4Placeholder']) {
-    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(panel.split(`'${key}':`).length - 1, 11, `${key} 要十一门齐全`);
   }
 });
 
@@ -146,7 +152,8 @@ test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重�
   assert.match(page, /zeroNewsConnect\(value\)/, '兜底要把 token 交给宿主连接');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   for (const key of ['panel.zeronews.loginUrlHint', 'panel.zeronews.reopen', 'panel.zeronews.loginRetry', 'panel.zeronews.loginTimeout']) {
-    assert.equal(panel.split(`'${key}':`).length - 1, 10, `${key} 要十门齐全`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(panel.split(`'${key}':`).length - 1, 11, `${key} 要十一门齐全`);
   }
 });
 

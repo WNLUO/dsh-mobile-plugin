@@ -62,9 +62,10 @@ test('纵轴量程有迟滞、会缓动，不随每秒数据抖动', () => {
   assert.match(panel, /AXIS_TAU_SECONDS/, '量程过渡是缓动的');
 });
 
-test('指标文案十门齐', () => {
+test('指标文案十一门齐', () => {
   const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'network-panel.ts');
   for (const key of ['panel.network.up', 'panel.network.down', 'panel.network.totalSent', 'panel.network.totalReceived']) {
-    assert.equal(dict.split(`'${key}':`).length - 1, 10, `${key} 十门齐`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(dict.split(`'${key}':`).length - 1, 11, `${key} 十一门齐`);
   }
 });

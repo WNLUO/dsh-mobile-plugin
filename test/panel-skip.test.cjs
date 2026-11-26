@@ -8,7 +8,7 @@
  *   1. 引导页是三页，第二页那颗「跳过」常驻，且它不被 anyReady 挡着；
  *   2. 点它先把 onboarded 落盘，再进门 —— 否则下次开 /panel 又弹回引导；
  *   3. 跳过只到控制台，不去第三页扫码；
- *   4. 十门语言的文案键都在，别让海外用户看到漏字。
+ *   4. 十一门语言的文案键都在，别让海外用户看到漏字。
  */
 
 const fs = require('node:fs');
@@ -87,8 +87,9 @@ test('变异证明：把 skipSetup 里的落盘或进门删掉会被上面抓住
   assert.throws(() => assert.ok(noEnter.includes('enterNow()')), assert.AssertionError);
 });
 
-test('十门语言的跳过文案齐全、非空', () => {
-  const langs = ['zh-Hans', 'zh-Hant', 'en', 'ja', 'ko', 'de', 'es', 'fr', 'pt', 'ru'];
+test('十一门语言的跳过文案齐全、非空', () => {
+  // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+  const langs = ['zh-Hans', 'zh-Hant', 'en', 'ja', 'ko', 'de', 'es', 'fr', 'pt', 'ru', 'tr'];
   const blocks = [...messages.matchAll(/^  (?:'([\w-]+)'|(\w+)): \{\n([\s\S]*?)^  \},$/gm)];
   const found = new Map(blocks.map((block) => [block[1] || block[2], block[3]]));
   for (const lang of langs) {
@@ -96,7 +97,7 @@ test('十门语言的跳过文案齐全、非空', () => {
     assert.ok(block !== undefined, `${lang} 语言块要在`);
     assert.match(block, /'panel\.onboarding\.skipSetup': '\S/, `${lang} 的跳过文案要在且不能空`);
   }
-  assert.equal((messages.match(/'panel\.onboarding\.skipSetup':/g) || []).length, langs.length, '跳过文案只落在十门语言各一处');
+  assert.equal((messages.match(/'panel\.onboarding\.skipSetup':/g) || []).length, langs.length, '跳过文案只落在十一门语言各一处');
 });
 
 test('第三页先自检再出码：检查中、一条都不通时都不摆二维码', () => {

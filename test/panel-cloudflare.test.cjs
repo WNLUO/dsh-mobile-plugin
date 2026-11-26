@@ -11,7 +11,7 @@
  *   2. 点「管理」打开的 CloudflareDialog 里有开关，开调 `/api/cloudflare/start`、关调 `/stop`，
  *      请求中禁用、失败行内红字，状态行能读出「可用 / 运行中 / 错误」；
  *   3. 网络配置弹窗那扇已经搬走，不再留第二份实现；
- *   4. api.ts 提供接口与状态类型，中英等十门语言词条齐平。
+ *   4. api.ts 提供接口与状态类型，中英等十一门语言词条齐平。
  */
 
 const fs = require('node:fs');
@@ -108,7 +108,7 @@ test('api.ts 提供 cloudflareStart / cloudflareStop，打对路径，并给状�
   assert.ok(at > 0 && at < view.indexOf('}'), 'cloudflare 字段要在 StatusView 里');
 });
 
-test('Cloudflare 那批文案在十门语言里都有', () => {
+test('Cloudflare 那批文案在十一门语言里都有', () => {
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   for (const key of [
     'title',
@@ -125,14 +125,16 @@ test('Cloudflare 那批文案在十门语言里都有', () => {
   ]) {
     const needle = `'panel.cloudflare.${key}':`;
     const count = panel.split(needle).length - 1;
-    assert.equal(count, 10, `${needle} 要有十门语言，实际 ${count}`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(count, 11, `${needle} 要有十一门语言，实际 ${count}`);
   }
 });
 
-test('远程电脑线路里 cloudflare 通道有中文名，十门语言齐平', () => {
+test('远程电脑线路里 cloudflare 通道有中文名，十一门语言齐平', () => {
   const remote = read('React', 'src', 'lib', 'i18n', 'messages', 'remote-computers.ts');
   const needle = "'panel.remote.channel.cloudflare':";
-  assert.equal(remote.split(needle).length - 1, 10, `${needle} 要有十门语言`);
+  // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+  assert.equal(remote.split(needle).length - 1, 11, `${needle} 要有十一门语言`);
   const card = read('React', 'src', 'components', 'RemoteComputersCard.tsx');
   assert.match(card, /cloudflare: 'cloudflare'/, 'channelText 的键映射要认得 cloudflare');
 });

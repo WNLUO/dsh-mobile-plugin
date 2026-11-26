@@ -55,9 +55,10 @@ test('「没开」那句文案说清它不拦，不只是干巴巴一句「防�
   const zhHans = dict.match(/'panel\.selfcheck\.firewallOff': '([^']*)'/);
   assert.ok(zhHans, '字典里要有 firewallOff 这条');
   assert.ok(/不会拦/.test(zhHans[1]), '简中那句要带「不会拦」：光写「没开」，用户会以为哪儿坏了');
-  // 十门语言都得改到，不能只换中文。
+  // 十一门语言都得改到，不能只换中文。
   const rows = dict.split("'panel.selfcheck.firewallOff'").length - 1;
-  assert.equal(rows, 10, `firewallOff 只落在 ${rows} 门语言里，十门都要有`);
+  // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+  assert.equal(rows, 11, `firewallOff 只落在 ${rows} 门语言里，十一门都要有`);
 });
 
 test('回环被抢：复用直连那一行的错误档与现成文案键，原因走 detail', () => {

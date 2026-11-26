@@ -45,11 +45,12 @@ test('改配置的路由收 manualTcpUrl', () => {
   assert.match(route, /patch\.manualTcpUrl/, 'config 白名单要收 manualTcpUrl');
 });
 
-test('TCP 那两栏文案在十门语言里都有', () => {
+test('TCP 那两栏文案在十一门语言里都有', () => {
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
   for (const key of ["'panel.address.tcp':", "'panel.address.tcpPlaceholder':"]) {
     const count = panel.split(key).length - 1;
-    assert.equal(count, 10, `${key} 要有十门语言，实际 ${count}`);
+    // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+    assert.equal(count, 11, `${key} 要有十一门语言，实际 ${count}`);
   }
 });
 
@@ -70,7 +71,8 @@ test('FRP 走「导入」弹窗：粘配置、保存并启动，父窗不再直�
   assert.match(dialog, /saveFrp/, '保存并启动走 saveFrp');
   assert.match(dialog, /panel\.frp\.manageTitle/, 'FRP 区仍在');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
-  assert.equal(panel.split("'panel.frp.import':").length - 1, 10, '导入文案十门齐');
+  // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+  assert.equal(panel.split("'panel.frp.import':").length - 1, 11, '导入文案十一门齐');
 });
 
 test('连接状态卡里也有「TCP 直连」一行：配了显示已配置+地址，没配显示未配置', () => {
@@ -91,5 +93,6 @@ test('TCP 那格只收「主机:端口」：带 scheme 的地址提示去直连�
   assert.match(dialog, /manualTcpUrl\.trim\(\)/, '保存前按实际输入判 scheme');
   assert.match(dialog, /event\.target\.value\.trim\(\)/, '输入时按现场值判 scheme');
   const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
-  assert.equal(panel.split("'panel.address.tcpSchemeHint':").length - 1, 10, '提示文案十门齐');
+  // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
+  assert.equal(panel.split("'panel.address.tcpSchemeHint':").length - 1, 11, '提示文案十一门齐');
 });
