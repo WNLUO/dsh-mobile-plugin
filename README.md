@@ -72,7 +72,7 @@
   <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/remote-computer.jpg" alt="在另一台电脑上通过本机地址打开 DeepSeek Harness 的完整网页" width="720">
 </p>
 
-窗口优先由插件随包分发的桌面显示壳打开，Mac 上按官方桌面端的样式排版；每次访问一小时，可自动续期。细节和撤销方式见 [docs/remote-computer.md](docs/remote-computer.md)。
+窗口优先由插件随包分发的桌面显示壳打开，Mac 上按官方桌面端的样式排版；每次访问一小时，可自动续期。用桌面壳打开时快捷键和桌面端一致，按你本机保存，只作用于这台远程窗口，用普通浏览器打开还是网页版那套。细节和撤销方式见 [docs/remote-computer.md](docs/remote-computer.md)。
 
 ## 安全与隐私
 

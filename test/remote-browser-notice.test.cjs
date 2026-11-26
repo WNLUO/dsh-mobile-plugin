@@ -179,7 +179,8 @@ function shellPage() {
 test('只有 Mac 壳会话带平台排版脚本，普通网页与其他系统都不改版式', () => {
   assert.equal(shellScript('win32'), '');
   assert.doesNotMatch(noticeScript(), /data-tauri-drag-region|dataset\.platform|data-dshm-shell/);
-  assert.doesNotMatch(noticeScript({ shell: true, platform: 'win32' }), /data-tauri-drag-region|dataset\.platform|data-dshm-shell/);
+  // 快捷键桥只在 dataset 对象上挂自有属性、只接管 Mac/Windows；Mac 排版脚本仍只给 darwin。
+  assert.doesNotMatch(noticeScript({ shell: true, platform: 'win32' }), /data-tauri-drag-region|--dsh-frame-top-clearance: 48px/);
   const script = noticeScript({ shell: true, platform: 'darwin' });
   assert.match(script, /body\.dataset\.platform = 'darwin'/);
   assert.match(script, /data-dshm-shell/);
@@ -190,12 +191,12 @@ test('只有 Mac 壳会话带平台排版脚本，普通网页与其他系统都
   assert.doesNotMatch(script, /innerHTML|location\.(?:href|replace)|\bcredential\b/);
 });
 
-test('壳记号只落在页面主体，根元素保持网页版，桌面键盘桥不会被叫醒', () => {
+test('壳排版记号只落在页面主体，根元素不被写成真实桌面属性', () => {
   const p = shellPage();
-  assert.equal(p.root.dataset.platform, undefined);
+  assert.equal(p.root.dataset.platform, undefined, 'shellScript 单独执行时不碰根元素');
   assert.equal(p.root.dataset.dshmShell, '1');
   assert.equal(p.body.dataset.platform, 'darwin');
-  assert.doesNotMatch(shellScript('darwin'), /documentElement\.dataset\.platform\s*=|root\.dataset\.platform\s*=/);
+  assert.doesNotMatch(shellScript('darwin'), /documentElement\.setAttribute|root\.setAttribute/);
   assert.equal(p.styles.length, 1);
   assert.equal(p.styles[0].tag, 'style');
   assert.match(p.styles[0].textContent, /html\[data-dshm-shell\] \{/);
@@ -211,6 +212,97 @@ test('一整块可拖区域用 deep，官方排除的那一支用 false', () => 
   assert.equal(p.label.getAttribute('data-tauri-drag-region'), null);
   assert.equal(p.action.getAttribute('data-tauri-drag-region'), null);
   assert.equal(p.blocked.getAttribute('data-tauri-drag-region'), 'false');
+});
+
+/** 桌面壳完整脚本的假体：补齐官方键盘桥用到的 window / document / localStorage。 */
+function shellBridgePage() {
+  const listeners = {};
+  const store = new Map();
+  const localStorage = {
+    getItem(key) { return store.has(key) ? store.get(key) : null; },
+    setItem(key, value) { store.set(key, String(value)); },
+    removeItem(key) { store.delete(key); },
+  };
+  const root = { dataset: {}, lang: 'en', getAttribute: () => null };
+  const body = { dataset: {}, appendChild() {} };
+  const document = {
+    documentElement: root, body, head: { appendChild() {} }, hidden: false,
+    getElementById: () => null,
+    createElement(tag) { return { tag, style: {}, dataset: {}, setAttribute() {}, textContent: '', hidden: false }; },
+    querySelectorAll: () => [],
+    addEventListener(type, fn) { listeners[`document:${type}`] = fn; },
+    removeEventListener() {},
+  };
+  const win = {
+    document, localStorage,
+    addEventListener(type, fn) { listeners[`window:${type}`] = fn; },
+    requestAnimationFrame(fn) { fn(); return 1; },
+  };
+  win.top = win;
+  const context = vm.createContext({
+    window: win, document, navigator: { language: 'en' }, localStorage,
+    performance: { now: () => 0 },
+    setInterval: () => 1, clearInterval() {},
+    async fetch() { return { ok: true, json: async () => ({ expiresAt: 0, serverNow: 0 }) }; },
+    MutationObserver: class { observe() {} disconnect() {} },
+  });
+  return { context, win, document, root, body, listeners, store };
+}
+
+test('桌面壳安装官方键盘桥启用 desktop 快捷键，普通浏览器不碰键盘', async () => {
+  const shell = shellBridgePage();
+  vm.runInContext(noticeScript({ shell: true, platform: 'darwin' }), shell.context);
+
+  // JS 读到精确平台值以选对键位，但只是 dataset 自有属性，没有真实 HTML 属性。
+  assert.equal(shell.root.dataset.platform, 'darwin');
+  assert.equal(Object.prototype.hasOwnProperty.call(shell.root.dataset, 'platform'), true);
+  assert.equal(shell.root.getAttribute('data-platform'), null);
+  const desk = shell.win.dshDesktop;
+  assert.ok(desk);
+  assert.ok(desk.keyboard && desk.shortcuts && desk.deviceInfo);
+  assert.equal(desk.fileActions, undefined, '缺原生文件能力时保持 undefined，让 DSH 走浏览器兜底');
+
+  const received = [];
+  desk.keyboard.subscribe((input) => received.push(input));
+  const snapshot = await desk.shortcuts.get();
+  assert.equal(snapshot.status, 'ready');
+  assert.equal(snapshot.usingDefaults, true);
+  assert.deepEqual(Object.keys(snapshot.document.profiles), ['desktop:macos']);
+  assert.deepEqual(Object.keys(snapshot.document.profiles['desktop:macos']), []);
+
+  const keydown = shell.listeners['window:keydown'];
+  assert.equal(typeof keydown, 'function');
+  keydown({ code: 'KeyN', metaKey: true });
+  assert.equal(received.length, 1);
+  assert.equal(received[0].kind, 'keyboard');
+  assert.equal(received[0].code, 'KeyN');
+  assert.equal(received[0].meta, true);
+  assert.equal(received[0].revision, snapshot.revision);
+  assert.equal(shell.listeners['window:keyup'], undefined, '只投递 keydown，避免快捷键执行两遍');
+
+  // 编辑后 revision 递增，后续键盘事件带上新 revision，官方校验才不会丢。
+  const saved = await desk.shortcuts.edit({ type: 'set', id: 'session.new', binding: { code: 'KeyN', modifiers: ['primary'] } }, snapshot.revision);
+  assert.equal(saved.status, 'saved');
+  assert.equal(saved.snapshot.revision, 'remote-2');
+  assert.deepEqual(saved.snapshot.document.profiles['desktop:macos']['session.new'], { code: 'KeyN', modifiers: ['primary'] });
+  keydown({ code: 'KeyN', metaKey: true });
+  assert.equal(received[1].revision, 'remote-2');
+
+  // 重复执行脚本幂等：不重复挂监听器。
+  vm.runInContext(noticeScript({ shell: true, platform: 'darwin' }), shell.context);
+  keydown({ code: 'KeyN', metaKey: true });
+  assert.equal(received.length, 3);
+
+  const plain = shellBridgePage();
+  vm.runInContext(noticeScript({ shell: false, platform: 'darwin' }), plain.context);
+  assert.equal(Object.prototype.hasOwnProperty.call(plain.root.dataset, 'platform'), false);
+  assert.equal(plain.win.dshDesktop, undefined);
+
+  // Linux 桌面运行时仍由 DOM 处理可配置快捷键，不能再装原生桥，否则一次按键执行两遍。
+  const linux = shellBridgePage();
+  vm.runInContext(noticeScript({ shell: true, platform: 'linux' }), linux.context);
+  assert.equal(Object.prototype.hasOwnProperty.call(linux.root.dataset, 'platform'), false);
+  assert.equal(linux.win.dshDesktop, undefined);
 });
 
 test('页面切换后新出现的可拖区域与排除区块都会跟上', () => {

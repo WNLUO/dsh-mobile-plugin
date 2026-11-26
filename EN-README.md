@@ -68,7 +68,7 @@ When you would rather not carry your main computer around, you can drive its ful
   <img src="https://raw.githubusercontent.com/WNLUO/dsh-mobile-plugin/main/assets/remote-computer.jpg" alt="Opening the full DeepSeek Harness web interface on another computer through a local address" width="720">
 </p>
 
-The window opens in the desktop display shell the plugin ships, laid out like the official desktop app on Mac; each visit lasts an hour and renews automatically. Details and how to revoke are in [docs/remote-computer.md](docs/remote-computer.md).
+The window opens in the desktop display shell the plugin ships, laid out like the official desktop app on Mac; each visit lasts an hour and renews automatically. In the display shell, keyboard shortcuts match the desktop app and are saved on your own machine for that remote window only; opening the page in a regular browser still uses the web shortcuts. Details and how to revoke are in [docs/remote-computer.md](docs/remote-computer.md).
 
 ## Security and privacy
 

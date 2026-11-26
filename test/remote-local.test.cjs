@@ -350,7 +350,9 @@ test('只有桌面壳会话拿到 Mac 排版脚本，壳标记与本机凭据都
   assert.match(script.body, /data-tauri-drag-region/);
   assert.match(script.body, /body\.dataset\.platform = 'darwin'/);
   assert.match(script.body, /data-dshm-shell/);
-  assert.doesNotMatch(script.body, /documentElement\.dataset\.platform\s*=|root\.dataset\.platform\s*=/);
+  // 快捷键桥只在 dataset 对象上挂自有属性，让 JS 读到精确平台；不写真实 HTML 属性，
+  // 官方 CSS 的 [data-platform] 选择器一概不命中，排版保持网页版。
+  assert.doesNotMatch(script.body, /documentElement\.setAttribute\(['"]data-platform|root\.setAttribute\(['"]data-platform/);
   assert.equal(script.body.includes(f.token), false);
 
   const page = await request(`${g.origin}/`, {
