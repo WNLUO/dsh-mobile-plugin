@@ -1,3 +1,4 @@
+// 2026-11-26：两档版日夜按钮与永不渲染的外壳按钮组一并清掉，守卫跟着改，其余断言不放宽。
 // 2026-11-26：用户要求顶栏三颗按钮从前端撤掉，位置断言跟着改，字典与其余断言不放宽。
 // 2026-11-26：需求变更——面板语言由 10 门扩到 11 门（补 tr），LANGUAGES 随之加一门；其余断言不放宽。
 // 2026-11-24：总开关那两条提示单独钉住（shell.ts 不进领域字典检查）。
@@ -334,7 +335,9 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
   // 2026-11-24 需求变更：配置已铺在首页，顶栏那颗「网络配置」按钮多余、撤掉。
   assert.doesNotMatch(consoleSrc, /extraActions=\{[\s\S]{0,200}panel\.pairing\.openConfig/, '顶栏不再摆网络配置按钮');
   assert.doesNotMatch(consoleSrc, /panel\.pairing\.checkNetwork|SelfCheckDialog/, '检查网络按钮与弹窗入口已撤');
-  assert.match(shell, /<TopRightActions \/>/, '外壳里要渲染右上角那组按钮');
+  // 2026-11-26 需求变更：外壳那组按钮的条件写死成永不渲染，连着它用的两档版日夜按钮一起清掉；
+  // 语言与日夜由各页顶栏自己挂。
+  assert.doesNotMatch(shell, /TopRightActions/, '外壳不再挂永不渲染的按钮组');
   assert.match(shell, /usePanelLanguage\(\)/, '外壳必须订阅语言状态，否则切语言整页不重绘');
 
   // 两个入口都只渲染外壳，谁也不许自己再挂一颗（那就成了两处坐标）。
@@ -343,13 +346,14 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
     assert.match(text, /from '\.{1,2}\/Shell\.tsx'/, `${entry.join('/')} 应当从 Shell 进来`);
     assert.match(text, /<Shell \/>/, `${entry.join('/')} 应当渲染 Shell`);
     assert.equal((text.match(/<ThemeToggle|<LanguageMenu|<JoinGroupButton|<StarButton/g) ?? []).length, 0,
-      `${entry.join('/')} 里别再单独挂按钮，位置归 TopRightActions`);
+      `${entry.join('/')} 里别再单独挂按钮，按钮归各页顶栏`);
   }
 
-  // 按钮组：两颗都在，坐标只在这一层。
-  const actions = read('components', 'TopRightActions.tsx');
-  assert.match(actions, /<LanguageMenu \/>/, '按钮组里缺语言按钮');
-  assert.match(actions, /<ThemeToggle \/>/, '按钮组里缺日夜切换');
+  // 2026-11-26 需求变更：两档版日夜按钮（ThemeToggle）的唯一入口已经永不渲染，连按钮组一起撤掉；
+  // 三页各挂一份三档版，功能不变。守卫钉住「只剩一份实现」，别再把旧的那份加回来。
+  const toggle = read('components', 'ThemeToggle.tsx');
+  assert.doesNotMatch(toggle, /export function ThemeToggle\(/, '两档版日夜按钮已撤，别再回来');
+  assert.match(toggle, /export function ConsoleThemeToggle\(/, '三档版日夜按钮是现在唯一的实现');
   // 2026-11-26 需求变更：用户要求顶栏那三颗（重启 / 检查更新 / 收件箱）从前端撤掉，
   // 功能逻辑与接口不动——Console 不再给更新卡落脚点，更新卡那份按钮代码留着。
   assert.doesNotMatch(consoleSrc, /setUpdateActionsSlot/, '顶栏不再给更新按钮留落脚点');
@@ -357,7 +361,7 @@ test('右上角两颗按钮：同一处渲染，两个入口共用一份外壳',
   assert.match(update, /createPortal\(/, '更新按钮借 portal 画到顶栏，逻辑仍归更新卡');
   assert.match(update, /size="icon-md"/, '顶栏那两颗是图标按钮');
   for (const file of ['ThemeToggle.tsx', 'LanguageMenu.tsx']) {
-    assert.doesNotMatch(read('components', file), /fixed /, `${file} 不许自己钉坐标，位置归 TopRightActions`);
+    assert.doesNotMatch(read('components', file), /fixed /, `${file} 不许自己钉坐标，按钮归各页顶栏`);
   }
 
   // 语言清单只能来自 PANEL_LANGUAGES：手写一份等于第二处真源。

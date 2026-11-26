@@ -1,3 +1,4 @@
+// 2026-11-26：两档版日夜按钮与外壳按钮组已清掉，SSR 冒烟改用三档版唯一实现。
 // 冒烟渲染：在 node 里把各张卡与配置弹窗渲染一遍，抓运行期崩（不依赖浏览器）。
 // Base UI 的弹窗走 portal，SSR 渲染出来是空字符串，弹窗要另用浏览器验收。
 // 2026-11-24：公告组件早删了，烟测里那三处残留引用清掉。
@@ -58,7 +59,7 @@ const pairing = {
   svg: '<svg xmlns="http://www.w3.org/2000/svg" width="280" height="280"><rect width="280" height="280" fill="#fff"/></svg>',
 }
 
-const [Conn, Pair, Upd, Dialog, Lan, Con, Onb, Join, Spn, Star, Toggle, Picker, Inbox, Dl, Lang, Actions, Notice] = await Promise.all([
+const [Conn, Pair, Upd, Dialog, Lan, Con, Onb, Join, Spn, Star, Toggle, Picker, Inbox, Dl, Lang, Notice] = await Promise.all([
   server.ssrLoadModule('/src/components/ConnectionCard.tsx'),
   server.ssrLoadModule('/src/components/PairingCard.tsx'),
   server.ssrLoadModule('/src/components/UpdateCard.tsx'),
@@ -74,7 +75,6 @@ const [Conn, Pair, Upd, Dialog, Lan, Con, Onb, Join, Spn, Star, Toggle, Picker, 
   server.ssrLoadModule('/src/components/InboxCard.tsx'),
   server.ssrLoadModule('/src/components/DownloadAppButton.tsx'),
   server.ssrLoadModule('/src/components/LanguageMenu.tsx'),
-  server.ssrLoadModule('/src/components/TopRightActions.tsx'),
 ])
 
 const noop = () => {}
@@ -206,13 +206,10 @@ const cases = [
   // 相对地址在桌面壳里会变成 `dsh-app://`，壳只把 http(s) 交给系统浏览器，点了没反应。
   ['StarButton', h(Star.StarButton, {}), '给个 Star'],
   ['StarButton（是绝对外链）', h(Star.StarButton, {}), 'href="https://github.com/WNLUO/dsh-mobile-plugin"'],
-  // 右上角那组按钮（日夜 + 界面语言）：SSR 里没有 ThemeProvider（`useTheme` 回空值），
-  // 只冒烟「两颗按钮都在、无障碍名给的是下一步」；图标换不换、贴没贴住要看真浏览器。
-  ['ThemeToggle', h(Toggle.ThemeToggle, {}), 'aria-label="切换到夜间模式"'],
+  // 日夜按钮只留三档版这一份实现：SSR 里读不到手动覆盖，默认跟随、下一步给的是夜间，
+  // 冒烟无障碍名；语言菜单的弹层走 portal，SSR 出来是空串，清单与打勾要真浏览器点开看。
+  ['ConsoleThemeToggle', h(Toggle.ConsoleThemeToggle, {}), 'aria-label="切换到夜间模式"'],
   ['LanguageMenu', h(Lang.LanguageMenu, {}), 'aria-label="界面语言"'],
-  ['TopRightActions', h(Actions.TopRightActions, {}), 'aria-label="切换到夜间模式"'],
-  // 语言菜单的弹层走 portal，SSR 出来是空字符串：五门清单与打勾那一项要真浏览器点开看。
-  ['TopRightActions（两颗都在）', h(Actions.TopRightActions, {}), 'aria-label="界面语言"'],
   // 下载入口：按钮本身总是在，四条渠道在弹窗里 —— 弹窗未打开时不进 DOM（Base UI 走 portal），
   // 所以这一遍只冒烟按钮；四条链接有没有齐要看真浏览器点开（和上面几颗弹窗同一种处境）。
   ['DownloadAppButton', h(Dl.DownloadAppButton, {}), '下载 APP'],

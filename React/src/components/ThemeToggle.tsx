@@ -1,23 +1,18 @@
 /**
- * 页面右上角的日间 / 夜间切换按钮。
+ * 面板的日夜按钮：跟随 DSH → 日间 → 夜间，三档轮换。
  *
- * 主题由 Appica 的 `ThemeProvider` 管，默认「跟随系统」，选择存在 localStorage。
- * **这份存储按来源（协议 + 主机 + 端口）隔离**：开发地址与正式入口各存各的，同一台机器上
- * 两边可能一个白天一个黑夜，这个按钮只拧得动当前来源。
+ * 主题由 lib/shell-theme.ts 管：默认跟随 DSH 父窗口的同源记号，手动选择存 localStorage，
+ * 按来源隔离（开发地址与正式入口各存各的）。控制台这一页刻意不挂 Appica 的 ThemeProvider，
+ * 它往 <html> 写 light/dark 会盖掉跟随父窗口那套。
  *
  * 图标手画：库里没有图标集，`Button` 基类那条
  * `[&_svg:not([class*='stroke-'])]:stroke-[1.85]` 会补描边宽度，所以 `fill="none"`。
  * 渲染的是「点下去会变成什么」，图标本身就是下一步的预告，配同样意思的 `aria-label`。
- *
- * **坐标不归这里管**：这颗与语言按钮共用 `components/TopRightActions.tsx` 那个落脚点，
- * 别在这里再套 `fixed`，否则两颗按钮各算各的边距。
- *
- * 形态是纯图标的 ghost 按钮：不带浅灰底、圆角片与阴影，颜色走主题 token，日夜间自动跟着变。
+ * 按钮由各页顶栏自己挂，这里不钉坐标。
  */
 
 import { Button } from '@appica/ui-react/button'
 import { t } from '../lib/i18n/index.ts'
-import { useTheme } from '@appica/ui-react/hooks/use-theme'
 import { setShellThemeOverride, shellThemeOverride, useShellTheme, type ShellTheme } from '../lib/shell-theme.ts'
 
 function SunIcon() {
@@ -53,35 +48,6 @@ function MoonIcon() {
   )
 }
 
-export function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
-  const dark = resolvedTheme === 'dark'
-  const label = dark ? t('panel.theme.toDay') : t('panel.theme.toNight')
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon-md"
-      className="pointer-events-auto"
-      aria-label={label}
-      title={label}
-      onClick={() => setTheme(dark ? 'light' : 'dark')}
-    >
-      {dark ? <SunIcon /> : <MoonIcon />}
-    </Button>
-  )
-}
-
-/**
- * 控制台那一窗用的日夜按钮。
- *
- * 与上面那颗的区别只有一处**数据来源**：那一颗拧的是面板自己的主题键（`ThemeProvider`），
- * 而控制台那一窗的主题跟着 DSH 走（见 `lib/shell-theme.ts`），所以它拧的是那份「手动优先」
- * 的选择：按下之后这一窗不再跟随父窗口，直到重新选回跟随（清掉那个键）。
- *
- * 单独一颗而不是给上面那颗加开关：上面那颗在**每一条别的页**上都要有 `ThemeProvider` 才
- * 拿得到 `setTheme`，而控制台那一页刻意没挂它（见 `main.tsx` 里那段说明）。
- */
 /** 三档里的「跟随 DSH」：半亮半暗的圆，表示让父窗口 / 系统决定。 */
 function FollowIcon() {
   return (

@@ -14,7 +14,6 @@
  */
 import { useEffect } from 'react'
 
-import { TopRightActions } from './components/TopRightActions.tsx'
 import { AiDiagnosisFab } from './components/AiDiagnosisFab.tsx'
 import { t } from './lib/i18n/index.ts'
 import { usePanelLanguage } from './lib/i18n/use-language.ts'
@@ -55,11 +54,8 @@ export function Shell() {
       <Root />
       {/* 全局 AI 问诊入口：引导页和主页共用这一层，所以两页都在（2026-11-24 用户要求）。 */}
       <AiDiagnosisFab />
-      {/* 右上角那组（语言 + 日夜）：**控制台那一窗不挂**（2026-11-13 用户要求把它们放进
-          顶栏、跟着窗口标题排），它自己那两行里就有同样两颗。演示页照旧。 */}
-      {consolePage ? null : <TopRightActions />}
       {/* Star / 赞助 / 交流群三颗 2026-11-17 挪进了顶栏左侧（Console 的 header 里），
-          不再由外壳全局悬浮挂载。 */}
+          不再由外壳全局悬浮挂载；语言与日夜也由各页顶栏自己挂。 */}
     </>
   )
 }
