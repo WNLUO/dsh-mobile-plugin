@@ -7,6 +7,7 @@
 // 2026-11-23：线路按地区分页（国内 / 国际入口卡在本页底部）；IPv4 那栏补自动识别与候选下拉；
 // 各栏的检测结论挪进标题行、不再另占一行；自建中转那颗仓库按钮靠右。
 // 2026-11-23：网络配置改回铺在首页（用户要求），不再单开一页；去掉页面标题与「关闭返回」，只留保存。
+// 2026-11-26：网络配置卡顶部加公告刘海，文案走字典。
 // 用途：网络配置——自建中转、直连、IPv4/IPv6、TCP、FRP 与局域网地址都在这一页改。
 // 2026-11-26：七栏按用户指定顺序重排为一段自然流（局域网 / 自建中转 / IPv4 / IPv6 / TCP 直连 / 直连 / FRP），空位留末尾。
 // 2026-11-26：服务商线路入口挪到字段上方、紧跟标题，让不自建网络的用户先看到可选线路；分隔线改在它下方。
@@ -481,316 +482,322 @@ export function RelayConfigDialog({
     <>
       {/* 网络配置铺在首页（2026-11-23 用户要求）：同一套字段与控制台组件，不再单开一页、
           也没有「关闭返回」。字段的初始化仍挂 `open`（首页为真、离开首页为假），离开再回来自动复位。 */}
-      <Card frame="solid">
-        {/* 一屏两列（宽够时）：7 个 Field 交同一段 grid 按行自动填，从左到右、从上到下依次是
-            局域网地址 / 自建中转 / IPv4 / IPv6 / TCP 直连 / 直连 / FRP（2026-11-26 用户定的顺序）。
-            新方式顺着往下加即可，空位留在最后；窄窗口自动收成一列。 */}
-        <div className="flex flex-col gap-5 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-            <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
+      {/* 公告刘海贴在卡片上沿：卡片内层 overflow-hidden，所以交给外面这层 relative 定位。 */}
+      <div className="relative">
+        <div className="absolute start-1/2 top-0 z-10 min-w-[30rem] max-w-[80%] -translate-x-1/2 rounded-b-2xl border-x border-b border-border-muted bg-background px-8 py-1 text-center text-sm text-foreground-muted">
+          {t('panel.notice.text')}
+        </div>
+        <Card frame="solid">
+          {/* 一屏两列（宽够时）：7 个 Field 交同一段 grid 按行自动填，从左到右、从上到下依次是
+              局域网地址 / 自建中转 / IPv4 / IPv6 / TCP 直连 / 直连 / FRP（2026-11-26 用户定的顺序）。
+              新方式顺着往下加即可，空位留在最后；窄窗口自动收成一列。 */}
+          <div className="flex flex-col gap-5 px-4 pb-4 pt-8">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
+            </div>
+            {/* 国内 / 国际线路入口放到最上面（2026-11-26 用户要求）：绝大多数用户不自建网络，
+                先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
+            <section className="flex flex-col gap-3">
+              <div className="border-b border-border-muted pb-3">
+                <NetworkRegions onOpen={onOpenRegion} />
+              </div>
+            </section>
+            <section className="flex flex-col gap-3">
+              <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
+                  {/* 局域网地址：下拉直接选（不手填），网卡取不到时可「添加地址」；可点「检测」回环验证。 */}
+                  <Field>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
+                        {probeNote(lanProbe)}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('lan') }}>
+                          {t('panel.address.add')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canSave || lanProbe.state === 'checking'}
+                          onClick={() => probeLoop(lanProbeTarget(preferredLan), setLanProbe)}
+                        >
+                          {t(lanProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                        </Button>
+                      </div>
+                    </div>
+                    <AddressCombo
+                      id="relay-preferred-lan"
+                      value={preferredLan}
+                      placeholder={t('panel.address.lanPlaceholder')}
+                      ariaLabel={t('panel.address.lan')}
+                      readOnly
+                      options={[
+                        ...pickableAddresses.map((item) => ({ value: item.address, label: item.url })),
+                        ...extraLan.map((address) => ({ value: address, label: address })),
+                      ]}
+                      emptyText={t('panel.address.empty')}
+                      onChange={(value) => {
+                        editedPreferredRef.current = true
+                        setLanHint('')
+                        setPreferredLan(value)
+                      }}
+                    />
+                    {lanHint ? <p className="text-xs text-error">{lanHint}</p> : null}
+                    {addressError ? (
+                      <p className="text-xs text-error">
+                        {t('panel.address.loadFailed')}
+                        <Button variant="ghost" size="sm" onClick={onRetryAddresses}>{t('panel.address.retry')}</Button>
+                      </p>
+                    ) : null}
+                  </Field>
+
+                {/* 自建中转。右侧那颗「中转仓库」跳去中转本体与部署说明的仓库：想自己搭的人不用再去
+                    别处找地址。外链用 `<a>` 而不是 `window.open` —— 桌面壳只把 http(s) 交给
+                    系统浏览器，新标签页由浏览器自己开，脚本被拦也不影响（同 StarButton）。 */}
+                  <Field>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <FieldLabel htmlFor="relay-url">{t('panel.relay.selfKind')}</FieldLabel>
+                        {selfProbe.state === 'idle' ? null : (
+                          <span className={`text-xs ${selfProbe.state === 'ok' ? 'text-success' : selfProbe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'}`}>
+                            {selfProbe.state === 'checking'
+                              ? t('panel.relay.detecting')
+                              : selfProbe.state === 'ok'
+                                ? `${t('panel.relay.detectOk')}${selfProbe.version ? ` · v${selfProbe.version}` : ''}${typeof selfProbe.ms === 'number' ? ` · ${selfProbe.ms} ms` : ''}`
+                                : selfProbe.state === 'not-relay'
+                                  ? t('panel.relay.detectNotOurs')
+                                  : t('panel.relay.detectFail')}
+                          </span>
+                        )}
+                      </div>
+                      {/* 仓库链接与「检测」一起贴右边：三颗散在中间会看不出哪边是标题、哪边是动作。 */}
+                      <div className="ml-auto flex items-center gap-1">
+                        <a
+                          href={RELAY_REPO_URL}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+                        >
+                          {t('panel.relay.selfRepo')}
+                        </a>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canSave || selfProbe.state === 'checking'}
+                          onClick={checkSelfRelay}
+                        >
+                          {t(selfProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                        </Button>
+                      </div>
+                    </div>
+                    <Input
+                      inputProps={{ id: 'relay-url', className: 'font-mono' }}
+                      value={relayUrl}
+                      placeholder="https://example.com"
+                      onChange={(event) => setRelayUrl(event.target.value)}
+                    />
+                    {/^http:\/\//i.test(trimUrl(relayUrl)) ? (
+                      <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
+                    ) : null}
+                  </Field>
+
+                  <Field>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <FieldLabel htmlFor="relay-manual-ipv4">{t('panel.address.ipv4Url')}</FieldLabel>
+                        {probeNote(ipv4Probe)}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv4') }}>
+                          {t('panel.address.add')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canSave || ipv4Probe.state === 'checking'}
+                          onClick={() => probeLoop(manualIpv4Url, setIpv4Probe)}
+                        >
+                          {t(ipv4Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                        </Button>
+                      </div>
+                    </div>
+                    {/* 与局域网、IPv6 同一套：候选点箭头挑，手写的走「添加地址」。 */}
+                    <AddressCombo
+                      id="relay-manual-ipv4"
+                      value={manualIpv4Url}
+                      placeholder={t('panel.address.ipv4Placeholder')}
+                      ariaLabel={t('panel.address.ipv4Url')}
+                      readOnly
+                      options={ipv4Options}
+                      emptyText={t('panel.address.empty')}
+                      onChange={(value) => {
+                        editedIpv4Ref.current = true
+                        setManualIpv4Url(value)
+                        setIpv4Probe({ state: 'idle' })
+                      }}
+                    />
+                    {/^http:\/\//i.test(trimUrl(manualIpv4Url)) ? (
+                      <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
+                    ) : null}
+                  </Field>
+
+                  <Field>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
+                        {probeNote(ipv6Probe)}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv6') }}>
+                          {t('panel.address.add')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canSave || ipv6Probe.state === 'checking'}
+                          onClick={() => probeLoop(manualIpv6Url, setIpv6Probe)}
+                        >
+                          {t(ipv6Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                        </Button>
+                      </div>
+                    </div>
+                    {/* 探测到的 IPv6 挂成候选：点箭头挑一条，不能手敲；没有时用「添加地址」。 */}
+                    <AddressCombo
+                      id="relay-manual-ipv6"
+                      value={manualIpv6Url}
+                      placeholder={t('panel.address.ipv6Placeholder')}
+                      ariaLabel={t('panel.address.ipv6Url')}
+                      readOnly
+                      options={(addressBook?.ipv6 ?? []).map((item) => ({
+                        value: item.url,
+                        label: item.interface ? `${item.url} · ${item.interface}` : item.url,
+                      }))}
+                      emptyText={t('panel.address.empty')}
+                      onChange={(value) => {
+                        editedIpv6Ref.current = true
+                        setManualIpv6Url(value)
+                        setIpv6Probe({ state: 'idle' })
+                      }}
+                    />
+                  </Field>
+
+                  <Field>
+                    {/* TCP 直连：手机用裸 TCP 拨的目标（iOS 经本机回环绕 ATS、安卓直连）。
+                        与上面的直连地址是两条独立入口，互不覆盖。 */}
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <FieldLabel htmlFor="relay-manual-tcp">{t('panel.address.tcp')}</FieldLabel>
+                        {probeNote(tcpProbe)}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canSave || tcpProbe.state === 'checking'}
+                        onClick={() => probeLoop(manualTcpUrl, setTcpProbe)}
+                      >
+                        {t(tcpProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                      </Button>
+                    </div>
+                    <Input
+                      inputProps={{ id: 'relay-manual-tcp', className: 'font-mono' }}
+                      value={manualTcpUrl}
+                      placeholder={t('panel.address.tcpPlaceholder')}
+                      onChange={(event) => {
+                        editedTcpRef.current = true
+                        setManualTcpUrl(event.target.value)
+                        setTcpProbe({ state: 'idle' })
+                        // 填了带 scheme 的地址（尤其 https://）就当场提示：这格是明文通道，
+                        // 要走 TLS 得填到上面的「直连」。保存时还会再拦一次。
+                        setTcpHint(/^[a-z][a-z0-9+.-]*:\/\//i.test(event.target.value.trim())
+                          ? t('panel.address.tcpSchemeHint')
+                          : '')
+                      }}
+                    />
+                    {tcpHint ? <p className="text-xs text-error">{tcpHint}</p> : null}
+                  </Field>
+
+                  <Field>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
+                        {probeNote(directProbe)}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canSave || directProbe.state === 'checking'}
+                        onClick={() => probeLoop(manualLanUrl, setDirectProbe)}
+                      >
+                        {t(directProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                      </Button>
+                    </div>
+                    <Input
+                      inputProps={{ id: 'relay-manual-lan', className: 'font-mono' }}
+                      value={manualLanUrl}
+                      placeholder={t('panel.address.directPlaceholder')}
+                      onChange={(event) => {
+                        editedLanRef.current = true
+                        setManualLanUrl(event.target.value)
+                        setDirectProbe({ state: 'idle' })
+                      }}
+                    />
+                    {/^http:\/\//i.test(trimUrl(manualLanUrl)) ? (
+                      <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
+                    ) : null}
+                  </Field>
+
+                  <Field>
+                    {/* FRP 与局域网 / IPv6 / IPv4 同一套：地址来自导入的配置，只读挑候选，
+                        手敲没有意义（敲了也不改 frpc 里的映射）。配置本身走「导入」弹窗。 */}
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <FieldLabel htmlFor="relay-frp">{t('panel.frp.manageTitle')}</FieldLabel>
+                        {probeNote(frpProbe)}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => { void loadFrpConfig(); setFrpDialogOpen(true) }}>
+                          {t('panel.frp.import')}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canSave || frpProbe.state === 'checking' || !status.frp?.remoteAddress}
+                          onClick={() => probeLoop(status.frp?.remoteAddress || '', setFrpProbe)}
+                        >
+                          {t(frpProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
+                        </Button>
+                      </div>
+                    </div>
+                    <AddressCombo
+                      id="relay-frp"
+                      value={status.frp?.remoteAddress ?? ''}
+                      placeholder={t('panel.frp.remotePlaceholder')}
+                      ariaLabel={t('panel.frp.manageTitle')}
+                      readOnly
+                      options={status.frp?.remoteAddress ? [{ value: status.frp.remoteAddress, label: status.frp.remoteAddress }] : []}
+                      emptyText={t('panel.address.empty')}
+                      onChange={() => { /* 只读：地址由导入的配置决定，点候选只是回显同一条 */ }}
+                    />
+                    {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
+                  </Field>
+              </div>
+            </section>
           </div>
-          {/* 国内 / 国际线路入口放到最上面（2026-11-26 用户要求）：绝大多数用户不自建网络，
-              先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
-          <section className="flex flex-col gap-3">
-            <div className="border-b border-border-muted pb-3">
-              <NetworkRegions onOpen={onOpenRegion} />
-            </div>
-          </section>
-          <section className="flex flex-col gap-3">
-            <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
-                {/* 局域网地址：下拉直接选（不手填），网卡取不到时可「添加地址」；可点「检测」回环验证。 */}
-                <Field>
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                      <FieldLabel htmlFor="relay-preferred-lan">{t('panel.address.lan')}</FieldLabel>
-                      {probeNote(lanProbe)}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('lan') }}>
-                        {t('panel.address.add')}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canSave || lanProbe.state === 'checking'}
-                        onClick={() => probeLoop(lanProbeTarget(preferredLan), setLanProbe)}
-                      >
-                        {t(lanProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                      </Button>
-                    </div>
-                  </div>
-                  <AddressCombo
-                    id="relay-preferred-lan"
-                    value={preferredLan}
-                    placeholder={t('panel.address.lanPlaceholder')}
-                    ariaLabel={t('panel.address.lan')}
-                    readOnly
-                    options={[
-                      ...pickableAddresses.map((item) => ({ value: item.address, label: item.url })),
-                      ...extraLan.map((address) => ({ value: address, label: address })),
-                    ]}
-                    emptyText={t('panel.address.empty')}
-                    onChange={(value) => {
-                      editedPreferredRef.current = true
-                      setLanHint('')
-                      setPreferredLan(value)
-                    }}
-                  />
-                  {lanHint ? <p className="text-xs text-error">{lanHint}</p> : null}
-                  {addressError ? (
-                    <p className="text-xs text-error">
-                      {t('panel.address.loadFailed')}
-                      <Button variant="ghost" size="sm" onClick={onRetryAddresses}>{t('panel.address.retry')}</Button>
-                    </p>
-                  ) : null}
-                </Field>
 
-              {/* 自建中转。右侧那颗「中转仓库」跳去中转本体与部署说明的仓库：想自己搭的人不用再去
-                  别处找地址。外链用 `<a>` 而不是 `window.open` —— 桌面壳只把 http(s) 交给
-                  系统浏览器，新标签页由浏览器自己开，脚本被拦也不影响（同 StarButton）。 */}
-                <Field>
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                      <FieldLabel htmlFor="relay-url">{t('panel.relay.selfKind')}</FieldLabel>
-                      {selfProbe.state === 'idle' ? null : (
-                        <span className={`text-xs ${selfProbe.state === 'ok' ? 'text-success' : selfProbe.state === 'checking' ? 'text-foreground-muted' : 'text-warning'}`}>
-                          {selfProbe.state === 'checking'
-                            ? t('panel.relay.detecting')
-                            : selfProbe.state === 'ok'
-                              ? `${t('panel.relay.detectOk')}${selfProbe.version ? ` · v${selfProbe.version}` : ''}${typeof selfProbe.ms === 'number' ? ` · ${selfProbe.ms} ms` : ''}`
-                              : selfProbe.state === 'not-relay'
-                                ? t('panel.relay.detectNotOurs')
-                                : t('panel.relay.detectFail')}
-                        </span>
-                      )}
-                    </div>
-                    {/* 仓库链接与「检测」一起贴右边：三颗散在中间会看不出哪边是标题、哪边是动作。 */}
-                    <div className="ml-auto flex items-center gap-1">
-                      <a
-                        href={RELAY_REPO_URL}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-                      >
-                        {t('panel.relay.selfRepo')}
-                      </a>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canSave || selfProbe.state === 'checking'}
-                        onClick={checkSelfRelay}
-                      >
-                        {t(selfProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                      </Button>
-                    </div>
-                  </div>
-                  <Input
-                    inputProps={{ id: 'relay-url', className: 'font-mono' }}
-                    value={relayUrl}
-                    placeholder="https://example.com"
-                    onChange={(event) => setRelayUrl(event.target.value)}
-                  />
-                  {/^http:\/\//i.test(trimUrl(relayUrl)) ? (
-                    <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
-                  ) : null}
-                </Field>
-
-                <Field>
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                      <FieldLabel htmlFor="relay-manual-ipv4">{t('panel.address.ipv4Url')}</FieldLabel>
-                      {probeNote(ipv4Probe)}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv4') }}>
-                        {t('panel.address.add')}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canSave || ipv4Probe.state === 'checking'}
-                        onClick={() => probeLoop(manualIpv4Url, setIpv4Probe)}
-                      >
-                        {t(ipv4Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                      </Button>
-                    </div>
-                  </div>
-                  {/* 与局域网、IPv6 同一套：候选点箭头挑，手写的走「添加地址」。 */}
-                  <AddressCombo
-                    id="relay-manual-ipv4"
-                    value={manualIpv4Url}
-                    placeholder={t('panel.address.ipv4Placeholder')}
-                    ariaLabel={t('panel.address.ipv4Url')}
-                    readOnly
-                    options={ipv4Options}
-                    emptyText={t('panel.address.empty')}
-                    onChange={(value) => {
-                      editedIpv4Ref.current = true
-                      setManualIpv4Url(value)
-                      setIpv4Probe({ state: 'idle' })
-                    }}
-                  />
-                  {/^http:\/\//i.test(trimUrl(manualIpv4Url)) ? (
-                    <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
-                  ) : null}
-                </Field>
-
-                <Field>
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                      <FieldLabel htmlFor="relay-manual-ipv6">{t('panel.address.ipv6Url')}</FieldLabel>
-                      {probeNote(ipv6Probe)}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => { setAddDraft(''); setAddError(''); setAddOpen('ipv6') }}>
-                        {t('panel.address.add')}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canSave || ipv6Probe.state === 'checking'}
-                        onClick={() => probeLoop(manualIpv6Url, setIpv6Probe)}
-                      >
-                        {t(ipv6Probe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                      </Button>
-                    </div>
-                  </div>
-                  {/* 探测到的 IPv6 挂成候选：点箭头挑一条，不能手敲；没有时用「添加地址」。 */}
-                  <AddressCombo
-                    id="relay-manual-ipv6"
-                    value={manualIpv6Url}
-                    placeholder={t('panel.address.ipv6Placeholder')}
-                    ariaLabel={t('panel.address.ipv6Url')}
-                    readOnly
-                    options={(addressBook?.ipv6 ?? []).map((item) => ({
-                      value: item.url,
-                      label: item.interface ? `${item.url} · ${item.interface}` : item.url,
-                    }))}
-                    emptyText={t('panel.address.empty')}
-                    onChange={(value) => {
-                      editedIpv6Ref.current = true
-                      setManualIpv6Url(value)
-                      setIpv6Probe({ state: 'idle' })
-                    }}
-                  />
-                </Field>
-
-                <Field>
-                  {/* TCP 直连：手机用裸 TCP 拨的目标（iOS 经本机回环绕 ATS、安卓直连）。
-                      与上面的直连地址是两条独立入口，互不覆盖。 */}
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                      <FieldLabel htmlFor="relay-manual-tcp">{t('panel.address.tcp')}</FieldLabel>
-                      {probeNote(tcpProbe)}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!canSave || tcpProbe.state === 'checking'}
-                      onClick={() => probeLoop(manualTcpUrl, setTcpProbe)}
-                    >
-                      {t(tcpProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                    </Button>
-                  </div>
-                  <Input
-                    inputProps={{ id: 'relay-manual-tcp', className: 'font-mono' }}
-                    value={manualTcpUrl}
-                    placeholder={t('panel.address.tcpPlaceholder')}
-                    onChange={(event) => {
-                      editedTcpRef.current = true
-                      setManualTcpUrl(event.target.value)
-                      setTcpProbe({ state: 'idle' })
-                      // 填了带 scheme 的地址（尤其 https://）就当场提示：这格是明文通道，
-                      // 要走 TLS 得填到上面的「直连」。保存时还会再拦一次。
-                      setTcpHint(/^[a-z][a-z0-9+.-]*:\/\//i.test(event.target.value.trim())
-                        ? t('panel.address.tcpSchemeHint')
-                        : '')
-                    }}
-                  />
-                  {tcpHint ? <p className="text-xs text-error">{tcpHint}</p> : null}
-                </Field>
-
-                <Field>
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                      <FieldLabel htmlFor="relay-manual-lan">{t('panel.address.direct')}</FieldLabel>
-                      {probeNote(directProbe)}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!canSave || directProbe.state === 'checking'}
-                      onClick={() => probeLoop(manualLanUrl, setDirectProbe)}
-                    >
-                      {t(directProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                    </Button>
-                  </div>
-                  <Input
-                    inputProps={{ id: 'relay-manual-lan', className: 'font-mono' }}
-                    value={manualLanUrl}
-                    placeholder={t('panel.address.directPlaceholder')}
-                    onChange={(event) => {
-                      editedLanRef.current = true
-                      setManualLanUrl(event.target.value)
-                      setDirectProbe({ state: 'idle' })
-                    }}
-                  />
-                  {/^http:\/\//i.test(trimUrl(manualLanUrl)) ? (
-                    <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
-                  ) : null}
-                </Field>
-
-                <Field>
-                  {/* FRP 与局域网 / IPv6 / IPv4 同一套：地址来自导入的配置，只读挑候选，
-                      手敲没有意义（敲了也不改 frpc 里的映射）。配置本身走「导入」弹窗。 */}
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                      <FieldLabel htmlFor="relay-frp">{t('panel.frp.manageTitle')}</FieldLabel>
-                      {probeNote(frpProbe)}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => { void loadFrpConfig(); setFrpDialogOpen(true) }}>
-                        {t('panel.frp.import')}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canSave || frpProbe.state === 'checking' || !status.frp?.remoteAddress}
-                        onClick={() => probeLoop(status.frp?.remoteAddress || '', setFrpProbe)}
-                      >
-                        {t(frpProbe.state === 'checking' ? 'panel.relay.detecting' : 'panel.relay.detect')}
-                      </Button>
-                    </div>
-                  </div>
-                  <AddressCombo
-                    id="relay-frp"
-                    value={status.frp?.remoteAddress ?? ''}
-                    placeholder={t('panel.frp.remotePlaceholder')}
-                    ariaLabel={t('panel.frp.manageTitle')}
-                    readOnly
-                    options={status.frp?.remoteAddress ? [{ value: status.frp.remoteAddress, label: status.frp.remoteAddress }] : []}
-                    emptyText={t('panel.address.empty')}
-                    onChange={() => { /* 只读：地址由导入的配置决定，点候选只是回显同一条 */ }}
-                  />
-                  {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
-                </Field>
-            </div>
-          </section>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
-          {/* 保存期间给一条进度（含 FRP 导入最多等 8 秒），并可随时取消。 */}
-          {busy === 'config' ? (
-            <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-foreground-muted">
-              <Spinner />
-              {t('panel.shell.busy')}
-            </span>
-          ) : null}
-          <Button variant="primary" disabled={!canSave} onClick={submit}>
-            {t('panel.relay.saveConfig')}
-          </Button>
-        </div>
-      </Card>
+          <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
+            {/* 保存期间给一条进度（含 FRP 导入最多等 8 秒），并可随时取消。 */}
+            {busy === 'config' ? (
+              <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-foreground-muted">
+                <Spinner />
+                {t('panel.shell.busy')}
+              </span>
+            ) : null}
+            <Button variant="primary" disabled={!canSave} onClick={submit}>
+              {t('panel.relay.saveConfig')}
+            </Button>
+          </div>
+        </Card>
+      </div>
 
       {/* 局域网地址：清单放在弹窗里，几条都不影响主窗。选中即存（与配对卡同一份口径）。 */}
       <Dialog open={lanPickerOpen} onOpenChange={setLanPickerOpen}>
