@@ -4,6 +4,16 @@
 // 2026-11-20：窗口按钮（浏览器打开 / 关闭）改由 Remote 页面层渲染一次，卡片不再重复挂。
 // 2026-11-22：线路名的 keys 补上 cloudflare，兜底隧道路由能显示成档。
 // 2026-11-25：清单轮询里取到壳晚崩的一次性标记就补开浏览器，正常关窗不带标记。
+// 2026-11-27：补回临期续期与停止访问，两段列表各自成节；危险动作统一走确认弹窗，不再用 window.confirm。
+import {
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@appica/ui-react/alert-dialog'
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
@@ -25,12 +35,16 @@ import {
   recoverCrashedShell,
   remoteComputers,
   remoteErrorText,
+  remoteLease,
   remoteModes,
   type RemoteComputer,
   type RemoteComputerDiagnoseRoute,
   type RemoteComputerInvite,
   type RemoteComputerList,
+  type AuthorizedComputer,
 } from '../lib/remote-computers.ts'
+import { Dot } from './InfoRow.tsx'
+import { relativeText } from './DevicesCard.tsx'
 
 /** 在桌面端打开：显示器窗口图标。 */
 function DesktopIcon() {
@@ -92,6 +106,12 @@ function endpointText(url: string): string {
   }
 }
 
+/**
+ * 待确认的危险动作：删除绑定 / 撤销访问 / 停止访问共用一个确认弹窗。
+ * 三件都是不可撤销或会立刻断流的操作，文案按 kind 分叉，按钮统一走 destructive。
+ */
+type ConfirmAction = { kind: 'remove' | 'revoke' | 'stop'; id: string; name: string }
+
 export function RemoteComputersCard() {
   const notify = useNotify()
   const [list, setList] = useState<RemoteComputerList | null>(null)
@@ -107,6 +127,8 @@ export function RemoteComputersCard() {
   const [inviteError, setInviteError] = useState('')
   const [modeDevice, setModeDevice] = useState<RemoteComputer | null>(null)
   const [mode, setMode] = useState('auto')
+  /** 危险动作在飞之前先问一次；null = 确认弹窗关着。 */
+  const [confirm, setConfirm] = useState<ConfirmAction | null>(null)
   const [diagnoseRoutes, setDiagnoseRoutes] = useState<RemoteComputerDiagnoseRoute[] | null>(null)
   /** 正在检测线路的那台设备 id（null = 没在检测）：按设备区分，结果不会串到另一台。 */
   const [diagnosing, setDiagnosing] = useState<string | null>(null)
@@ -266,9 +288,35 @@ export function RemoteComputersCard() {
     })
   }
 
+  /**
+   * 三个危险动作都只负责开确认弹窗，真正打请求放在 runConfirm：
+   * 删除绑定 / 撤销访问 / 停止访问都得先看清是哪台机器，标题与说明按 kind 分叉。
+   */
   function remove(device: RemoteComputer) {
-    if (!window.confirm(t('panel.remote.removeConfirm', { name: device.name || device.instanceId }))) return
-    void act(`remove:${device.id}`, () => remoteComputers.remove(device.id), 'panel.remote.removed')
+    setConfirm({ kind: 'remove', id: device.id, name: device.name || device.instanceId })
+  }
+
+  function revoke(computer: AuthorizedComputer) {
+    setConfirm({ kind: 'revoke', id: computer.deviceId, name: computer.name || t('panel.remote.unknownComputer') })
+  }
+
+  /** 停止访问：窗口还开着才给这颗按钮，同样要二次确认。 */
+  function stop(device: RemoteComputer) {
+    setConfirm({ kind: 'stop', id: device.id, name: device.name || device.instanceId })
+  }
+
+  /** 临期续期：走同一份 act，按设备键上锁，一台在忙不连累别的设备。 */
+  function renew(device: RemoteComputer) {
+    void act(`renew:${device.id}`, () => remoteComputers.renew(device.id), 'panel.remote.renewDone')
+  }
+
+  function runConfirm() {
+    const target = confirm
+    if (!target) return
+    setConfirm(null)
+    if (target.kind === 'remove') void act(`remove:${target.id}`, () => remoteComputers.remove(target.id), 'panel.remote.removed')
+    else if (target.kind === 'revoke') void act(`revoke:${target.id}`, () => remoteComputers.revoke(target.id), 'panel.remote.revoked')
+    else void act(`stop:${target.id}`, () => remoteComputers.stop(target.id), 'panel.remote.stopDone')
   }
 
   const devices = list?.devices ?? []
@@ -285,10 +333,10 @@ export function RemoteComputersCard() {
         <div className="flex flex-wrap items-center gap-1">
           {available ? (
             <span className="flex flex-wrap items-center gap-1.5">
-              <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm xl:before:border xl:before:border-border xl:before:bg-background" disabled={isBusy('invite')} onClick={generateInvite}>
+              <Button variant="outline" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm" disabled={isBusy('invite')} onClick={generateInvite}>
                 {t('panel.remote.createInvite')}
               </Button>
-              <Button variant="ghost" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm xl:before:border xl:before:border-border xl:before:bg-background" disabled={isBusy('add')} onClick={() => { setInviteText(''); setDialog('add') }}>
+              <Button variant="outline" size="sm" className="px-2 text-xs xl:px-4 xl:text-sm" disabled={isBusy('add')} onClick={() => { setInviteText(''); setDialog('add') }}>
                 {t('panel.remote.add')}
               </Button>
             </span>
@@ -306,17 +354,20 @@ export function RemoteComputersCard() {
       {loadError ? <p className="mt-2 text-xs text-error">{loadError}</p> : null}
       {available ? (
         <>
-          {devices.length === 0 ? <p className="mt-3 text-xs text-foreground-muted">{t('panel.remote.empty')}</p> : null}
           <div className="mt-1 flex min-h-0 flex-1 flex-col">
+            <p className="text-xs text-foreground-muted">{t('panel.remote.devicesTitle')}</p>
+            {devices.length === 0 ? <p className="mt-3 text-xs text-foreground-muted">{t('panel.remote.empty')}</p> : null}
             {devices.map((device) => {
               const expiresAt = device.expiresAt ?? 0
               const expired = device.state === 'expired' || (expiresAt > 0 && expiresAt <= now)
               const state = device.state === 'revoked' ? 'revoked' : expired ? 'expired' : device.state
               // 桌面窗口连着才算「已打开」；关掉窗口后这里会回到未打开，打开图标重新出现。
               const opened = device.attached && device.state !== 'revoked'
+              const lease = remoteLease(device, now)
               const rowBusy = deviceBusy(device.id)
+              const minutesLeft = Math.max(0, Math.ceil(lease.remainingMs / 60_000))
               return (
-                <div key={device.id} className="flex min-h-0 flex-1 flex-col justify-between gap-2 border-b border-border-muted py-2 last:border-b-0">
+                <div key={device.id} className="flex min-h-0 flex-1 flex-col justify-between gap-1 border-b border-border-muted py-2 last:border-b-0">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="truncate text-sm text-foreground-strong">{device.name || device.instanceId}</span>
@@ -327,21 +378,35 @@ export function RemoteComputersCard() {
                         {t('panel.remote.route')}
                       </Button>
                       {opened ? (
-                        <span className="whitespace-nowrap px-1 text-xs text-foreground-muted">
-                          {channelText(device.mode)} · {channelText(device.channel)}
-                          {device.latencyMs !== null && Number.isFinite(device.latencyMs) ? ` · ${Math.round(device.latencyMs)} ms` : ''}
-                        </span>
+                        <>
+                          {device.attached && lease.warning ? (
+                            <Button variant="ghost" size="sm" className="px-2 text-xs" disabled={rowBusy} onClick={() => renew(device)}>
+                              {t('panel.remote.renew')}
+                            </Button>
+                          ) : null}
+                          <Button variant="ghost" size="sm" className="px-2 text-xs" disabled={rowBusy} onClick={() => stop(device)}>
+                            {t('panel.remote.stop')}
+                          </Button>
+                        </>
                       ) : (
-                        <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.open')} disabled={rowBusy || device.state === 'revoked' || device.state === 'connecting'} onClick={() => open(device)}>
+                        <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.open')} title={t('panel.remote.open')} disabled={rowBusy || device.state === 'revoked' || device.state === 'connecting'} onClick={() => open(device)}>
                           <DesktopIcon />
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.remove')} disabled={rowBusy} onClick={() => remove(device)}>
+                      <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.remove')} title={t('panel.remote.remove')} disabled={rowBusy} onClick={() => remove(device)}>
                         <TrashIcon />
                       </Button>
                       {rowBusy ? <Spinner /> : null}
                     </span>
                   </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-foreground-muted">
+                    <span>{t('panel.remote.labelRoute')} {channelText(device.mode)} · {channelText(device.channel)}</span>
+                    {device.latencyMs !== null && Number.isFinite(device.latencyMs) ? <span>{t('panel.remote.labelLatency')} {Math.round(device.latencyMs)} ms</span> : null}
+                    {lease.active ? <span>{t('panel.remote.timeLeft', { minutes: minutesLeft })}</span> : null}
+                  </div>
+                  {device.attached && lease.warning
+                    ? <p className="text-xs text-warning">{t('panel.remote.expiringSoon', { minutes: minutesLeft })}</p>
+                    : null}
                   {expired && device.state !== 'revoked'
                     ? <p className="text-xs text-foreground-muted">{t('panel.remote.expiredHint')}</p> : null}
                   {device.lastError || device.lastErrorCode ? <p className="text-xs break-all text-error">{remoteErrorText(device.lastErrorCode)}</p> : null}
@@ -356,12 +421,11 @@ export function RemoteComputersCard() {
                 <div key={computer.deviceId} className="flex items-center justify-between gap-2 border-b border-border-muted py-3 last:border-b-0">
                   <div className="min-w-0">
                     <p className="truncate text-sm text-foreground-strong">{computer.name || t('panel.remote.unknownComputer')}</p>
+                    <p className="text-xs text-foreground-muted">
+                      {t('panel.remote.authorizedSeen', { time: relativeText(computer.lastSeenAt, now) || '—' })}
+                    </p>
                   </div>
-                  <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.revoke')} disabled={isBusy(`revoke:${computer.deviceId}`)} onClick={() => {
-                    if (window.confirm(t('panel.remote.revokeConfirm', { name: computer.name || t('panel.remote.unknownComputer') }))) {
-                      void act(`revoke:${computer.deviceId}`, () => remoteComputers.revoke(computer.deviceId), 'panel.remote.revoked')
-                    }
-                  }}><TrashIcon /></Button>
+                  <Button variant="ghost" size="sm" className="px-2" aria-label={t('panel.remote.revoke')} title={t('panel.remote.revoke')} disabled={isBusy(`revoke:${computer.deviceId}`)} onClick={() => revoke(computer)}><TrashIcon /></Button>
                 </div>
               ))}
             </div>
@@ -384,6 +448,11 @@ export function RemoteComputersCard() {
                     <Textarea id="remote-computer-invite" rows={4} readOnly value={invitation.invite} onFocus={(event) => event.target.select()} />
                   </Field>
                   <p className="text-xs text-foreground-muted">{t(inviteExpired ? 'panel.remote.inviteExpired' : 'panel.remote.inviteRemaining', { minutes: Math.max(0, Math.ceil((invitation.expiresAt - now) / 60_000)) })}</p>
+                  {inviteExpired ? (
+                    <Button variant="outline" size="sm" disabled={dialogBusy} onClick={() => void generateInvite()}>
+                      {t('panel.remote.regenerate')}
+                    </Button>
+                  ) : null}
                   {manualCopy ? <p role="status" className="text-xs text-foreground-muted">{t('panel.remote.manualCopy')}</p> : null}
                 </>
               ) : dialogBusy ? (
@@ -438,14 +507,19 @@ export function RemoteComputersCard() {
                   {t('panel.remote.diagnose')}
                 </Button>
               </div>
-              {diagnosing === modeDevice?.id ? <Spinner /> : null}
+              {diagnosing === modeDevice?.id ? (
+                <span className="flex items-center gap-1.5 text-xs text-foreground-muted">
+                  <Spinner />{t('panel.remote.diagnosing')}
+                </span>
+              ) : null}
               {diagnoseRoutes ? (
                 <ul className="mt-1 flex flex-col gap-1">
                   {diagnoseRoutes.map((route) => (
-                    <li key={`${route.channel}:${route.url}`} className="flex items-center justify-between gap-2 text-xs">
+                    <li key={`${route.channel}:${route.url}`} className={`flex items-center justify-between gap-2 text-xs ${route.ok ? 'text-success' : 'text-error'}`}>
                       <span className="truncate">{channelText(route.channel)} · {endpointText(route.url)}</span>
-                      <span className="shrink-0 whitespace-nowrap text-foreground-muted">
-                        {route.ok ? t('panel.remote.diagnoseOk') : t('panel.remote.diagnoseFail')}
+                      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+                        <Dot tone={route.ok ? 'ok' : 'error'} />
+                        <span>{route.ok ? t('panel.remote.diagnoseOk') : t('panel.remote.diagnoseFail')}</span>
                         {route.ok && route.latencyMs !== null ? ` · ${route.latencyMs} ms` : ''}
                         {!route.ok && route.errorCode ? ` · ${remoteErrorText(route.errorCode)}` : ''}
                       </span>
@@ -466,6 +540,30 @@ export function RemoteComputersCard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={confirm !== null} onOpenChange={(open) => { if (!open) setConfirm(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirm?.kind === 'stop' ? t('panel.remote.stop') : confirm?.kind === 'revoke' ? t('panel.remote.revoke') : t('panel.remote.remove')}
+            </AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogBody className="flex flex-col gap-2 text-sm">
+            <AlertDialogDescription>
+              {confirm?.kind === 'stop'
+                ? t('panel.remote.stopConfirm', { name: confirm.name })
+                : confirm?.kind === 'revoke'
+                  ? t('panel.remote.revokeConfirm', { name: confirm.name })
+                  : t('panel.remote.removeConfirm', { name: confirm?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogBody>
+          <AlertDialogFooter className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setConfirm(null)}>{t('panel.common.cancel')}</Button>
+            <Button variant="destructive" onClick={runConfirm}>
+              {confirm?.kind === 'stop' ? t('panel.remote.stop') : confirm?.kind === 'revoke' ? t('panel.remote.revoke') : t('panel.remote.remove')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       </Card>
     </>
   )

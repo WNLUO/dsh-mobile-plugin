@@ -1,3 +1,4 @@
+// 2026-11-27 需求变更：续期 / 停止访问与列表重排回到面板，守卫补契约与界面断言、撤掉旧的「已撤」断言。
 // 2026-11-26 需求变更：按内置地址区分公用中转的分支已撤，线路名只认通道，守卫跟着改。
 /** 远程电脑面板：既有错误展示映射真实网络与助手恢复诊断。 */
 // 2026-11-25：壳熬过宽限后才崩的，清单带一次性标记；面板取到后补开浏览器，正常关窗不补。
@@ -97,23 +98,31 @@ test('每个 API 都使用既有客户端，路径、方法与参数对齐服务
   await remoteComputers.openShell('computer-a');
   await remoteComputers.remove('computer-a');
   await remoteComputers.mode('computer-a', 'relay');
+  await remoteComputers.renew('computer-a');
+  await remoteComputers.stop('computer-a');
   await remoteComputers.revoke('visiting-b');
   const base = '/api/relay/remote-computers';
-  assert.deepEqual(calls.map(({ url }) => url), [base, ...['invite', 'add', 'open', 'open-shell', 'remove', 'mode', 'revoke'].map((action) => `${base}/${action}`)]);
+  assert.deepEqual(calls.map(({ url }) => url), [base, ...['invite', 'add', 'open', 'open-shell', 'remove', 'mode', 'renew', 'stop', 'revoke'].map((action) => `${base}/${action}`)]);
   assert.equal(calls[0].method, undefined);
   assert.ok(calls.slice(1).every((call) => call.method === 'POST' && call.headers['content-type'] === 'application/json'));
   assert.deepEqual(calls.slice(1).map(({ body }) => JSON.parse(body)), [
     {}, { invite: 'dshcomputer://v1?data=invite' }, { id: 'computer-a' }, { id: 'computer-a' },
-    { id: 'computer-a' }, { id: 'computer-a', mode: 'relay' }, { deviceId: 'visiting-b' },
+    { id: 'computer-a' }, { id: 'computer-a', mode: 'relay' }, { id: 'computer-a' }, { id: 'computer-a' },
+    { deviceId: 'visiting-b' },
   ]);
+  // renew / stop 必须与 mode / remove 一样 POST { id }；revoke 仍按设备标识走 deviceId。
+  for (const action of ['renew', 'stop']) {
+    const expected = `${action}: (id: string) => apiPost<{ ok: boolean }>(\`\${BASE}/${action}\`, { id })`;
+    assert.ok(library.includes(expected), `${action} 契约须逐字对齐`);
+  }
 });
 
 test('所有操作按钮实际接线；复制失败仍保留可手动复制的绑定信息', () => {
-  for (const action of ['invite', 'add', 'remove', 'mode', 'revoke']) {
+  for (const action of ['invite', 'add', 'remove', 'mode', 'revoke', 'renew', 'stop']) {
     assert.match(component, new RegExp(`remoteComputers\\.${action}\\(`), `${action} 必须有真实调用`);
   }
-  // 续期已下沉到宿主后台自动完成；停止访问、检测线路不再有面板按钮（2026-11-15 需求变更）。
-  for (const gone of ['renew', 'stop', 'probe']) {
+  // 2026-11-27 需求变更：临期手动续期与停止访问重新回到面板，renew/stop 不再是「已撤」按钮；只留 probe。
+  for (const gone of ['probe']) {
     assert.doesNotMatch(component, new RegExp(`remoteComputers\\.${gone}\\(`), `${gone} 不应再有面板调用`);
   }
   assert.match(component, /openRemoteComputer\(device\.id\)/);
@@ -145,7 +154,7 @@ test('每设备一行：窗口连着才算打开，线路位与按钮按设备�
   assert.doesNotMatch(component, /disabled=\{disabled\}/);
 });
 
-test('租期判定：有效/到期/撤权，面板不再显示剩余时间与临期提示', async () => {
+test('租期判定：有效/到期/撤权，临期提示与剩余时间按新需求回到面板', async () => {
   const { remoteLease, REMOTE_LEASE_WARNING_MS } = await load();
   const now = 100_000;
   assert.equal(REMOTE_LEASE_WARNING_MS, 5 * 60_000);
@@ -157,12 +166,61 @@ test('租期判定：有效/到期/撤权，面板不再显示剩余时间与临
   assert.equal(remoteLease({ state: 'revoked', expiresAt: now + 3600_000 }, now).active, false);
   assert.equal(remoteLease({ state: 'idle', expiresAt: 0 }, now).active, false);
   assert.deepEqual(remoteLease({ state: 'idle', expiresAt: null }, now), { active: false, remainingMs: 0, warning: false });
-  // 续期改由宿主后台按窗口在用自动完成：面板不再画剩余时间、临期提示与手动续期按钮（2026-11-15）。
+  // 2026-11-27 需求变更：临期提示与手动续期回到面板，下面两条旧断言按新需求反向；
+  // 旧的 panel.remote.remaining 词条仍不被面板使用，这条保持原样不放宽。
   assert.doesNotMatch(component, /panel\.remote\.remaining/);
-  assert.doesNotMatch(component, /panel\.remote\.expiring/);
-  assert.doesNotMatch(component, /lease\.warning/);
+  assert.match(component, /panel\.remote\.expiringSoon/, '临期提示须回到面板');
+  assert.match(component, /lease\.warning/, '临期判定须由 remoteLease 的 warning 驱动');
   assert.match(component, /const opened = device\.attached/);
   assert.match(component, /next\.serverNow - Date\.now\(\)/);
+});
+
+test('2026-11-27 需求变更：临期续期、停止访问、两段列表与确认弹窗都真接到面板上', () => {
+  // remoteLease 不是摆设：按设备取剩余时间，临期且窗口还开着才给续期按钮与提示。
+  assert.match(component, /const lease = remoteLease\(device, now\)/);
+  assert.match(component, /device\.attached && lease\.warning/);
+  assert.match(component, /panel\.remote\.expiringSoon/);
+  assert.match(component, /panel\.remote\.timeLeft/);
+  assert.ok(component.includes("act(`renew:${device.id}`, () => remoteComputers.renew(device.id), 'panel.remote.renewDone')"));
+
+  // 停止访问：按钮在窗口开着那一行，确认后走 act，保留按设备键的 busy 锁。
+  assert.ok(component.includes('onClick={() => stop(device)}'));
+  assert.match(component, /kind: 'stop'/);
+  assert.match(component, /panel\.remote\.stopConfirm/);
+  assert.ok(component.includes("act(`stop:${target.id}`, () => remoteComputers.stop(target.id), 'panel.remote.stopDone')"));
+
+  // 两处 window.confirm 全换成 AlertDialog，危险确认统一 destructive。
+  assert.doesNotMatch(component, /window\.confirm\(/);
+  assert.match(component, /from '@appica\/ui-react\/alert-dialog'/);
+  assert.match(component, /<AlertDialogDescription>/);
+  assert.match(component, /panel\.remote\.removeConfirm/);
+  assert.match(component, /panel\.remote\.revokeConfirm/);
+  assert.match(component, /variant="destructive" onClick=\{runConfirm\}/);
+
+  // 纯图标按钮都有 title，鼠标悬浮与读屏都能说清是哪一颗。
+  for (const key of ['open', 'remove', 'revoke']) {
+    assert.match(component, new RegExp(`aria-label=\\{t\\('panel\\.remote\\.${key}'\\)\\}\\s+title=\\{t\\('panel\\.remote\\.${key}'\\)\\}`), `${key} 须有 title`);
+  }
+
+  // 列表分两段：远程电脑 + 已授权电脑，后者带上相对时间。
+  assert.match(component, /panel\.remote\.devicesTitle/);
+  assert.match(component, /panel\.remote\.authorizedTitle/);
+  assert.match(component, /relativeText\(computer\.lastSeenAt, now\)/);
+  assert.match(component, /panel\.remote\.authorizedSeen/);
+  assert.match(component, /panel\.remote\.labelRoute/);
+  assert.match(component, /panel\.remote\.labelLatency/);
+
+  // 邀请到期就地重生成，不必关窗再点顶栏。
+  assert.match(component, /panel\.remote\.regenerate/);
+  assert.match(component, /onClick=\{\(\) => void generateInvite\(\)\}/);
+
+  // 线路检测中给出文案，通/不通走主题 token，不写死颜色。
+  assert.match(component, /panel\.remote\.diagnosing/);
+  assert.match(component, /text-success/);
+  assert.match(component, /text-error/);
+  assert.match(component, /<Dot tone=\{route\.ok \? 'ok' : 'error'\} \/>/);
+  assert.doesNotMatch(component, /#[\da-fA-F]{3,8}|style=\{/);
+  assert.doesNotMatch(component, /xl:before:/);
 });
 
 test('手动线路只来自已有候选；隐藏面板不轮询，不看浏览器在线状态', async () => {
@@ -183,8 +241,11 @@ test('本机限制只影响远程电脑卡；来访电脑按独立设备标识�
   assert.match(component, /error instanceof ApiError && error\.status === 403/);
   assert.match(component, /localOnly \? <p[\s\S]*?panel\.remote\.localOnly/);
   assert.match(component, /authorizedComputers\.length > 0 \? \(/);
-  assert.match(component, /remoteComputers\.revoke\(computer\.deviceId\)/);
-  assert.match(component, /window\.confirm\(t\('panel\.remote\.revokeConfirm'/);
+  // 2026-11-27 需求变更：撤权确认改走 AlertDialog，确认框里仍按 computer.deviceId 找目标。
+  assert.match(component, /setConfirm\(\{ kind: 'revoke', id: computer\.deviceId/);
+  assert.match(component, /remoteComputers\.revoke\(target\.id\)/);
+  assert.doesNotMatch(component, /window\.confirm\(/);
+  assert.match(component, /AlertDialog/);
   assert.doesNotMatch(component, /updateDevicePermission|tierOfPermissions/);
 });
 
@@ -314,6 +375,10 @@ test('新增文案纳入十种语言，每条状态与动态通道键可取到',
   }
   for (const state of ['idle', 'connecting', 'connected', 'offline', 'expired', 'revoked']) {
     assert.ok(MESSAGES.en[`panel.remote.state.${state}`]);
+  }
+  // 2026-11-27 面板新增文案十种语言都要齐；词条由另一路补，缺一条这里就红。
+  for (const key of ['renew', 'renewDone', 'stop', 'stopDone', 'stopConfirm', 'expiringSoon', 'timeLeft', 'devicesTitle', 'authorizedSeen', 'labelRoute', 'labelLatency', 'diagnosing', 'regenerate']) {
+    assert.ok(MESSAGES.en[`panel.remote.${key}`], `panel.remote.${key}`);
   }
 });
 

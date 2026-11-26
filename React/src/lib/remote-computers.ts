@@ -1,6 +1,7 @@
 /** 远程电脑控制契约与有证据的网络、助手恢复诊断。 */
 // 2026-11-19：回退浏览器时把「没装桌面端」和「壳没起来」分开标记，前者单独提示；新增错误码补上词条映射。
 // 2026-11-25：壳熬过宽限后才崩的，经清单轮询取一次性标记补开浏览器；正常关窗不带标记。
+// 2026-11-27：面板补回临期手动续期与停止访问，契约补 renew / stop 两条 POST（路由已在宿主侧）。
 import { ApiError, apiGet, apiPost } from './api.ts'
 import { t } from './i18n/index.ts'
 
@@ -82,6 +83,8 @@ export const remoteComputers = {
   diagnose: (id: string) => apiPost<RemoteComputerDiagnose>(`${BASE}/diagnose`, { id }, { timeoutMs: 20_000 }),
   remove: (id: string) => apiPost<{ ok: boolean }>(`${BASE}/remove`, { id }),
   mode: (id: string, mode: string) => apiPost<{ ok: boolean }>(`${BASE}/mode`, { id, mode }),
+  renew: (id: string) => apiPost<{ ok: boolean }>(`${BASE}/renew`, { id }),
+  stop: (id: string) => apiPost<{ ok: boolean }>(`${BASE}/stop`, { id }),
   revoke: (deviceId: string) => apiPost<{ ok: boolean }>(`${BASE}/revoke`, { deviceId }),
 }
 
