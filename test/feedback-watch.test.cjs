@@ -1,4 +1,5 @@
 // 用途：验证 watch 轮询现有 read 端点：只收比水位新的官方回复，按间隔重问，超时给出改用 read 的提示。
+// 2026-11-26：工具注册改显式取 tools 服务，本文件假宿主跟着用 get。
 'use strict';
 
 const test = require('node:test');
@@ -125,7 +126,7 @@ test('watchFeedback：非 2xx 与网络错误带状态/原文抛出，空 key �
 
 test('dsh_feedback.watch：submit 后按 threadKey 轮询等回复，执行结果与摘要都有两态', async () => {
   let registered = null;
-  const ctx = { tools: { register: (tool) => { registered = tool; } } };
+  const ctx = { get: (name) => (name === 'tools' ? { register: (tool) => { registered = tool; } } : undefined) };
   registerFeedbackTool(ctx, { credentials: { listDevices: () => [] }, instanceId: () => 'inst-1' });
   assert.equal(watchFeedback, direct, '工具与模块导出同一份实现');
   assert.ok(registered.parameters.properties.action.enum.includes('watch'));

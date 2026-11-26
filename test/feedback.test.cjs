@@ -1,5 +1,6 @@
 // 用途：验证插件反馈提交、线程读取与续回复共用服务，保留身份、附件和重试契约。
 // 2026-11-25：context 增加结构化上报（submit_kind / scene / harness_version 等）。
+// 2026-11-26：工具注册改为显式取 tools 服务，本文件的假宿主也从 property 改成 get。
 'use strict';
 
 /**
@@ -350,7 +351,8 @@ test('submitFeedback：自检 / 探针文案不进反馈队列，真实问题照
 
 test('工具：说明不再要求查明根因、改为现象/已查/不确定；缺 content 与超长都拒', async () => {
   let registered = null;
-  const ctx = { tools: { register: (tool) => { registered = tool; } } };
+  const registry = { register: (tool) => { registered = tool; } };
+  const ctx = { get: (name) => (name === 'tools' ? registry : undefined) };
   registerFeedbackTool(ctx, depsFor([]));
   assert.equal(registered.name, 'dsh_feedback');
   assert.deepEqual([...registered.parameters.properties.action.enum].sort(), ['channels', 'read', 'submit', 'watch']);
@@ -402,11 +404,19 @@ test('工具：说明不再要求查明根因、改为现象/已查/不确定；
   await assert.rejects(() => registered.execute({ action: 'noop' }), /must be one of|invalid arguments/);
 });
 
-test('installFeedback：没有 tools 注入时静默跳过；别的注册失败照抛', () => {
-  const missing = { get tools() { throw new Error('cannot get property "tools" without inject'); } };
-  assert.doesNotThrow(() => installFeedback(missing, depsFor()));
+test('installFeedback：显式取 tools 服务，有就挂；真没有才跳过；别的注册失败照抛', () => {
+  // 需求变了（2026-11-26）：工具不能因为 profile 没注入就消失，现在显式 ctx.get('tools') 取服务，
+  // 所以「无注入」不再是跳过理由，只有宿主真没提供 tools 服务才少这一个工具。断言按新需求改。
+  let registered = null;
+  const registry = { register: (tool) => { registered = tool; } };
+  const present = { get: (name) => (name === 'tools' ? registry : undefined) };
+  installFeedback(present, depsFor());
+  assert.equal(registered.name, 'dsh_feedback', '有 tools 服务就必须挂上，注入与否不看');
 
-  const broken = { tools: { register() { throw new Error('tool registry exploded'); } } };
+  const missing = { get: () => undefined };
+  assert.doesNotThrow(() => installFeedback(missing, depsFor()), '真没服务时静默跳过');
+
+  const broken = { get: (name) => (name === 'tools' ? { register() { throw new Error('tool registry exploded'); } } : undefined) };
   assert.throws(() => installFeedback(broken, depsFor()), /tool registry exploded/);
 });
 
