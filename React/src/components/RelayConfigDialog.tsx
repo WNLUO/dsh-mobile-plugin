@@ -9,7 +9,7 @@
 // 2026-11-23：网络配置改回铺在首页（用户要求），不再单开一页；去掉页面标题与「关闭返回」，只留保存。
 // 用途：网络配置——自建中转、直连、IPv4/IPv6、TCP、FRP 与局域网地址都在这一页改。
 // 2026-11-26：七栏按用户指定顺序重排为一段自然流（局域网 / 自建中转 / IPv4 / IPv6 / TCP 直连 / 直连 / FRP），空位留末尾。
-// 2026-11-26：服务商线路入口挪到字段上方、紧跟标题，让不自建网络的用户先看到可选线路。
+// 2026-11-26：服务商线路入口挪到字段上方、紧跟标题，让不自建网络的用户先看到可选线路；分隔线改在它下方。
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import {
@@ -492,7 +492,7 @@ export function RelayConfigDialog({
           {/* 国内 / 国际线路入口放到最上面（2026-11-26 用户要求）：绝大多数用户不自建网络，
               先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
           <section className="flex flex-col gap-3">
-            <div className="border-t border-border-muted pt-3">
+            <div className="border-b border-border-muted pb-3">
               <NetworkRegions onOpen={onOpenRegion} />
             </div>
           </section>
