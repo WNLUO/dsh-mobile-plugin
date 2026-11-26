@@ -10,6 +10,7 @@
 // 钉住：本机位图才换（绝对路径，或按会话工作区解析的相对路径）；远程、data:、没给工作区
 // 目录时的相对路径、非图片字节、超预算一律保持字面 markdown —— 宁可显示成字面文本，
 // 也不能让一段历史或一帧 SSE 因为一张图取不到而挂掉。
+// 2026-11-26 补：编号背后的字节现在落在持久目录，原图被清后重投影仍要拿回同一个编号。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -17,12 +18,22 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 
+// 持久副本落在 DSH_HOME 下：整套指到自己的临时目录，别写进真家目录。
+process.env.DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-local-images-home-'));
+
 const { inlineTextImages, createTextImageBudget, localImagePathOf, localImageOf, imageSizeOf } = require('../lib/mobile/local-images.js');
 const { resolveEventAttachments } = require('../lib/mobile/attachments.js');
 const { deriveMessages } = require('../lib/mobile/sessions.js');
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const TINY_PNG = Buffer.concat([PNG_MAGIC, Buffer.from('body-of-a-fake-png')]);
+function tinyGif(width = 3, height = 2) {
+  const buf = Buffer.alloc(20);
+  buf.write('GIF89a', 0, 'latin1');
+  buf.writeUInt16LE(width, 6);
+  buf.writeUInt16LE(height, 8);
+  return buf;
+}
 
 /** 每次跑在自己的临时目录里：真实路径检测是这条逻辑的全部意义。 */
 async function withTempDir(fn) {
@@ -466,3 +477,34 @@ test('JPEG 的 EXIF 朝向 5–8 要把宽高对调（竖拍照片）', () => {
     '没有 EXIF 的 JPEG 照旧按像素读',
   );
 });
+
+// 第二台设备重新打开会话时，宿主历史里的原路径还在、那个临时文件却可能已经被清掉。
+test('原图被清掉后，同一段正文重投影仍是同一个编号，字节从持久副本取', () => withTempDir(async (dir) => {
+  const shot = path.join(dir, 'moving.gif');
+  const bytes = tinyGif(3, 2);
+  fs.writeFileSync(shot, bytes);
+  const text = `![动图](${shot})`;
+  const first = await inlineTextImages(text);
+  const matched = /!\[动图\]\(dsh-local-image:([a-f0-9]{16})\?w=3&h=2\)/.exec(first);
+  assert.ok(matched, first);
+
+  fs.unlinkSync(shot);
+  assert.equal(await inlineTextImages(text), first, '重投影必须还是同一个编号，不能退回字面 markdown');
+  const entry = localImageOf(matched[1]);
+  assert.ok(entry && fs.existsSync(entry.filePath), '字节落在我们自己的持久副本里');
+  assert.deepEqual(fs.readFileSync(entry.filePath), bytes, '副本就是原图那一份字节');
+}));
+
+test('模拟插件重启：持久索引让老编号继续可取，列目录也不会被当成路径读取', () => withTempDir(async (dir) => {
+  const shot = path.join(dir, 'again.png');
+  fs.writeFileSync(shot, TINY_PNG);
+  const text = await inlineTextImages(`![重启后](${shot})`);
+  const id = /dsh-local-image:([a-f0-9]{16})/.exec(text)[1];
+
+  const modulePath = require.resolve('../lib/mobile/local-images.js');
+  delete require.cache[modulePath];
+  const restarted = require(modulePath);
+  const entry = restarted.localImageOf(id);
+  assert.ok(entry && fs.existsSync(entry.filePath), '重启后按编号找回持久副本');
+  assert.equal(restarted.localImageOf('../index'), null, '编号形状不对仍然一律拒绝');
+}));

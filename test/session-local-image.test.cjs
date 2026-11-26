@@ -8,11 +8,14 @@
 //  1. 纯函数：登记 → 编号稳定、宽高从文件头读出来、数量上限生效；
 //  2. 取图口：只认登记表，没登记的回 404（不是回一个别的文件）；
 //  3. 契约：插件路由表与 App 路径常量两边同一条路径，编号前缀两边同一个。
+//
+// 持久副本落在 DSH_HOME 下：整套指到自己的临时目录，别碰真家目录。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+process.env.DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-local-image-home-'));
 
 const {
   inlineTextImages, localImageOf, registerLocalImage, imageSizeOf, clearLocalImages,
