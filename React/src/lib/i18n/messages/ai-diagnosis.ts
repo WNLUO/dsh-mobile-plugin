@@ -1,3 +1,4 @@
+// 2026-11-26 用户要求：悬浮入口按钮改叫「AI网络排查」，十一门语言同步；弹窗标题不动。
 // 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 /**
  * 领域字典：面板全局悬浮的 AI 问诊入口，以及发给对方 AI 的开工引导。
@@ -15,7 +16,7 @@
 
 export const AI_DIAGNOSIS = {
   'zh-Hans': {
-    'panel.aiDiagnosis.label': 'AI 问诊',
+    'panel.aiDiagnosis.label': 'AI网络排查',
     'panel.aiDiagnosis.title': 'AI 问诊',
     'panel.aiDiagnosis.hint': '选好工作区和模型，一键在这台电脑上的 AI 里发起排查',
     'panel.aiDiagnosis.workspace': '工作区',
@@ -32,7 +33,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': '这是 DSH 手机版（这台电脑上装的移动端插件）的连接问题。用户从面板一键发起问诊，没说具体症状，你要先跟用户对话把问题问清楚，再动手排查。\n\n第一步，先问清到底出了什么问题：一次只问一两个能直接答的问题。要覆盖这些情况——第一次配置 App 连不上、扫码没反应或配对码不对、配对授权被拒、手机和电脑局域网不通、设备显示离线或连上又断、电脑没连上中转、家里没有公网 IPv6、有公网 IPv4 但端口映射不通、自己搭了 frp 或自建中转、Cloudflare 临时隧道不通、用了 ZeroNews 或节点小宝这类国内线路、App 里读会话或工作区失败、插件没加载或 apiProxy 未注入、请求超时。按用户回答定位到是哪一类，别从头猜。\n\n第二步，调用这台电脑上的 dsh-mobile-kb 技能，按对应分类的顺序排查。能在电脑上自己查、自己改的就动手；够不着的就一步一步告诉用户怎么做，一次少问几句。话要短，像人说话。判断不了就如实说没定位，不要编结论。真正的通不通以手机断 Wi-Fi 走流量实测为准。\n\n第三步，如果排查下来是插件或 App 本身的问题、或者你拿不准需要官方介入，就用 dsh_feedback 工具提交反馈：说清现象、你查过什么、还差什么信息，不用先找到根因。提交后拿返回的 threadKey 调 watch 动作，它每两秒轮询现有反馈端点等第一条官方回复，最多两分钟，超时提示改用 read 查看；收到回复后结合回复继续排查，再把结论告诉用户。\n\n全程用用户当前的语言回答。',
   },
   'zh-Hant': {
-    'panel.aiDiagnosis.label': 'AI 問診',
+    'panel.aiDiagnosis.label': 'AI網路排查',
     'panel.aiDiagnosis.title': 'AI 問診',
     'panel.aiDiagnosis.hint': '選好工作區與模型，一鍵在這台電腦上的 AI 發起排查',
     'panel.aiDiagnosis.workspace': '工作區',
@@ -49,7 +50,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': '這是 DSH 手機版（這台電腦上裝的行動端外掛）的連線問題。使用者從面板一鍵發起問診，沒說具體症狀，你要先跟使用者對話把問題問清楚，再動手排查。\n\n第一步，先問清楚到底出了什麼問題：一次只問一兩個能直接答的問題。要涵蓋這些情況——第一次設定 App 連不上、掃碼沒反應或配對碼不對、配對授權被拒、手機和電腦區域網路不通、裝置顯示離線或連上又斷、電腦沒連上中轉、家裡沒有公網 IPv6、有公網 IPv4 但連線埠映射不通、自己架了 frp 或自建中轉、Cloudflare 臨時隧道不通、用了 ZeroNews 或節點小寶這類國內線路、App 裡讀的工作區或對話失敗、外掛沒載入或 apiProxy 未注入、請求逾時。按使用者回答定位是哪一類，別從頭猜。\n\n第二步，呼叫這台電腦上的 dsh-mobile-kb 技能，按對應分類的順序排查。能在電腦上自己查、自己改的就動手；夠不著的就一步一步告訴使用者怎麼做，一次少問幾句。話要短，像人說話。判斷不了就如實說沒定位，不要編結論。真正通不通以手機斷 Wi-Fi 走流量實測為準。\n\n第三步，如果排查下來是外掛或 App 本身的問題、或者你拿不準需要官方介入，就用 dsh_feedback 工具提交回饋：說清現象、你查過什麼、還差什麼資訊，不用先找到根因。提交後拿返回的 threadKey 呼叫 watch 動作，它每兩秒輪詢現有回饋端點等第一條官方回覆，最多兩分鐘，逾時提示改用 read 查看；收到回覆後結合回覆繼續排查，再把結論告訴使用者。\n\n全程用使用者當前的語言回答。',
   },
   en: {
-    'panel.aiDiagnosis.label': 'AI checkup',
+    'panel.aiDiagnosis.label': 'AI network check',
     'panel.aiDiagnosis.title': 'AI checkup',
     'panel.aiDiagnosis.hint': 'Pick a workspace and model, then start a diagnosis with the AI on this computer',
     'panel.aiDiagnosis.workspace': 'Workspace',
@@ -66,7 +67,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': 'This is a DSH Mobile (the mobile plugin installed on this computer) connectivity issue. The user started a one-tap checkup without describing a symptom, so first talk to the user to pin down the actual problem, then diagnose.\n\nStep 1. Ask what exactly is wrong, one or two directly answerable questions at a time. Cover all of these: first-time setup where the app cannot connect, scanning the QR code does nothing or the pairing code is wrong, pairing authorization rejected, phone and computer cannot reach each other over LAN, the device shows offline or connects then drops, the computer is not connected to the relay, no public IPv6 at home, public IPv4 with a port-forward that does not work, a self-hosted frp or relay server, a broken Cloudflare quick tunnel, a domestic route such as ZeroNews or JieDianXiaoBao, failing to load sessions or workspaces in the app, the plugin not loaded or apiProxy not injected, and request timeouts. Use the answer to identify the category; do not guess from scratch.\n\nStep 2. Call the dsh-mobile-kb skill on this computer and follow the ordering for the matching category. If you can check or fix it on the computer, do it; otherwise tell the user what to do, a few short steps at a time. Keep it brief and human. If you cannot determine the cause, say so instead of inventing one. The final verdict is the phone tested with Wi-Fi off on mobile data.\n\nStep 3. If it turns out to be a plugin or app bug, or you need official help, use the dsh_feedback tool to submit feedback: describe the symptom, what you checked, and what is still unknown; a root cause is not required. After submitting, call watch with the returned threadKey; it checks the existing feedback endpoint every two seconds for the first official reply, for at most two minutes, then hints to use read. Continue diagnosing with the reply and tell the user the conclusion.\n\nReply in the user current language throughout.',
   },
   ja: {
-    'panel.aiDiagnosis.label': 'AI 診断',
+    'panel.aiDiagnosis.label': 'AI ネットワーク診断',
     'panel.aiDiagnosis.title': 'AI 診断',
     'panel.aiDiagnosis.hint': 'ワークスペースとモデルを選び、この PC の AI で診断を始めます',
     'panel.aiDiagnosis.workspace': 'ワークスペース',
@@ -83,7 +84,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': 'これは DSH モバイル（この PC にインストールされたモバイル向けプラグイン）の接続の問題です。ユーザーがパネルからワンタップで診断を開始しましたが症状を書いていません。まずユーザーと対話して実際の問題を絞り込んでから診断してください。\n\n第一步：まず何が起きているかを聞きます。一度に答えやすい質問を一つか二つだけしてください。次のすべてをカバーします——初回設定でアプリが接続できない、QR をスキャンしても反応がないまたはペアリングコードが違う、ペアリング承認が拒否された、スマホと PC が LAN で通信できない、デバイスがオフライン表示または接続後に切れる、PC が中継に接続していない、自宅に公网 IPv6 がない、公网 IPv4 はあるがポート映射が通らない、frp や自建中継を構築している、Cloudflare 一時トンネルが通らない、ZeroNews や节点小宝などの国内回線を使っている、アプリでセッションやワークスペースが読めない、プラグインが読み込まれないまたは apiProxy 未注入、リクエストがタイムアウトする。回答から分類を特定し、最初から推測しないでください。\n\n第二步：この PC 上の dsh-mobile-kb スキルを呼び、該当分類の順序に従って排查してください。PC 上で自分で確認・修正できるなら実行し、できない場合は手順を短く伝えてください。話は短く、自然に。判断できない場合は特定できなかったと正直に言い、結論をでっち上げないでください。最終判定はスマホを Wi-Fi から外してモバイル通信で実測した結果です。\n\n第三步：プラグインやアプリ自体の問題、または公式の介入が必要と判断した場合は、dsh_feedback ツールでフィードバックを送信してください。現象、確認したこと、不明な点を書き、根本原因は必須ではありません。送信後は返された threadKey で watch を呼びます。watch は既存のフィードバック取得端点を2秒ごとに確認して最初の公式返信を待ち、最長2分で打ち切って read の利用を促します。返信を踏まえて排查を続け、結論をユーザーに伝えてください。\n\n最後までユーザーの現在の言語で回答してください。',
   },
   ko: {
-    'panel.aiDiagnosis.label': 'AI 진단',
+    'panel.aiDiagnosis.label': 'AI 네트워크 진단',
     'panel.aiDiagnosis.title': 'AI 진단',
     'panel.aiDiagnosis.hint': '워크스페이스와 모델을 골라 이 컴퓨터의 AI로 진단을 시작하세요',
     'panel.aiDiagnosis.workspace': '워크스페이스',
@@ -100,7 +101,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': '이것은 DSH 모바일(이 컴퓨터에 설치된 모바일 플러그인) 연결 문제입니다. 사용자가 패널에서 원터치로 진단을 시작했지만 증상을 적지 않았습니다. 먼저 사용자와 대화해 실제 문제를 좁힌 뒤 진단하세요.\n\n1단계. 무슨 일이 있는지 물어보세요. 한 번에 직접 답할 수 있는 질문을 하나 또는 두 개만 하세요. 다음을 모두 다뤄야 합니다. 처음 설정할 때 앱이 연결되지 않음, QR을 스캔해도 반응이 없거나 페어링 코드가 틀림, 페어링 승인 거부, 휴대폰과 PC가 LAN에서 통신되지 않음, 기기가 오프라인으로 표시되거나 연결 후 끊김, PC가 릴레이에 연결되지 않음, 집에 공용 IPv6가 없음, 공용 IPv4는 있지만 포트 포워딩이 안 됨, frp 또는 자체 릴레이를 구축함, Cloudflare 임시 터널이 안 됨, ZeroNews나 절점소보 같은 국내 회선 사용, 앱에서 세션이나 워크스페이스를 읽지 못함, 플러그인이 로드되지 않았거나 apiProxy가 주입되지 않음, 요청 시간 초과. 답을 바탕으로 분류를 정하세요. 처음부터 추측하지 마세요.\n\n2단계. 이 컴퓨터의 dsh-mobile-kb 스킬을 호출해 해당 분류의 순서대로 점검하세요. 컴퓨터에서 직접 확인하고 고칠 수 있으면 하고, 그렇지 않으면 사용자에게 짧은 단계로 알려주세요. 말은 짧고 자연스럽게 하세요. 판단이 안 되면 위치를 못 잡았다고 솔직히 말하고 결론을 만들어 내지 마세요. 최종 판단은 휴대폰의 Wi-Fi를 끄고 모바일 데이터로 실제 측정한 결과입니다.\n\n3단계. 플러그인이나 앱 자체 문제이거나 공식 개입이 필요하면 dsh_feedback 도구로 피드백을 제출하세요. 증상, 확인한 것, 아직 불확실한 것을 적고 원인은 꼭 찾지 않아도 됩니다. 제출 후 반환된 threadKey로 watch를 호출하세요. watch는 기존 피드백 조회 엔드포인트를 2초마다 확인해 첫 공식 답변을 최대 2분간 기다리고, 그러지 못하면 read를 쓰라고 안내합니다. 답변을 반영해 계속 점검하고 결론을 사용자에게 알리세요.\n\n내내 사용자의 현재 언어로 답변하세요.',
   },
   de: {
-    'panel.aiDiagnosis.label': 'KI-Check',
+    'panel.aiDiagnosis.label': 'KI-Netzwerkcheck',
     'panel.aiDiagnosis.title': 'KI-Check',
     'panel.aiDiagnosis.hint': 'Arbeitsbereich und Modell wählen, Diagnose mit der KI auf diesem Rechner starten',
     'panel.aiDiagnosis.workspace': 'Arbeitsbereich',
@@ -117,7 +118,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': 'Dies ist ein Verbindungsproblem von DSH Mobile (dem auf diesem Rechner installierten Mobil-Plugin). Der Nutzer hat die Diagnose per Knopfdruck im Panel gestartet, ohne ein Symptom zu nennen. Sprechen Sie zuerst mit dem Nutzer, um das eigentliche Problem einzugrenzen, und diagnostizieren Sie dann.\n\nSchritt 1: Fragen Sie, was genau passiert, jeweils nur eine oder zwei direkt beantwortbare Fragen. Decken Sie alles Folgende ab: die App kann bei der Ersteinrichtung keine Verbindung herstellen, das Scannen des QR-Codes bewirkt nichts oder der Pairing-Code ist falsch, die Pairing-Freigabe wurde abgelehnt, Telefon und Rechner erreichen sich im LAN nicht, das Gerät wird als offline angezeigt oder trennt nach der Verbindung, der Rechner ist nicht mit dem Relay verbunden, zu Hause gibt es kein öffentliches IPv6, öffentliches IPv4 ist vorhanden aber die Portweiterleitung funktioniert nicht, Sie haben frp oder ein eigenes Relay eingerichtet, der Cloudflare-Schnellkanal funktioniert nicht, eine Inlandsroute wie ZeroNews oder JieDianXiaoBao wird verwendet, Sitzungen oder Arbeitsbereiche lassen sich in der App nicht laden, das Plugin ist nicht geladen oder apiProxy wurde nicht injiziert, und Zeitüberschreitungen bei Anfragen. Bestimmen Sie die Kategorie anhand der Antwort; raten Sie nicht von vorne.\n\nSchritt 2: Rufen Sie die Fähigkeit dsh-mobile-kb auf diesem Rechner auf und folgen Sie der Reihenfolge der passenden Kategorie. Was Sie auf dem Rechner selbst prüfen oder beheben können, tun Sie; sonst sagen Sie dem Nutzer kurz, was zu tun ist. Bleiben Sie kurz und menschlich. Wenn Sie die Ursache nicht feststellen können, sagen Sie das ehrlich und erfinden Sie kein Ergebnis. Das endgültige Urteil ist der Test mit ausgeschaltetem WLAN über Mobilfunk.\n\nSchritt 3: Wenn es sich um ein Problem von Plugin oder App handelt oder Sie offizielle Hilfe brauchen, senden Sie mit dem Werkzeug dsh_feedback Feedback: beschreiben Sie das Symptom, was Sie geprüft haben und was noch unklar ist; eine gefundene Ursache ist nicht nötig. Rufen Sie nach dem Absenden watch mit der zurückgegebenen threadKey auf: Es prüft alle zwei Sekunden den vorhandenen Feedback-Endpunkt auf die erste offizielle Antwort, höchstens zwei Minuten lang, und verweist danach auf read. Setzen Sie die Diagnose mit der Antwort fort und sagen Sie dem Nutzer das Ergebnis.\n\nAntworten Sie durchgehend in der aktuellen Sprache des Nutzers.',
   },
   es: {
-    'panel.aiDiagnosis.label': 'Revisión IA',
+    'panel.aiDiagnosis.label': 'Revisión de red IA',
     'panel.aiDiagnosis.title': 'Revisión IA',
     'panel.aiDiagnosis.hint': 'Elige espacio de trabajo y modelo; inicia el diagnóstico con la IA de este equipo',
     'panel.aiDiagnosis.workspace': 'Espacio de trabajo',
@@ -134,7 +135,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': 'Este es un problema de conexión de DSH Mobile (el complemento móvil instalado en este equipo). El usuario inició una revisión con un toque en el panel sin describir el síntoma; primero habla con él para identificar el problema real y después diagnostica.\n\nPaso 1. Pregunta qué ocurre, una o dos preguntas directas a la vez. Cubre todo lo siguiente: la app no conecta en la configuración inicial, escanear el código QR no hace nada o el código de emparejamiento es incorrecto, la autorización de emparejamiento fue rechazada, el teléfono y el equipo no se ven en la LAN, el dispositivo aparece sin conexión o se corta después de conectarse, el equipo no está conectado al retransmisor, no hay IPv6 público en casa, hay IPv4 público pero el mapeo de puertos no funciona, configuraste frp o un retransmisor propio, el túnel temporal de Cloudflare no funciona, usas una ruta nacional como ZeroNews o JieDianXiaoBao, la app no puede leer sesiones o espacios de trabajo, el complemento no está cargado o apiProxy no se inyectó, y tiempos de espera. Usa la respuesta para identificar la categoría; no adivines desde cero.\n\nPaso 2. Llama a la habilidad dsh-mobile-kb en este equipo y sigue el orden de la categoría correspondiente. Lo que puedas comprobar o arreglar en el equipo, hazlo; si no, dile al usuario qué hacer en pasos breves. Habla poco y de forma natural. Si no puedes determinar la causa, dilo honestamente y no inventes una conclusión. El juicio final es la prueba con el teléfono sin Wi-Fi usando datos móviles.\n\nPaso 3. Si resulta ser un fallo del complemento o de la app, o necesitas ayuda oficial, usa la herramienta dsh_feedback para enviar comentarios: describe el síntoma, qué comprobaste y qué sigue siendo incierto; no hace falta encontrar la causa raíz. Tras enviar, llama a watch con el threadKey devuelto: consulta el endpoint de comentarios existente cada dos segundos para obtener la primera respuesta oficial, durante un máximo de dos minutos, y luego sugiere usar read. Continúa el diagnóstico con la respuesta y comunica la conclusión al usuario.\n\nResponde siempre en el idioma actual del usuario.',
   },
   fr: {
-    'panel.aiDiagnosis.label': 'Diagnostic IA',
+    'panel.aiDiagnosis.label': 'Diagnostic réseau IA',
     'panel.aiDiagnosis.title': 'Diagnostic IA',
     'panel.aiDiagnosis.hint': 'Choisissez l espace de travail et le modèle, lancez le diagnostic avec l IA de cet ordinateur',
     'panel.aiDiagnosis.workspace': 'Espace de travail',
@@ -151,7 +152,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': 'Ceci est un problème de connexion de DSH Mobile (le plugin mobile installé sur cet ordinateur). L utilisateur a lancé un diagnostic en un geste depuis le panneau sans décrire le symptôme : parlez d abord avec lui pour identifier le vrai problème, puis diagnostiquez.\n\nÉtape 1. Demandez ce qui se passe, une ou deux questions directes à la fois. Couvrez tout ce qui suit : l application ne se connecte pas lors de la configuration initiale, scanner le QR code ne donne rien ou le code de jumelage est erroné, l autorisation de jumelage a été refusée, le téléphone et l ordinateur ne se joignent pas en LAN, l appareil apparaît hors ligne ou se déconnecte après connexion, l ordinateur n est pas connecté au relais, pas d IPv6 public à la maison, un IPv4 public existe mais le mappage de port ne fonctionne pas, vous avez configuré frp ou un relais personnel, le tunnel temporaire Cloudflare ne passe pas, une route nationale comme ZeroNews ou JieDianXiaoBao est utilisée, l application ne peut pas lire les sessions ou espaces de travail, le plugin n est pas chargé ou apiProxy n est pas injecté, et les dépassements de délai. Identifiez la catégorie d après la réponse ; ne devinez pas depuis le début.\n\nÉtape 2. Appelez la compétence dsh-mobile-kb sur cet ordinateur et suivez l ordre de la catégorie correspondante. Ce que vous pouvez vérifier ou corriger sur l ordinateur, faites-le ; sinon dites à l utilisateur quoi faire en peu d étapes. Restez bref et naturel. Si vous ne pouvez pas déterminer la cause, dites-le honnêtement et n inventez pas de conclusion. Le verdict final est le test avec le téléphone en Wi-Fi coupé sur les données mobiles.\n\nÉtape 3. S il s agit d un défaut du plugin ou de l application, ou si vous avez besoin d aide officielle, utilisez l outil dsh_feedback pour envoyer un commentaire : décrivez le symptôme, ce que vous avez vérifié et ce qui reste incertain ; trouver la cause racine n est pas obligatoire. Après l envoi, appelez watch avec le threadKey renvoyé : il vérifie toutes les deux secondes l endpoint de retour existant pour la première réponse officielle, pendant deux minutes au maximum, puis invite à utiliser read. Poursuivez le diagnostic avec la réponse et communiquez la conclusion à l utilisateur.\n\nRépondez toujours dans la langue actuelle de l utilisateur.',
   },
   pt: {
-    'panel.aiDiagnosis.label': 'Verificação IA',
+    'panel.aiDiagnosis.label': 'Verificação de rede IA',
     'panel.aiDiagnosis.title': 'Verificação IA',
     'panel.aiDiagnosis.hint': 'Escolha o espaço de trabalho e o modelo; inicie o diagnóstico com a IA deste computador',
     'panel.aiDiagnosis.workspace': 'Espaço de trabalho',
@@ -168,7 +169,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': 'Este é um problema de conexão do DSH Mobile (o plugin móvel instalado neste computador). O usuário iniciou uma verificação com um toque no painel sem descrever o sintoma; primeiro converse com ele para identificar o problema real e então diagnostique.\n\nPasso 1. Pergunte o que acontece, uma ou duas perguntas diretas por vez. Cubra tudo o seguinte: o app não conecta na configuração inicial, escanear o QR code não faz nada ou o código de pareamento está errado, a autorização de pareamento foi recusada, o telefone e o computador não se alcançam na LAN, o dispositivo aparece offline ou cai depois de conectar, o computador não está conectado ao relay, não há IPv6 público em casa, existe IPv4 público mas o mapeamento de porta não funciona, você configurou frp ou um relay próprio, o túnel temporário do Cloudflare não funciona, uma rota nacional como ZeroNews ou JieDianXiaoBao está em uso, o app não consegue ler sessões ou espaços de trabalho, o plugin não está carregado ou o apiProxy não foi injetado, e tempos limite de requisição. Use a resposta para identificar a categoria; não adivinhe do zero.\n\nPasso 2. Chame a habilidade dsh-mobile-kb nesse computador e siga a ordem da categoria correspondente. O que você puder verificar ou corrigir no computador, faça; caso contrário, diga ao usuário o que fazer em poucos passos. Fale pouco e de forma natural. Se não conseguir determinar a causa, diga honestamente e não invente uma conclusão. O veredito final é o teste com o telefone sem Wi-Fi usando dados móveis.\n\nPasso 3. Se for um defeito do plugin ou do app, ou se precisar de ajuda oficial, use a ferramenta dsh_feedback para enviar feedback: descreva o sintoma, o que você verificou e o que ainda é incerto; encontrar a causa raiz não é obrigatório. Após enviar, chame watch com o threadKey retornado: ele consulta o endpoint de feedback existente a cada dois segundos pela primeira resposta oficial, por no máximo dois minutos, e então sugere usar read. Continue o diagnóstico com a resposta e informe a conclusão ao usuário.\n\nResponda sempre no idioma atual do usuário.',
   },
   ru: {
-    'panel.aiDiagnosis.label': 'Проверка ИИ',
+    'panel.aiDiagnosis.label': 'Проверка сети ИИ',
     'panel.aiDiagnosis.title': 'Проверка ИИ',
     'panel.aiDiagnosis.hint': 'Выберите рабочую область и модель — ИИ на этом компьютере выполнит диагностику',
     'panel.aiDiagnosis.workspace': 'Рабочая область',
@@ -185,7 +186,7 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.prompt': 'Это проблема подключения DSH Mobile (мобильного плагина, установленного на этом компьютере). Пользователь запустил проверку одним нажатием в панели, не описав симптом. Сначала поговорите с пользователем, чтобы выяснить реальную проблему, и только потом выполняйте диагностику.\n\nШаг 1. Спросите, что именно происходит, по одному-два вопроса, на которые можно ответить сразу. Охватите всё следующее: приложение не подключается при первой настройке, сканирование QR-кода не даёт результата или код сопряжения неверен, авторизация сопряжения отклонена, телефон и компьютер не видят друг друга в локальной сети, устройство отображается как не в сети или отключается после подключения, компьютер не подключён к ретранслятору, дома нет публичного IPv6, публичный IPv4 есть, но проброс портов не работает, вы настроили frp или собственный ретранслятор, временный туннель Cloudflare не работает, используется внутренний маршрут типа ZeroNews или JieDianXiaoBao, приложение не может прочитать сессии или рабочие области, плагин не загружен или apiProxy не внедрён, и тайм-ауты запросов. По ответу определите категорию; не гадайте с нуля.\n\nШаг 2. Вызовите навык dsh-mobile-kb на этом компьютере и следуйте порядку подходящей категории. Что можно проверить илиисправить на компьютере — сделайте сами; иначе коротко объясните пользователю, что делать. Говорите кратко и по-человечески. Если не можете определить причину, честно скажите об этом и не выдумывайте вывод. Окончательный вердикт — проверка с выключенным Wi-Fi через мобильный интернет.\n\nШаг 3. Если это дефект плагина или приложения либо нужна официальная помощь, отправьте отзыв через инструмент dsh_feedback: опишите симптом, что вы проверили и что остаётся неясным; находить первопричину не обязательно. После отправки вызовите watch с возвращённым threadKey: он каждые две секунды проверяет существующую конечную точку отзывов на первую официальную запись, не дольше двух минут, а затем советует использовать read. Продолжите диагностику с учётом ответа и сообщите пользователю вывод.\n\nОтвечайте всё время на текущем языке пользователя.',
   },
   tr: {
-    'panel.aiDiagnosis.label': 'AI kontrolü',
+    'panel.aiDiagnosis.label': 'AI ağ kontrolü',
     'panel.aiDiagnosis.title': 'AI kontrolü',
     'panel.aiDiagnosis.hint': 'Bir çalışma alanı ve model seçin, sonra bu bilgisayardaki AI ile tanılamayı başlatın',
     'panel.aiDiagnosis.workspace': 'Çalışma alanı',
