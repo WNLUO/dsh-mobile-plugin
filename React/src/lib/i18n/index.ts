@@ -1,3 +1,4 @@
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），MESSAGES 初始化同步加入。
 /**
  * 面板取词的唯一出口：`t('panel.pairing.cardTitle')`。
  *
@@ -39,6 +40,7 @@ export const MESSAGES: Record<PanelLanguage, Record<string, string>> = (() => {
     fr: {},
     pt: {},
     ru: {},
+    tr: {},
   } as Record<PanelLanguage, Record<string, string>>
   for (const language of Object.keys(out) as PanelLanguage[]) {
     out[language] = mergeTables(MESSAGE_TABLES.map((table) => table[language] ?? {}))

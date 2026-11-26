@@ -1,3 +1,4 @@
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 /**
  * 面板文案：点对点隧道（P2P）那一格与它的管理弹窗。
  *
@@ -249,5 +250,29 @@ export const P2P: PanelMessages = {
     'panel.p2p.enableLabel': 'Включить этот туннель',
     'panel.p2p.enabledToast': 'Туннель P2P включён',
     'panel.p2p.disabledToast': 'Туннель P2P выключен',
+  },
+  tr: {
+    'panel.p2p.title': 'P2P tüneli',
+    'panel.p2p.manage': 'Yönet',
+    'panel.p2p.hint': 'P2P tüneli telefon ile bu bilgisayar arasında doğrudan bir bağlantı açar; veriler hiçbir sunucudan geçmez. Geri dönülecek bir röle olmadığından "bağlantı kurulamadı" gerçekten kurulamadı anlamına gelir. Bu pencere durumu gösterir: çalışıp çalışmadığını, bu taraftaki delme adreslerini ve QR kodu açıldığında telefona verilen açık anahtarı.',
+    'panel.p2p.unavailable': 'Kullanılamıyor: bu bilgisayarda tünel yardımcısı bulunamadı (platforma ait isteğe bağlı bağımlılık kurulmamış olabilir ya da bu platform için paket yok). Kurduktan sonra DSH\'yi yeniden açın; yardımcıyı yeniden arayacak.',
+    'panel.p2p.unavailableShort': 'Kullanılamıyor',
+    'panel.p2p.disabled': 'Kapalı',
+    'panel.p2p.starting': 'Başlatılıyor',
+    'panel.p2p.waiting': 'Telefonun bağlanması bekleniyor',
+    'panel.p2p.punching': 'Bağlantı deliniyor',
+    'panel.p2p.open': 'Bağlantı kuruldu',
+    'panel.p2p.blocked': 'Bağlantı kurulamadı',
+    'panel.p2p.error': 'Hata',
+    'panel.p2p.stateLabel': 'Geçerli durum',
+    'panel.p2p.addressLabel': 'Tünel adresi',
+    'panel.p2p.candidatesLabel': 'Bu taraftaki delme adreslerim',
+    'panel.p2p.noCandidates': 'Henüz adres bulunamadı (aynı Wi-Fi\'de önce yerel adres görünür)',
+    'panel.p2p.keyLabel': 'Bu taraftaki açık anahtarım',
+    'panel.p2p.noKey': 'Henüz oluşturulmadı (eşleştirme kodu bir kez açıldığında oluşur)',
+    'panel.p2p.noAddress': 'Henüz atanmadı',
+    'panel.p2p.enableLabel': 'Bu tüneli etkinleştir',
+    'panel.p2p.enabledToast': 'P2P tüneli açıldı',
+    'panel.p2p.disabledToast': 'P2P tüneli kapatıldı',
   },
 }

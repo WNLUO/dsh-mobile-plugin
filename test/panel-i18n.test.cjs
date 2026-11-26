@@ -1,3 +1,4 @@
+// 2026-11-26：需求变更——面板语言由 10 门扩到 11 门（补 tr），LANGUAGES 随之加一门；其余断言不放宽。
 // 2026-11-24：总开关那两条提示单独钉住（shell.ts 不进领域字典检查）。
 'use strict';
 
@@ -27,7 +28,7 @@ const SRC = path.join(__dirname, '..', 'React', 'src');
 const I18N = path.join(SRC, 'lib', 'i18n');
 const MESSAGES = path.join(I18N, 'messages');
 
-const LANGUAGES = ['zh-Hans', 'zh-Hant', 'en', 'ja', 'ko', 'de', 'es', 'fr', 'pt', 'ru'];
+const LANGUAGES = ['zh-Hans', 'zh-Hant', 'en', 'ja', 'ko', 'de', 'es', 'fr', 'pt', 'ru', 'tr'];
 
 /** 读一个领域文件，返回 `{ 键: { 语言: 文案 } }`。 */
 function loadDomain(file) {
@@ -261,6 +262,7 @@ test('语言标签归一：繁体的四种写法与认不出', async () => {
     ['fr-CA', 'fr'],
     ['pt-BR', 'pt'],
     ['ru-RU', 'ru'],
+    ['tr-TR', 'tr'],
     ['it-IT', null],
     ['', null],
   ];

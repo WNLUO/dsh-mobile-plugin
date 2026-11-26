@@ -1,3 +1,4 @@
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 /**
  * 领域字典：面板全局悬浮的 AI 问诊入口，以及发给对方 AI 的开工引导。
  *
@@ -6,7 +7,7 @@
  * 顺手把它改短，而改短就等于砍掉排查覆盖面。
  *
  * 约定：
- *  - 前缀 `panel.aiDiagnosis.` 独占；十门语言逐键对齐，占位符集合一致。
+ *  - 前缀 `panel.aiDiagnosis.` 独占；十一门语言逐键对齐，占位符集合一致。
  *  - 引导正文**不内嵌知识库**：随插件装的那套技能由对方 AI 自己调。这里只管开工。
  *  - 引导点名 `dsh_feedback` 的 submit / watch 两个动作：提交后 watch 定时轮询现有反馈端点等官方回复，
  *    最多两分钟，超时提示改用 read。工具名是接口，不随语言翻译。
@@ -182,5 +183,22 @@ export const AI_DIAGNOSIS = {
     'panel.aiDiagnosis.optionsFailed': 'Не удалось прочитать рабочие области или модели: {message}',
     'panel.aiDiagnosis.close': 'Закрыть',
     'panel.aiDiagnosis.prompt': 'Это проблема подключения DSH Mobile (мобильного плагина, установленного на этом компьютере). Пользователь запустил проверку одним нажатием в панели, не описав симптом. Сначала поговорите с пользователем, чтобы выяснить реальную проблему, и только потом выполняйте диагностику.\n\nШаг 1. Спросите, что именно происходит, по одному-два вопроса, на которые можно ответить сразу. Охватите всё следующее: приложение не подключается при первой настройке, сканирование QR-кода не даёт результата или код сопряжения неверен, авторизация сопряжения отклонена, телефон и компьютер не видят друг друга в локальной сети, устройство отображается как не в сети или отключается после подключения, компьютер не подключён к ретранслятору, дома нет публичного IPv6, публичный IPv4 есть, но проброс портов не работает, вы настроили frp или собственный ретранслятор, временный туннель Cloudflare не работает, используется внутренний маршрут типа ZeroNews или JieDianXiaoBao, приложение не может прочитать сессии или рабочие области, плагин не загружен или apiProxy не внедрён, и тайм-ауты запросов. По ответу определите категорию; не гадайте с нуля.\n\nШаг 2. Вызовите навык dsh-mobile-kb на этом компьютере и следуйте порядку подходящей категории. Что можно проверить илиисправить на компьютере — сделайте сами; иначе коротко объясните пользователю, что делать. Говорите кратко и по-человечески. Если не можете определить причину, честно скажите об этом и не выдумывайте вывод. Окончательный вердикт — проверка с выключенным Wi-Fi через мобильный интернет.\n\nШаг 3. Если это дефект плагина или приложения либо нужна официальная помощь, отправьте отзыв через инструмент dsh_feedback: опишите симптом, что вы проверили и что остаётся неясным; находить первопричину не обязательно. После отправки вызовите watch с возвращённым threadKey: он каждые две секунды проверяет существующую конечную точку отзывов на первую официальную запись, не дольше двух минут, а затем советует использовать read. Продолжите диагностику с учётом ответа и сообщите пользователю вывод.\n\nОтвечайте всё время на текущем языке пользователя.',
+  },
+  tr: {
+    'panel.aiDiagnosis.label': 'AI kontrolü',
+    'panel.aiDiagnosis.title': 'AI kontrolü',
+    'panel.aiDiagnosis.hint': 'Bir çalışma alanı ve model seçin, sonra bu bilgisayardaki AI ile tanılamayı başlatın',
+    'panel.aiDiagnosis.workspace': 'Çalışma alanı',
+    'panel.aiDiagnosis.defaultWorkspace': 'Varsayılan çalışma alanı',
+    'panel.aiDiagnosis.model': 'Model',
+    'panel.aiDiagnosis.modelDefault': 'Bu bilgisayarın varsayılan modelini kullan',
+    'panel.aiDiagnosis.loading': 'Çalışma alanları ve modeller okunuyor…',
+    'panel.aiDiagnosis.start': 'Tanılamayı başlat',
+    'panel.aiDiagnosis.starting': 'Başlatılıyor…',
+    'panel.aiDiagnosis.started': 'Yeni bir sohbete gönderildi. Tanılamaya DSH tarafında devam edin.',
+    'panel.aiDiagnosis.failed': 'Başlatılamadı: {message}',
+    'panel.aiDiagnosis.optionsFailed': 'Çalışma alanları veya modeller okunamadı: {message}',
+    'panel.aiDiagnosis.close': 'Kapat',
+    'panel.aiDiagnosis.prompt': 'Bu, DSH Mobil\'in (bu bilgisayarda kurulu mobil eklentinin) bağlantı sorunudur. Kullanıcı tek dokunuşla bir kontrol başlattı ve belirti anlatmadı; önce kullanıcıyla konuşup asıl sorunu netleştirin, sonra tanılamaya geçin.\\n\\nAdım 1. Tam olarak neyin yanlış gittiğini sorun; aynı anda bir veya iki, doğrudan cevaplanabilir soru sorun. Şu durumların hepsini kapsayın: ilk kurulumda uygulama bağlanamıyor, QR kodunu taramak bir işe yaramıyor veya eşleştirme kodu yanlış, eşleştirme yetkisi reddedildi, telefon ve bilgisayar yerel ağ üzerinden birbirine erişemiyor, cihaz çevrimdışı görünüyor ya da bağlanıp kopuyor, bilgisayar röleye bağlı değil, evde genel IPv6 yok, genel IPv4 var ama port yönlendirme çalışmıyor, kendiniz kurduğunuz frp veya röle sunucusu, Cloudflare hızlı tüneli çalışmıyor, ZeroNews veya JieDianXiaoBao gibi yerel hat kullanılıyor, uygulamada oturumlar veya çalışma alanları okunamıyor, eklenti yüklenmemiş veya apiProxy enjekte edilmemiş, istek zaman aşımları. Cevaba göre hangi kategori olduğunu belirleyin; sıfırdan tahmin etmeyin.\\n\\nAdım 2. Bu bilgisayardaki dsh-mobile-kb becerisini çağırın ve ilgili kategorinin sırasını izleyin. Bilgisayarda kontrol edip düzeltebiliyorsanız yapın; erişemiyorsanız kullanıcıya adım adım, her seferinde birkaç kısa adımda ne yapacağını söyleyin. Sözleriniz kısa ve insan gibi olsun. Nedenini belirleyemiyorsanız bulamadığınızı söyleyin, uydurmayın. Gerçek sonuç, telefonun Wi-Fi\'yi kapatıp mobil veriyle test edilmesidir.\\n\\nAdım 3. Tanılama sonucunda eklenti veya uygulama hatası olduğu ortaya çıkarsa ya da resmi yardıma ihtiyacınız varsa, geri bildirim göndermek için dsh_feedback aracını kullanın: belirtiyi, neleri kontrol ettiğinizi ve hangi bilginin eksik olduğunu anlatın; kök nedeni bulmanız gerekmez. Gönderdikten sonra dönen threadKey ile watch eylemini çağırın; mevcut geri bildirim uç noktasını iki saniyede bir, en fazla iki dakika boyunca ilk resmi yanıt için kontrol eder, ardından read kullanmayı önerir. Yanıtla birlikte tanılamaya devam edin ve sonucu kullanıcıya söyleyin.\\n\\nBaştan sona kullanıcının o anki dilinde cevap verin.',
   },
 }

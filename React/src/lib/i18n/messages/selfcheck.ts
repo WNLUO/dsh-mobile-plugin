@@ -1,3 +1,4 @@
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 /**
  * 面板文案：连接自检（`GET /api/relay/selfcheck`）。
  *
@@ -303,5 +304,34 @@ export const SELFCHECK: PanelMessages = {
     'panel.selfcheck.unavailable': 'На этом хосте ещё нет интерфейса самопроверки — обновите плагин и посмотрите снова.',
     'panel.selfcheck.checkedAt': 'Проверено {time}',
     'panel.selfcheck.port': 'Порт {port}',
+  },
+  tr: {
+    'panel.selfcheck.title': 'Bağlantı kontrolü',
+    'panel.selfcheck.firewall': 'Güvenlik duvarı',
+    'panel.selfcheck.mobile': 'Telefonun son ziyareti',
+    'panel.selfcheck.allowed': 'İzin verildi',
+    'panel.selfcheck.blocked': 'Engellendi',
+    'panel.selfcheck.firewallOff': 'Kapalı, bir şeyi engellemiyor',
+    'panel.selfcheck.unknown': 'Öğrenilemedi',
+    'panel.selfcheck.mobileNever': 'Hiç gelmedi',
+    'panel.selfcheck.mobileIdle': 'Son 30 dakikada gelmedi',
+    'panel.selfcheck.mobileRecent': 'Son zamanlarda geldi',
+    'panel.selfcheck.verdict.ok': 'Telefon yakın zamanda bağlandı, bu hat çalışıyor.',
+    'panel.selfcheck.verdict.notListening': 'Doğrudan bağlantı portu dinlenmiyor, telefon bağlanamıyor — ana sayfadaki "Bağlantı durumu → Yerel ağ doğrudan" bölümünden yeniden bağlanın.',
+    'panel.selfcheck.verdict.firewallBlocked': 'Sistem güvenlik duvarı bu programı engelliyor — sistem ayarlarından izin verin; kurulum sayfasındaki "Güvenlik duvarını kontrol et" penceresinde işletim sistemine göre adımlar var.',
+    'panel.selfcheck.verdict.unknown': 'Bu makine güvenlik duvarı durumunu okutmuyor, normal sayılamaz — sistem güvenlik duvarının programı izin verip vermediğini kendiniz kontrol edin.',
+    'panel.selfcheck.verdict.network': 'Bilgisayar tarafında sorun yok, ama telefon son 30 dakikada gelmedi — büyük olasılıkla farklı Wi-Fi, yönlendiricinin cihaz yalıtımı ya da röleden geçmesi gerekiyor.',
+    'panel.selfcheck.short.ok': 'Normal',
+    'panel.selfcheck.short.notListening': 'Doğrudan port dinlenmiyor',
+    'panel.selfcheck.short.firewallBlocked': 'Güvenlik duvarı engelliyor',
+    'panel.selfcheck.short.unknown': 'Güvenlik duvarı durumu öğrenilemedi',
+    'panel.selfcheck.short.network': 'Telefon 30 dakikadır gelmedi',
+    'panel.selfcheck.checking': 'Kontrol ediliyor…',
+    'panel.selfcheck.notChecked': 'Henüz kontrol edilmedi',
+    'panel.selfcheck.recheck': 'Yeniden kontrol et',
+    'panel.selfcheck.failed': 'Kontrol tamamlanamadı',
+    'panel.selfcheck.unavailable': 'Bu hostun henüz kendi kendini kontrol arayüzü yok; eklentiyi güncelleyip tekrar bakın.',
+    'panel.selfcheck.checkedAt': '{time} zamanında kontrol edildi',
+    'panel.selfcheck.port': 'Port {port}',
   },
 }

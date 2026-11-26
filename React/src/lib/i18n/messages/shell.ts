@@ -1,3 +1,4 @@
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 // 2026-11-24：停用总开关的提示不再承诺手机断开，补总开关下发失败的提示。
 /**
  * 面板文案：外壳与几张小卡（连接、配对、收件、地址选择、渠道路径、状态词）。
@@ -205,6 +206,25 @@ export const COMMON: PanelMessages = {
     'panel.language.open': 'Язык',
     'panel.language.system': 'Как в браузере',
   },
+  tr: {
+    'panel.common.show': 'Göster',
+    'panel.common.more': 'Diğer',
+    'panel.common.hide': 'Gizle',
+    'panel.common.close': 'Kapat',
+    'panel.common.copy': 'Kopyala',
+    'panel.common.none': 'Yok',
+    'panel.common.cores': 'çekirdek',
+    'panel.shell.deviceAllowed': 'Yeni cihazların eşleşmesine izin verildi.',
+    'panel.shell.deviceDenied': 'Yeni cihazlar artık kabul edilmiyor; eşleşmiş telefonlar çalışmaya devam eder.',
+    'panel.common.cancel': 'İptal',
+    'panel.common.save': 'Kaydet',
+    'panel.common.view': 'Görüntüle',
+    'panel.common.edit': 'Değiştir',
+    'panel.shell.loading': 'Eklenti durumu okunuyor…',
+    'panel.shell.restartHint': 'Eklentiyi yeni kurdunuz veya bilgisayardaki eklenti yeni güncellendiyse DSH\'yi bir kez yeniden başlatıp bu sayfayı tekrar açın.',
+    'panel.language.open': 'Arayüz dili',
+    'panel.language.system': 'Tarayıcıyı takip et',
+  },
 }
 
 /** 状态词与格式：一眼要读得懂的那几个词。 */
@@ -409,6 +429,26 @@ export const STATUS: PanelMessages = {
     'panel.shell.deviceAllowed': 'Новые устройства теперь могут пройти сопряжение.',
     'panel.shell.deviceDenied': 'Новые устройства отклоняются; уже сопряжённые телефоны работают как прежде.',
   },
+  tr: {
+    'panel.status.connected': 'Bağlandı',
+    'panel.status.connecting': 'Bağlanıyor',
+    'panel.status.error': 'Kapatıldı',
+    'panel.status.off': 'Etkin değil',
+    'panel.lan.off': 'Etkin değil',
+    'panel.lan.listening': 'Dinleniyor',
+    'panel.lan.error': 'Başlatılamadı',
+    'panel.sidecar.healthy': 'Çalışıyor',
+    'panel.sidecar.starting': 'Başlatılıyor',
+    'panel.sidecar.restarting': 'Yeniden başlatılıyor',
+    'panel.sidecar.error': 'Hata',
+    'panel.sidecar.stopped': 'Durduruldu',
+    'panel.ago.justNow': 'az önce',
+    'panel.ago.minutes': '{count} dakika önce',
+    'panel.ago.hours': '{count} saat önce',
+    'panel.ago.days': '{count} gün önce',
+    'panel.shell.deviceAllowed': 'Yeni cihazların eşleşmesine izin verildi.',
+    'panel.shell.deviceDenied': 'Yeni cihazlar artık kabul edilmiyor; eşleşmiş telefonlar çalışmaya devam eder.',
+  },
 }
 
 /** 面板里的动作回执与确认（控制台这一版共用）。 */
@@ -602,5 +642,24 @@ export const SHELL: PanelMessages = {
     'panel.shell.busy': 'Обработка…',
     'panel.shell.deviceAllowed': 'Новые устройства теперь могут пройти сопряжение.',
     'panel.shell.deviceDenied': 'Новые устройства отклоняются; уже сопряжённые телефоны работают как прежде.',
+  },
+  tr: {
+    'panel.shell.remoteEnabled': 'Uzaktan kontrol etkinleştirildi.',
+    'panel.shell.remoteDisabled': 'Uzaktan kontrol devre dışı bırakıldı; röle ve yerel ağ kanalları kapatıldı.',
+    'panel.shell.sidecarRestarted': 'Sidecar süreci yeniden başlatıldı.',
+    'panel.shell.configSaved': 'Yapılandırma kaydedildi.',
+    'panel.shell.applyFailed': 'Ayarlar kaydedildi ama uygulanamadı: {message}. Adresi kontrol edip tekrar deneyin; telefonunuz şu anda bağlanamıyor olabilir.',
+    'panel.shell.toggleApplyFailed': 'Anahtar kaydedildi ama uygulanamadı: {message}. Yeniden deneyin veya sidecar sürecini yeniden başlatın.',
+    'panel.shell.lanSaved': 'Yerel ağ ayarları kaydedildi.',
+    'panel.shell.preferredAddress': 'Telefonunuz {address} adresini öncelikli kullanacak.',
+    'panel.shell.preferredAuto': 'Ağ arabirimi sırasına göre otomatik seçime geri dönüldü.',
+    'panel.shell.unknownVersion': 'Bilinmeyen sürüm',
+    'panel.shell.title': 'Mobil',
+    'panel.shell.subtitle': 'Telefonunuzu bu bilgisayardaki DSH\'ye bağlayın',
+    'panel.shell.statusFailed': 'Eklenti durumu okunamadı',
+    'panel.shell.readingStatus': 'Durum okunuyor…',
+    'panel.shell.busy': 'İşlem sürüyor…',
+    'panel.shell.deviceAllowed': 'Yeni cihazların eşleşmesine izin verildi.',
+    'panel.shell.deviceDenied': 'Yeni cihazlar artık kabul edilmiyor; eşleşmiş telefonlar çalışmaya devam eder.',
   },
 }

@@ -1,6 +1,7 @@
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 /**
  * 网络面板文案：只有指标卡那四个标签，刻度与时间由采样直接生成。
- * 十门语言逐键对齐（守卫 `test/panel-network-panel.test.cjs` 会查）。
+ * 十一门语言逐键对齐（守卫 `test/panel-network-panel.test.cjs` 会查）。
  *
  * 口径从本机看：上行=本机发出去（与「总发送」同向），下行=本机收进来（与「总接收」同向）。
  */
@@ -70,5 +71,11 @@ export const NETWORK_PANEL: PanelMessages = {
     'panel.network.down': 'Приём',
     'panel.network.totalSent': 'Отправлено',
     'panel.network.totalReceived': 'Получено',
+  },
+  tr: {
+    'panel.network.up': 'Yükleme',
+    'panel.network.down': 'İndirme',
+    'panel.network.totalSent': 'Toplam gönderilen',
+    'panel.network.totalReceived': 'Toplam alınan',
   },
 }

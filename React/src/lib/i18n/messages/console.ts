@@ -1,3 +1,4 @@
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 /** 控制台入口、状态与二维码超时、取码重试的多语言文案。 */
 import type { PanelMessages } from './shell.ts'
 
@@ -81,5 +82,13 @@ export const CONSOLE: PanelMessages = {
     'panel.console.statusTimeout': 'Истекло время ожидания состояния плагина. Перезагрузите страницу.',
     'panel.console.retryPairing': 'Получить QR-код ещё раз',
     'panel.console.pairingTimeout': 'Истекло время получения QR-кода. Попробуйте снова.',
+  },
+  tr: {
+    'panel.console.openBrowser': 'Tarayıcıda aç',
+    'panel.console.replayGuide': 'Kurulumu yeniden izle',
+    'panel.console.reload': 'Yeniden yükle',
+    'panel.console.statusTimeout': 'Eklentinin durumu okunurken zaman aşımı oluştu. Yeniden yükleyip tekrar deneyin.',
+    'panel.console.retryPairing': 'QR kodunu yeniden al',
+    'panel.console.pairingTimeout': 'QR kodu alınırken zaman aşımı oluştu. Lütfen tekrar deneyin.',
   },
 }

@@ -1,6 +1,7 @@
-// 用途：反馈回执文案，十门语言逐键对齐。
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
+// 用途：反馈回执文案，十一门语言逐键对齐。
 /**
- * 反馈提交后的回执文案（十门语言）。
+ * 反馈提交后的回执文案（十一门语言）。
  *
  * 正文是一整段带空行的长句，靠 `whitespace-pre-line` 还原分段，不拆成多条键。
  */
@@ -66,5 +67,11 @@ export const NOTICE: PanelMessages = {
     'panel.feedback.copyKey': 'Скопировать ключ',
     'panel.feedback.keyCopied': 'Ключ скопирован.',
     'panel.feedback.keyCopyFailed': 'Не удалось скопировать; выделите ключ и скопируйте вручную.',
+  },
+  tr: {
+    'panel.feedback.receipt': 'Gönderildi. Geri bildirim anahtarı {key}. Kayıtlarınız için kopyalayın; bu önce bu bilgisayarda kalır ve uygulamanın geri bildirim listesine yazılmaz.',
+    'panel.feedback.copyKey': 'Anahtarı kopyala',
+    'panel.feedback.keyCopied': 'Anahtar kopyalandı.',
+    'panel.feedback.keyCopyFailed': 'Anahtar kopyalanamadı; seçip elle kopyalayın.',
   },
 }

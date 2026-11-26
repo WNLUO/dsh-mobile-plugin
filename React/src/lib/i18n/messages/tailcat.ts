@@ -1,3 +1,4 @@
+// 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 /**
  * 面板文案：手机直连隧道（Tailcat）那一格与它的管理弹窗。
  *
@@ -219,5 +220,26 @@ export const TAILCAT: PanelMessages = {
     'panel.tailcat.revokedToast': 'Телефон убран',
     'panel.tailcat.enabledToast': 'Туннель Tailcat включён',
     'panel.tailcat.disabledToast': 'Туннель Tailcat выключен',
+  },
+  tr: {
+    'panel.tailcat.title': 'Tailcat tüneli',
+    'panel.tailcat.manage': 'Yönet',
+    'panel.tailcat.hint': 'Tailcat tüneli, telefonun bir röle olmadan doğrudan bu bilgisayara bağlanmasını sağlar. Burada tünelin çalışıp çalışmadığını, hangi telefonların bağlanmasına izin verildiğini görebilir, tüm kanalı kapatabilir veya bir telefonu çıkarabilirsiniz.',
+    'panel.tailcat.unavailable': 'Kullanılamıyor: bu bilgisayarda tünel yardımcısı bulunamadı (platforma ait isteğe bağlı bağımlılık kurulmamış olabilir ya da bu platform için paket yok). Kurduktan sonra DSH\'yi yeniden açın veya buradan kodu tekrar alın; yardımcıyı yeniden arayacak.',
+    'panel.tailcat.unavailableShort': 'Kullanılamıyor',
+    'panel.tailcat.disabled': 'Kapalı',
+    'panel.tailcat.starting': 'Başlatılıyor',
+    'panel.tailcat.ready': 'Hazır',
+    'panel.tailcat.error': 'Hata',
+    'panel.tailcat.enableLabel': 'Bu tüneli etkinleştir',
+    'panel.tailcat.pairedLabel': 'İzin verilen telefonlar',
+    'panel.tailcat.addressLabel': 'Tünel adresi',
+    'panel.tailcat.noAddress': 'Henüz atanmadı',
+    'panel.tailcat.noClients': 'Henüz bağlanan telefon yok',
+    'panel.tailcat.revoke': 'Kaldır',
+    'panel.tailcat.revokeConfirm': 'Kaldırıldığında bu telefon Tailcat tüneli üzerinden bu bilgisayara doğrudan bağlanamaz ve açık bağlantılar kopar. Kaldırılsın mı?',
+    'panel.tailcat.revokedToast': 'Telefon kaldırıldı',
+    'panel.tailcat.enabledToast': 'Tailcat tüneli açıldı',
+    'panel.tailcat.disabledToast': 'Tailcat tüneli kapatıldı',
   },
 }
