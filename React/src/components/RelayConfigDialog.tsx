@@ -9,6 +9,7 @@
 // 2026-11-23：网络配置改回铺在首页（用户要求），不再单开一页；去掉页面标题与「关闭返回」，只留保存。
 // 用途：网络配置——自建中转、直连、IPv4/IPv6、TCP、FRP 与局域网地址都在这一页改。
 // 2026-11-26：七栏按用户指定顺序重排为一段自然流（局域网 / 自建中转 / IPv4 / IPv6 / TCP 直连 / 直连 / FRP），空位留末尾。
+// 2026-11-26：服务商线路入口挪到字段上方、紧跟标题，让不自建网络的用户先看到可选线路。
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import {
@@ -488,6 +489,13 @@ export function RelayConfigDialog({
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
             <h2 className="text-base font-medium text-foreground-strong">{t('panel.pairing.openConfig')}</h2>
           </div>
+          {/* 国内 / 国际线路入口放到最上面（2026-11-26 用户要求）：绝大多数用户不自建网络，
+              先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
+          <section className="flex flex-col gap-3">
+            <div className="border-t border-border-muted pt-3">
+              <NetworkRegions onOpen={onOpenRegion} />
+            </div>
+          </section>
           <section className="flex flex-col gap-3">
             <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
                 {/* 局域网地址：下拉直接选（不手填），网卡取不到时可「添加地址」；可点「检测」回环验证。 */}
@@ -766,14 +774,6 @@ export function RelayConfigDialog({
                   />
                   {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
                 </Field>
-            </div>
-          </section>
-
-          {/* 国内 / 国际两条线路各自的入口（2026-11-23 用户要求）：点开是独立一页，
-              线路越加越多也不会把这一页撑长，海外用户也不必看国内服务商。 */}
-          <section className="flex flex-col gap-3">
-            <div className="border-t border-border-muted pt-3">
-              <NetworkRegions onOpen={onOpenRegion} />
             </div>
           </section>
         </div>
