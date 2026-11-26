@@ -1,3 +1,4 @@
+// 2026-11-26：运行中才点连接也要挂体检，客户端静默退出后能自愈重连。
 // 2026-11-26：体检发现落点端口失效要清掉旧地址并通知兜底重新判定，不自动重连。
 // 2026-11-25：端口失配要清掉状态里的旧地址，别让它进配对码。
 // 2026-11-25：连上后定时体检发现客户端没了，要自动安排重连。
@@ -560,4 +561,46 @@ test('体检判定落点端口失效：清旧地址、通知兜底重判，不�
 test('装配层：落点失效通知接到 Cloudflare 兜底重新判定', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'impl.js'), 'utf8');
   assert.ok(source.includes('onRouteStale: () => cloudflare?.reconcile?.()'), '清掉失效地址后要让兜底重新判定顶上');
+});
+
+test('运行中才点连接：连上后体检挂上，客户端静默退出能自愈重连', async () => {
+  const state = { zeroNewsEnabled: false, zeroNewsUrl: '' };
+  let checks = 0;
+  let starts = 0;
+  let onExit = null;
+  let phase = 'off';
+  const runner = {
+    start: async () => { starts += 1; phase = 'connected'; return { phase, url: 'https://ok.example.com' }; },
+    stop: () => { phase = 'off'; return { phase }; },
+    status: () => ({ phase }),
+    checkAlive: async () => {
+      checks += 1;
+      if (checks === 1) { phase = 'error'; if (onExit) onExit('客户端意外退出'); }
+      return { phase, errorReason: '' };
+    },
+  };
+  let cleanup = null;
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: { update: async (patch) => { Object.assign(state, patch); } },
+    getState: () => state,
+    control: {}, warn: () => {},
+    ctx: { effect: (fn) => { cleanup = fn(); return () => {}; } },
+    name: 'test-late-connect',
+    portOf: () => 18787,
+    healthCheckMs: 5,
+    retryBaseMs: 5,
+    runnerFactory: (options) => { onExit = options.onUnexpectedExit; return runner; },
+    ensure: async () => ({ ok: true, path: '/x' }),
+  });
+  assert.equal(checks, 0, '还没连过时不体检');
+  assert.equal((await facade.start()).phase, 'connected');
+  await tick(80);
+  assert.ok(checks >= 1, '运行中才点连接，连上后也要开始体检');
+  assert.ok(starts >= 2, '体检发现客户端没了要自动重连，别卡在假连接上');
+  if (cleanup) cleanup();
+
+  // 变异证明：连上后必须补挂体检，少了这一句守卫就该红。
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'wiring.cjs'), 'utf8');
+  assert.match(source, /retryMs = retryBaseMs; startHealth\(\)/, '连接成功后要把体检定时器挂上');
 });
