@@ -1,3 +1,4 @@
+// 2026-11-26：体检发现落点端口失效要清掉旧地址并通知兜底重新判定，不自动重连。
 // 2026-11-25：端口失配要清掉状态里的旧地址，别让它进配对码。
 // 2026-11-25：连上后定时体检发现客户端没了，要自动安排重连。
 // ZeroNews 接线层：插件自动更新 / 就地重载把客户端弄断后要能自愈，别卡死在错误上。
@@ -500,4 +501,63 @@ test('落点端口：还没有隧道时用判据给的首选值', () => {
   const env = mountWith(runner, { runnerFactory: (opts) => { received = opts; return runner; } });
   assert.equal(received.portOf(), 18787, '没有隧道才按首选值建');
   env.cleanup();
+});
+
+test('体检判定落点端口失效：清旧地址、通知兜底重判，不自动重连', async () => {
+  const writes = [];
+  let staleNotifications = 0;
+  let starts = 0;
+  const state = { zeroNewsEnabled: true, zeroNewsUrl: 'https://stale.example.com' };
+  const runner = {
+    start: async () => { starts += 1; return { phase: 'connected', url: 'https://stale.example.com' }; },
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'connected', url: 'https://stale.example.com' }),
+    // 运行器体检已经探过落点、判了失效；接线层只按 reason 收尾。
+    checkAlive: async () => ({
+      phase: 'error',
+      error: '旧隧道指向的本机端口 18787 没有服务监听，请在控制台删除旧隧道后重新接入',
+      errorReason: 'port-dead',
+      retryable: false,
+    }),
+  };
+  let cleanup = null;
+  const ctx = { effect: (fn) => { cleanup = fn(); return () => {}; } };
+  const facade = mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: {
+      update: async (patch, options) => { writes.push({ patch, options }); Object.assign(state, patch); },
+    },
+    getState: () => state,
+    control: {},
+    warn: () => {},
+    ctx,
+    name: 'test-port-dead',
+    portOf: () => 52831,
+    healthCheckMs: 5,
+    retryBaseMs: 5,
+    runnerFactory: () => runner,
+    ensure: async () => ({ ok: true, path: '/x' }),
+    onRouteStale: () => { staleNotifications += 1; },
+  });
+  assert.equal(typeof facade.start, 'function');
+  await tick(80);
+  assert.equal(state.zeroNewsUrl, '', '失效地址要清掉，才不会被 hasOtherRoute 算作可用线路');
+  assert.ok(
+    writes.some((w) => w.patch.zeroNewsUrl === '' && w.options && w.options.notify === false),
+    '沿用 notify:false：只落盘改内存，不走 watch 触发 configured 重连',
+  );
+  assert.equal(staleNotifications, 1, 'notify:false 不触发 watch，得显式通知兜底重新判定');
+  assert.equal(starts, 1, '只挂载时连过一次，失效后不自动重连、不重建云端隧道');
+  if (cleanup) cleanup();
+
+  // 变异证明：按 reason 认出落点失效、只落盘清地址、显式通知兜底，缺一不可。
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'wiring.cjs'), 'utf8');
+  assert.match(source, /errorReason === 'port-dead'/, '体检结果要按 port-dead 认出落点失效');
+  assert.match(source, /zeroNewsUrl: '' \}, \{ notify: false \}/, '清地址要 notify:false');
+  assert.match(source, /onRouteStale\(\)/, '清地址后要显式通知兜底');
+});
+
+test('装配层：落点失效通知接到 Cloudflare 兜底重新判定', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'impl.js'), 'utf8');
+  assert.ok(source.includes('onRouteStale: () => cloudflare?.reconcile?.()'), '清掉失效地址后要让兜底重新判定顶上');
 });

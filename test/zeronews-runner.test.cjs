@@ -1,3 +1,4 @@
+// 2026-11-26：体检要探隧道落点端口，没监听就判失效；只看 CLI 的 running 会把死线路当可用。
 // 2026-11-25：新版 CLI 只报 connected 不报 running，体检仍要认出客户端活着。
 // 2026-11-25：端口失配给错误打上 reason，接线层据此清掉状态里的旧地址。
 // 2026-11-25：体检守卫——守护进程死了打回 error 并自愈；CLI 读不到时别抖线路。
@@ -561,4 +562,73 @@ test('变异证明：不记录隧道端口，接线层就会把在用的隧道�
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'runner.cjs'), 'utf8');
   assert.match(source, /tunnelLocalPort = Number\.isInteger\(found\.localPort\)/, '复用分支要记下隧道端口');
   assert.match(source, /tunnelLocalPort,\s*\n\s*\}/, 'status 要把这个端口交给接线层');
+});
+
+/** 体检探活用的假体：endpoints 带 local_port，CLI 报在跑，落点可注入有没有人监听。 */
+function aliveHarness({ localPort = 18787, port = 52831, listen = true } = {}) {
+  const exits = [];
+  const probed = [];
+  const cmds = [];
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/healthz') return { ok: true, json: async () => ({}) };
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [{ type: 'HTTPS', domain: 'old.example.com', status: 'active', local_port: localPort }] } }) };
+    return { ok: false };
+  };
+  const runImpl = async (_bin, args) => {
+    cmds.push(args.join(' '));
+    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, running: true }), stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  // 复刻 wiring.tunnelPort() 的稳态：已有隧道时 portOf() 返回隧道自己的落点端口，
+  // 所以 ensureTunnel 的 current 与 endpoints 的 localPort 恒等，失配分支永远不触发。
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => (localPort > 0 ? localPort : port), fetchImpl, runImpl,
+    spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve(),
+    onUnexpectedExit: (message) => exits.push(message),
+    probePort: async (p) => { probed.push(p); return listen; },
+  });
+  return { runner, exits, probed, cmds };
+}
+
+test('体检：CLI 说在跑、旧隧道还在，但落点端口没人监听就判失效、不删不建', async () => {
+  const { runner, exits, probed, cmds } = aliveHarness({ listen: false });
+  const s = await runner.start();
+  assert.equal(s.phase, 'connected');
+  assert.equal(s.tunnelLocalPort, 18787, '隧道仍落在旧端口，没改端口也没重建');
+  await runner.checkAlive();
+  const after = runner.status();
+  assert.equal(after.phase, 'error', '落点没人听就不能继续报已连接');
+  assert.equal(after.errorReason, 'port-dead', '给出可识别的 reason，接线层据此清旧地址');
+  assert.match(after.error, /18787.*没有服务监听/, '提示里带上失效端口，别只说「连不上」');
+  assert.match(after.error, /删除旧隧道/, '给出下一步：去控制台删旧隧道');
+  assert.equal(after.retryable, false, '重试不会让旧端口长出服务，别无限重连');
+  assert.deepEqual(probed, [18787], '探的是隧道自己的落点，不是当前首选端口');
+  assert.equal(exits.length, 0, '不交接线层自愈重连，免得反复起客户端');
+  assert.ok(!cmds.some((c) => c.startsWith('add ')), '失效不新建云端隧道（删/建都不做）');
+});
+
+test('体检：落点端口还有人监听时维持已连接，不误判失效', async () => {
+  const { runner, exits, probed } = aliveHarness({ listen: true });
+  assert.equal((await runner.start()).phase, 'connected');
+  await runner.checkAlive();
+  assert.equal(runner.status().phase, 'connected');
+  assert.equal(runner.status().errorReason, '');
+  assert.deepEqual(probed, [18787], '在跑就探一次落点');
+  assert.equal(exits.length, 0);
+});
+
+test('体检：没有落点端口字段（老数据）时不探、不误判', async () => {
+  const { runner, probed } = aliveHarness({ localPort: 0, listen: false });
+  assert.equal((await runner.start()).phase, 'connected');
+  await runner.checkAlive();
+  assert.equal(runner.status().phase, 'connected');
+  assert.deepEqual(probed, [], '没有端口就不探，按老数据复用');
+});
+
+test('变异证明：体检探的是落点端口，失效打 port-dead 且不自愈重建', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'runner.cjs'), 'utf8');
+  assert.match(source, /await probePort\(port\)/, '体检必须探隧道端口，不能只看 CLI 的 running');
+  assert.match(source, /errorReason = 'port-dead'/, '失效要打可识别的 reason');
+  assert.match(source, /retryable = false/, '失效不安排自动重建');
 });

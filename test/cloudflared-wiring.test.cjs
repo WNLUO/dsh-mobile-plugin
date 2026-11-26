@@ -1,3 +1,4 @@
+// 2026-11-26：零讯旧地址被清掉后重新判定，兜底要顶上（此前那条死地址占了「有线路」名额）。
 // Cloudflare 兜底隧道接线：地址只在真连上边缘后写回，停用 / 卸载 / 重启前先把过期地址撤掉。
 'use strict';
 
@@ -136,6 +137,21 @@ test('兜底：线路恢复后停掉并原样还原手填地址', async () => {
   await api.reconcile();
   assert.equal(state.manualLanUrl, 'https://mine.example.com', '还原用户原本手填的直连地址');
   assert.deepEqual(state.cloudflareFallbackBackup, { manualLanUrl: '', manualIpv6Url: '', manualIpv4Url: '', manualTcpUrl: '' });
+});
+
+test('兜底：零讯旧地址曾算作可用线路，被清掉后重新判定就起兜底顶上', async () => {
+  const state = { cloudflareUrl: '', manualLanUrl: '', manualTcpUrl: '', manualIpv6Url: '', manualIpv4Url: '' };
+  const runner = fakeRunner();
+  const starts = [];
+  runner.start = async () => { starts.push(1); return runner.status(); };
+  // 旧零讯域名还在时 hasOtherRoute 为真，兜底不该起；地址清掉后重新判一次就要起。
+  let hasRoute = true;
+  const { api } = mountGated(runner, state, { signals: () => ({ needsBypass: true }), route: () => hasRoute });
+  await api.reconcile(true);
+  assert.equal(starts.length, 0, '死域名还挂在状态里时确实起不来（这正是要修的旧行为）');
+  hasRoute = false;
+  await api.reconcile();
+  assert.equal(starts.length, 1, '失效地址清掉、不再算可用线路后兜底要顶上');
 });
 
 test('连上边缘后才把地址写回状态，撤回时清空', async () => {
