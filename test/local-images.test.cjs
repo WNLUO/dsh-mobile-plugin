@@ -10,7 +10,8 @@
 // 钉住：本机位图才换（绝对路径，或按会话工作区解析的相对路径）；远程、data:、没给工作区
 // 目录时的相对路径、非图片字节、超预算一律保持字面 markdown —— 宁可显示成字面文本，
 // 也不能让一段历史或一帧 SSE 因为一张图取不到而挂掉。
-// 2026-11-26 补：编号背后的字节现在落在持久目录，原图被清后重投影仍要拿回同一个编号。
+// 2026-11-26 补：编号背后的字节现在落在持久目录，原图被清后重投影仍要拿回同一个编号；
+// 副本落不稳时不发编号、复制失败不留死链，同一张图的多个写法都能找回。
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -168,7 +169,10 @@ test('相对地址按工作区目录内联；没给目录或文件不存在时�
   assert.ok(out.includes('dsh-local-image:'), out.slice(0, 80));
   assert.ok(out.includes('![日落插画]('), 'alt 与文字保持原样');
 
-  assert.equal(await inlineTextImages(text), text, '没有工作区目录时不猜');
+  // 2026-11-26 口径变了：同一段相对地址之前登记过，另一台设备查不到工作区目录时
+  // 仍按原写法拿回同一个编号；真正从没登记过的相对地址才保持字面（见下面 missing）。
+  const again = await inlineTextImages(text);
+  assert.equal(again, out, '没给工作区目录也按原写法命中旧编号');
 
   const missing = createTextImageBudget();
   missing.cwd = dir;
@@ -367,9 +371,10 @@ test('接线：正文里的相对地址图片按会话工作区内联', () => wi
   assert.ok(item.blocks[0].text.includes('dsh-local-image:'), 'blocks 那条路同样要画得出来');
   assert.equal(listCalls, 1, '同一条响应只查一次会话列表');
 
+  // 同一段正文之前登记过，另一台设备查不到会话工作区也按原写法拿回编号；不是「猜路径」。
   const noCwd = { apiProxy: { sessions: { list: async () => ({ result: { ok: true, value: { items: [] } } }) } } };
   const plain = await resolveEventAttachments(noCwd, 'sess-1', event);
-  assert.ok(deriveMessages([plain])[0].text.includes('![日落](deliverables/shot.png)'), '取不到工作区目录就保持字面');
+  assert.ok(deriveMessages([plain], 'sess-no-cwd')[0].text.includes('dsh-local-image:'), '查不到工作区目录仍按原写法命中旧编号');
 
   // 一条会话列表都不该为绝对路径的图去查（那是老口径，不必多付一次 list 扫描）。
   const absolute = {
@@ -507,4 +512,55 @@ test('模拟插件重启：持久索引让老编号继续可取，列目录也�
   const entry = restarted.localImageOf(id);
   assert.ok(entry && fs.existsSync(entry.filePath), '重启后按编号找回持久副本');
   assert.equal(restarted.localImageOf('../index'), null, '编号形状不对仍然一律拒绝');
+}));
+
+test('相对地址：工作区目录查不到时，仍能靠原写法找回同一编号', () => withTempDir(async (dir) => {
+  fs.mkdirSync(path.join(dir, 'deliverables'));
+  const shot = path.join(dir, 'deliverables', 'shot.png');
+  fs.writeFileSync(shot, TINY_PNG);
+  const text = '![日落](deliverables/shot.png)';
+  const budget = createTextImageBudget();
+  budget.cwd = dir;
+  const first = await inlineTextImages(text, budget);
+  assert.ok(first.includes('dsh-local-image:'), first);
+  assert.equal(await inlineTextImages(text), first, '没有 cwd 也该按原写法命中同一编号');
+}));
+
+test('副本落不稳就不发编号（不留指向临时路径的死链）', () => withTempDir(async (dir) => {
+  const previousHome = process.env.DSH_HOME;
+  const blocker = path.join(os.tmpdir(), `dsh-copy-fail-${process.pid}`);
+  fs.writeFileSync(blocker, 'not a directory');
+  process.env.DSH_HOME = blocker;
+  try {
+    const shot = path.join(dir, 'blocked.png');
+    fs.writeFileSync(shot, TINY_PNG);
+    const text = `![落不了盘](${shot})`;
+    assert.equal(await inlineTextImages(text), text, '复制失败退回字面 markdown，不让手机拿到死编号');
+  } finally {
+    process.env.DSH_HOME = previousHome;
+    fs.unlinkSync(blocker);
+  }
+}));
+
+test('同一张回环图挂在两个地址上，重启后两个地址都换回同一编号', async () => withTempDir(async (dir) => {
+  const bytes = tinyGif(3, 2);
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'image/gif' });
+    res.end(bytes);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const a = await inlineTextImages(`![a](${base}/a.gif)`);
+  const b = await inlineTextImages(`![b](${base}/b.png)`);
+  await new Promise((resolve) => server.close(resolve));
+
+  const idA = /dsh-local-image:([a-f0-9]{16})/.exec(a);
+  const idB = /dsh-local-image:([a-f0-9]{16})/.exec(b);
+  assert.ok(idA && idB, `${a} / ${b}`);
+  assert.equal(idA[1], idB[1], '同一份字节同一个编号');
+
+  delete require.cache[require.resolve('../lib/mobile/local-images.js')];
+  const restarted = require('../lib/mobile/local-images.js');
+  assert.equal(await restarted.inlineTextImages(`![a](${base}/a.gif)`), a, '第一个地址仍能换回编号');
+  assert.equal(await restarted.inlineTextImages(`![b](${base}/b.png)`), b, '第二个地址也要能换回编号');
 }));
