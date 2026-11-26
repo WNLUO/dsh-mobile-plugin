@@ -134,7 +134,8 @@ test('只回状态位：没有预览、没有 updatedAt、没有 cwd', async () 
   assert.equal(body.items.length, 1);
   const item = body.items[0];
   // `pendingCard` 恒在：原生靠这一格判「这台宿主认不认识待处理卡片」（见 monitor.js）。
-  assert.deepEqual(Object.keys(item).sort(), ['completed', 'pendingCard', 'running', 'sessionId', 'title']);
+  assert.deepEqual(Object.keys(item).sort(), ['completed', 'pendingCard', 'running', 'sessionId', 'title', 'workspaceId']);
+  assert.equal(item.workspaceId, '', '工作区解析不到时给空串（Exact 匹配，不猜）');
   assert.equal(item.pendingCard, null, '没有挂起时显式 null，不是「不知道」');
   assert.equal(item.running, false);
   assert.equal(item.completed, false);
