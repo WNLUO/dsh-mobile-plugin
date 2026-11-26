@@ -1,3 +1,4 @@
+// 2026-11-27：用户要求加一条「外语文案照抄中文」守卫；日韩汉字合法，只钉与中文源逐字相同的。
 // 2026-11-26：两档版日夜按钮与永不渲染的外壳按钮组一并清掉，守卫跟着改，其余断言不放宽。
 // 2026-11-26：用户要求顶栏三颗按钮从前端撤掉，位置断言跟着改，字典与其余断言不放宽。
 // 2026-11-26：需求变更——面板语言由 10 门扩到 11 门（补 tr），LANGUAGES 随之加一门；其余断言不放宽。
@@ -100,6 +101,38 @@ test('占位符集合与源语言一致', () => {
     }
   }
   assert.deepEqual(mismatched.slice(0, 20), [], '占位符对不上（漏一个就是运行期少一块字）');
+});
+
+/**
+ * 2026-11-27 需求变更：用户要求挡住「外语字典里直接写中文」这种退化。
+ * 日语、韩语正文里本来就有大量汉字（kanji / hanja），一刀切的 CJK 正则会误报，
+ * 所以这两种语言只在「整条与 zh-Hans 或 zh-Hant 逐字相同且含汉字」时才算没翻。
+ * 即便如此，别的领域里还有日中同形的正常词（中国 / 保存 / 管理 / 自動更新……），
+ * 所以 ja、ko 这条只钉本次在补的「远程电脑」字典；新加的键同样在检查范围内。
+ */
+test('外语文案不许照抄中文（拉丁与西里尔全量，日韩只钉远程电脑字典）', () => {
+  const latinCyrillic = ['en', 'de', 'es', 'fr', 'pt', 'ru', 'tr'];
+  const cjk = /[\u4e00-\u9fff]/;
+  const copied = [];
+
+  for (const [key, byLang] of Object.entries(ALL)) {
+    for (const language of latinCyrillic) {
+      const value = byLang[language];
+      if (typeof value === 'string' && cjk.test(value)) copied.push(`${key}[${language}]: ${value}`);
+    }
+  }
+
+  for (const [key, byLang] of Object.entries(loadDomain('remote-computers.ts'))) {
+    for (const language of ['ja', 'ko']) {
+      const value = byLang[language];
+      if (typeof value !== 'string' || !cjk.test(value)) continue;
+      if (value === byLang['zh-Hans'] || value === byLang['zh-Hant']) {
+        copied.push(`${key}[${language}] 与中文源逐字相同: ${value}`);
+      }
+    }
+  }
+
+  assert.deepEqual(copied.slice(0, 20), [], '这些外语文案还是中文');
 });
 
 test('同一个键不许落在两个领域文件里', () => {
