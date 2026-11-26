@@ -1,3 +1,4 @@
+// 2026-11-26 用户要求：问诊胶囊改成白底黑字，原先的 bg-surface 在这块看着是透明的。
 /**
  * 面板全局悬浮的 AI 问诊入口：引导页和主页都在，点开选工作区 / 模型，一键发到当前电脑。
  *
@@ -107,7 +108,7 @@ export function AiDiagnosisFab() {
         aria-label={t('panel.aiDiagnosis.label')}
         title={t('panel.aiDiagnosis.label')}
         onClick={() => setOpen(true)}
-        className="fixed bottom-5 start-5 z-30 inline-flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-foreground shadow-lg transition-colors duration-200 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        className="fixed bottom-5 start-5 z-30 inline-flex items-center gap-2 rounded-full border border-border bg-white px-4 py-2.5 text-sm font-medium text-black shadow-lg transition-colors duration-200 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
       >
         <AskIcon />
         {t('panel.aiDiagnosis.label')}
