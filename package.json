@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.121",
+  "version": "0.5.122",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -117,23 +117,23 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.121",
+    "version": "0.5.122",
     "kinds": [
       "feature",
       "fix"
     ],
     "notes": {
-      "zh-Hans": "- 面板补齐土耳其语，错误提示也会按界面语言显示，看不懂的报错更少了。\n- 修复 Windows 上关闭控制台时可能误把后台连接进程一起关掉的问题，连接更稳。",
-      "zh-Hant": "- 面板補齊土耳其語，錯誤提示也會按介面語言顯示，看不懂的報錯更少了。\n- 修正 Windows 上關閉主控台時可能誤把背景連線程序一起關掉的問題，連線更穩。",
-      "en": "- The panel now supports Turkish, and error messages follow your interface language, so fewer errors are left untranslated.\n- Fixed an issue on Windows where closing the console could also shut down the background connection process, making connections more stable.",
-      "ja": "- パネルにトルコ語を追加し、エラー表示も画面の言語に合わせて表示されるようになりました。意味が分からないエラーが減ります。\n- Windows でコンソールを閉じたときにバックグラウンド接続プロセスまで終了してしまう問題を修正し、接続がより安定しました。",
-      "ko": "- 패널에 튀르키예어를 추가했고, 오류 메시지도 화면 언어에 맞춰 표시되어 이해할 수 없는 오류가 줄었습니다.\n- Windows에서 콘솔을 닫을 때 백그라운드 연결 프로세스까지 함께 종료되던 문제를 수정해 연결이 더 안정적입니다.",
-      "de": "- Das Panel unterstützt jetzt Türkisch, und Fehlermeldungen folgen der Oberflächensprache, sodass weniger Meldungen unverständlich bleiben.\n- Behoben: Unter Windows konnte das Schließen der Konsole auch den Hintergrund-Verbindungsprozess beenden; Verbindungen sind jetzt stabiler.",
-      "es": "- El panel ahora admite turco y los mensajes de error siguen el idioma de la interfaz, así que hay menos errores sin traducir.\n- Se corrigió un problema en Windows por el que cerrar la consola podía cerrar también el proceso de conexión en segundo plano; las conexiones son más estables.",
-      "fr": "- Le panneau prend désormais en charge le turc et les messages d'erreur suivent la langue de l'interface : moins d'erreurs restent incompréhensibles.\n- Correction sous Windows : fermer la console pouvait aussi arrêter le processus de connexion en arrière-plan ; les connexions sont plus stables.",
-      "pt": "- O painel agora suporta turco e as mensagens de erro seguem o idioma da interface, então há menos erros sem tradução.\n- Corrigido um problema no Windows em que fechar o console também encerrava o processo de conexão em segundo plano; as conexões ficam mais estáveis.",
-      "ru": "- Панель теперь поддерживает турецкий язык, а сообщения об ошибках выводятся на языке интерфейса, поэтому непонятных ошибок стало меньше.\n- Исправлена проблема в Windows: закрытие консоли могло завершить и фоновый процесс подключения; соединения стали стабильнее.",
-      "tr": "- Panel artık Türkçe'yi destekliyor ve hata mesajları arayüz dilinde gösteriliyor, böylece anlaşılmayan hata sayısı azalıyor.\n- Windows'da konsolu kapatmanın arka plandaki bağlantı sürecini de sonlandırabilmesi sorunu düzeltildi; bağlantılar artık daha kararlı."
+      "zh-Hans": "- 远程桌面窗口（Mac/Windows）现在支持 ⌘N、⌘B、⌘K 等桌面快捷键，改过的键位按本机保存，页面排版不变。\n- 修复新版宿主下远程电脑取不到启动令牌、被误判为「对方电脑暂时不可用」的问题，连接更稳。",
+      "zh-Hant": "- 遠端桌面視窗（Mac/Windows）現在支援 ⌘N、⌘B、⌘K 等桌面快捷鍵，改過的鍵位按本機儲存，頁面排版不變。\n- 修正新版宿主下遠端電腦取不到啟動令牌、被誤判為「對方電腦暫時不可用」的問題，連線更穩。",
+      "en": "- Remote desktop windows on Mac and Windows now support desktop shortcuts such as Cmd-N, Cmd-B and Cmd-K; your custom key bindings are saved on the local machine and the page layout is unchanged.\n- Fixed an issue where newer hosts could leave a remote computer without its launch token, causing a false \"computer temporarily unavailable\" message. Connections are now more reliable.",
+      "ja": "- Mac／Windows のリモートデスクトップ画面で、Cmd-N や Cmd-B、Cmd-K などのデスクトップショートカットが使えるようになりました。変更したキー設定はそのパソコンに保存され、画面のレイアウトは変わりません。\n- 新しいホスト環境でリモートパソコンが起動トークンを取得できず、「相手のパソコンが一時的に利用できません」と誤表示される問題を修正し、接続がより安定しました。",
+      "ko": "- Mac/Windows 원격 데스크톱 창에서 Cmd-N, Cmd-B, Cmd-K 같은 데스크톱 단축키를 이제 사용할 수 있습니다. 변경한 키 설정은 해당 컴퓨터에 저장되며 화면 배치는 그대로입니다.\n- 새로운 호스트 환경에서 원격 컴퓨터가 시작 토큰을 가져오지 못해 '상대 컴퓨터를 일시적으로 사용할 수 없습니다'라고 잘못 표시되던 문제를 수정했습니다. 연결이 더 안정적입니다.",
+      "de": "- Remote-Desktop-Fenster unter Mac und Windows unterstützen jetzt Desktop-Tastenkürzel wie Cmd-N, Cmd-B und Cmd-K. Eigene Tastenbelegungen werden auf dem jeweiligen Rechner gespeichert, das Seitenlayout bleibt unverändert.\n- Behoben: Unter neueren Hosts konnte ein Remoterechner seinen Start-Token nicht abrufen und wurde fälschlich als „vorübergehend nicht verfügbar“ gemeldet. Verbindungen sind jetzt stabiler.",
+      "es": "- Las ventanas de escritorio remoto en Mac y Windows ahora admiten atajos de escritorio como Cmd-N, Cmd-B y Cmd-K; tus combinaciones personalizadas se guardan en ese equipo y el diseño de la página no cambia.\n- Se corrigió un problema por el que, en hosts más recientes, un equipo remoto no obtenía su token de inicio y se mostraba erróneamente como «temporalmente no disponible». Las conexiones son más estables.",
+      "fr": "- Les fenêtres de bureau distant sous Mac et Windows prennent désormais en charge les raccourcis bureau comme Cmd-N, Cmd-B et Cmd-K ; vos raccourcis personnalisés sont enregistrés sur l'ordinateur local et la mise en page reste inchangée.\n- Correction : avec les hôtes récents, un ordinateur distant n'obtenait pas son jeton de lancement et était signalé à tort comme « temporairement indisponible ». Les connexions sont plus stables.",
+      "pt": "- As janelas de área de trabalho remota no Mac e no Windows agora aceitam atalhos de desktop como Cmd-N, Cmd-B e Cmd-K; suas teclas personalizadas ficam salvas naquele computador e o layout da página não muda.\n- Corrigido um problema em que, em hosts mais recentes, um computador remoto não conseguia obter o token de inicialização e era exibido incorretamente como «temporariamente indisponível». As conexões ficaram mais estáveis.",
+      "ru": "- Окна удалённого рабочего стола на Mac и Windows теперь поддерживают системные сочетания клавиш, например Cmd-N, Cmd-B и Cmd-K; ваши настройки клавиш сохраняются на этом компьютере, а вёрстка страницы не меняется.\n- Исправлена проблема, когда на новых хостах удалённый компьютер не получал токен запуска и ошибочно отображался как «временно недоступный». Соединения стали стабильнее.",
+      "tr": "- Mac ve Windows'taki uzak masaüstü pencereleri artık Cmd-N, Cmd-B, Cmd-K gibi masaüstü kısayollarını destekliyor; değiştirdiğiniz tuş atamaları o bilgisayarda saklanıyor, sayfa düzeni değişmiyor.\n- Yeni host sürümlerinde uzak bilgisayarın başlangıç jetonunu alamayıp yanlışlıkla 'karşı taraf geçici olarak kullanılamıyor' diye görünmesi sorunu düzeltildi; bağlantılar artık daha kararlı."
     }
   }
 }
