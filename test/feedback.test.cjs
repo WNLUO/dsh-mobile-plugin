@@ -335,6 +335,19 @@ test('submitFeedback：平台报错时把文案带出来；429 单独说太频�
   });
 });
 
+test('submitFeedback：自检 / 探针文案不进反馈队列，真实问题照常提交', async () => {
+  for (const content of [
+    'dsh-mobile-plugin 连接诊断探针（自动化测试用，勿人工处理）',
+    'probe from desktop, ignore',
+  ]) {
+    await assert.rejects(() => submitFeedback(depsFor([]), content), /自检 \/ 探针内容/);
+  }
+  await withFetch(fakeFetch({ data: { thread_key: 'tk-real' } }), async () => {
+    const result = await submitFeedback(depsFor([]), '配对后连接超时，已查同 Wi-Fi');
+    assert.equal(result.threadKey, 'tk-real');
+  });
+});
+
 test('工具：说明不再要求查明根因、改为现象/已查/不确定；缺 content 与超长都拒', async () => {
   let registered = null;
   const ctx = { tools: { register: (tool) => { registered = tool; } } };
@@ -347,6 +360,7 @@ test('工具：说明不再要求查明根因、改为现象/已查/不确定；
   assert.match(registered.description, /`submit` with the same threadKey/);
   assert.match(registered.description, /not written into the in-app feedback list/);
   assert.match(registered.description, /what you observed, what you already checked, and what is still uncertain/);
+  assert.match(registered.description, /Do not use `submit` for connectivity tests or automated probes/);
   assert.match(registered.description, /No paired phone is required/);
   assert.doesNotMatch(registered.description, /Only submit after you have actually found the cause/);
   assert.match(registered.parameters.properties.content.description, /A confirmed root cause is not required/);
@@ -384,6 +398,7 @@ test('工具：说明不再要求查明根因、改为现象/已查/不确定；
   await assert.rejects(() => registered.execute({ action: 'read' }), /需要 threadKey/);
   await assert.rejects(() => registered.execute({ action: 'submit' }), /需要 content/);
   await assert.rejects(() => registered.execute({ action: 'submit', content: 'x'.repeat(4001) }), /超长/);
+  await assert.rejects(() => registered.execute({ action: 'submit', content: 'probe from desktop, ignore' }), /自检 \/ 探针内容/);
   await assert.rejects(() => registered.execute({ action: 'noop' }), /must be one of|invalid arguments/);
 });
 
