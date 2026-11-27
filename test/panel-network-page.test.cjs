@@ -7,6 +7,7 @@
 // 2026-11-27 用户按截图反馈：面板去掉重复状态与详细配置按钮、删红框内容、套餐账号搬到标题下做副标题。
 // 2026-11-27 需求变更：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页及文案从面板撤掉，
 // 宿主侧线路能力保留；下面相应断言随之收窄。
+// 2026-11-27 用户反馈第八轮：未接入时面板给「登录」按钮，点进服务商页走一键接入。
 // 网络配置独立页：hash 路由、隐藏顶栏、自建中转检测与明文 http 提示。
 'use strict';
 const fs = require('node:fs');
@@ -135,7 +136,8 @@ test('网络配置页分区：主配置页平铺字段，线路按地区与服�
   }
   // 2026-11-27 需求变更：服务商线路改成标题右边的「中国 / 国际」标签 + 专属面板，
   // 不再是两张地区入口卡；面板「详细配置」直接进服务商页。地区页路由保留给老 hash。
-  assert.ok(page.includes('<NetworkRegions status={status} onChanged={onProviderChanged} />'), '主配置页挂标签面板');
+  // 2026-11-27：新增登录回调，组件调用行随之多一个 prop（断言跟着收紧，不是放宽）。
+  assert.ok(page.includes('<NetworkRegions status={status} onChanged={onProviderChanged} onOpenProvider={onOpenProvider} />'), '主配置页挂标签面板');
   assert.ok(!page.includes('<JdxbLineCard />'), '节点小宝不在主配置页里');
   const china = read('React', 'src', 'components', 'ChinaLinesPage.tsx');
   assert.ok(china.includes('providersOfRegion(\'cn\')'), '中国页列国内服务商');
@@ -274,5 +276,29 @@ test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重�
     // 2026-11-26：新增土耳其语，界面语言数由 10 变 11，断言跟着抬。
     assert.equal(panel.split(`'${key}':`).length - 1, 11, `${key} 要十一门齐全`);
   }
+});
+
+test('未接入时面板给「登录」按钮，回调经四层传到 zeronews 配置页', () => {
+  // 2026-11-27 用户反馈：服务商线路面板没登录入口，已装好却没接 zeronews 的用户找不到地方登录。
+  // 修法：未接入时给「登录」按钮，点它进已有的 zeronews 配置页走一键接入；已接入仍只留停止 / 重置。
+  const panels = read('React', 'src', 'components', 'ProviderRegionPanel.tsx');
+  assert.match(panels, /t\('panel\.providerRegion\.login'\)/, '未接入按钮文案走登录');
+  assert.match(panels, /onOpenProvider\?\.\('zeronews'\)/, '点登录进 zeronews 配置页');
+  const chinaPart = panels.slice(panels.indexOf('function ChinaProviderPanel'), panels.indexOf('function GlobalProviderPanel'));
+  assert.match(chinaPart, /connected \? \([\s\S]*\) : \([\s\S]*panel\.providerRegion\.login/, '登录按钮在「未接入」分支，已接入仍是停止/重置');
+  assert.match(chinaPart, /onOpenProvider\?: \(provider: NetworkProvider\) => void/, '面板接服务商跳转回调');
+  assert.match(chinaPart, /disabled=\{!onOpenProvider\}/, '回调没接上时按钮禁用，不给点了没反应的按钮');
+
+  const regions = read('React', 'src', 'components', 'NetworkRegions.tsx');
+  assert.match(regions, /onOpenProvider\?: \(provider: NetworkProvider\) => void/, '回调经 NetworkRegions 传下来');
+  assert.match(regions, /onOpenProvider=\{onOpenProvider\}/, 'NetworkRegions 把回调传给面板');
+  const config = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(config, /onOpenProvider\?: \(provider: NetworkProvider\) => void/, '回调经 RelayConfigDialog 传下来');
+  assert.match(config, /<NetworkRegions[^>]*onOpenProvider=\{onOpenProvider\}/, 'RelayConfigDialog 把回调传给线路面板');
+  const consoleSrc = read('React', 'src', 'Console.tsx');
+  assert.match(consoleSrc, /onOpenProvider=\{openProvider\}/, 'Console 把进服务商页的回调交给网络配置区');
+
+  const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'provider-region.ts');
+  assert.equal((dict.match(/'panel\.providerRegion\.login':/g) || []).length, 11, '登录文案十一门齐全');
 });
 

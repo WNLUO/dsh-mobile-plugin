@@ -1,3 +1,4 @@
+// 2026-11-27：服务商面板未接入时给「登录」按钮，Console 把进服务商页的回调传给网络配置区。
 // 2026-11-27：服务商面板断开/重置后回调重读 status，连接卡那行不再等下一轮轮询。
 // 2026-11-27：服务商线路标题右边加中国/国际标签，首页传「详细配置」回调给网络配置区。
 // 2026-11-27：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页从路由撤掉（宿主能力保留）。
@@ -525,6 +526,7 @@ export function Console() {
             onSave={(patch) => void saveConfig(patch)}
             onSavePreferred={(address) => void savePreferredLanAddress(address)}
             onProviderChanged={() => void loadStatus()}
+            onOpenProvider={openProvider}
           />
         </div>
 

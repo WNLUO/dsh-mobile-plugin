@@ -1,3 +1,4 @@
+// 2026-11-27：未接入时给「登录」按钮，点进 zeronews 配置页走一键接入；已接入仍是停止/重置。
 // 2026-11-27：服务商线路专属面板——按标签展示 zeronews 账号概览或 Cloudflare 状态。
 /**
  * 「中国 / 国际」标签下的专属面板（2026-11-27 用户要求）。
@@ -5,8 +6,8 @@
  * 中国面板从上到下四段：① 服务商 + 套餐 + 连接状态；② 当前公网地址（单独一行，可复制）；
  * ③ 四个关键指标（带宽 / 设备 / 在线 / 并发，不带「使用情况」标题，里面并不全是用量）；
  * ④ 三档套餐对照（当前档高亮，每档可点进官方定价页直接订阅）。操作按钮放在同一张卡里：
- * 「停止连接」是轻操作，「重置本机设置」是破坏性动作、带二次确认；不再单列「打开控制台」——
- * 想看用量 / 升级都在套餐入口里完成。
+ * 未接入时给「登录」按钮进配置页走一键接入，已接入后是「停止连接」与「重置本机设置」两颗
+ * （重置是破坏性动作、带二次确认）；不再单列「打开控制台」——想看用量 / 升级都在套餐入口里完成。
  *
  * 数据分两类绝不混：设备数 / 在线数 / 套餐名 / 地址来自宿主账号快照与 status，是真实事实；
  * 套餐权益是公开固定信息，写死在下方一处常量表，只按精确识别到的套餐显示，认不出不显示。
@@ -26,6 +27,7 @@ import {
 } from '../lib/api.ts'
 import { cn, toneText, type Tone } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
+import type { NetworkProvider } from '../lib/network-region.ts'
 import { CloudflarePanel } from './CloudflarePanel.tsx'
 import { CloudflareIcon, ZeroNewsIcon } from './ProviderIcons.tsx'
 
@@ -207,7 +209,11 @@ function PlanCompare({ current }: { current: PlanTier | null }) {
   )
 }
 
-function ChinaProviderPanel({ status, onChanged }: { status: StatusView; onChanged?: () => void }) {
+function ChinaProviderPanel({ status, onChanged, onOpenProvider }: {
+  status: StatusView
+  onChanged?: () => void
+  onOpenProvider?: (provider: NetworkProvider) => void
+}) {
   /** 先用本地留底铺上，再悄悄刷一次；面板不轮询。 */
   const [account, setAccount] = useState<ZeroNewsAccount | null>(() => readZnCache())
   const [busy, setBusy] = useState(false)
@@ -309,16 +315,22 @@ function ChinaProviderPanel({ status, onChanged }: { status: StatusView; onChang
 
         {note ? <p className="text-xs leading-5 text-foreground-muted">{note}</p> : null}
 
-        {connected ? (
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border-muted pt-3">
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void disconnect()}>
-              {t('panel.providerRegion.stopConnection')}
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border-muted pt-3">
+          {connected ? (
+            <>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void disconnect()}>
+                {t('panel.providerRegion.stopConnection')}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => void reset()}>
+                {t('panel.providerRegion.resetLocal')}
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" disabled={!onOpenProvider} onClick={() => onOpenProvider?.('zeronews')}>
+              {t('panel.providerRegion.login')}
             </Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void reset()}>
-              {t('panel.providerRegion.resetLocal')}
-            </Button>
-          </div>
-        ) : null}
+          )}
+        </div>
       </div>
     </Card>
   )
@@ -340,12 +352,13 @@ function GlobalProviderPanel({ status }: { status: StatusView }) {
 }
 
 /** 按地区选面板：中国给 zeronews 概览，国际给 Cloudflare。 */
-export function ProviderRegionPanel({ region, status, onChanged }: {
+export function ProviderRegionPanel({ region, status, onChanged, onOpenProvider }: {
   region: 'cn' | 'global'
   status: StatusView
   onChanged?: () => void
+  onOpenProvider?: (provider: NetworkProvider) => void
 }) {
   return region === 'cn'
-    ? <ChinaProviderPanel status={status} onChanged={onChanged} />
+    ? <ChinaProviderPanel status={status} onChanged={onChanged} onOpenProvider={onOpenProvider} />
     : <GlobalProviderPanel status={status} />
 }

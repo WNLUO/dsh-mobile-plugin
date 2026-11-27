@@ -1,3 +1,4 @@
+// 2026-11-27：服务商面板未接入时给「登录」按钮，透传进服务商页的回调。
 // 2026-11-27：服务商线路标题右边加中国/国际标签，下面铺对应专属面板（详细配置进服务商页）。
 // 2026-11-22：网络配置页去掉「中转 / 直连 / 局域网与 IPv6 / FRP」大标题，字段平铺；各栏统一一颗
 // 「检测」按钮（回环命中本机才算通，http 与 主机:端口 两种目标都验 instanceId）；FRP 改「导入」弹窗；
@@ -31,6 +32,7 @@ import { useEffect, useRef, useState } from 'react'
 import { frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
+import type { NetworkProvider } from '../lib/network-region.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { NetworkRegions } from './NetworkRegions.tsx'
 
@@ -113,6 +115,8 @@ type Props = {
   onSavePreferred: (address: string) => void
   /** 面板做过断开 / 重置后让外层重读宿主状态，连接卡那行跟着变。 */
   onProviderChanged?: () => void
+  /** 面板「登录」按钮：跳到服务商配置页走一键接入。 */
+  onOpenProvider?: (provider: NetworkProvider) => void
 }
 
 /**
@@ -152,6 +156,7 @@ export function RelayConfigDialog({
   onSave,
   onSavePreferred,
   onProviderChanged,
+  onOpenProvider,
 }: Props) {
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
@@ -496,7 +501,7 @@ export function RelayConfigDialog({
                 先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
             <section className="flex flex-col gap-3">
               <div className="border-b border-border-muted pb-3">
-                <NetworkRegions status={status} onChanged={onProviderChanged} />
+                <NetworkRegions status={status} onChanged={onProviderChanged} onOpenProvider={onOpenProvider} />
               </div>
             </section>
             <section className="flex flex-col gap-3">

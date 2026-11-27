@@ -1,3 +1,4 @@
+// 2026-11-27：未接入时面板给「登录」按钮，透传进服务商页的回调。
 // 2026-11-27：服务商线路标题右边的中国/国际标签，按界面语言定默认，切标签换专属面板。
 // 2026-11-27：面板去掉「详细配置」按钮，ServiceRegion 的页面路径保留但不从面板进入。
 /**
@@ -16,7 +17,7 @@ import type { StatusView } from '../lib/api.ts'
 import { cn } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
 import { usePanelLanguage } from '../lib/i18n/use-language.ts'
-import type { NetworkRegion } from '../lib/network-region.ts'
+import type { NetworkProvider, NetworkRegion } from '../lib/network-region.ts'
 import { ProviderRegionPanel } from './ProviderRegionPanel.tsx'
 
 const REGION_CHOICE_KEY = 'dsh-mobile-plugin:provider-region-choice'
@@ -36,7 +37,11 @@ function savedRegion(): NetworkRegion | null {
   }
 }
 
-export function NetworkRegions({ status, onChanged }: { status: StatusView; onChanged?: () => void }) {
+export function NetworkRegions({ status, onChanged, onOpenProvider }: {
+  status: StatusView
+  onChanged?: () => void
+  onOpenProvider?: (provider: NetworkProvider) => void
+}) {
   const language = usePanelLanguage()
   const [chosen, setChosen] = useState<NetworkRegion | null>(savedRegion)
   // 没手动选过时直接按当前语言算，语言一变这边跟着变；选过之后记住用户的选择。
@@ -71,7 +76,7 @@ export function NetworkRegions({ status, onChanged }: { status: StatusView; onCh
         </div>
       </div>
 
-      <ProviderRegionPanel region={region} status={status} onChanged={onChanged} />
+      <ProviderRegionPanel region={region} status={status} onChanged={onChanged} onOpenProvider={onOpenProvider} />
     </div>
   )
 }
