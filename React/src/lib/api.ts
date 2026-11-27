@@ -1,3 +1,4 @@
+// 2026-11-28：状态契约与配置补丁补 `ipVersionPolicy`（出站协议族：auto / ipv4-first / ipv4-only）。
 // 2026-11-25：状态契约补回环入口端口、绕开标记、冲突形态与兜底原因码（老宿主缺格按缺省）。
 // 2026-11-25：自检的直连那一格带回环 health 结果，端口被抢也能看得见。
 // 2026-11-24：ZeroNews 的「彻底清理」端点（断开之外单独一条，面板二次确认后调用）。
@@ -363,6 +364,11 @@ export type StatusView = {
    * **老宿主没有这个字段**：那时它是 `undefined`，界面不能假装自己在等一个永远等不到的信号。
    */
   lastMobileAt?: number
+  /**
+   * 出站连接的协议族策略：`auto`（跟随系统，旧行为）/ `ipv4-first`（优先 IPv4）/
+   * `ipv4-only`（只用 IPv4，且不再上报 IPv6 直连候选）。老宿主不回这一格，按 `auto` 处理。
+   */
+  ipVersionPolicy?: 'auto' | 'ipv4-first' | 'ipv4-only'
 }
 
 /** `/api/relay/addresses` 里一条地址。 */
@@ -685,6 +691,11 @@ export type ConfigPatch = {
    * 手填的「TCP 直连」目标（`主机:端口`，可带 `http://` 前缀）。空串同样合法，表示「清掉这一条」。
    */
   manualTcpUrl?: string
+  /**
+   * 出站连接的协议族策略：`auto` / `ipv4-first` / `ipv4-only`。宿主拒非法值；
+   * 老宿主不认这一格，写进去也读不回来。
+   */
+  ipVersionPolicy?: 'auto' | 'ipv4-first' | 'ipv4-only'
 }
 
 /**

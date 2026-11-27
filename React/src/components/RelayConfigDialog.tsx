@@ -1,3 +1,4 @@
+// 2026-11-28：网络配置加「出站协议族」三档单选（auto / ipv4-first / ipv4-only），变了才进 patch。
 // 2026-11-27：FRP 导入保存要有可见反馈——成功关窗并刷新状态、等待给进度，晚到的配置回填不盖用户粘贴。
 // 2026-11-27：服务商面板未接入时给「登录」按钮，透传进服务商页的回调。
 // 2026-11-27：服务商线路标题右边加中国/国际标签，下面铺对应专属面板（详细配置进服务商页）。
@@ -27,6 +28,8 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@appica/ui-react/dropdown-menu'
 import { Field, FieldLabel } from '@appica/ui-react/field'
 import { Input } from '@appica/ui-react/input'
+import { Radio } from '@appica/ui-react/radio'
+import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
@@ -168,6 +171,8 @@ export function RelayConfigDialog({
   const [manualIpv4Url, setManualIpv4Url] = useState('')
   /** TCP 直连地址（`manualTcpUrl`）：用户手填的 `主机:端口`，手机用裸 TCP 拨它。 */
   const [manualTcpUrl, setManualTcpUrl] = useState('')
+  /** 出站协议族策略（`ipVersionPolicy`）：auto / ipv4-first / ipv4-only，默认跟随系统。 */
+  const [ipVersionPolicy, setIpVersionPolicy] = useState<'auto' | 'ipv4-first' | 'ipv4-only'>(status.ipVersionPolicy ?? 'auto')
   /** TCP 那栏的填写提示：这格只收「主机:端口」，填了带 scheme 的地址就提示去「直连地址」。 */
   const [tcpHint, setTcpHint] = useState('')
   /** 自建中转的检测结果：用宿主已有的 /api/relay/probe-relays 确认「是不是我们的中转」并取版本、延迟。 */
@@ -223,6 +228,7 @@ export function RelayConfigDialog({
   useEffect(() => {
     if (!open) return
     setRelayUrl(status.relayUrl)
+    setIpVersionPolicy(status.ipVersionPolicy ?? 'auto')
     void loadFrpConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
@@ -447,6 +453,8 @@ export function RelayConfigDialog({
     }
     const patch: ConfigPatch = {}
     if (relayUrl.trim() !== status.relayUrl) patch.relayUrl = relayUrl.trim()
+    // 出站协议族：跟落盘的现值比，真的变了才带，别每次都触发一轮隧道重建。
+    if (ipVersionPolicy !== (status.ipVersionPolicy ?? 'auto')) patch.ipVersionPolicy = ipVersionPolicy
     // 手填地址：空串是合法值（= 清掉这一条），所以这里跟 `name` 不一样，只在**真的变了**时带上，
     // 而不是「非空才带」。
     const direct = trimUrl(manualLanUrl)
@@ -702,6 +710,32 @@ export function RelayConfigDialog({
                         setIpv6Probe({ state: 'idle' })
                       }}
                     />
+                  </Field>
+
+                  <Field>
+                    {/* 出站协议族：中转 / 总控 WS 与 Cloudflare 出站走哪一族 IP，三档单选。 */}
+                    <FieldLabel htmlFor="relay-ip-version">{t('panel.network.ipVersionTitle')}</FieldLabel>
+                    <RadioGroup
+                      id="relay-ip-version"
+                      className="flex flex-wrap items-center gap-x-4 gap-y-1"
+                      value={ipVersionPolicy}
+                      onValueChange={(next) => {
+                        if (next === 'auto' || next === 'ipv4-first' || next === 'ipv4-only') setIpVersionPolicy(next)
+                      }}
+                    >
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <Radio value="auto" />
+                        <span className="text-sm text-foreground">{t('panel.network.ipVersionAuto')}</span>
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <Radio value="ipv4-first" />
+                        <span className="text-sm text-foreground">{t('panel.network.ipVersionV4First')}</span>
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <Radio value="ipv4-only" />
+                        <span className="text-sm text-foreground">{t('panel.network.ipVersionV4Only')}</span>
+                      </label>
+                    </RadioGroup>
                   </Field>
 
                   <Field>
