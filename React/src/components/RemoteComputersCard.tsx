@@ -321,6 +321,8 @@ export function RemoteComputersCard() {
 
   const devices = list?.devices ?? []
   const authorizedComputers = list?.authorizedComputers ?? []
+  const authorizedNames = authorizedComputers.map((computer) => (computer.name || '').trim()).filter(Boolean)
+  const duplicateAuthorizedName = authorizedNames.some((name, index) => authorizedNames.indexOf(name) !== index)
   const available = settled && !localOnly && list !== null
   const inviteExpired = invitation !== null && invitation.expiresAt <= now
   const dialogBusy = dialog === 'invite' ? isBusy('invite') : dialog === 'add' ? isBusy('add') : false
@@ -417,6 +419,7 @@ export function RemoteComputersCard() {
           {authorizedComputers.length > 0 ? (
             <div className="mt-1 border-t border-border-muted pt-2">
               <p className="text-xs text-foreground-muted">{t('panel.remote.authorizedTitle')}</p>
+              {duplicateAuthorizedName ? <p className="mt-1 text-xs leading-5 text-foreground-muted">{t('panel.remote.sameNameHint')}</p> : null}
               {authorizedComputers.map((computer) => (
                 <div key={computer.deviceId} className="flex items-center justify-between gap-2 border-b border-border-muted py-3 last:border-b-0">
                   <div className="min-w-0">

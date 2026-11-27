@@ -207,6 +207,8 @@ test('2026-11-27 需求变更：临期续期、停止访问、两段列表与确
   assert.match(component, /panel\.remote\.authorizedTitle/);
   assert.match(component, /relativeText\(computer\.lastSeenAt, now\)/);
   assert.match(component, /panel\.remote\.authorizedSeen/);
+  assert.match(component, /duplicateAuthorizedName/);
+  assert.match(component, /panel\.remote\.sameNameHint/);
   assert.match(component, /panel\.remote\.labelRoute/);
   assert.match(component, /panel\.remote\.labelLatency/);
 
@@ -221,6 +223,14 @@ test('2026-11-27 需求变更：临期续期、停止访问、两段列表与确
   assert.match(component, /<Dot tone=\{route\.ok \? 'ok' : 'error'\} \/>/);
   assert.doesNotMatch(component, /#[\da-fA-F]{3,8}|style=\{/);
   assert.doesNotMatch(component, /xl:before:/);
+});
+
+test('同名授权提示只在真有同名时出现，不自动合并或回收授权', () => {
+  assert.match(component, /const duplicateAuthorizedName = authorizedNames\.some/, '同名判定只看展示名重复');
+  assert.match(component, /duplicateAuthorizedName \? <p/, '只有重复时才给提示');
+  const hintLine = '              {duplicateAuthorizedName ? <p className="mt-1 text-xs leading-5 text-foreground-muted">{t(\'panel.remote.sameNameHint\')}</p> : null}'
+  const mutated = component.replace(hintLine, '')
+  assert.doesNotMatch(mutated, /panel\.remote\.sameNameHint/, '抹掉提示后这条守卫必须转红');
 });
 
 test('手动线路只来自已有候选；隐藏面板不轮询，不看浏览器在线状态', async () => {
