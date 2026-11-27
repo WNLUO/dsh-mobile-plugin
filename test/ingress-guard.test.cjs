@@ -1,3 +1,4 @@
+// 2026-11-27：补回归：配了外部转发的健康线路不弹端口冲突，真绕开时提示仍保留。
 // 2026-11-27：线路级问题码也归这一处守卫，搬出装配层后逐条钉住。
 // 2026-11-25：回环入口判据守卫：每条判据都配一次变异，旧实现必须转红。
 'use strict';
@@ -155,10 +156,33 @@ test('线路级问题码：兜底顶上时仍说出旧隧道落点、外部目�
   }, assert.AssertionError, '不比旧隧道落点必须转红');
   assert.throws(() => {
     const mutated = loadMutated(src => replaceOnce(src,
-      "else if (input.externalTarget === true) routeIssue = 'external-target';",
+      "else if (signals.needsBypass === true && input.externalTarget === true) routeIssue = 'external-target';",
       "else if (false) routeIssue = 'external-target';"));
     assert.equal(mutated.routeIssueOf({ ...base, legacyTunnelPort: 41081, externalTarget: true }).routeIssue, 'external-target');
   }, assert.AssertionError, '漏掉外部手填目标必须转红');
+});
+
+test('配了外部转发不等于端口被抢：健康线路不弹冲突，真绕开仍报外部目标', () => {
+  const bypass = guard.signalsOf({ requestedPort: 18787, boundPort: 18787, loopbackBlocked: true });
+  const calm = guard.signalsOf({ requestedPort: 18787, boundPort: 18787, loopbackBlocked: false });
+  // frp 端到端通、conflict 空、bypassing=false：externalTarget 只是因为端口策略锁成 forwarding。
+  const healthy = {
+    signals: calm, ingressPort: 41081, hasUsableRoute: true,
+    cloudflareAvailable: true, externalTarget: true,
+  };
+  assert.equal(guard.fallbackReasonOf(healthy), '', '有可用线路时不报兜底失败');
+  assert.deepEqual(guard.routeIssueOf(healthy), { fallbackReason: '', routeIssue: '' },
+    '健康 frp 线路不弹端口冲突');
+  assert.equal(guard.routeIssueOf({ ...healthy, signals: bypass }).routeIssue, 'external-target',
+    '真绕开时外部手填目标的提示必须保留');
+  assert.throws(() => {
+    const mutated = loadMutated(src => replaceOnce(src,
+      'else if (signals.needsBypass === true && input.externalTarget === true) routeIssue = \'external-target\';',
+      'else if (input.externalTarget === true) routeIssue = \'external-target\';'));
+    assert.equal(mutated.routeIssueOf({ ...healthy, signals: bypass }).routeIssue, 'external-target',
+      '真绕开在去掉门槛的变异版上仍然报外部目标');
+    assert.equal(mutated.routeIssueOf(healthy).routeIssue, '', '去掉绕开门槛必须转红');
+  }, assert.AssertionError, '健康线路误弹必须被上面那条断言拒绝');
 });
 
 test('自检回环判据记进来，状态能读到；没探测就当没证据', () => {
