@@ -150,7 +150,7 @@ test('setAddressListener 在已知地址时补发当前地址', async () => {
   assert.deepEqual(got, ['https://brave-lamp-trycloudflare.trycloudflare.com']);
 });
 
-test('崩溃按退避有限重连（用户仍开启），封顶后不再重试', async () => {
+test('崩溃按退避重连（用户仍开启），封顶后转固定间隔继续重试', async () => {
   const clock = retryClock();
   const { runner, children } = harness({ port: 18787, clock });
   await runner.start();
@@ -161,9 +161,16 @@ test('崩溃按退避有限重连（用户仍开启），封顶后不再重试',
     await clock.tick();
     assert.equal(runner.status().starting, true, '重连起的是一新进程，连上边缘之前不算运行中');
   }
+  // 需求变更（2026-11-28）：封顶后不再永久停，转 60 秒固定档无限重试（带 ±20% 抖动）。
   children.at(-1).emit('close', 1, null);
-  assert.equal(clock.timers.size, 0, '重试必须封顶');
-  assert.equal(children.length, 6);
+  assert.equal(clock.timers.size, 1, '退避用尽后转固定长间隔继续重试，不能永久停');
+  const steadyMs = [...clock.timers.values()][0].ms;
+  assert.ok(steadyMs >= 48_000 && steadyMs <= 72_000, `固定档应在 60s±20% 内，实际 ${steadyMs}`);
+  await clock.tick();
+  assert.equal(runner.status().starting, true, '固定档到点必须重新拉起');
+  children.at(-1).emit('close', 1, null);
+  assert.equal(clock.timers.size, 1, '再次异常仍要排下一次重试，不能放弃');
+  assert.equal(children.length, 7);
   await runner.stop();
   assert.equal(runner.shouldAutoStart(), false);
   assert.equal(runner.status().error, '');

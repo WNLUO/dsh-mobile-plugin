@@ -267,7 +267,7 @@ function retryClock() {
   };
 }
 
-test('异常退出按退避有限重启，主动停用取消待重试且清错误', async () => {
+test('异常退出按退避重试、封顶后仍继续，主动停用取消待重试且清错误', async () => {
   const clock = retryClock();
   const children = [];
   const runner = createFrpcRunner({ root: tempDir(), portOf: () => 18787, ...clock,
@@ -283,9 +283,17 @@ test('异常退出按退避有限重启，主动停用取消待重试且清错�
     await clock.tick();
     assert.equal(runner.status().running, true);
   }
+  // 需求变更（2026-11-28）：异常退出不再「退避用尽就永久停」，而是转 60 秒固定档无限重试，
+  // 否则一次网络风暴耗光次数后穿透会静默死掉。固定档带 ±20% 抖动。
   children.at(-1).emit('close', 1, null);
-  assert.equal(clock.timers.size, 0, '重试必须封顶');
-  assert.equal(children.length, 6);
+  assert.equal(clock.timers.size, 1, '退避用尽后转固定长间隔继续重试，不能永久停');
+  const steadyMs = [...clock.timers.values()][0].ms;
+  assert.ok(steadyMs >= 48_000 && steadyMs <= 72_000, `固定档应在 60s±20% 内，实际 ${steadyMs}`);
+  await clock.tick();
+  assert.equal(runner.status().running, true, '固定档到点必须重新拉起');
+  children.at(-1).emit('close', 1, null);
+  assert.equal(clock.timers.size, 1, '再次异常仍要排下一次重试，不能放弃');
+  assert.equal(children.length, 7);
   await runner.clear();
   assert.equal(runner.shouldAutoStart(), false);
   assert.equal(runner.status().error, '');

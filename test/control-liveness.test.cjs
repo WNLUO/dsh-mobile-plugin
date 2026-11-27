@@ -72,6 +72,8 @@ function fixture(t, { Socket, url = 'https://control.example/findme/', mutate = 
   const client = loaded.exports.createControlClient({
     state, getHistoryKey: () => HK, getAddresses: () => addresses,
     getRelayConnected: () => Boolean(relay), getConnectedRelay: () => relay,
+    // 退避加了 ±20% 抖动（防全网齐步重连）：这里固定 0.5 让断言仍是确定的 1/2/4… 秒。
+    random: () => 0.5,
     log: (...args) => logs.push(args),
   });
   t.after(() => client.stop());
