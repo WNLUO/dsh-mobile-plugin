@@ -71,13 +71,34 @@ test('变异：去掉固定入口保护会被同一断言拒绝', async () => {
   await assert.rejects(assertFixed(loaded.exports.bindLanEndpoint), { code: 'ERR_ASSERTION' });
 });
 
-test('新装默认端口在三处口径一致，且不是老默认 18787', () => {
-  const core = require('../lib/relay/core.js')
-  const { configOf } = require('../lib/relay/config-store.js')
-  const { configView } = require('../lib/mobile/relay-control.js')
+// 三处默认端口口径共用这一个断言：正常测试传真模块，变异测试传改过源码的副本，
+// 于是「任何一处改回老端口守卫就红」是同一条判据在验，不是各写一份。
+function assertFreshDefault(core, store, control) {
   assert.equal(core.defaultState().lanPort, 51887)
-  assert.equal(configOf({}).lanPort, 51887)
-  assert.equal(configView({}).lanPort, 51887)
+  assert.equal(store.configOf({}).lanPort, 51887)
+  assert.equal(control.configView({}).lanPort, 51887)
+}
+function loadMutated(rel, needle) {
+  const file = path.join(__dirname, rel);
+  const source = fs.readFileSync(file, 'utf8');
+  assert.ok(source.includes(needle), `${rel} 里找不到待变异的写法：${needle}`);
+  const loaded = { exports: {} };
+  new Function('require', 'module', 'exports', source.replace(needle, needle.replace('18787', '51887')))(createRequire(file), loaded, loaded.exports);
+  return loaded.exports;
+}
+test('新装默认端口在三处口径一致，且不是老默认 18787', () => {
+  assertFreshDefault(require('../lib/relay/core.js'), require('../lib/relay/config-store.js'), require('../lib/mobile/relay-control.js'));
+});
+
+test('变异：任一处默认值改回 18787，同一条断言必须转红', () => {
+  const realCore = require('../lib/relay/core.js');
+  const realStore = require('../lib/relay/config-store.js');
+  const realControl = require('../lib/mobile/relay-control.js');
+  assert.throws(() => assertFreshDefault(loadMutated('../lib/relay/core.js', 'lanPort: 18787'), realStore, realControl), { code: 'ERR_ASSERTION' });
+  assert.throws(() => assertFreshDefault(realCore, loadMutated('../lib/relay/config-store.js', 'default(18787)'), realControl), { code: 'ERR_ASSERTION' });
+  assert.throws(() => assertFreshDefault(realCore, realStore, loadMutated('../lib/mobile/relay-control.js', 'state.lanPort : 18787')), { code: 'ERR_ASSERTION' });
+  // 三处真模块仍守着新默认，证明变异只发生在内存副本里。
+  assertFreshDefault(realCore, realStore, realControl);
 });
 
 test('固定开关进配置但不重建健康监听，实际监听状态驱动总控与穿透', () => {
