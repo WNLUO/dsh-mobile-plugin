@@ -162,6 +162,43 @@ export function useSelfCheck(mobileIdle: boolean, revision = ''): SelfCheckView 
   }
 }
 
+export type LoopbackProbeView = {
+  ok: true
+  at: number
+  port: number
+  state: 'ok' | 'blocked' | 'unknown'
+  reason: string
+}
+
+/**
+ * 轻量回环实测：面板按半分钟拨一次本机 health，不跑防火墙那套重探测。
+ *
+ * 自检的回环结论只在人开弹窗或手机久没来过时更新；端口被占这种事不能等那么久才看见。
+ * 老宿主没有这条路由时保留上一次结果，不把「读不到」写成「被占」。
+ */
+export function useLoopbackProbe(enabled: boolean, port: number): LoopbackProbeView | null {
+  const [view, setView] = useState<LoopbackProbeView | null>(null)
+  const alive = useRef(true)
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
+  useEffect(() => {
+    if (!enabled || !port) return
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const next = await apiGet<LoopbackProbeView>('/api/relay/loopback')
+        if (!cancelled && alive.current) setView(next)
+      } catch { /* 老宿主没这条路由：留着上一次结果，不误报被占 */ }
+    }
+    void tick()
+    const timer = window.setInterval(() => void tick(), 30_000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [enabled, port])
+  return view
+}
+
 /** `verdict` 的严重程度：只有 `ok` 是正常；`unknown` 是「查不到」，也不许当正常。 */
 export function verdictTone(verdict: string): Tone {
   if (verdict === 'ok') return 'ok'

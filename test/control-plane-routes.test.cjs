@@ -1,3 +1,4 @@
+// 2026-11-27：二维码回归一次性门票——隧道段只在唯一通路进码、点对点只带身份，并守住最坏载荷仍能出码。
 // 2026-11-25：面板保存「手机优先用这条」与手机端同一道校验，存了不生效的地址当场拒。
 // 2026-11-25：状态接口逐路隔离，一路抛错不再整条 400。
 // 公用中转正式退役：码里不再塞内置地址、status 不再带两个停用字段，下面旧断言不再成立。
@@ -104,6 +105,8 @@ test('控制面路由清单完整（解析条数下限防正则失效）', () =>
     // 手机连不上时的连接自检：本机在不在听 / 中转通不通 / 防火墙放不放行 / 手机最近来过没有。
     // 只读，不改规则也不提权（见 lib/relay/connection-check.js 的文件头）。
     '/api/relay/selfcheck',
+    // 面板按分钟级拨一次的轻量回环实测：不跑防火墙，和自检共用回环判据。
+    '/api/relay/loopback',
     // 面板显示「手机该填哪个地址」用：检测到的局域网 / 公网地址，只读。
     '/api/relay/addresses',
     '/api/relay/reconnect',
@@ -217,7 +220,7 @@ test('面板的地址库把「现在选的是哪条」报出来，界面才回�
  */
 function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], credentials: credentialStore,
   localOnly = (_method, handler) => handler, trustedLocalUi = () => true, dropDeviceStreams = () => 0, getPluginRuntime = () => null,
-  reconnectTunnel, frp, tailcat, cloudflare, zeroNews, syncSidecar = async () => {},
+  reconnectTunnel, frp, tailcat, cloudflare, zeroNews, p2p, syncSidecar = async () => {},
   registerRoutes = registerControlPlaneRoutes } = {}) {
   const table = new Map();
   // 设备清单那两条要拿同一份库回答，给个空库让不相干的用例也能把整张表挂起来。
@@ -248,6 +251,7 @@ function controlRoutes({ state = {}, settingsCalls = [], notifyCalls = [], crede
     tailcat,
     cloudflare,
     zeroNews,
+    p2p,
     sidecarToken: 'test',
     lanPortInUse: () => 18787,
     getLanPortAdjusted: () => false,
@@ -1199,17 +1203,34 @@ test('面板总开关读 applyError 报失败，不弹成功提示', () => {
   assert.match(body, /panel\.shell\.toggleApplyFailed/, '失败提示不是「已启用/已停用」那种成功回执');
 });
 
-test('自检把回环判据记进 ingress-guard，且判定变化才触发重报', () => {
+test('自检把回环判据交给共用记账，且判定变化才触发重报', () => {
   const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
   const handler = registrations(source).find((r) => r.path === '/api/relay/selfcheck');
   assert.ok(handler, '自检路由还在');
-  assert.match(handler.handler, /noteLoopbackVerdict\(/, '回环判据要交给 ingress-guard，状态视图才读得到');
-  assert.match(handler.handler, /ingressGuard\.signalsOf\(/, '重报与否按同一份判据算，不在别处各判一遍');
-  assert.match(handler.handler, /onIngressVerdictChanged\(/, '判据变了让总控重报当前线路');
-  // 变异：把触发重报那一行整段抹掉，重新解析出的自检段必须不再命中。
+  assert.match(handler.handler, /applyLoopbackVerdict\(result\?\.listening\?\.loopback \|\| null\)/, '自检只负责把回环结论交给同一份账');
+  const at = source.indexOf('const applyLoopbackVerdict');
+  const end = source.indexOf('const localOnly', at);
+  const helper = source.slice(at, end);
+  assert.match(helper, /noteLoopbackVerdict\(/, '回环判据要交给 ingress-guard，状态视图才读得到');
+  assert.match(helper, /ingressGuard\.signalsOf\(/, '重报与否按同一份判据算，不在别处各判一遍');
+  assert.match(helper, /onIngressVerdictChanged\(/, '判据变了让总控重报当前线路');
+  // 变异：把触发重报那一行整段抹掉，重新解析出的账本必须不再命中。
   const mutatedSource = source.replace(/if \(typeof onIngressVerdictChanged === 'function'\) \{[\s\S]*?\n    \}/, '');
-  const mutatedHandler = registrations(mutatedSource).find((r) => r.path === '/api/relay/selfcheck');
-  assert.doesNotMatch(mutatedHandler.handler, /onIngressVerdictChanged\(/, '抹掉重报接线后这条守卫必须转红');
+  const mutatedAt = mutatedSource.indexOf('const applyLoopbackVerdict');
+  const mutatedEnd = mutatedSource.indexOf('const localOnly', mutatedAt);
+  assert.doesNotMatch(mutatedSource.slice(mutatedAt, mutatedEnd), /onIngressVerdictChanged\(/, '抹掉重报接线后这条守卫必须转红');
+});
+
+test('轻量回环实测只拨本机 health，并写回同一份入口账', () => {
+  const source = fs.readFileSync(CONTROL_PLANE, 'utf8');
+  const handler = registrations(source).find((r) => r.path === '/api/relay/loopback');
+  assert.ok(handler, '轻量回环路由还在');
+  assert.match(handler.handler, /probeTcpHealth\('127\.0\.0\.1', port, LOOPBACK_PROBE_TIMEOUT_MS\)/, '只拨本机 health');
+  assert.match(handler.handler, /loopbackVerdictOf\(/, '与自检用同一份回环判据');
+  assert.match(handler.handler, /applyLoopbackVerdict\(verdict\)/, '结论要记进入口账，状态与面板才同步');
+  assert.doesNotMatch(handler.handler, /connectionCheck\.run\(/, '不跑防火墙那套重探测');
+  const mutatedSource = source.replace('/api/relay/loopback', '/api/relay/loopback-mutant');
+  assert.ok(!registrations(mutatedSource).some((r) => r.path === '/api/relay/loopback'), '抹掉路由后这条守卫必须转红');
 });
 
 test('控制面不再把「局域网能绑」当成公网落点可用', () => {
@@ -1217,4 +1238,55 @@ test('控制面不再把「局域网能绑」当成公网落点可用', () => {
   const handler = registrations(source).find((r) => r.path === '/api/relay/check-port');
   assert.ok(handler, '检查端口路由还在');
   assert.match(handler.handler, /canListen\(port, '0\.0\.0\.0'\)/, '端口探针仍只回答局域网能不能绑，语义不许改');
+});
+
+test('出码只带一次性门票：隧道段只在唯一通路时进码，点对点不再带候选清单', async () => {
+  const base = { enabled: true, instanceId: 'i1', pairingCode: '123456',
+    pairingTicket: Buffer.alloc(32, 1).toString('base64url'),
+    relayUrl: 'https://relay.example.com', name: 'host', lanEnabled: false, lanPort: 18787 };
+  let invite;
+  const registerRoutes = networkRoutesModule(source => source, { require(id) {
+    if (id === 'qrcode') return { async toString(text) {
+      invite = JSON.parse(new URL(text).searchParams.get('data'))
+      return '<svg></svg>'
+    } }
+    return createRequire(CONTROL_PLANE)(id)
+  } })
+  const window = { address: 'tcp'.repeat(40), port: 48942, key: 'nodekey:' + 'a'.repeat(64),
+    proof: 'b'.repeat(128), expiresAt: Date.now() + 120000 };
+  const tailcat = { async openPairingWindow() { return window } };
+  const p2p = { exchange: () => ({ ok: true, publicKey: 'PUBKEY', port: 48950,
+    candidates: ['192.168.1.2:1234', '[240e::1]:1234'], localCandidates: ['10.0.0.1:1234'] }) };
+  const table = controlRoutes({ state: { ...base }, registerRoutes, tailcat, p2p });
+  const res = {};
+  await table.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, res);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(invite.tailcat, undefined, '中转已经能配对，隧道那一段不该再重复进码');
+  assert.equal(invite.p2p.peerKey, 'PUBKEY', '点对点身份照旧带出去');
+  assert.equal(invite.p2p.candidates, undefined, '打洞候选由会合接口回给手机，不写进二维码');
+  assert.equal(invite.p2p.localCandidates, undefined, '本机候选同样不重复投递');
+
+  // 一条别的路都没有时，隧道就是唯一入口：这时必须留在码里，否则新机根本连不上。
+  const sole = controlRoutes({ state: { ...base, relayUrl: '', relayUrls: [] }, registerRoutes, tailcat });
+  invite = undefined;
+  const onlyRes = {};
+  await sole.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, onlyRes);
+  assert.equal(onlyRes.status, 200, JSON.stringify(onlyRes.body));
+  assert.equal(invite.tailcat.address, window.address, '没有别的路时隧道必须进码');
+});
+
+test('最坏载荷下仍能出码：二维码不会被重复投递的地址撑爆', async () => {
+  const state = { enabled: true, instanceId: 'i1', pairingCode: '123456',
+    pairingTicket: Buffer.alloc(32, 1).toString('base64url'),
+    relayUrl: 'https://relay.example.com', name: 'host', lanEnabled: true, lanPort: 18787,
+    customRoutes: Array.from({ length: 8 }, (_, i) => ({
+      url: `https://provider-${i}.example.com`, name: 'X'.repeat(80), transport: 'http' })),
+    manualTcpUrl: '103.40.14.14:18787', manualIpv6Url: 'http://[240e::1]:18787' };
+  const p2p = { exchange: () => ({ ok: true, publicKey: 'K'.repeat(44), port: 48950,
+    candidates: Array.from({ length: 11 }, (_, i) => `[240e:338:5219:52f0::${i + 1}]:64157`) }) };
+  const table = controlRoutes({ state, p2p });
+  const res = {};
+  await table.get('/api/relay/pairing')({ method: 'GET', url: '/api/relay/pairing' }, res);
+  assert.equal(res.status, 200, JSON.stringify(res.body).slice(0, 300));
+  assert.match(res.body.svg, /<svg/, '最坏载荷也要真的画出码，不能回 500');
 });

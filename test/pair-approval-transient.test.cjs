@@ -71,3 +71,15 @@ test('内部环节失手时兜底转本机配对接口，不让用户吃 500', (
   assert.ok(at > 0);
   assert.match(proxy.slice(at, at + 500), /forwardPairToUpstream\(req, res, b\)/, '失手后转本机配对接口兜底，而不是回 500');
 });
+
+test('兜底撞上「浏览器访问被禁」时换成可区分结果，不冒充策略拒绝', () => {
+  const proxy = read('lib', 'relay', 'lan-proxy.js');
+  const at = proxy.indexOf('function forwardPairToUpstream');
+  assert.ok(at > 0, '兜底转发还在');
+  const body = proxy.slice(at, at + 1800);
+  assert.match(body, /Browser access is disabled/, '要认出宿主那句浏览器访问被禁');
+  assert.match(body, /code: 'approval-unavailable'/, '换成手机能区分的「暂时没准备好」');
+  assert.match(body, /res\.writeHead\(503/, '不再是冒充策略拒绝的 403');
+  const mutated = body.replace("code: 'approval-unavailable'", "code: 'rejected'");
+  assert.doesNotMatch(mutated, /code: 'approval-unavailable'/, '抹掉可区分原因后这条守卫必须转红');
+});

@@ -603,7 +603,7 @@ export function Console() {
       />
 
       <PortConflictDialog
-        reason={portConflictReason(lanFallbackReason(status))}
+        reason={portConflictReason(lanFallbackReason(status) || status.lan.routeIssue || '')}
         port={status.lan.ingressPort || status.lan.port}
         onOpenPortSettings={() => setPortOpen(true)}
       />

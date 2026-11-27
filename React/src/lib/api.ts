@@ -326,6 +326,8 @@ export type StatusView = {
      * 老宿主没有这一格时读成 ''（没有 unresolved 的问题）。
      */
     fallbackReason?: LanFallbackReason
+    /** 线路级问题（兜底顶上时也可能有旧隧道落点没改）；读成空串表示没有待提示的问题。 */
+    routeIssue?: LanFallbackReason
   }
   sidecar: {
     state: string

@@ -70,6 +70,7 @@ import { cn, lanText, lanTone, toneText, tunnelText, tunnelTone, type Tone } fro
 import {
   firewallRow,
   mobileLooksIdle,
+  useLoopbackProbe,
   useSelfCheck,
   verdictText,
   verdictTone,
@@ -153,7 +154,8 @@ export function Onboarding({ onDone }: Props) {
   const selfcheckVerdict = selfcheck.data?.verdict ?? ''
   // verdict 的 ok 仍只说「手机从任意路径来过」，不改它的含义；端口被抢单独把直连那行标红，
   // 复用已有的错误档与 panel.lan.error 文案，原因塞进现成的 detail，不加新颜色 / 新行。
-  const loopbackInfo = selfcheck.data?.listening?.loopback
+  const liveLoopback = useLoopbackProbe(Boolean(status?.enabled), status?.lan.port || 0)
+  const loopbackInfo = liveLoopback || selfcheck.data?.listening?.loopback
   const lanState = loopbackInfo?.state === 'blocked' ? 'error' : (status?.lan.state ?? 'off')
 
   /** 轮询要能被卸载打断，否则关掉页面后它还在打接口。 */
@@ -334,7 +336,7 @@ export function Onboarding({ onDone }: Props) {
 
   /** 弹窗里点名用的端口。 */
   const lanPortText = String(status?.lan.port || addresses?.port || 51887)
-  const portConflict = portConflictReason(lanFallbackReason(status))
+  const portConflict = portConflictReason(lanFallbackReason(status) || status?.lan.routeIssue || '')
 
   /**
    * 进第四页就查一次。回第三页换了一家服务商再进来会重查 —— 码里的地址跟着变了，旧结论作废。
@@ -858,6 +860,11 @@ export function Onboarding({ onDone }: Props) {
               ) : null}
               {checkSummary && !checkSummary.remoteOk && checkSummary.localOk ? (
                 <p className={`mt-2 text-sm leading-relaxed break-words ${toneText.warn}`}>{t('panel.onboarding.check.loopbackOnly')}</p>
+              ) : null}
+              {loopbackInfo ? (
+                <p className={`mt-2 text-sm leading-relaxed break-words ${toneText[loopbackInfo.state === 'ok' ? 'ok' : loopbackInfo.state === 'blocked' ? 'error' : 'warn']}`}>
+                  {t('panel.onboarding.check.loopback')}：{t(loopbackInfo.state === 'ok' ? 'panel.onboarding.check.reachable' : loopbackInfo.state === 'blocked' ? 'panel.onboarding.check.unreachable' : 'panel.selfcheck.notChecked')}{loopbackInfo.reason ? ` · ${loopbackInfo.reason}` : ''}
+                </p>
               ) : null}
 
               {showSelfcheckVerdict ? (
