@@ -1,3 +1,4 @@
+// 2026-11-27：简体中文「装 App」提示改短为「先下个app吧」。
 // 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 // 2026-11-25：端口冲突弹窗与线路未就绪提示，十门语言逐键对齐。
 // 2026-11-26：引导页拆成三步，「下一步」文案补进十门语言。
@@ -25,7 +26,7 @@ export const ONBOARDING: PanelMessages = {
     'panel.onboarding.configure': '去配置',
     'panel.onboarding.qrPending': '网络配好后，这里会出现二维码',
     'panel.onboarding.waitNetwork': '先在上面把网络配好',
-    'panel.onboarding.installAppHint': '手机还没装 App？先在这里把 App 装好，再回来扫码。',
+    'panel.onboarding.installAppHint': '手机还没装 App？先下个app吧',
     'panel.onboarding.tailcatWhy': '为什么不可用',
     'panel.onboarding.tailcatWhat': 'Tailcat 隧道让手机不经过中转、直接连到这台电脑。它在二维码里是第三条路：其它线路都不通时还有它。',
     'panel.onboarding.tailcat.unavailable': '不可用：这台电脑上没找到隧道助手，二维码里不含这条路，另外两条照旧能用。装好助手后重开一次 DSH，或者在这里重新取一次码，它会自己再找一遍。',
