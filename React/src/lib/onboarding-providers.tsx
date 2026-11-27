@@ -1,3 +1,4 @@
+// 2026-11-27：引导页国内只列 ZeroNews，可见范围由 onboardingProviderKeys 收口。
 // 2026-11-25：服务商「已接好」还要求线路真能用（端口已绕开 / 没有未解决的兜底原因）。
 // 引导页的服务商注册表：地区、是否主推、就绪判定、点开时挂载哪个配置面板。
 /**
@@ -7,6 +8,9 @@
  * 新增一家服务商：在 `network-region.ts` 的 `PROVIDERS` 里加一项（决定它在哪个地区、哪一页），
  * 再在这里补一条（主推与否、怎么判就绪、点开挂哪个面板）。这里用的是
  * `Record<NetworkProvider, ...>` —— 少补一条，TypeScript 当场编译不过，引导页本身一个字都不用改。
+ *
+ * 引导页可见哪些家由 `onboardingProviderKeys` 单独定：国内这一轮只放 ZeroNews，
+ * 节点小宝与 FRP 的程序接入和控制台那一层照旧，只是不出现在首次接入这一步。国际不变。
  */
 import type { ComponentType } from 'react'
 
@@ -102,14 +106,23 @@ export type OnboardingProvider = {
   Page: ComponentType<ProviderPanelProps>
 }
 
+/**
+ * 引导页这一步实际露出哪几家公司，跟 `providersOfRegion` 的控制台清单分开。
+ * 国内只放 ZeroNews：节点小宝、FRP 仍由控制台那一层管，不进首次接入。
+ * 国际不收窄，仍是 Cloudflare —— 切 tab 时两边各一家、行结构一致，面板宽高不跳。
+ */
+function onboardingProviderKeys(region: NetworkRegion): NetworkProvider[] {
+  return region === 'cn' ? ['zeronews'] : providersOfRegion(region)
+}
+
 /** 某地区的服务商清单，主推那家排最前。 */
 export function onboardingProvidersOf(region: NetworkRegion): OnboardingProvider[] {
-  return providersOfRegion(region)
+  return onboardingProviderKeys(region)
     .map((provider) => ({ provider, region: PROVIDERS[provider].region, ...PROVIDER_SETUP[provider] }))
     .sort((a, b) => Number(b.primary) - Number(a.primary))
 }
 
 /** 这个地区有没有任意一家已经配好 —— 决定引导页放不放二维码。 */
 export function regionHasReadyRoute(region: NetworkRegion, ctx: ReadyContext): boolean {
-  return providersOfRegion(region).some((provider) => PROVIDER_SETUP[provider].ready(ctx))
+  return onboardingProviderKeys(region).some((provider) => PROVIDER_SETUP[provider].ready(ctx))
 }

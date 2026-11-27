@@ -1,3 +1,4 @@
+// 2026-11-27：第二页国内只露 ZeroNews 一家；服务商行固定下限高，切 tab 面板不跳。
 // 2026-11-26：引导页拆成三页——下载 App / 配网络（可跳过，跳过直接进控制台）/ 扫码连接。
 // 2026-11-26：第三页出码前先让宿主把码里的地址真拨一遍；全不通不出码，只有回环通要另说。
 // 2026-11-26：第二页服务商改一行一家，接好之后不再给「去配置」；跳过与下一步并排靠右。
@@ -231,7 +232,7 @@ export function Onboarding({ onDone }: Props) {
 
   /**
    * 国际：Cloudflare 快隧道自动开（用户点进引导页就该能扫）。
-   * 国内靠用户在服务商卡片里自己把 ZeroNews / 节点小宝接上。
+   * 国内：只露 ZeroNews 一家，由用户在卡片里自己接上。
    */
   const autoStartedCf = useRef(false)
   useEffect(() => {
@@ -718,7 +719,7 @@ export function Onboarding({ onDone }: Props) {
                   <div
                     key={entry.provider}
                     className={cn(
-                      'flex flex-wrap items-center gap-2 rounded-lg border border-border-muted p-3',
+                      'flex min-h-14 flex-wrap items-center gap-2 rounded-lg border border-border-muted p-3',
                       entry.primary ? 'bg-primary-subtle' : '',
                     )}
                   >
