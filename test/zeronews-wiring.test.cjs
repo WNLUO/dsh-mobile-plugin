@@ -1,3 +1,4 @@
+// 2026-11-27：外部把隧道重建到新端口后第一次 connect 就该成功，真实失配仍按旧/当前标注。
 // 2026-11-26：运行中才点连接也要挂体检，客户端静默退出后能自愈重连。
 // 2026-11-26：体检发现落点端口失效要清掉旧地址并通知兜底重新判定，不自动重连。
 // 2026-11-25：端口失配要清掉状态里的旧地址，别让它进配对码。
@@ -11,6 +12,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { mountZeroNews, AGENT_INVITE_URL } = require('../lib/zeronews/wiring.cjs');
+const { createZeroNewsRunner } = require('../lib/zeronews/runner.cjs');
 const { pairingPayload } = require('../lib/relay/pairing-payload.cjs');
 
 /** 拼一份最小装配，effect 立即建立并给出清理函数；runnerFactory 换成假体。 */
@@ -603,4 +605,76 @@ test('运行中才点连接：连上后体检挂上，客户端静默退出能�
   // 变异证明：连上后必须补挂体检，少了这一句守卫就该红。
   const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'wiring.cjs'), 'utf8');
   assert.match(source, /retryMs = retryBaseMs; startHealth\(\)/, '连接成功后要把体检定时器挂上');
+});
+
+/**
+ * 真 runner 经接线层挂载：portOf() 走 wiring 的 tunnelPort()（先缓存、再首选值），落点端口可随时改。
+ * CLI / HTTP / spawn / sleep 全用假体，形状抄 zeronews-runner.test.cjs 的 tunnelHarness。
+ */
+function mountRealRunner({ preferredPort, localPort: initialLocalPort }) {
+  const state = { zeroNewsEnabled: true, zeroNewsUrl: '' };
+  const writes = [];
+  const cmds = [];
+  let localPort = initialLocalPort;
+  const fetchImpl = async (url) => {
+    const key = url.replace(/^https?:\/\/[^/]+/, '');
+    if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
+    if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [
+      { type: 'HTTPS', domain: 'https://new.example.com', status: 'active', local_port: localPort },
+    ] } }) };
+    return { ok: false };
+  };
+  const runImpl = async (_bin, args) => {
+    cmds.push(args.join(' '));
+    if (args[0] === 'status') return { code: 0, stdout: '{"login":true}', stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const facade = mountZeroNews({
+    mount: (_name, run) => { run(); return () => {}; },
+    settings: { update: async (patch, options) => { writes.push({ patch, options }); Object.assign(state, patch); } },
+    getState: () => state,
+    control: {}, warn: () => {},
+    ctx: { effect: () => () => {} }, // 不让挂载 effect 自动起连接，手动 start 控时序
+    name: 'test-real-runner',
+    portOf: () => preferredPort,
+    runnerFactory: (opts) => createZeroNewsRunner({ ...opts, fetchImpl, runImpl,
+      spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve() }),
+    ensure: async () => ({ ok: true, path: '/x' }),
+  });
+  return { facade, state, writes, cmds, setLocalPort: (p) => { localPort = p; } };
+}
+
+test('外部把隧道改成新端口：第一次 connect 就认下，不报失配也不清域名', async () => {
+  const env = mountRealRunner({ preferredPort: 18787, localPort: 18787 });
+  const first = await env.facade.start();
+  assert.equal(first.phase, 'connected', '老隧道照旧连得上');
+  assert.equal(first.tunnelLocalPort, 18787, '记住老隧道落点');
+
+  // 用户删旧隧道、把新隧道建到 59542；endpoints 立刻报新落点，首选值和缓存都还是旧的。
+  env.setLocalPort(59542);
+  const second = await env.facade.start();
+  assert.equal(second.phase, 'connected', '第一次 connect 就该认下新端口，不用等第二次');
+  assert.equal(second.errorReason, '', '不再报端口失配');
+  assert.equal(second.url, 'https://new.example.com');
+  assert.equal(second.tunnelLocalPort, 59542, '缓存换成新端口，下一轮继续沿用');
+  assert.ok(!env.writes.some((w) => w.patch.zeroNewsUrl === ''), '不把新隧道域名当失效清掉');
+  assert.ok(!env.cmds.some((c) => c.startsWith('add ')), '不自动重建云端隧道');
+
+  // 变异证明：拿掉按 endpoints 新端口刷新比对值那行，第一次 connect 就会失配转红。
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'runner.cjs'), 'utf8');
+  assert.match(source, /if \(fromCache.*\) current = found\.localPort/, '缓存落点被外部改动时要用 endpoints 端口比对');
+});
+
+test('真实失配：云端隧道仍指旧端口时按旧/当前标注，不删不建', async () => {
+  // 插件首选端口已是 28787，云端那条旧隧道还停在 18787，用户没动过它。
+  const env = mountRealRunner({ preferredPort: 28787, localPort: 18787 });
+  env.state.zeroNewsUrl = 'https://stale.example.com';
+  const s = await env.facade.start();
+  assert.equal(s.phase, 'error');
+  assert.equal(s.errorReason, 'port-mismatch');
+  assert.match(s.error, /旧端口 18787/, '旧隧道落点标成旧端口');
+  assert.match(s.error, /当前本机端口 28787/, '插件当前端口标成当前端口');
+  assert.ok(!env.cmds.some((c) => c.startsWith('add ')), '失配不自动建新隧道');
+  assert.ok(!env.cmds.some((c) => /^(delete|remove)\b/.test(c)), '失配不自动删云端隧道');
+  assert.ok(env.writes.some((w) => w.patch.zeroNewsUrl === '' && w.options && w.options.notify === false), '失配只清本机旧地址');
 });
