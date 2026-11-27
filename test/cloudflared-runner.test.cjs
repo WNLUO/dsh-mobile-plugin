@@ -115,6 +115,22 @@ test('start 起进程、从 stderr banner 解析地址、spawn 参数正确', as
   assert.deepEqual(published, ['https://brave-lamp-trycloudflare.trycloudflare.com'], '连上之后才上报地址');
 });
 
+test('协议族策略 ipv4-only 时 spawn 带 --edge-ip-version 4；auto 不带', async () => {
+  for (const [policy, expectEdge] of [['ipv4-only', true], ['auto', false]]) {
+    const spawns = [];
+    const runner = createCloudflaredRunner({
+      root: tempDir(), portOf: () => 49906,
+      ensureBin: async () => ({ ok: true, path: '/fake/cloudflared' }),
+      spawnImpl: (binary, args) => { spawns.push(args); return fakeChild(); },
+      ipVersionPolicy: () => policy,
+    });
+    await runner.start();
+    const expected = ['tunnel', '--url', 'http://127.0.0.1:49906', '--no-autoupdate'];
+    if (expectEdge) expected.push('--edge-ip-version', '4');
+    assert.deepEqual(spawns[0], expected, `${policy} 的 spawn 参数不对`);
+  }
+});
+
 test('同一 URL 只回调一次', async () => {
   const published = [];
   const child = fakeChild();

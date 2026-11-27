@@ -306,3 +306,14 @@ test('变异：移除握手或半开回收时，同一条期限断言必须失�
   const ws = heartbeat.open();
   assert.throws(() => assertHalfOpenDeadline(heartbeat, ws), { code: 'ERR_ASSERTION' });
 });
+
+test('总控：协议族策略变更后 sync 主动重拨', (t) => {
+  const f = fixture(t);
+  f.client.start();
+  f.open();
+  assert.equal(f.sockets.length, 1, '起始一条连接');
+  // 模拟宿主把配置改成 ipv4-only 后触发的 sync：应主动重拨，让新策略作用于出站连接。
+  f.state.ipVersionPolicy = 'ipv4-only';
+  f.client.sync();
+  assert.equal(f.sockets.length, 2, '协议族策略变了必须重拨');
+});
