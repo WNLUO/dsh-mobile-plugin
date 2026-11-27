@@ -1,16 +1,15 @@
-// 2026-11-26：一键导入的插件侧契约——整条渠道（含 Key）与手机该试的地址。
+// 2026-11-27：一键导入只交渠道配置，Key 不经过插件，由手机侧自己填。
 'use strict';
 
 /**
  * `POST /channels/export`：把电脑上的一条自建渠道交给手机，给「本机 Agent → 新增渠道」
- * 的一键导入用。四条硬约束：
+ * 的一键导入用。三条硬约束：
  *
- *  1. **只认自建那一类**：插件 / 宿主注册的提供方没有可搬的地址，也没有一把属于它的 Key。
- *  2. **Key 取不到不算导入失败**：宿主没注册 resolve、或者那把 Key 由启动环境变量提供时，
- *     如实回 `keySet:false`，用户自己填一次就完事。
+ *  1. **只认自建那一类**：插件 / 宿主注册的提供方没有可搬的地址，一律 404；官方 DeepSeek
+ *     有确定的 OpenAI 兼容地址，可以导出。
+ *  2. **不带 Key**：插件不读宿主的凭据，也不把任何 API Key 放进响应。
  *  3. **本机地址要给出手机够得着的变体**：`127.0.0.1` 那种交给手机就是打到自己身上；
  *     同一端口 + 这台电脑的局域网地址才有机会通。
- *  4. **只按 id 取一条**：这不是「导出全部凭据」的口子。
  *
  * 驱动真实 handler（真 http 服务、真 req/res），不转写实现。
  */
@@ -32,7 +31,7 @@ const PROVIDERS = {
   },
 };
 
-function ctxWith(options = {}) {
+function ctxWith() {
   return {
     apiProxy: {
       settings: {
@@ -42,19 +41,13 @@ function ctxWith(options = {}) {
         providers: async () => ({ result: { ok: true, value: { providers: [{ provider: 'deepseek-official', displayName: 'DeepSeek', active: true }] } } }),
         models: async () => ({ result: { ok: true, value: { groups: [{ id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] }] } } }),
       },
-      credentials: {
-        resolve: async () => {
-          if (options.resolveMissing) return { result: { ok: false, error: { code: 'host-unavailable', message: '没注册' } } };
-          return { result: { ok: true, value: { value: 'sk-imported', source: 'stored' } } };
-        },
-      },
     },
   };
 }
 
-async function serve(options = {}) {
+async function serve() {
   const server = http.createServer((req, res) => {
-    Promise.resolve(handleChannelExport(ctxWith(options), req, res)).catch((error) => {
+    Promise.resolve(handleChannelExport(ctxWith(), req, res)).catch((error) => {
       if (res.headersSent || res.writableEnded) return;
       res.writeHead(500, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: { code: 'internal', message: String(error && error.message) } }));
@@ -79,44 +72,33 @@ test('路由表登记了这一条（App 的 apiPaths 那条才有人答）', () 
   assert.match(readRouteTable(), /route\('\/api\/mobile\/v1\/channels\/export'/);
 });
 
-test('导出一条自建渠道：名字、协议、地址、模型与 Key 一起给全', async () => {
+test('导出一条自建渠道：名字、协议、地址、模型给全，响应里没有任何 Key', async () => {
   const api = await serve();
   try {
     const { status, body } = await api.post({ id: 'my-gateway' });
     assert.equal(status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.keySet, true);
+    assert.equal(body.keySet, undefined);
     assert.equal(body.channel.name, '我的网关');
     assert.equal(body.channel.protocol, 'openai-completions');
     assert.equal(body.channel.baseUrl, 'http://127.0.0.1:11434');
     assert.deepEqual(body.channel.models.map((row) => row.id), ['gpt-x', 'gpt-y']);
-    assert.equal(body.channel.apiKey, 'sk-imported');
-  } finally { await api.close(); }
-});
-
-test('Key 取不到时如实说没有，整条渠道照样给（导入不该因为这一格失败）', async () => {
-  const api = await serve({ resolveMissing: true });
-  try {
-    const { status, body } = await api.post({ id: 'my-gateway' });
-    assert.equal(status, 200);
-    assert.equal(body.keySet, false);
     assert.equal(body.channel.apiKey, undefined);
-    assert.equal(body.channel.baseUrl, 'http://127.0.0.1:11434');
   } finally { await api.close(); }
 });
 
-test('内置官方 DeepSeek 也能导出：换成手机能拨的 OpenAI 兼容地址，Key 与模型照带', async () => {
+test('内置官方 DeepSeek 也能导出：换成手机能拨的 OpenAI 兼容地址，不带 Key', async () => {
   const api = await serve();
   try {
     const { status, body } = await api.post({ id: 'deepseek-official' });
     assert.equal(status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.keySet, true);
+    assert.equal(body.keySet, undefined);
     assert.equal(body.channel.name, 'DeepSeek');
     assert.equal(body.channel.protocol, 'openai-completions');
     assert.equal(body.channel.baseUrl, 'https://api.deepseek.com');
     assert.deepEqual(body.channel.models.map((row) => row.id), ['deepseek-chat']);
-    assert.equal(body.channel.apiKey, 'sk-imported');
+    assert.equal(body.channel.apiKey, undefined);
     assert.deepEqual(body.candidates, ['https://api.deepseek.com']);
   } finally { await api.close(); }
 });

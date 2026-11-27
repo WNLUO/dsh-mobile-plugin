@@ -1,3 +1,4 @@
+// 2026-11-27：渠道契约收窄——插件不读不写 Key，只动 providers 那一段。
 // 新增模型自动识别公开能力，编辑已有模型保留用户能力与扩展字段。
 'use strict';
 
@@ -9,13 +10,14 @@
  *  1. **只动能动的那一段**：写 / 删都只提交 `['providers', <id>]` 的 set / unset。
  *     整段覆盖 `providers` 会把用户在 `cordis.patch.yml` 里手写的其它路由一起抹掉
  *     （桌面面板 2026-10-19 踩过一次），所以断言里连路径都逐字比对。
- *  2. **先 Key 后路由，路由失败要回滚 Key**：不让「有 Key 没路由」的孤儿凭据留在库里。
+ *  2. **不碰 Key**：插件既不读也不写 API Key，写接口只有一次 `settings.mutate`，
+ *     删接口只有一次 `unset`。
  *  3. **插件提供的那批不出现写操作**：清单里标成 external，App 不给入口，插件侧也不接
  *     它们的删除（删除接口只认 `llm-pi-ai` 里真的存在的那一条）。
- *  4. **获取模型由宿主代问**：协议与 Key 原样交给宿主 `llm.discoverModels`，地址不带
+ *  4. **获取模型由宿主代问**：协议与地址交给宿主 `llm.discoverModels`，地址不带
  *     路径时按 `/v1` 回退一次，并把问通的那个地址带回去（保存要写它）。编辑中的渠道还要
- *     把路由名一起交给宿主（`provider`），否则表单里 Key 留空时宿主不知道该用库里哪一把；
- *     失败原因在这一层换成中文（英文原话在 App 侧不上界面，整句会退成「电脑那边出了错」）。
+ *     把路由名一起交给宿主（`provider`），宿主自己按这条路由取鉴权；失败原因在这一层换成
+ *     中文（英文原话在 App 侧不上界面，整句会退成「电脑那边出了错」）。
  *
  * 本测试驱动真实 handler（起真 http 服务、真 req/res），不是转写实现。
  */
@@ -63,7 +65,6 @@ function fixture() {
       { id: 'my-gateway', name: '我的网关', models: [{ id: 'gpt-x', name: 'GPT X' }, { id: 'gpt-y', name: 'GPT Y' }] },
       { id: 'buddy', name: 'Buddy', models: [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }] },
     ],
-    credentials: { OFM_MY_GATEWAY_KEY: { configured: true, writable: true } },
   };
 }
 
@@ -96,20 +97,6 @@ async function serve(options = {}) {
         models: async (request) => {
           calls.push({ method: 'llm.models', request });
           return { result: { ok: true, value: { groups: state.groups } } };
-        },
-      },
-      credentials: {
-        describe: async (request) => {
-          calls.push({ method: 'credentials.describe', request });
-          return { result: { ok: true, value: state.credentials } };
-        },
-        set: async (request) => {
-          calls.push({ method: 'credentials.set', request });
-          return { result: { ok: true, value: {} } };
-        },
-        unset: async (request) => {
-          calls.push({ method: 'credentials.unset', request });
-          return { result: { ok: true, value: {} } };
         },
       },
     },
@@ -156,14 +143,13 @@ test('路由接线：四条端点挂在移动端路由表上，且引入了 chan
   assert.match(table, /require\(['"]\.\.\/mobile\/channels/);
 });
 
-test('清单：自建与插件提供分开列，自建带 Key 状态、插件那批不进写路径', async () => {
+test('清单：自建与插件提供分开列，自建带地址与模型，插件那批不进写路径', async () => {
   const server = await serve();
   try {
     const { status, body } = await server.get('/channels');
     assert.equal(status, 200);
     const custom = body.channels.find((row) => row.id === 'my-gateway');
     assert.equal(custom.source, 'custom');
-    assert.equal(custom.keySet, true);
     assert.equal(custom.baseUrl, 'https://gw.example.com');
     assert.deepEqual(custom.models.map((row) => row.id), ['gpt-x', 'gpt-y']);
     // 同一条 provider 在 llm.providers 里也出现，但只能以「自建」身份列一次。
@@ -177,11 +163,10 @@ test('清单：自建与插件提供分开列，自建带 Key 状态、插件那
   }
 });
 
-test('清单：内置官方 DeepSeek 标成可导入（带 OpenAI 兼容地址与 Key 状态）', async () => {
+test('清单：内置官方 DeepSeek 标成可导入（带 OpenAI 兼容地址，不带 Key）', async () => {
   const state = fixture();
   state.providers.push({ provider: 'deepseek-official', displayName: 'DeepSeek', active: true });
   state.groups.push({ id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'DeepSeek Chat' }] });
-  state.credentials.DEEPSEEK_API_KEY = { configured: true, writable: true };
   const server = await serve({ state });
   try {
     const { status, body } = await server.get('/channels');
@@ -191,7 +176,7 @@ test('清单：内置官方 DeepSeek 标成可导入（带 OpenAI 兼容地址�
     assert.equal(official.importable, true);
     assert.equal(official.protocol, 'openai-completions');
     assert.equal(official.baseUrl, 'https://api.deepseek.com');
-    assert.equal(official.keySet, true);
+    assert.equal(official.keySet, undefined);
     // 普通插件渠道没有可导入标记。
     const buddy = body.channels.find((row) => row.id === 'buddy');
     assert.equal(buddy.importable, undefined);
@@ -200,20 +185,18 @@ test('清单：内置官方 DeepSeek 标成可导入（带 OpenAI 兼容地址�
   }
 });
 
-test('新增：先写 Key、再按路径写 providers.<id>，id 由名字生成并避开已占用的', async () => {  const server = await serve();
+test('新增：按路径写 providers.<id>，id 由名字生成并避开已占用的', async () => {
+  const server = await serve();
   try {
     const { status, body } = await server.post('/channels/save', {
       name: 'my gateway 2',
       protocol: 'openai-completions',
       baseUrl: 'https://gw2.example.com/',
-      apiKey: 'sk-test',
       models: [{ id: 'm-1' }, { id: 'm-2', name: 'M 2', contextWindow: 1000 }],
     });
     assert.equal(status, 200);
     assert.equal(body.channel.id, 'my-gateway-2');
 
-    const set = server.calls.find((call) => call.method === 'credentials.set');
-    assert.deepEqual(set.request.payload, { ref: 'OFM_MY_GATEWAY_2_KEY', value: 'sk-test' });
     const mutate = server.calls.find((call) => call.method === 'settings.mutate');
     assert.equal(mutate.request.payload.ns, 'llm-pi-ai');
     assert.equal(mutate.request.payload.ops.length, 1);
@@ -226,15 +209,14 @@ test('新增：先写 Key、再按路径写 providers.<id>，id 由名字生成�
     assert.equal(profile.models[0].contextWindow, 262144);          // 缺省与 pi-ai 同值
     assert.equal(profile.models[1].contextWindow, 1000);
     assert.deepEqual(profile.models[0].reasoningEfforts, { low: 'low', medium: 'medium', high: 'high', max: 'max' });
-    // 顺序：Key 必须在路由之前写进去，否则聊天会在中间那一小段时间里拿不到鉴权。
-    const order = server.calls.filter((call) => call.method === 'credentials.set' || call.method === 'settings.mutate').map((call) => call.method);
-    assert.deepEqual(order, ['credentials.set', 'settings.mutate']);
+    // 整条保存只有一次宿主写：插件不碰 Key，没有额外的凭据写入。
+    assert.equal(server.calls.filter((call) => call.method === 'settings.mutate').length, 1);
   } finally {
     await server.close();
   }
 });
 
-test('编辑：id 不变、Key 留空不碰凭据库、能力字段沿用原路由（手机没有那几格）', async () => {
+test('编辑：id 不变、能力字段沿用原路由（手机没有那几格）', async () => {
   const state = fixture();
   // 桌面面板里精细调过的那条：上下文 111、能看图、明确不思考。
   state.settings.llm.value.providers['my-gateway'].models = [
@@ -247,15 +229,12 @@ test('编辑：id 不变、Key 留空不碰凭据库、能力字段沿用原路�
       name: '我的网关改名',
       protocol: 'anthropic-messages',
       baseUrl: 'https://gw3.example.com',
-      apiKey: '',
       models: [{ id: 'gpt-x' }, { id: 'gpt-z' }],
     });
     assert.equal(status, 200);
     assert.equal(body.channel.id, 'my-gateway');
     assert.equal(body.channel.source, 'custom');
-
-    // Key 留空 = 沿用原来的：一个写凭据的调用都不该出现。
-    assert.equal(server.calls.filter((call) => call.method === 'credentials.set').length, 0);
+    assert.equal(body.channel.keySet, undefined);
 
     const mutate = server.calls.find((call) => call.method === 'settings.mutate');
     assert.deepEqual(mutate.request.payload.ops[0].path, ['providers', 'my-gateway']);
@@ -278,28 +257,14 @@ test('编辑：id 不变、Key 留空不碰凭据库、能力字段沿用原路�
   }
 });
 
-test('编辑：重填了 Key 就写进同一个凭据位；id 不在自建清单里回 404 且不写', async () => {
+test('编辑：id 不在自建清单里回 404 且不写', async () => {
   const server = await serve();
   try {
-    const ok = await server.post('/channels/save', {
-      id: 'my-gateway',
-      name: '我的网关',
-      protocol: 'openai-completions',
-      baseUrl: 'https://gw.example.com',
-      apiKey: 'sk-new',
-      models: [{ id: 'gpt-x' }],
-    });
-    assert.equal(ok.status, 200);
-    const set = server.calls.find((call) => call.method === 'credentials.set');
-    assert.deepEqual(set.request.payload, { ref: 'OFM_MY_GATEWAY_KEY', value: 'sk-new' });
-
-    server.calls.length = 0;
     const missing = await server.post('/channels/save', {
       id: 'buddy',
       name: 'Buddy',
       protocol: 'openai-completions',
       baseUrl: 'https://a.example.com',
-      apiKey: '',
       models: [{ id: 'm' }],
     });
     assert.equal(missing.status, 404);
@@ -309,35 +274,32 @@ test('编辑：重填了 Key 就写进同一个凭据位；id 不在自建清单
   }
 });
 
-test('新增失败回滚：路由被拒时清掉刚写的 Key，且报宿主的原话', async () => {
+test('新增失败：报宿主的原话，且不留半截写入', async () => {
   const server = await serve({ mutateError: true });
   try {
     const { status, body } = await server.post('/channels/save', {
       name: 'bad-route',
       protocol: 'openai-completions',
       baseUrl: 'https://bad.example.com',
-      apiKey: 'sk-bad',
       models: [{ id: 'm-1' }],
     });
     assert.equal(status, 400);
     assert.equal(body.error.code, 'settings-rejected');
-    const unset = server.calls.find((call) => call.method === 'credentials.unset');
-    assert.deepEqual(unset.request.payload, { ref: 'OFM_BAD_ROUTE_KEY' });
+    assert.equal(server.calls.filter((call) => call.method === 'settings.mutate').length, 1);
   } finally {
     await server.close();
   }
 });
 
-test('新增校验：名称 / 地址 / Key / 模型清单各自缺一不可，畸形地址与未知协议一律 400', async () => {
+test('新增校验：名称 / 地址 / 模型清单各自缺一不可，畸形地址与未知协议一律 400', async () => {
   const server = await serve();
   try {
-    const base = { name: 'x', protocol: 'openai-completions', baseUrl: 'https://a.example.com', apiKey: 'k', models: [{ id: 'm' }] };
+    const base = { name: 'x', protocol: 'openai-completions', baseUrl: 'https://a.example.com', models: [{ id: 'm' }] };
     for (const broken of [
       { ...base, name: ' ' },
       { ...base, baseUrl: '' },
       { ...base, baseUrl: 'ftp://a.example.com' },
       { ...base, baseUrl: 'not a url' },
-      { ...base, apiKey: '' },
       { ...base, protocol: 'whatever' },
       { ...base, models: [] },
       { ...base, models: [{ id: 'a' }, { id: 'a' }] },
@@ -346,22 +308,19 @@ test('新增校验：名称 / 地址 / Key / 模型清单各自缺一不可，�
       assert.equal(status, 400, JSON.stringify(broken));
     }
     // 校验不过时不该碰宿主的任何写接口。
-    assert.equal(server.calls.filter((call) => call.method === 'credentials.set').length, 0);
     assert.equal(server.calls.filter((call) => call.method === 'settings.mutate').length, 0);
   } finally {
     await server.close();
   }
 });
 
-test('删除：只 unset providers.<id> 与那把 Key；不在自建清单里的 id 回 404 且不写', async () => {
+test('删除：只 unset providers.<id>；不在自建清单里的 id 回 404 且不写', async () => {
   const server = await serve();
   try {
     const ok = await server.post('/channels/delete', { id: 'my-gateway' });
     assert.equal(ok.status, 200);
     const mutate = server.calls.find((call) => call.method === 'settings.mutate');
     assert.deepEqual(mutate.request.payload.ops, [{ op: 'unset', path: ['providers', 'my-gateway'] }]);
-    const unset = server.calls.find((call) => call.method === 'credentials.unset');
-    assert.deepEqual(unset.request.payload, { ref: 'OFM_MY_GATEWAY_KEY' });
 
     server.calls.length = 0;
     const missing = await server.post('/channels/delete', { id: 'buddy' });
@@ -389,12 +348,11 @@ test('获取模型：宿主代问，地址不带路径时按 /v1 回退，并把
     const { status, body } = await server.post('/channels/discover', {
       protocol: 'openai-completions',
       baseUrl: 'https://api.example.com',
-      apiKey: 'sk-q',
     });
     assert.equal(status, 200);
     assert.deepEqual(seen.map((row) => row.input.baseURL), ['https://api.example.com', 'https://api.example.com/v1']);
     assert.ok(seen.every((row) => row.ns === 'llm-pi-ai'));
-    assert.ok(seen.every((row) => row.input.api === 'openai-completions' && row.input.apiKey === 'sk-q'));
+    assert.ok(seen.every((row) => row.input.api === 'openai-completions' && row.input.apiKey === undefined));
     assert.equal(body.baseUrl, 'https://api.example.com/v1');
     assert.deepEqual(body.models.map((row) => row.id), ['m-1', 'm-2']);
   } finally {
@@ -402,7 +360,7 @@ test('获取模型：宿主代问，地址不带路径时按 /v1 回退，并把
   }
 });
 
-test('获取模型：编辑中的渠道把路由名交给宿主，Key 留空时由宿主自己去取那一条的', async () => {
+test('获取模型：编辑中的渠道把路由名交给宿主，插件不带任何 Key', async () => {
   const seen = [];
   const llm = { discoverModels: async (ns, input) => { seen.push(input); return [{ id: 'm-1', name: 'M1' }]; } };
   const server = await serve({ llm });
@@ -414,20 +372,18 @@ test('获取模型：编辑中的渠道把路由名交给宿主，Key 留空时�
     });
     assert.equal(editing.status, 200);
     assert.deepEqual(editing.body.models.map((row) => row.id), ['m-1']);
-    // 路由名照传：宿主据此在「请求没带 Key」时自己去凭据库取 OFM_MY_GATEWAY_KEY。
     assert.equal(seen[0].provider, 'my-gateway');
     assert.equal(seen[0].apiKey, undefined);
     // 地址不带路径仍旧按 /v1 回退，与不带 id 时同一条规则。
     assert.equal(seen[0].baseURL, 'https://gw.example.com');
 
-    // 新建没有 id：不传 provider，用当场填的那把 Key。
+    // 新建没有 id：不传 provider，也不带 Key。
     await server.post('/channels/discover', {
       protocol: 'openai-completions',
       baseUrl: 'https://api.example.com/v1',
-      apiKey: 'sk-new',
     });
     assert.equal(seen[1].provider, undefined);
-    assert.equal(seen[1].apiKey, 'sk-new');
+    assert.equal(seen[1].apiKey, undefined);
 
     // id 形状不对直接拒，不把任意字符串当路由名交给宿主。
     const bad = await server.post('/channels/discover', { id: 'Bad Id!', protocol: 'openai-completions', baseUrl: 'https://a.example.com' });

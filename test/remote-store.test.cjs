@@ -1,53 +1,54 @@
 'use strict';
-// 验证绑定凭据进入宿主记录、缺存储时报错，以及并发更新不覆盖其他密钥。
+// 绑定落到插件自己的本地文件：重开可读、并发更新不丢其他字段，非法标识进不了文件。
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createRemoteStore, PREFIX } = require('../lib/remote/store.cjs');
-function provider() {
-  const records = new Map();
-  let queue = Promise.resolve();
-  return {
-    records,
-    readRecord: async key => records.get(key),
-    listRecords: async () => [...records.keys()].map(key => ({ key, kind: 'grant' })),
-    deleteRecord: async key => { records.delete(key); },
-    modifyRecord(key, fn) {
-      const job = queue.then(async () => { const next = await fn(records.get(key)); if (next) records.set(key, next); });
-      queue = job.catch(() => {});
-      return job;
-    },
-  };
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const { createRemoteStore } = require('../lib/remote/store.cjs');
+
+function fileOf() {
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-store-')), 'remote-computers.json');
 }
-test('绑定存入专属grant记录，重新创建store仍可读取且删除只影响该设备', async () => {
-  const credentials = provider();
-  const store = createRemoteStore({ credentials });
-  const row = { instanceId: 'hostA', credential: 'private-token', deviceKey: 'private-key', name: '家里电脑' };
+
+test('绑定存入本地文件，重新创建 store 仍可读取且删除只影响该设备', async () => {
+  const file = fileOf();
+  const store = createRemoteStore({ file });
+  const row = { instanceId: 'hostA', name: '家里电脑', tunnelKeys: { p2pPrivateKey: 'private' } };
   await store.put(row);
-  await store.put({ instanceId: 'hostB', credential: 'other' });
-  assert.equal(credentials.records.get(PREFIX + Buffer.from('hostA').toString('hex')).kind, 'grant');
-  assert.match([...credentials.records.keys()][0], /^[a-z][a-z0-9-]*\/[a-z][a-z0-9-]*$/);
-  const reloaded = createRemoteStore({ credentials });
-  assert.equal((await reloaded.get('hostA')).credential, 'private-token');
+  await store.put({ instanceId: 'hostB', name: '公司电脑' });
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(raw.bindings.hostA.kind !== undefined, false);
+  assert.equal(raw.bindings.hostA.name, '家里电脑');
+  const reloaded = createRemoteStore({ file });
+  assert.equal((await reloaded.get('hostA')).name, '家里电脑');
   const copy = await reloaded.get('hostA');
-  copy.deviceKey = 'changed';
-  assert.equal((await store.get('hostA')).deviceKey, 'private-key');
+  copy.tunnelKeys.p2pPrivateKey = 'changed';
+  assert.equal((await store.get('hostA')).tunnelKeys.p2pPrivateKey, 'private');
   await store.delete('hostA');
-  assert.deepEqual((await store.list()).map(item => item.id), ['hostB']);
+  assert.deepEqual((await store.list()).map((item) => item.id), ['hostB']);
 });
-test('并发局部更新在宿主独占写入中合并，不丢失隧道密钥或线路档位', async () => {
-  const store = createRemoteStore({ credentials: provider() });
-  await store.put({ instanceId: 'hostA', credential: 'secret' });
+
+test('并发局部更新串行合并，不丢失隧道密钥或线路档位', async () => {
+  const store = createRemoteStore({ file: fileOf() });
+  await store.put({ instanceId: 'hostA', name: 'A' });
   await Promise.all([
     store.update('hostA', () => ({ mode: 'relay' })),
     store.update('hostA', () => ({ tunnelKeys: { p2pPrivateKey: 'private' } })),
   ]);
   assert.deepEqual(await store.get('hostA'), {
-    instanceId: 'hostA', id: 'hostA', credential: 'secret', mode: 'relay', tunnelKeys: { p2pPrivateKey: 'private' },
+    instanceId: 'hostA', id: 'hostA', name: 'A', mode: 'relay', tunnelKeys: { p2pPrivateKey: 'private' },
   });
 });
-test('宿主凭据服务不可用时不回退明文文件，非法设备标识不能构造其他scope', async () => {
-  const store = createRemoteStore({ credentials: null });
-  await assert.rejects(store.put({ instanceId: 'hostA' }), { code: 'credentials-unavailable' });
-  const good = createRemoteStore({ credentials: provider() });
-  await assert.rejects(good.get('../other/secret'), /标识/);
+
+test('文件损坏时不拿空库覆盖，非法设备标识不能构造其他 scope', async () => {
+  const file = fileOf();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{not json');
+  const store = createRemoteStore({ file });
+  await assert.rejects(store.put({ instanceId: 'hostA' }), { code: 'remote-store-corrupt' });
+  assert.equal(fs.readFileSync(file, 'utf8'), '{not json');
+  const clean = createRemoteStore({ file: fileOf() });
+  await assert.rejects(clean.get('../other/secret'), /标识/);
 });

@@ -405,7 +405,7 @@ hex 还是 base64），先修到全绿再联调。
 - `/api/mobile/v1/host-settings`、`/host-settings/mutate`、`/llm/providers`、`/llm/models`
 - `/api/mobile/v1/model-meta`、`/model-meta/apply`
 - `/api/mobile/v1/channels`、`/channels/discover`、`/channels/save`、`/channels/delete`
-- `/api/mobile/v1/deepseek-account`、`/credentials`、`/credentials/set`、`/credentials/unset`
+- `/api/mobile/v1/deepseek-account`
 - `/api/mobile/v1/skills`、`/session-log`
 
 **子代理与引用**

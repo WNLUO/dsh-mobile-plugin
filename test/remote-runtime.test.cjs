@@ -9,6 +9,7 @@ const path = require('node:path');
 const { PassThrough } = require('node:stream');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-remote-runtime-'));
 process.env.DEVICE_CREDENTIALS_FILE = path.join(dir, 'credentials.json');
+process.env.DSH_MOBILE_REMOTE_STORE = path.join(dir, 'remote-computers.json');
 const credentials = require('../dsh-mobile-credentials/lib/credentials.js');
 const { mountRemoteComputers } = require('../lib/remote/runtime.cjs');
 const { createHostControl, routesOf } = require('../lib/remote/host-control.cjs');
@@ -16,14 +17,7 @@ const { createHostControl, routesOf } = require('../lib/remote/host-control.cjs'
 test('运行期管理入口使用真实安全清单，邀请可复制且卸载完成', async () => {
   const effects = [];
   const routes = new Map();
-  const records = new Map();
-  const provider = {
-    readRecord: async key => records.get(key),
-    listRecords: async () => [...records.keys()].map(key => ({ key, kind: 'grant' })),
-    modifyRecord: async (key, fn) => records.set(key, await fn(records.get(key))),
-    deleteRecord: async key => records.delete(key),
-  };
-  const ctx = { webServer: { port: 34567 }, get(name) { return name === 'credentials' ? provider : { browserAuth: { launchToken: 'private' } }; },
+  const ctx = { webServer: { port: 34567 }, get: () => ({ browserAuth: { launchToken: 'private' } }),
     effect(fn) { const dispose = fn(); effects.push(dispose); } };
   const host = mountRemoteComputers({ ctx, state: { instanceId: 'runtimeA', name: 'A', enabled: true, relayUrl: 'https://relay.test', relayUrls: ['https://relay.test'], lanEnabled: false },
     credentials, registerRoute: row => routes.set(row.path, row.handler), lanPortInUse: () => 0 });

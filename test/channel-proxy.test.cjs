@@ -1,6 +1,7 @@
 // 2026-11-27：明确的工具拒绝回专用短码，400 但不涉及工具仍是通用失败。
+// 2026-11-27：插件不读 Key，转发出去的上游请求也不带鉴权头。
 // 2026-11-26：补上「自建渠道查不到退回 DSH 当前渠道」那一组的契约。
-// 2026-11-26：经电脑转发模型请求的契约——只转发对话那一层，地址与 Key 用宿主自己那份。
+// 2026-11-26：经电脑转发模型请求的契约——只转发对话那一层，地址用宿主自己那份。
 'use strict';
 
 /**
@@ -8,7 +9,7 @@
  *
  * 这一条能出的错都很难看出来，所以钉五条：
  *  1. **只转对话**：请求体只带 OpenAI 兼容的几样，手机塞进来的地址 / Key / 流开关一律不认。
- *  2. **地址与 Key 用宿主那份**：上游收到的 Authorization 是电脑上那把，URL 是电脑上那条。
+ *  2. **地址用宿主那份**：URL 是电脑上那条；插件不读 Key，上游请求不带 Authorization。
  *  3. **上游的每条 data 原样成帧**：手机解析的就是直连时的同一套 chunk。
  *  4. **上游失败把状态码带回去**：401 还是鉴权失败，不能被压成「电脑出错了」。
  *  5. **中途断流补一帧错误**：否则手机只会看到一个没有结束标记的空回复。
@@ -39,11 +40,6 @@ function ctxOf(baseURL, options = {}) {
     apiProxy: {
       settings: {
         describe: async () => ({ result: { ok: true, value: { namespaces: [{ ns: 'llm-pi-ai', value: { providers: PROVIDERS } }] } } }),
-      },
-      credentials: {
-        resolve: async () => (options.noKey
-          ? { result: { ok: true, value: undefined } }
-          : { result: { ok: true, value: { value: 'sk-host', source: 'stored' } } }),
       },
     },
     // 老宿主没有 llm 服务时只让「退回 DSH」那一路 503，自建渠道那一路不受影响。
@@ -126,7 +122,7 @@ test('上游的每条 data 原样成帧回给手机，请求只带对话本身',
     assert.deepEqual(framesOf(text).map((frame) => frame.choices[0].delta.content), ['你', '好']);
     const sent = up.seen[0];
     assert.equal(sent.url, '/v1/chat/completions');
-    assert.equal(sent.headers.authorization, 'Bearer sk-host');
+    assert.equal(sent.headers.authorization, undefined);
     assert.equal(sent.body.stream, true);
     assert.equal(sent.body.model, 'gpt-x');
     assert.equal(sent.body.baseUrl, undefined);
@@ -244,12 +240,12 @@ test('电脑上没有模型服务时回 503，不假装渠道可用', async () =
   } finally { await api.close(); }
 });
 
-test('没配 Key 时不发 Authorization（本地无鉴权端点照样能用）', async () => {
+test('插件不发 Authorization（本地无鉴权端点照样能用）', async () => {
   const up = await upstream((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.end('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n');
   });
-  const api = await serve(up.base, { noKey: true });
+  const api = await serve(up.base);
   try {
     await api.post({ id: 'my-gateway', model: 'gpt-x', messages: [] });
     assert.equal(up.seen[0].headers.authorization, undefined);

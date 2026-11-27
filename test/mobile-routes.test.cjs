@@ -70,6 +70,15 @@ const LEGACY_ROUTES = new Map([
 ]);
 
 /**
+ * App 侧仍声明、插件侧**按用户要求撤掉**的移动端路由：key → 为什么。
+ *
+ * 2026-11-27 用户明确不要「会用你的密钥」这项能力，插件因此不再代理宿主凭据的
+ * 查看 / 写入 / 清除。App 侧本次不动，那三个常量还在 apiPaths.ts 里，但插件侧有意不注册；
+ * 对账时按 key 排除，避免把有意撤掉的能力误报成「忘了实现」。
+ */
+const WITHDRAWN_KEYS = new Set(['credentials', 'credentialsSet', 'credentialsUnset']);
+
+/**
  * 插件侧**故意不鉴权**的移动端路由：子路径 → 为什么可以公开。
  *
  * 分界线是「配对之前手机手上有没有凭据」：地址体检要在配对之前回答「这个地址上是宿主还是
@@ -91,7 +100,7 @@ function appSubPaths() {
   const body = source.slice(source.indexOf('export const PATH = {'));
   return [...body.matchAll(/^\s{2}(\w+):\s*'([^']+)'/gm)]
     .map((m) => ({ key: m[1], sub: m[2] }))
-    .filter(({ key }) => !RELAY_SERVED.has(key));
+    .filter(({ key }) => !RELAY_SERVED.has(key) && !WITHDRAWN_KEYS.has(key));
 }
 
 /** 插件路由表里注册的全部路径。 */

@@ -1,3 +1,4 @@
+// 2026-11-27：金标准里不再包含宿主凭据的 describe/resolve/set/unset。
 // 手机模型选择改走会话能力，与桌面默认保存解耦。
 // rc.5 子代理 wire、根可用性与显式 follow 激活兼容用例。
 'use strict';
@@ -87,12 +88,6 @@ const GOLDEN = {
   'account.getState': ['account', 'getState', []],
   'account.getProfile': ['account', 'getProfile', ['client']],
   'account.getBalance': ['account', 'getBalance', ['client']],
-  'credentials.describe': ['credentials', 'describe', ['refs']],
-  // 取一次凭据的值（一键导入要把它那把 Key 交给手机）。宿主 Service 上 resolve(ref) 与
-  // describe(ref) 是分开的两个方法：describe 只回状态，resolve 才回值。
-  'credentials.resolve': ['credentials', 'resolve', ['ref']],
-  'credentials.set': ['credentials', 'set', ['ref', 'value']],
-  'credentials.unset': ['credentials', 'unset', ['ref']],
 };
 
 /** 走合成路径或如实报不支持的端点：值是 null，理由写在金标准那几行的注释里。 */
