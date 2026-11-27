@@ -51,7 +51,7 @@ export function PortConflictDialog({ reason, port, onOpenPortSettings }: Props) 
   }, [reason])
 
   const open = reason !== '' && reason !== dismissed
-  const portText = String(port || 18787)
+  const portText = String(port || 51887)
 
   return (
     <Dialog

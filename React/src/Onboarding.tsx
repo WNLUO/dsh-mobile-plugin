@@ -355,7 +355,7 @@ export function Onboarding({ onDone }: Props) {
   }, [status?.pairingCode, status?.enabled, pairing])
 
   /** 弹窗里点名用的端口。 */
-  const lanPortText = String(status?.lan.port || addresses?.port || 18787)
+  const lanPortText = String(status?.lan.port || addresses?.port || 51887)
   const portConflict = portConflictReason(lanFallbackReason(status))
 
   /**
@@ -918,7 +918,7 @@ export function Onboarding({ onDone }: Props) {
       <FirewallDialog open={firewallOpen} onOpenChange={setFirewallOpen} port={lanPortText} />
       <PortConflictDialog
         reason={portConflict}
-        port={status?.lan.ingressPort || status?.lan.port || 18787}
+        port={status?.lan.ingressPort || status?.lan.port || 51887}
       />
 
       <Dialog open={qrZoomOpen} onOpenChange={setQrZoomOpen}>

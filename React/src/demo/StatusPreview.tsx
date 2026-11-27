@@ -65,8 +65,8 @@ function fixture(verdict: SelfCheckVerdict): SelfCheck {
     verdict,
     listening: {
       state: listening,
-      port: 18787,
-      urls: listening === 'listening' ? ['http://192.0.2.40:18787'] : [],
+      port: 51887,
+      urls: listening === 'listening' ? ['http://192.0.2.40:51887'] : [],
       portAdjusted: false,
     },
     tunnel: { state: 'connected', relayUrl: 'https://relay.example.com' },
@@ -126,7 +126,7 @@ function ErrorAlert() {
       <AlertIcon />
       <AlertTitle>{t('panel.onboarding.lanFailed')}</AlertTitle>
       <AlertDescription>
-        {t('panel.onboarding.lanErrorWithPort', { error: 'listen EADDRINUSE 127.0.0.1:18787' })}
+        {t('panel.onboarding.lanErrorWithPort', { error: 'listen EADDRINUSE 127.0.0.1:51887' })}
       </AlertDescription>
     </Alert>
   )

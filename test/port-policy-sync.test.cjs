@@ -71,6 +71,15 @@ test('变异：去掉固定入口保护会被同一断言拒绝', async () => {
   await assert.rejects(assertFixed(loaded.exports.bindLanEndpoint), { code: 'ERR_ASSERTION' });
 });
 
+test('新装默认端口在三处口径一致，且不是老默认 18787', () => {
+  const core = require('../lib/relay/core.js')
+  const { configOf } = require('../lib/relay/config-store.js')
+  const { configView } = require('../lib/mobile/relay-control.js')
+  assert.equal(core.defaultState().lanPort, 51887)
+  assert.equal(configOf({}).lanPort, 51887)
+  assert.equal(configView({}).lanPort, 51887)
+});
+
 test('固定开关进配置但不重建健康监听，实际监听状态驱动总控与穿透', () => {
   const impl = fs.readFileSync(path.join(__dirname, '../lib/impl.js'), 'utf8');
   const worker = fs.readFileSync(path.join(__dirname, '../lib/sidecar-facade-worker.cjs'), 'utf8');
