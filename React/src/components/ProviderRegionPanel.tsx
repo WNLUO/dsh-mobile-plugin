@@ -2,14 +2,18 @@
 /**
  * 「中国 / 国际」标签下的专属面板（2026-11-27 用户要求）。
  *
- * 两块面板结构对齐：服务商身份 + 使用情况 + 控制台入口。内容分两类，绝不混：
- *   · 已用数量（设备 / 在线设备）与套餐名 —— 读宿主账号快照，是真实事实；
- *   · 套餐权益（带宽 / 设备名额 / 并发） —— 公开的套餐信息，写死在下方一处常量表，
- *     只按精确识别到的套餐显示，认不出就不显示，绝不拿免费数字套付费用户。
- * 流量已用量是云端数据、CLI 拿不到，只给额度与控制台入口，不编已用数字。
+ * 中国面板从上到下四段：① 服务商 + 套餐 + 连接状态；② 当前公网地址（单独一行，可复制）；
+ * ③ 四个关键指标（带宽 / 设备 / 在线 / 并发，不带「使用情况」标题，里面并不全是用量）；
+ * ④ 三档套餐对照（当前档高亮，每档可点进官方定价页直接订阅）。操作按钮放在同一张卡里：
+ * 「停止连接」是轻操作，「重置本机设置」是破坏性动作、带二次确认；不再单列「打开控制台」——
+ * 想看用量 / 升级都在套餐入口里完成。
  *
- * 账号快照自己读一次（读宿主只读接口 `/api/relay/zeronews/account`），与配置页共用同一份
- * 接口与留底键。退出登录 / 彻底清理是破坏性动作，沿用配置页同款接口与二次确认文案。
+ * 数据分两类绝不混：设备数 / 在线数 / 套餐名 / 地址来自宿主账号快照与 status，是真实事实；
+ * 套餐权益是公开固定信息，写死在下方一处常量表，只按精确识别到的套餐显示，认不出不显示。
+ * 流量已用量是云端数据、CLI 拿不到，只给额度，不编已用数字。
+ *
+ * 断开 / 重置完成后调 onChanged 让外层立刻重读 status —— 其他面板组件早有这个回调，
+ * 这个面板之前漏了，导致地址与「已连接」最多挂着旧值 3 秒。
  */
 import { Badge } from '@appica/ui-react/badge'
 import { Button } from '@appica/ui-react/button'
@@ -20,38 +24,49 @@ import {
   zeroNewsAccount, zeroNewsDisconnect, zeroNewsPurge,
   type StatusView, type ZeroNewsAccount,
 } from '../lib/api.ts'
+import { cn, toneText, type Tone } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
 import { CloudflarePanel } from './CloudflarePanel.tsx'
 import { CloudflareIcon, ZeroNewsIcon } from './ProviderIcons.tsx'
 
-const ZN_CONSOLE_URL = 'https://user.zeronews.cc/'
+const ZN_PRICING_URL = 'https://zeronews.cc/pricing'
 const ZN_ACCOUNT_CACHE_KEY = 'dsh-mobile-plugin:zeronews-account'
 
 /**
  * 各套餐权益（2026-11-27 核对官方定价页 https://zeronews.cc/pricing，当前三档：免费 / 个人 Pro / 个人 Pro+）。
- * 只列面板要用的四格：单隧道带宽、认证客户端数、单隧道并发、月流量额度。
+ * 只列面板要用的关键参数：单隧道带宽、认证客户端数、单隧道并发、月流量额度、隧道名额、域名名额。
  * 官方曾发升级公告说免费版 2Mbps / 2 条，当前定价页是 1Mbps / 1 条，以定价页为准；
- * 套餐权益若再变，只改这一处表。仅作套餐上限展示，不是实时用量。
+ * 套餐权益若再变，只改这一处表。仅作套餐说明，不是实时用量。
  */
-type Quota = { bandwidthMbps: number; devices: number; concurrency: number; trafficGb: number | null }
-const ZN_QUOTAS: Record<'free' | 'pro' | 'proPlus', Quota> = {
-  free: { bandwidthMbps: 1, devices: 1, concurrency: 5, trafficGb: 1 },
-  pro: { bandwidthMbps: 5, devices: 4, concurrency: 30, trafficGb: null },
-  proPlus: { bandwidthMbps: 10, devices: 8, concurrency: 50, trafficGb: null },
+type PlanTier = 'free' | 'pro' | 'proPlus'
+type Quota = {
+  bandwidthMbps: number
+  devices: number
+  concurrency: number
+  trafficGb: number | null
+  tunnels: number
+  domains: number
 }
+const ZN_QUOTAS: Record<PlanTier, Quota> = {
+  free: { bandwidthMbps: 1, devices: 1, concurrency: 5, trafficGb: 1, tunnels: 1, domains: 1 },
+  pro: { bandwidthMbps: 5, devices: 4, concurrency: 30, trafficGb: null, tunnels: 4, domains: 4 },
+  proPlus: { bandwidthMbps: 10, devices: 8, concurrency: 50, trafficGb: null, tunnels: 8, domains: 8 },
+}
+/** 对照表的展示顺序：当前档排最前，其余按从低到高。 */
+const ZN_TIERS: PlanTier[] = ['free', 'pro', 'proPlus']
 
 /**
  * 套餐名 → 权益档：官方原始名字没有实测样本（付费档可能中英文混用），只精确认三档，
  * 认不出返回 null —— 宁可少显示，也不给付费用户套错数字。中文用码点写，避免界面文件
  * 出现钉死的中文字面量触发 i18n 守卫。
  */
-function quotaOf(planName: string): Quota | null {
+function tierOf(planName: string): PlanTier | null {
   const free = '\u514d\u8d39'
   const pro = '\u4e2a\u4eba'
   const key = planName.trim().toLowerCase()
-  if (key === free || key === 'free') return ZN_QUOTAS.free
-  if (key === `${pro} pro` || key === 'pro') return ZN_QUOTAS.pro
-  if (key === `${pro} pro+` || key === 'pro+') return ZN_QUOTAS.proPlus
+  if (key === free || key === 'free') return 'free'
+  if (key === `${pro} pro` || key === 'pro') return 'pro'
+  if (key === `${pro} pro+` || key === 'pro+') return 'proPlus'
   return null
 }
 
@@ -66,7 +81,7 @@ function readZnCache(): ZeroNewsAccount | null {
   }
 }
 
-/** 使用情况里的一格：大内容 + 小标签。 */
+/** 一个指标格：大内容 + 小标签。 */
 function Stat({ value, label }: { value: ReactNode; label: string }) {
   return (
     <div className="flex flex-col gap-0.5 rounded-md border border-border-muted bg-background-muted px-3 py-2">
@@ -76,12 +91,13 @@ function Stat({ value, label }: { value: ReactNode; label: string }) {
   )
 }
 
-/** 头部一行：图标 + 名字 + 副标题（可文字或套餐/账号），右侧可选带一条状态。 */
-function ProviderHeading({ icon, name, subtitle, statusText }: {
+/** 服务商头部：图标 + 名字 + 套餐与账号副标题 + 右侧连接状态。 */
+function ProviderHeading({ icon, name, subtitle, statusText, tone }: {
   icon: ReactNode
   name: string
   subtitle?: ReactNode
   statusText?: string
+  tone?: Tone
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -93,8 +109,8 @@ function ProviderHeading({ icon, name, subtitle, statusText }: {
         </span>
       </div>
       {statusText ? (
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-success">
-          <span className="size-1.5 rounded-full bg-success" />
+        <span className={cn('inline-flex shrink-0 items-center gap-1.5 text-xs', toneText[tone ?? 'off'])}>
+          <span className={cn('size-1.5 rounded-full', tone === 'ok' ? 'bg-success' : 'bg-foreground-muted')} />
           {statusText}
         </span>
       ) : null}
@@ -102,39 +118,69 @@ function ProviderHeading({ icon, name, subtitle, statusText }: {
   )
 }
 
-/** 底部一行：控制台入口 + 已接入时的断开 / 彻底清理。 */
-function PanelActions({ connected, busy, onDisconnect, onPurge }: {
-  connected: boolean
-  busy: boolean
-  onDisconnect: () => void
-  onPurge: () => void
-}) {
+/** 套餐对照里的一行：参数名 + 值。 */
+function TierRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <a
-        href={ZN_CONSOLE_URL}
-        target="_blank"
-        rel="noreferrer"
-        className="rounded px-2 py-1 text-xs text-foreground-muted underline transition-colors hover:text-foreground-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      >
-        {t('panel.zeronews.console')}
-      </a>
-      {connected ? (
-        <>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onDisconnect}>
-            {t('panel.zeronews.linkDisconnect')}
-          </Button>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onPurge}>
-            {t('panel.zeronews.purge')}
-          </Button>
-        </>
-      ) : null}
+    <div className="flex items-baseline justify-between gap-2 border-b border-border-muted py-1 last:border-b-0">
+      <span className="shrink-0 text-xs text-foreground-muted">{label}</span>
+      <span className="min-w-0 truncate text-right text-xs text-foreground-strong">{value}</span>
     </div>
   )
 }
 
-function ChinaProviderPanel({ status }: { status: StatusView }) {
-  /** 先用本地留底铺上，再悄悄刷一次；面板只读，不轮询。 */
+/** 三档套餐对照：当前档高亮，每档一个官方订阅入口。 */
+function PlanCompare({ current }: { current: PlanTier | null }) {
+  const ordered = current ? [current, ...ZN_TIERS.filter((tier) => tier !== current)] : ZN_TIERS
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-medium text-foreground-strong">{t('panel.providerRegion.plansTitle')}</span>
+      <div className="grid gap-2 md:grid-cols-3">
+        {ordered.map((tier) => {
+          const quota = ZN_QUOTAS[tier]
+          const active = tier === current
+          return (
+            <div
+              key={tier}
+              className={cn(
+                'flex flex-col gap-1 rounded-md border p-3',
+                active ? 'border-primary bg-primary-subtle' : 'border-border-muted bg-background-muted',
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium text-foreground-strong">{t(`panel.providerRegion.tier.${tier}`)}</span>
+                {active ? <Badge variant="soft" size="xs">{t('panel.providerRegion.currentPlan')}</Badge> : null}
+              </div>
+              <TierRow label={t('panel.providerRegion.bandwidth')} value={t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps })} />
+              <TierRow label={t('panel.providerRegion.tunnels')} value={String(quota.tunnels)} />
+              <TierRow label={t('panel.providerRegion.domains')} value={String(quota.domains)} />
+              <TierRow label={t('panel.providerRegion.devices')} value={String(quota.devices)} />
+              <TierRow label={t('panel.providerRegion.concurrency')} value={String(quota.concurrency)} />
+              <TierRow
+                label={t('panel.providerRegion.traffic')}
+                value={quota.trafficGb !== null ? t('panel.providerRegion.trafficValue', { traffic: quota.trafficGb }) : t('panel.providerRegion.unlimited')}
+              />
+              <a
+                href={ZN_PRICING_URL}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(
+                  'mt-1 rounded px-2 py-1 text-center text-xs underline transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                  active ? 'text-foreground-strong' : 'text-accent',
+                )}
+              >
+                {active ? t('panel.providerRegion.planDetails') : t('panel.providerRegion.planSubscribe')}
+              </a>
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-xs leading-5 text-foreground-muted">{t('panel.providerRegion.planHint')}</p>
+    </div>
+  )
+}
+
+function ChinaProviderPanel({ status, onChanged }: { status: StatusView; onChanged?: () => void }) {
+  /** 先用本地留底铺上，再悄悄刷一次；面板不轮询。 */
   const [account, setAccount] = useState<ZeroNewsAccount | null>(() => readZnCache())
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
@@ -154,16 +200,17 @@ function ChinaProviderPanel({ status }: { status: StatusView }) {
   }, [])
 
   const connected = status.zeroNews?.phase === 'connected'
+  const address = status.zeroNews?.url || ''
   const devices = (account?.devices || []).length
   const online = (account?.devices || []).filter((device) => device.online).length
   const plan = account?.account?.planName || ''
   const identity = account?.account?.userTel || account?.account?.userId || ''
-  const quota = quotaOf(plan)
-  const statusText = connected
-    ? t('panel.zeronews.linkOn', { url: status.zeroNews?.url || '' })
-    : t('panel.providerRegion.notConnected')
+  const tier = tierOf(plan)
+  const quota = tier ? ZN_QUOTAS[tier] : null
+  const statusText = connected ? t('panel.providerRegion.connected') : t('panel.providerRegion.notConnected')
+  const tone: Tone = connected ? 'ok' : 'off'
 
-  /** 断开：停客户端、撤域名；成功后重读账号让界面跟上。 */
+  /** 断开：停客户端、撤域名；成功后重读账号并让外层刷新 status，地址与状态立刻更新。 */
   async function disconnect() {
     if (busy) return
     setBusy(true)
@@ -173,6 +220,7 @@ function ChinaProviderPanel({ status }: { status: StatusView }) {
       const error = typeof res.error === 'string' ? res.error : res.error?.message
       if (!res.ok && error) setNote(error)
       setAccount(await zeroNewsAccount())
+      onChanged?.()
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error))
     } finally {
@@ -180,8 +228,8 @@ function ChinaProviderPanel({ status }: { status: StatusView }) {
     }
   }
 
-  /** 彻底清理：与断开分开的破坏性入口，沿用配置页的二次确认文案。 */
-  async function purge() {
+  /** 重置：破坏性动作，二次确认后清本机登录 / 配置 / 缓存，再让外层刷新 status。 */
+  async function reset() {
     if (busy || !window.confirm(t('panel.zeronews.purgeConfirm'))) return
     setBusy(true)
     setNote('')
@@ -192,6 +240,7 @@ function ChinaProviderPanel({ status }: { status: StatusView }) {
         setNote(t('panel.zeronews.purgeDone'))
         setAccount(null)
         try { localStorage.removeItem(ZN_ACCOUNT_CACHE_KEY) } catch { /* 留底删不掉不影响清理本身 */ }
+        onChanged?.()
       }
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error))
@@ -213,37 +262,46 @@ function ChinaProviderPanel({ status }: { status: StatusView }) {
             </>
           )}
           statusText={statusText}
+          tone={tone}
         />
 
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-foreground-strong">{t('panel.providerRegion.usage')}</span>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat
-              value={quota ? t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }) : '—'}
-              label={t('panel.providerRegion.bandwidth')}
-            />
-            <Stat
-              value={quota ? `${devices} / ${quota.devices}` : devices}
-              label={t('panel.zeronews.overview.devices')}
-            />
-            <Stat value={online} label={t('panel.zeronews.overview.online')} />
-            <Stat
-              value={quota ? quota.concurrency : '—'}
-              label={t('panel.providerRegion.concurrency')}
-            />
+        {address ? (
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-md border border-border-muted bg-background-muted px-3 py-2">
+            <span className="shrink-0 text-xs text-foreground-muted">{t('panel.providerRegion.address')}</span>
+            <span className="min-w-0 break-all font-mono text-xs text-foreground-strong">{address}</span>
           </div>
-          {quota ? (
-            <p className="text-xs leading-5 text-foreground-muted">
-              {quota.trafficGb !== null
-                ? t('panel.providerRegion.quotaTraffic', { traffic: quota.trafficGb })
-                : t('panel.providerRegion.quotaUnlimited')}
-            </p>
-          ) : null}
+        ) : null}
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Stat
+            value={quota ? t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }) : '—'}
+            label={t('panel.providerRegion.bandwidth')}
+          />
+          <Stat
+            value={quota ? `${devices} / ${quota.devices}` : devices}
+            label={t('panel.providerRegion.devices')}
+          />
+          <Stat value={online} label={t('panel.zeronews.overview.online')} />
+          <Stat
+            value={quota ? quota.concurrency : '—'}
+            label={t('panel.providerRegion.concurrency')}
+          />
         </div>
+
+        <PlanCompare current={tier} />
 
         {note ? <p className="text-xs leading-5 text-foreground-muted">{note}</p> : null}
 
-        <PanelActions connected={connected} busy={busy} onDisconnect={() => void disconnect()} onPurge={() => void purge()} />
+        {connected ? (
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border-muted pt-3">
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void disconnect()}>
+              {t('panel.providerRegion.stopConnection')}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void reset()}>
+              {t('panel.providerRegion.resetLocal')}
+            </Button>
+          </div>
+        ) : null}
       </div>
     </Card>
   )
@@ -265,11 +323,12 @@ function GlobalProviderPanel({ status }: { status: StatusView }) {
 }
 
 /** 按地区选面板：中国给 zeronews 概览，国际给 Cloudflare。 */
-export function ProviderRegionPanel({ region, status }: {
+export function ProviderRegionPanel({ region, status, onChanged }: {
   region: 'cn' | 'global'
   status: StatusView
+  onChanged?: () => void
 }) {
   return region === 'cn'
-    ? <ChinaProviderPanel status={status} />
+    ? <ChinaProviderPanel status={status} onChanged={onChanged} />
     : <GlobalProviderPanel status={status} />
 }

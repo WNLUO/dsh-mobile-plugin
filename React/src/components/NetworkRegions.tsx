@@ -36,7 +36,7 @@ function savedRegion(): NetworkRegion | null {
   }
 }
 
-export function NetworkRegions({ status }: { status: StatusView }) {
+export function NetworkRegions({ status, onChanged }: { status: StatusView; onChanged?: () => void }) {
   const language = usePanelLanguage()
   const [chosen, setChosen] = useState<NetworkRegion | null>(savedRegion)
   // 没手动选过时直接按当前语言算，语言一变这边跟着变；选过之后记住用户的选择。
@@ -71,7 +71,7 @@ export function NetworkRegions({ status }: { status: StatusView }) {
         </div>
       </div>
 
-      <ProviderRegionPanel region={region} status={status} />
+      <ProviderRegionPanel region={region} status={status} onChanged={onChanged} />
     </div>
   )
 }

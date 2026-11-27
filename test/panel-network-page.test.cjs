@@ -1,3 +1,4 @@
+// 2026-11-27 用户反馈第三轮：排版重做——套餐对照、去标题、地址独行、文案人话化、断开后刷新、去控制台按钮。
 // 2026-11-27 用户反馈第二轮：补退出/清除入口、套餐权益扩三档、四格改带宽/设备/在线/并发。
 // 2026-11-27 用户按截图反馈：面板去掉重复状态与详细配置按钮、删红框内容、套餐账号搬到标题下做副标题。
 // 2026-11-27 需求变更：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页及文案从面板撤掉，
@@ -130,7 +131,7 @@ test('网络配置页分区：主配置页平铺字段，线路按地区与服�
   }
   // 2026-11-27 需求变更：服务商线路改成标题右边的「中国 / 国际」标签 + 专属面板，
   // 不再是两张地区入口卡；面板「详细配置」直接进服务商页。地区页路由保留给老 hash。
-  assert.ok(page.includes('<NetworkRegions status={status} />'), '主配置页挂标签面板');
+  assert.ok(page.includes('<NetworkRegions status={status} onChanged={onProviderChanged} />'), '主配置页挂标签面板');
   assert.ok(!page.includes('<JdxbLineCard />'), '节点小宝不在主配置页里');
   const china = read('React', 'src', 'components', 'ChinaLinesPage.tsx');
   assert.ok(china.includes('providersOfRegion(\'cn\')'), '中国页列国内服务商');
@@ -170,7 +171,11 @@ test('服务商线路：标题右边中国/国际标签，按语言定默认、�
   const chinaPart = panels.slice(panels.indexOf('function ChinaProviderPanel'), panels.indexOf('function GlobalProviderPanel'));
   assert.ok(!chinaPart.includes('chinaHint'), '不再显示地区说明行');
   assert.match(chinaPart, /subtitle=\{\(/, '套餐与账号作为标题下的副标题');
-  assert.ok(chinaPart.indexOf('subtitle') < chinaPart.indexOf("'panel.providerRegion.usage'"), '副标题排在使用情况之前');
+  // 2026-11-27 排版重做：地址独立成行、「使用情况」标题去掉、加三档套餐对照、去控制台按钮。
+  assert.match(chinaPart, /t\('panel\.providerRegion\.address'\)/, '公网地址单独一行');
+  assert.ok(!chinaPart.includes("'panel.providerRegion.usage'"), '「使用情况」标题去掉——里面并不全是用量');
+  assert.match(chinaPart, /<PlanCompare current=\{tier\} \/>/, '有套餐对照区');
+  assert.ok(!chinaPart.includes('zeronews.console'), '不再有打开控制台按钮');
 });
 
 test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认不出的套餐不套上限', () => {
@@ -179,7 +184,7 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   const panels = read('React', 'src', 'components', 'ProviderRegionPanel.tsx');
   assert.match(panels, /const ZN_QUOTAS: Record<[^>]+> = \{/, '三档权益集中一处常量表');
   assert.match(panels, /zeronews\.cc\/pricing/, '常量注明核对来源');
-  assert.match(panels, /function quotaOf\(/, '有套餐判定');
+  assert.match(panels, /function tierOf\(/, '有套餐判定');
   assert.match(panels, /\\u514d\\u8d39/, '中文套餐名用码点写，不在界面文件留钉死的中文字面量');
   assert.match(panels, /return null\n\}/, '认不出的套餐返回 null 不套上限');
   for (const tier of ['free', 'pro', 'proPlus']) {
@@ -188,24 +193,39 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   assert.ok(!panels.includes('tunnels.slice'), '隧道那格改成带宽限制，不再列隧道域名');
   assert.ok(panels.includes("t('panel.providerRegion.concurrency')"), '域名那格换成单隧道并发');
   assert.ok(panels.includes("t('panel.zeronews.overview.online')"), '在线设备那格保留');
-  assert.ok(panels.includes("t('panel.zeronews.overview.devices')"), '设备那格保留已用');
+  assert.ok(panels.includes("t('panel.providerRegion.devices')"), '设备那格保留已用');
+  assert.match(panels, /function PlanCompare/, '有三档套餐对照组件');
+  assert.match(panels, /ZN_PRICING_URL/, '对照区指向官方定价页可直接订阅');
+  assert.match(panels, /active \? ZN_TIERS\.filter|const ordered = current \? \[current/, '当前档排最前');
+  assert.match(panels, /active \? <Badge/, '当前档高亮标记');
   const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'provider-region.ts');
-  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'quotaTraffic', 'quotaUnlimited']) {
-    assert.equal((dict.match(new RegExp(`'panel\\.providerRegion\\.${key}':`, 'g')) || []).length, 11, `${key} 文案十一门齐全`);
+  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'currentPlan', 'tier.free', 'tier.pro', 'tier.proPlus', 'planSubscribe', 'planHint']) {
+    assert.equal((dict.match(new RegExp(`'panel\\.providerRegion\\.${key.replace('.', '\\.')}':`, 'g')) || []).length, 11, `${key} 文案十一门齐全`);
   }
   assert.ok(!dict.includes('详细配置') && !dict.includes('詳細設定'), '已删按钮的提示文案清掉');
 });
 
-test('中国面板有退出（断开）与彻底清理入口，清理沿用二次确认', () => {
-  // 2026-11-27 用户反馈：删掉详细配置后退出/清除也没了。补回两个破坏性入口，
-  // 断开轻操作、彻底清理必须二次确认，沿用配置页同款接口与文案。
+test('操作文案人话化、断开/重置后刷新 status，且不再有打开控制台按钮', () => {
+  // 2026-11-27 用户反馈：文案普通用户看不懂；断开后地址挂着旧值；控制台按钮冗余。
   const panels = read('React', 'src', 'components', 'ProviderRegionPanel.tsx');
   assert.match(panels, /zeroNewsDisconnect\(\)/, '有断开接口调用');
-  assert.match(panels, /zeroNewsPurge\(\)/, '有彻底清理接口调用');
-  assert.match(panels, /window\.confirm\(t\('panel\.zeronews\.purgeConfirm'\)\)/, '清理前二次确认，沿用配置页文案');
-  assert.match(panels, /t\('panel\.zeronews\.linkDisconnect'\)/, '断开按钮文案');
-  assert.match(panels, /t\('panel\.zeronews\.purge'\)/, '清理按钮文案');
-  assert.match(panels, /connected \? \(/, '只在已接入时露出这两个入口');
+  assert.match(panels, /zeroNewsPurge\(\)/, '有重置接口调用');
+  assert.match(panels, /window\.confirm\(t\('panel\.zeronews\.purgeConfirm'\)\)/, '重置前二次确认，沿用配置页文案');
+  assert.match(panels, /t\('panel\.providerRegion\.stopConnection'\)/, '断开改成人话文案');
+  assert.match(panels, /t\('panel\.providerRegion\.resetLocal'\)/, '彻底清理改成「重置本机设置」');
+  assert.ok(!panels.includes('linkDisconnect') && !panels.includes("t('panel.zeronews.purge')"), '旧按钮文案不再用');
+  // 断开与重置成功后都要回调外层重读 status，否则地址/状态挂着旧值最多 3 秒。
+  const disconnectPart = panels.slice(panels.indexOf('async function disconnect'), panels.indexOf('async function reset'));
+  const resetStart = panels.indexOf('async function reset');
+  const resetPart = panels.slice(resetStart, panels.indexOf('  return (', resetStart));
+  assert.match(disconnectPart, /onChanged\?\.\(\)/, '断开后刷新 status');
+  assert.match(resetPart, /onChanged\?\.\(\)/, '重置后刷新 status');
+  const regions = read('React', 'src', 'components', 'NetworkRegions.tsx');
+  assert.match(regions, /onChanged\?: \(\) => void/, '回调经 NetworkRegions 传下来');
+  const config = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(config, /onProviderChanged/, '回调经 RelayConfigDialog 传下来');
+  const consoleSrc = read('React', 'src', 'Console.tsx');
+  assert.match(consoleSrc, /onProviderChanged=\{\(\) => void loadStatus\(\)\}/, 'Console 收到回调后重读 status');
 });
 
 test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重试、超时收口，并留 AuthToken 兜底', () => {

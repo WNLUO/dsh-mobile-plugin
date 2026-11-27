@@ -1,3 +1,4 @@
+// 2026-11-27：服务商面板断开/重置后回调重读 status，连接卡那行不再等下一轮轮询。
 // 2026-11-27：服务商线路标题右边加中国/国际标签，首页传「详细配置」回调给网络配置区。
 // 2026-11-27：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页从路由撤掉（宿主能力保留）。
 // 2026-11-26 用户要求：顶栏的重启 / 检查更新 / 收件箱三颗按钮从前端撤掉，功能逻辑与接口不动。
@@ -523,6 +524,7 @@ export function Console() {
             busy={busy}
             onSave={(patch) => void saveConfig(patch)}
             onSavePreferred={(address) => void savePreferredLanAddress(address)}
+            onProviderChanged={() => void loadStatus()}
           />
         </div>
 

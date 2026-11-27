@@ -111,6 +111,8 @@ type Props = {
   onSave: (patch: ConfigPatch) => void
   /** 「手机优先用这条」：点了就存、不关窗，所以和上面那个带保存按钮的 `onSave` 分开。 */
   onSavePreferred: (address: string) => void
+  /** 面板做过断开 / 重置后让外层重读宿主状态，连接卡那行跟着变。 */
+  onProviderChanged?: () => void
 }
 
 /**
@@ -149,6 +151,7 @@ export function RelayConfigDialog({
   busy,
   onSave,
   onSavePreferred,
+  onProviderChanged,
 }: Props) {
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
@@ -493,7 +496,7 @@ export function RelayConfigDialog({
                 先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
             <section className="flex flex-col gap-3">
               <div className="border-b border-border-muted pb-3">
-                <NetworkRegions status={status} />
+                <NetworkRegions status={status} onChanged={onProviderChanged} />
               </div>
             </section>
             <section className="flex flex-col gap-3">
