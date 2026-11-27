@@ -126,13 +126,17 @@ function ProviderHeading({ icon, name, subtitle, statusText, tone }: {
   )
 }
 
-/** 套餐对照里的一组「参数名：值」小标签，一行铺不下自动换行。 */
-function TierFacts({ facts }: { facts: Array<{ label: string; value: string }> }) {
+/** 套餐对照里的参数：label 名 + value 值 + 是否重点（带宽/流量/设备名额标亮）。 */
+type TierFact = { label: string; value: string; strong?: boolean }
+
+/** 一组参数小标签，一行铺不下自动换行；重点项加粗标亮。 */
+function TierFacts({ facts }: { facts: TierFact[] }) {
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-1">
       {facts.map((fact) => (
         <span key={fact.label} className="text-xs text-foreground-muted">
-          {fact.label} <span className="font-medium text-foreground-strong">{fact.value}</span>
+          {fact.label}{' '}
+          <span className={cn('text-foreground-strong', fact.strong ? 'font-semibold' : 'font-medium')}>{fact.value}</span>
         </span>
       ))}
     </div>
@@ -149,7 +153,9 @@ function PlanCompare({ current }: { current: PlanTier | null }) {
         {ordered.map((tier) => {
           const quota = ZN_QUOTAS[tier]
           const active = tier === current
-          const price = tier === 'free' ? t(`panel.providerRegion.tier.${tier}`) : ZN_PRICE_MONTHLY[tier]
+          const price = tier === 'free'
+            ? t(`panel.providerRegion.tier.${tier}`)
+            : t('panel.providerRegion.priceMonthly', { price: ZN_PRICE_MONTHLY[tier] })
           return (
             <div
               key={tier}
@@ -173,17 +179,18 @@ function PlanCompare({ current }: { current: PlanTier | null }) {
                 </a>
               </div>
               <TierFacts facts={[
-                { label: t('panel.providerRegion.bandwidth'), value: t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }) },
-                { label: t('panel.providerRegion.tunnels'), value: String(quota.tunnels) },
-                { label: t('panel.providerRegion.domains'), value: String(quota.domains) },
-                { label: t('panel.providerRegion.devices'), value: String(quota.devices) },
-                { label: t('panel.providerRegion.concurrency'), value: String(quota.concurrency) },
+                { label: t('panel.providerRegion.bandwidth'), value: t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }), strong: true },
                 {
                   label: t('panel.providerRegion.traffic'),
                   value: quota.trafficGb !== null
                     ? t('panel.providerRegion.trafficValue', { traffic: quota.trafficGb })
                     : t('panel.providerRegion.unlimited'),
+                  strong: true,
                 },
+                { label: t('panel.providerRegion.devices'), value: String(quota.devices), strong: true },
+                { label: t('panel.providerRegion.tunnels'), value: String(quota.tunnels) },
+                { label: t('panel.providerRegion.domains'), value: String(quota.domains) },
+                { label: t('panel.providerRegion.concurrency'), value: String(quota.concurrency) },
               ]} />
             </div>
           )
@@ -287,19 +294,15 @@ function ChinaProviderPanel({ status, onChanged }: { status: StatusView; onChang
           </div>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {/* 两格够用：带宽是套餐上限，设备带「已用 / 名额 + 在线」；并发与流量在下面套餐卡里按档对照。 */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Stat
             value={quota ? t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }) : '—'}
             label={t('panel.providerRegion.bandwidth')}
           />
           <Stat
             value={quota ? `${devices} / ${quota.devices}` : devices}
-            label={t('panel.providerRegion.devices')}
-          />
-          <Stat value={online} label={t('panel.zeronews.overview.online')} />
-          <Stat
-            value={quota ? quota.concurrency : '—'}
-            label={t('panel.providerRegion.concurrency')}
+            label={t('panel.providerRegion.devicesWithOnline', { online })}
           />
         </div>
 

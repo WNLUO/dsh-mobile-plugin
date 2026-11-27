@@ -1,3 +1,4 @@
+// 2026-11-27 用户反馈第五轮：价格标周期、重点参数加粗标亮、顶部四格压成两格。
 // 2026-11-27 用户反馈第四轮：套餐卡片精简——统一按钮/胶囊/去下划线/紧凑布局/加价格。
 // 2026-11-27 用户反馈第三轮：排版重做——套餐对照、去标题、地址独行、文案人话化、断开后刷新、去控制台按钮。
 // 2026-11-27 用户反馈第二轮：补退出/清除入口、套餐权益扩三档、四格改带宽/设备/在线/并发。
@@ -192,14 +193,18 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
     assert.ok(panels.includes(`${tier}: { bandwidthMbps`), `有 ${tier} 档权益`);
   }
   assert.ok(!panels.includes('tunnels.slice'), '隧道那格改成带宽限制，不再列隧道域名');
-  assert.ok(panels.includes("t('panel.providerRegion.concurrency')"), '域名那格换成单隧道并发');
-  assert.ok(panels.includes("t('panel.zeronews.overview.online')"), '在线设备那格保留');
-  assert.ok(panels.includes("t('panel.providerRegion.devices')"), '设备那格保留已用');
+  assert.ok(panels.includes("t('panel.providerRegion.devices')"), '套餐卡的设备名额保留');
   assert.match(panels, /function PlanCompare/, '有三档套餐对照组件');
   assert.match(panels, /ZN_PRICING_URL/, '对照区指向官方定价页可直接订阅');
   assert.match(panels, /const ordered = current \? \[current/, '当前档排最前');
   assert.match(panels, /active \? 'border-primary bg-primary-subtle'/, '当前档靠边框高亮，不再用标签');
   assert.ok(!panels.includes('currentPlan'), '不再有「当前套餐」标签');
+  // 2026-11-27 第五轮：价格标周期、重点参数加粗、顶部四格压成两格。
+  assert.match(panels, /t\('panel\.providerRegion\.priceMonthly', \{ price: ZN_PRICE_MONTHLY\[tier\] \}\)/, '付费档价格带 /月周期');
+  assert.match(panels, /strong \? 'font-semibold' : 'font-medium'/, '重点参数加粗标亮');
+  assert.equal((panels.match(/strong: true/g) || []).length, 3, '带宽/流量/设备三项标亮');
+  assert.match(panels, /t\('panel\.providerRegion\.devicesWithOnline', \{ online \}\)/, '设备指标合并在线数');
+  assert.ok(!panels.includes('sm:grid-cols-4'), '顶部四格压成两格，不再四列');
   // 2026-11-27 卡片精简：按钮统一文案、右上角胶囊、去下划线、参数压成一行小标签、加价格。
   assert.match(panels, /function TierFacts/, '参数压成一行小标签，不再一行一个');
   assert.ok(!panels.includes('function TierRow'), '旧的逐行参数组件去掉');
@@ -208,10 +213,10 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   assert.match(panels, /rounded-full border border-border-muted/, '按钮胶囊样式');
   assert.ok(!panels.includes('underline'), '按钮不再带下划线');
   assert.match(panels, /const ZN_PRICE_MONTHLY/, '有价格常量');
-  assert.match(panels, /tier === 'free' \? t\(`panel\.providerRegion\.tier/, '免费档显示套餐名作价格');
+  assert.match(panels, /\? t\(`panel\.providerRegion\.tier\.\$\{tier\}`\)/, '免费档显示套餐名作价格');
   assert.match(panels, /sm:grid-cols-2/, '窄屏两列，不再一行一个');
   const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'provider-region.ts');
-  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'tier.free', 'tier.pro', 'tier.proPlus', 'planAction', 'planHint']) {
+  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'tier.free', 'tier.pro', 'tier.proPlus', 'planAction', 'planHint', 'priceMonthly', 'devicesWithOnline']) {
     assert.equal((dict.match(new RegExp(`'panel\\.providerRegion\\.${key.replace('.', '\\.')}':`, 'g')) || []).length, 11, `${key} 文案十一门齐全`);
   }
   assert.ok(!dict.includes('currentPlan') && !dict.includes('planDetails') && !dict.includes('planSubscribe'), '旧三键已清');
