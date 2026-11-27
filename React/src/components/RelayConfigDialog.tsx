@@ -1,3 +1,4 @@
+// 2026-11-27：服务商线路标题右边加中国/国际标签，下面铺对应专属面板（详细配置进服务商页）。
 // 2026-11-22：网络配置页去掉「中转 / 直连 / 局域网与 IPv6 / FRP」大标题，字段平铺；各栏统一一颗
 // 「检测」按钮（回环命中本机才算通，http 与 主机:端口 两种目标都验 instanceId）；FRP 改「导入」弹窗；
 // ZeroNews 压缩成一行标题 + 右侧提示。地址错误可重取，健康探测包含当前自建中转。
@@ -30,7 +31,7 @@ import { useEffect, useRef, useState } from 'react'
 import { frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
-import type { NetworkRegion } from '../lib/network-region.ts'
+import type { NetworkProvider } from '../lib/network-region.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { NetworkRegions } from './NetworkRegions.tsx'
 
@@ -111,8 +112,8 @@ type Props = {
   onSave: (patch: ConfigPatch) => void
   /** 「手机优先用这条」：点了就存、不关窗，所以和上面那个带保存按钮的 `onSave` 分开。 */
   onSavePreferred: (address: string) => void
-  /** 点地区入口卡：换到那一页（国内 / 国际，地址由 Console 写进 hash）。 */
-  onOpenRegion: (region: NetworkRegion) => void
+  /** 面板「详细配置」：直接进对应服务商的配置页（由 Console 换 hash）。 */
+  onOpenProvider: (provider: NetworkProvider) => void
 }
 
 /**
@@ -151,7 +152,7 @@ export function RelayConfigDialog({
   busy,
   onSave,
   onSavePreferred,
-  onOpenRegion,
+  onOpenProvider,
 }: Props) {
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
@@ -496,7 +497,7 @@ export function RelayConfigDialog({
                 先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
             <section className="flex flex-col gap-3">
               <div className="border-b border-border-muted pb-3">
-                <NetworkRegions onOpen={onOpenRegion} />
+                <NetworkRegions status={status} onOpenProvider={onOpenProvider} />
               </div>
             </section>
             <section className="flex flex-col gap-3">

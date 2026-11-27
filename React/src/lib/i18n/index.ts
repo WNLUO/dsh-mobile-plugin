@@ -1,3 +1,4 @@
+// 2026-11-27：服务商线路加中国/国际标签与专属面板，新领域表接入取词出口。
 // 2026-11-26：面板补齐第 11 门语言土耳其语（tr），MESSAGES 初始化同步加入。
 /**
  * 面板取词的唯一出口：`t('panel.pairing.cardTitle')`。
@@ -22,10 +23,11 @@ import { CONSOLE } from './messages/console.ts'
 import { REMOTE_COMPUTERS } from './messages/remote-computers.ts'
 import { NOTICE } from './messages/notice.ts'
 import { NETWORK_PANEL } from './messages/network-panel.ts'
+import { PROVIDER_REGION } from './messages/provider-region.ts'
 import { AI_DIAGNOSIS } from './messages/ai-diagnosis.ts'
 
 /** 全部领域表。守卫按它逐门检查键集对齐与占位符一致。 */
-export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, TAILCAT, P2P, ONBOARDING, UPDATE, DEVICES, SELFCHECK, CONSOLE, REMOTE_COMPUTERS, NOTICE, NETWORK_PANEL, AI_DIAGNOSIS]
+export const MESSAGE_TABLES = [COMMON, STATUS, SHELL, CONNECTION, PAIRING, ADDRESS, CHANNELS, INBOX, TAILCAT, P2P, ONBOARDING, UPDATE, DEVICES, SELFCHECK, CONSOLE, REMOTE_COMPUTERS, NOTICE, NETWORK_PANEL, PROVIDER_REGION, AI_DIAGNOSIS]
 
 /** 合并后的字典：语言 → 扁平表。 */
 export const MESSAGES: Record<PanelLanguage, Record<string, string>> = (() => {

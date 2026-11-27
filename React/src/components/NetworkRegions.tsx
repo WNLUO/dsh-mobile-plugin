@@ -1,63 +1,80 @@
-// 网络线路的两个地区入口：国内（中国）与国际（全球）。点开各自独立的页面，线路再多也不挤在这一页。
+// 2026-11-27：服务商线路标题右边的中国/国际标签，按界面语言定默认，切标签换专属面板。
 /**
- * 「按地区选线路」那两张卡。
+ * 「服务商线路」区（2026-11-27 重做）：标题右边两个标签，下面直接铺对应地区的专属面板。
  *
- * 为什么分地区而不是直接摊在同一页（2026-11-23 用户要求）：国内那几条线路只对国内用户有
- * 意义 —— 注册要国内手机号、节点也在国内；国际那条 Cloudflare 是匿名隧道，不用注册。两边
- * 的入口、说明、后续要加的线路都各走各的，摊在一起既长又互相干扰。
+ * 默认标签按**界面语言**猜：中文 / 繁体默认中国，其余默认国际。用户点过一次标签后，
+ * 以手动选择为准（记在 localStorage），免得改个界面语言就把人切到另一边。这一步只决定
+ * 面板默认露哪边，用户随时能点回去；不是"识别成海外就锁死"。
  *
- * 只做入口：点哪张卡，外层把 hash 换到那一页（见 Console 的 `#network/cn` / `#network/global`）。
+ * 面板内容在 `ProviderRegionPanel.tsx`：中国给 zeronews 账号概览，国际给 Cloudflare 状态。
+ * 原来的「地区入口卡」收掉了——现在面板本身就是入口，详细配置按钮直接进服务商页。
  */
+import { useState } from 'react'
+
+import type { StatusView } from '../lib/api.ts'
+import { cn } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
-import type { NetworkRegion } from '../lib/network-region.ts'
-import { ProviderCard } from './ProviderCard.tsx'
+import { usePanelLanguage } from '../lib/i18n/use-language.ts'
+import type { NetworkProvider, NetworkRegion } from '../lib/network-region.ts'
+import { ProviderRegionPanel } from './ProviderRegionPanel.tsx'
 
-/** 国旗：红底 + 一颗大星四颗小星，画法取五星红旗那套比例，只看得出是哪个国家即可。 */
-function ChinaFlag() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-7 shrink-0" aria-hidden="true">
-      <defs>
-        <path id="panel-region-star" d="M0-1 .2245-.309 .9511-.309 .3633 .118 .5878 .809 0 .382 -.5878 .809 -.3633 .118 -.9511-.309 -.2245-.309Z" fill="#ffde00" />
-      </defs>
-      <rect x="2" y="4" width="20" height="16" rx="2" fill="#de2910" />
-      <use href="#panel-region-star" transform="translate(8 11.5) scale(3.1)" />
-      <use href="#panel-region-star" transform="translate(13.4 7.6) scale(1.05)" />
-      <use href="#panel-region-star" transform="translate(15.2 10) scale(1.05)" />
-      <use href="#panel-region-star" transform="translate(15.2 13) scale(1.05)" />
-      <use href="#panel-region-star" transform="translate(13.4 15.4) scale(1.05)" />
-    </svg>
-  )
+const REGION_CHOICE_KEY = 'dsh-mobile-plugin:provider-region-choice'
+
+/** 界面语言 → 默认地区：中文 / 繁体归国内，其余归国际。 */
+function defaultRegionOf(language: string): NetworkRegion {
+  return language === 'zh-Hans' || language === 'zh-Hant' ? 'cn' : 'global'
 }
 
-/** 地球：一颗圆 + 一条经纬线，别画成「网络」那种抽象图标，它说的是「全球」。 */
-function Globe() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-7 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <ellipse cx="12" cy="12" rx="4" ry="9" />
-      <path d="M3.5 12h17" />
-    </svg>
-  )
+/** 用户手动选过就记住；没选过跟着语言走。 */
+function savedRegion(): NetworkRegion | null {
+  try {
+    const raw = localStorage.getItem(REGION_CHOICE_KEY)
+    return raw === 'cn' || raw === 'global' ? raw : null
+  } catch {
+    return null
+  }
 }
 
-export function NetworkRegions({ onOpen }: { onOpen: (region: NetworkRegion) => void }) {
+export function NetworkRegions({ status, onOpenProvider }: {
+  status: StatusView
+  /** 面板「详细配置」：进对应服务商的配置页。 */
+  onOpenProvider: (provider: NetworkProvider) => void
+}) {
+  const language = usePanelLanguage()
+  const [chosen, setChosen] = useState<NetworkRegion | null>(savedRegion)
+  // 没手动选过时直接按当前语言算，语言一变这边跟着变；选过之后记住用户的选择。
+  const region = chosen ?? defaultRegionOf(language)
+
+  const pick = (next: NetworkRegion) => {
+    setChosen(next)
+    try { localStorage.setItem(REGION_CHOICE_KEY, next) } catch { /* 记不住不影响本次 */ }
+  }
+
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-foreground-strong">{t('panel.region.title')}</span>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <ProviderCard
-          icon={<ChinaFlag />}
-          title={t('panel.region.china')}
-          hint={t('panel.region.chinaHint')}
-          onClick={() => onOpen('cn')}
-        />
-        <ProviderCard
-          icon={<Globe />}
-          title={t('panel.region.global')}
-          hint={t('panel.region.globalHint')}
-          onClick={() => onOpen('global')}
-        />
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-medium text-foreground-strong">{t('panel.region.title')}</span>
+        <div className="flex items-center gap-1 rounded-md border border-border-muted p-0.5">
+          {(['cn', 'global'] as NetworkRegion[]).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => pick(value)}
+              className={cn(
+                'cursor-pointer rounded px-3 py-1 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                region === value
+                  ? 'bg-primary-subtle text-foreground-strong'
+                  : 'text-foreground-muted hover:bg-background-muted',
+              )}
+              aria-pressed={region === value}
+            >
+              {t(value === 'cn' ? 'panel.providerRegion.tabChina' : 'panel.providerRegion.tabGlobal')}
+            </button>
+          ))}
+        </div>
       </div>
+
+      <ProviderRegionPanel region={region} status={status} onOpenDetail={onOpenProvider} />
     </div>
   )
 }

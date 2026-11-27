@@ -126,8 +126,10 @@ test('网络配置页分区：主配置页平铺字段，线路按地区与服�
   for (const key of ['panel.network.secRelay', 'panel.network.secDirect', 'panel.network.secLocal', 'panel.network.secFrp']) {
     assert.ok(!page.includes(`'${key}'`), `不再渲染分组标题 ${key}`);
   }
-  assert.ok(page.includes('<NetworkRegions onOpen={onOpenRegion} />'), '主配置页底部挂地区入口');
-  assert.ok(!page.includes("'panel.zeronews.section'"), 'ZeroNews 不在主配置页里');
+  // 2026-11-27 需求变更：服务商线路改成标题右边的「中国 / 国际」标签 + 专属面板，
+  // 不再是两张地区入口卡；面板「详细配置」直接进服务商页。地区页路由保留给老 hash。
+  assert.ok(page.includes('<NetworkRegions status={status} onOpenProvider={onOpenProvider} />'), '主配置页挂标签面板');
+  assert.ok(!page.includes('<JdxbLineCard />'), '节点小宝不在主配置页里');
   const china = read('React', 'src', 'components', 'ChinaLinesPage.tsx');
   assert.ok(china.includes('providersOfRegion(\'cn\')'), '中国页列国内服务商');
   const globalPage = read('React', 'src', 'components', 'GlobalLinesPage.tsx');
@@ -137,6 +139,24 @@ test('网络配置页分区：主配置页平铺字段，线路按地区与服�
   for (const key of ['panel.address.direct', 'panel.address.tcp', 'panel.address.ipv4Url', 'panel.address.ipv6Url']) {
     assert.ok(page.includes(`'${key}'`), `要有字段 ${key}`);
   }
+});
+
+test('服务商线路：标题右边中国/国际标签，按语言定默认、点过以手动为准，下面铺两地面板', () => {
+  // 2026-11-27 用户要求：面板区分区分国内 / 国际用户。识别只决定默认标签，不锁死；
+  // 用户点一次标签就记住选择，改界面语言也不会被切到另一边。
+  const region = read('React', 'src', 'components', 'NetworkRegions.tsx');
+  assert.match(region, /usePanelLanguage\(\)/, '默认标签看界面语言，不是系统时区');
+  assert.match(region, /language === 'zh-Hans' \|\| language === 'zh-Hant' \? 'cn' : 'global'/, '中文 / 繁体默认中国，其余默认国际');
+  assert.match(region, /localStorage\.setItem\(REGION_CHOICE_KEY/, '手动选择要记下来');
+  assert.match(region, /chosen \?\? defaultRegionOf\(language\)/, '没手动选过才跟语言走');
+  assert.match(region, /t\('panel\.region\.title'\)/, '标题还是服务商线路');
+  assert.ok(region.includes("'panel.providerRegion.tabChina'"), '要有中国标签文案');
+  assert.ok(region.includes("'panel.providerRegion.tabGlobal'"), '要有国际标签文案');
+  const panels = read('React', 'src', 'components', 'ProviderRegionPanel.tsx');
+  assert.match(panels, /region === 'cn'/, '中国标签铺 zeronews 面板');
+  assert.match(panels, /zeroNewsAccount\(\)/, '中国面板读宿主账号快照');
+  assert.match(panels, /<CloudflarePanel/, '国际面板复用 Cloudflare 面板实现');
+  assert.match(panels, /panel\.providerRegion\.consoleHint/, '拿不到的用量如实指向服务商控制台');
 });
 
 test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重试、超时收口，并留 AuthToken 兜底', () => {
