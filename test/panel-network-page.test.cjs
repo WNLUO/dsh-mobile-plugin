@@ -1,3 +1,4 @@
+// 2026-11-27 用户按截图反馈：面板去掉重复状态与详细配置按钮、删红框内容、套餐账号搬到标题下做副标题。
 // 2026-11-27 需求变更：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页及文案从面板撤掉，
 // 宿主侧线路能力保留；下面相应断言随之收窄。
 // 网络配置独立页：hash 路由、隐藏顶栏、自建中转检测与明文 http 提示。
@@ -163,6 +164,12 @@ test('服务商线路：标题右边中国/国际标签，按语言定默认、�
   assert.ok(!panels.includes('tunnels.slice'), '面板不再列隧道域名');
   const globalPart = panels.slice(panels.indexOf('function GlobalProviderPanel'));
   assert.ok(!globalPart.includes('statusText='), 'Cloudflare 头部不再重复显示状态，状态只在面板里');
+  // 2026-11-27 用户按截图反馈：中国面板去掉「国内线路 · ZeroNews」说明行，
+  // 把套餐与脱敏账号搬到标题下做副标题。
+  const chinaPart = panels.slice(panels.indexOf('function ChinaProviderPanel'), panels.indexOf('function GlobalProviderPanel'));
+  assert.ok(!chinaPart.includes('chinaHint'), '不再显示地区说明行');
+  assert.match(chinaPart, /subtitle=\{\(/, '套餐与账号作为标题下的副标题');
+  assert.ok(chinaPart.indexOf('subtitle') < chinaPart.indexOf("'panel.providerRegion.usage'"), '副标题排在使用情况之前');
 });
 
 test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重试、超时收口，并留 AuthToken 兜底', () => {

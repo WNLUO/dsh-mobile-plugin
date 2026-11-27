@@ -42,20 +42,20 @@ function Stat({ value, label }: { value: number | string; label: string }) {
   )
 }
 
-/** 头部一行：图标 + 名字 + 地区说明，右侧可选带一条状态（Cloudflare 的状态在面板里另有一行，不重复带）。 */
-function ProviderHeading({ icon, name, hint, statusText }: {
+/** 头部一行：图标 + 名字 + 副标题（可文字或套餐/账号），右侧可选带一条状态。 */
+function ProviderHeading({ icon, name, subtitle, statusText }: {
   icon: ReactNode
   name: string
-  hint: string
+  subtitle?: ReactNode
   statusText?: string
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <span className="flex size-7 shrink-0 items-center justify-center">{icon}</span>
-        <span className="flex min-w-0 flex-col">
+        <span className="flex min-w-0 flex-col gap-0.5">
           <span className="text-sm text-foreground-strong">{name}</span>
-          <span className="text-xs text-foreground-muted">{hint}</span>
+          {subtitle ? <div className="flex min-w-0 flex-wrap items-center gap-1.5">{subtitle}</div> : null}
         </span>
       </div>
       {statusText ? (
@@ -116,16 +116,14 @@ function ChinaProviderPanel({ status }: { status: StatusView }) {
         <ProviderHeading
           icon={<ZeroNewsIcon />}
           name={t('panel.provider.zeronews')}
-          hint={t('panel.providerRegion.chinaHint')}
+          subtitle={(
+            <>
+              {plan ? <Badge variant="soft" size="sm">{plan}</Badge> : null}
+              {identity ? <span className="truncate text-xs text-foreground-muted">{identity}</span> : null}
+            </>
+          )}
           statusText={statusText}
         />
-
-        {plan || identity ? (
-          <div className="flex flex-wrap items-center gap-2">
-            {plan ? <Badge variant="soft" size="sm">{plan}</Badge> : null}
-            {identity ? <span className="truncate text-xs text-foreground-muted">{identity}</span> : null}
-          </div>
-        ) : null}
 
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-foreground-strong">{t('panel.providerRegion.usage')}</span>
@@ -150,7 +148,7 @@ function GlobalProviderPanel({ status }: { status: StatusView }) {
         <ProviderHeading
           icon={<CloudflareIcon />}
           name={t('panel.provider.cloudflare')}
-          hint={t('panel.providerRegion.globalHint')}
+          subtitle={<span className="text-xs text-foreground-muted">{t('panel.providerRegion.globalHint')}</span>}
         />
         <CloudflarePanel status={status} />
       </div>

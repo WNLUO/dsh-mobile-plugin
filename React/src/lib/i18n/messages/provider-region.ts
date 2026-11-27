@@ -12,7 +12,6 @@ export const PROVIDER_REGION: PanelMessages = {
   'zh-Hans': {
     'panel.providerRegion.tabChina': '中国',
     'panel.providerRegion.tabGlobal': '国际',
-    'panel.providerRegion.chinaHint': '国内线路 · ZeroNews',
     'panel.providerRegion.globalHint': '国际线路 · Cloudflare',
     'panel.providerRegion.usage': '使用情况',
     'panel.providerRegion.notConnected': '尚未接入，点「详细配置」开始。',
@@ -20,7 +19,6 @@ export const PROVIDER_REGION: PanelMessages = {
   'zh-Hant': {
     'panel.providerRegion.tabChina': '中國',
     'panel.providerRegion.tabGlobal': '國際',
-    'panel.providerRegion.chinaHint': '國內線路 · ZeroNews',
     'panel.providerRegion.globalHint': '國際線路 · Cloudflare',
     'panel.providerRegion.usage': '使用情況',
     'panel.providerRegion.notConnected': '尚未接入，點「詳細設定」開始。',
@@ -28,7 +26,6 @@ export const PROVIDER_REGION: PanelMessages = {
   en: {
     'panel.providerRegion.tabChina': 'China',
     'panel.providerRegion.tabGlobal': 'International',
-    'panel.providerRegion.chinaHint': 'China routes · ZeroNews',
     'panel.providerRegion.globalHint': 'Global routes · Cloudflare',
     'panel.providerRegion.usage': 'Usage',
     'panel.providerRegion.notConnected': 'Not connected yet. Open Configure to set it up.',
@@ -36,7 +33,6 @@ export const PROVIDER_REGION: PanelMessages = {
   ja: {
     'panel.providerRegion.tabChina': '中国',
     'panel.providerRegion.tabGlobal': '国際',
-    'panel.providerRegion.chinaHint': '中国回線 · ZeroNews',
     'panel.providerRegion.globalHint': '国際回線 · Cloudflare',
     'panel.providerRegion.usage': '利用状況',
     'panel.providerRegion.notConnected': 'まだ接続されていません。「詳細設定」から開始してください。',
@@ -44,7 +40,6 @@ export const PROVIDER_REGION: PanelMessages = {
   ko: {
     'panel.providerRegion.tabChina': '중국',
     'panel.providerRegion.tabGlobal': '국제',
-    'panel.providerRegion.chinaHint': '중국 회선 · ZeroNews',
     'panel.providerRegion.globalHint': '국제 회선 · Cloudflare',
     'panel.providerRegion.usage': '사용량',
     'panel.providerRegion.notConnected': '아직 연결되지 않았습니다. 「상세 설정」에서 시작하세요.',
@@ -52,7 +47,6 @@ export const PROVIDER_REGION: PanelMessages = {
   de: {
     'panel.providerRegion.tabChina': 'China',
     'panel.providerRegion.tabGlobal': 'International',
-    'panel.providerRegion.chinaHint': 'China-Routen · ZeroNews',
     'panel.providerRegion.globalHint': 'Globale Routen · Cloudflare',
     'panel.providerRegion.usage': 'Verbrauch',
     'panel.providerRegion.notConnected': 'Noch nicht verbunden. Öffne „Konfigurieren" zum Einrichten.',
@@ -60,7 +54,6 @@ export const PROVIDER_REGION: PanelMessages = {
   es: {
     'panel.providerRegion.tabChina': 'China',
     'panel.providerRegion.tabGlobal': 'Internacional',
-    'panel.providerRegion.chinaHint': 'Rutas en China · ZeroNews',
     'panel.providerRegion.globalHint': 'Rutas globales · Cloudflare',
     'panel.providerRegion.usage': 'Uso',
     'panel.providerRegion.notConnected': 'Aún no conectado. Abre «Configurar» para empezar.',
@@ -68,7 +61,6 @@ export const PROVIDER_REGION: PanelMessages = {
   fr: {
     'panel.providerRegion.tabChina': 'Chine',
     'panel.providerRegion.tabGlobal': 'International',
-    'panel.providerRegion.chinaHint': 'Routes en Chine · ZeroNews',
     'panel.providerRegion.globalHint': 'Routes mondiales · Cloudflare',
     'panel.providerRegion.usage': 'Utilisation',
     'panel.providerRegion.notConnected': 'Pas encore connecté. Ouvrez « Configurer » pour commencer.',
@@ -76,7 +68,6 @@ export const PROVIDER_REGION: PanelMessages = {
   pt: {
     'panel.providerRegion.tabChina': 'China',
     'panel.providerRegion.tabGlobal': 'Internacional',
-    'panel.providerRegion.chinaHint': 'Rotas na China · ZeroNews',
     'panel.providerRegion.globalHint': 'Rotas globais · Cloudflare',
     'panel.providerRegion.usage': 'Uso',
     'panel.providerRegion.notConnected': 'Ainda não conectado. Abra «Configurar» para começar.',
@@ -84,7 +75,6 @@ export const PROVIDER_REGION: PanelMessages = {
   ru: {
     'panel.providerRegion.tabChina': 'Китай',
     'panel.providerRegion.tabGlobal': 'Международный',
-    'panel.providerRegion.chinaHint': 'Маршруты в Китае · ZeroNews',
     'panel.providerRegion.globalHint': 'Глобальные маршруты · Cloudflare',
     'panel.providerRegion.usage': 'Использование',
     'panel.providerRegion.notConnected': 'Ещё не подключено. Откройте «Настроить», чтобы начать.',
@@ -92,7 +82,6 @@ export const PROVIDER_REGION: PanelMessages = {
   tr: {
     'panel.providerRegion.tabChina': 'Çin',
     'panel.providerRegion.tabGlobal': 'Uluslararası',
-    'panel.providerRegion.chinaHint': 'Çin hatları · ZeroNews',
     'panel.providerRegion.globalHint': 'Küresel hatlar · Cloudflare',
     'panel.providerRegion.usage': 'Kullanım',
     'panel.providerRegion.notConnected': 'Henüz bağlanılmadı. Başlamak için «Yapılandır»ı açın.',
