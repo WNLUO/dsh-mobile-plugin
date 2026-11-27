@@ -302,3 +302,14 @@ test('未接入时面板给「登录」按钮，回调经四层传到 zeronews �
   assert.equal((dict.match(/'panel\.providerRegion\.login':/g) || []).length, 11, '登录文案十一门齐全');
 });
 
+test('服务商线路标题带推荐语：推荐都用、按需选套餐、免费档可作备用避免失联，十一门齐全', () => {
+  // 2026-11-27 用户要求：标题不再只说「更快的接入网络」，把劝用、选套餐、免费档备用的理由摆进去。
+  const panel = read('React', 'src', 'lib', 'i18n', 'messages', 'panel.ts');
+  assert.match(panel, /'panel\.region\.title': '服务商线路（更快的接入网络，推荐各位用户都使用，按需择选套餐，免费线路也可作为备用网络，避免设备失联）'/, '简体标题是全文案');
+  assert.equal((panel.match(/'panel\.region\.title':/g) || []).length, 11, '标题十一门齐全');
+  // 外语各自翻译到位，不是照抄中文；每段都带「推荐 / 套餐 / 备用 / 离线」四层意思。
+  assert.match(panel, /'panel\.region\.title': 'Provider lines \(faster access — recommended for everyone; pick a plan that fits you, and even the free line works as a backup so your device never goes offline\)'/, '英文标题翻译到位');
+  const region = read('React', 'src', 'components', 'NetworkRegions.tsx');
+  assert.match(region, /t\('panel\.region\.title'\)/, '标题仍走字典，不在组件写死');
+});
+
