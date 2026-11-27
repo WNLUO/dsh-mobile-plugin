@@ -1,3 +1,4 @@
+// 2026-11-27 用户反馈第六轮：当前档按钮改「正在使用」，付费档识别回顾（套餐名精确匹配）。
 // 2026-11-27 用户反馈第五轮：价格标周期、重点参数加粗标亮、顶部四格压成两格。
 // 2026-11-27 用户反馈第四轮：套餐卡片精简——统一按钮/胶囊/去下划线/紧凑布局/加价格。
 // 2026-11-27 用户反馈第三轮：排版重做——套餐对照、去标题、地址独行、文案人话化、断开后刷新、去控制台按钮。
@@ -208,7 +209,12 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   // 2026-11-27 卡片精简：按钮统一文案、右上角胶囊、去下划线、参数压成一行小标签、加价格。
   assert.match(panels, /function TierFacts/, '参数压成一行小标签，不再一行一个');
   assert.ok(!panels.includes('function TierRow'), '旧的逐行参数组件去掉');
-  assert.match(panels, /t\('panel\.providerRegion\.planAction'\)/, '按钮统一文案');
+  assert.match(panels, /t\('panel\.providerRegion\.planAction'\)/, '非当前档按钮是去订阅');
+  // 2026-11-27 第六轮：当前档按钮改「正在使用」且不是链接；付费档靠套餐名精确匹配，不套免费档。
+  assert.match(panels, /active \? \(\s*\n\s*<span/, '当前档渲染静态标签');
+  assert.match(panels, /t\('panel\.providerRegion\.planInUse'\)/, '当前档文案「正在使用」');
+  assert.match(panels, /<a\s*\n\s*href=\{ZN_PRICING_URL\}/, '其余档仍是订阅链接');
+  assert.ok(panels.includes('ZN_TIERS.filter((tier) => tier !== current)'), '当前档排最前、其余照列');
   assert.ok(!panels.includes('planDetails') && !panels.includes('planSubscribe'), '旧的两个按钮文案去掉');
   assert.match(panels, /rounded-full border border-border-muted/, '按钮胶囊样式');
   assert.ok(!panels.includes('underline'), '按钮不再带下划线');
@@ -216,7 +222,7 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   assert.match(panels, /\? t\(`panel\.providerRegion\.tier\.\$\{tier\}`\)/, '免费档显示套餐名作价格');
   assert.match(panels, /sm:grid-cols-2/, '窄屏两列，不再一行一个');
   const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'provider-region.ts');
-  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'tier.free', 'tier.pro', 'tier.proPlus', 'planAction', 'planHint', 'priceMonthly', 'devicesWithOnline']) {
+  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'tier.free', 'tier.pro', 'tier.proPlus', 'planAction', 'planInUse', 'planHint', 'priceMonthly', 'devicesWithOnline']) {
     assert.equal((dict.match(new RegExp(`'panel\\.providerRegion\\.${key.replace('.', '\\.')}':`, 'g')) || []).length, 11, `${key} 文案十一门齐全`);
   }
   assert.ok(!dict.includes('currentPlan') && !dict.includes('planDetails') && !dict.includes('planSubscribe'), '旧三键已清');

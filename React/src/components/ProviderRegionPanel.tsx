@@ -143,7 +143,7 @@ function TierFacts({ facts }: { facts: TierFact[] }) {
   )
 }
 
-/** 三档套餐对照：当前档排最前并用边框高亮，右上角一颗胶囊按钮直达官方定价页。 */
+/** 三档套餐对照：当前档排最前并用边框高亮、按钮显示「正在使用」；其余档按钮直达官方定价页订阅。 */
 function PlanCompare({ current }: { current: PlanTier | null }) {
   const ordered = current ? [current, ...ZN_TIERS.filter((tier) => tier !== current)] : ZN_TIERS
   return (
@@ -169,14 +169,20 @@ function PlanCompare({ current }: { current: PlanTier | null }) {
                   {t(`panel.providerRegion.tier.${tier}`)}
                   <span className="ms-1.5 text-xs font-normal text-foreground-muted">{price}</span>
                 </span>
-                <a
-                  href={ZN_PRICING_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="shrink-0 rounded-full border border-border-muted bg-background px-2.5 py-0.5 text-xs text-foreground-strong transition-colors hover:bg-background-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                >
-                  {t('panel.providerRegion.planAction')}
-                </a>
+                {active ? (
+                  <span className="shrink-0 rounded-full border border-primary bg-primary px-2.5 py-0.5 text-xs text-primary-foreground">
+                    {t('panel.providerRegion.planInUse')}
+                  </span>
+                ) : (
+                  <a
+                    href={ZN_PRICING_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 rounded-full border border-border-muted bg-background px-2.5 py-0.5 text-xs text-foreground-strong transition-colors hover:bg-background-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    {t('panel.providerRegion.planAction')}
+                  </a>
+                )}
               </div>
               <TierFacts facts={[
                 { label: t('panel.providerRegion.bandwidth'), value: t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }), strong: true },
