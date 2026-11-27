@@ -1,3 +1,4 @@
+// 2026-11-27：国内服务商只留 ZeroNews，节点小宝与 FRP 的入口收掉（宿主能力保留）。
 // 网络线路的地址与互相跳转：网络配置主内容铺在首页，只有地区页 #network/cn|global 与
 // 地区下面每家服务商各占一页（#network/cn/zeronews 之类）。
 /**
@@ -10,20 +11,18 @@
  */
 export type NetworkRegion = 'cn' | 'global'
 
-/** 地区下的服务商。国内是 ZeroNews、节点小宝与 FRP，国际目前只有 Cloudflare。 */
-export type NetworkProvider = 'zeronews' | 'jdxb' | 'frp' | 'cloudflare'
+/** 地区下的服务商。国内现在只有 ZeroNews，国际目前只有 Cloudflare。 */
+export type NetworkProvider = 'zeronews' | 'cloudflare'
 
 /** 面板当前停在哪一页。 */
 export type NetworkPage = 'home' | NetworkRegion | ProviderPage
 
 /** 服务商页的页面标识（地区/服务商）。写得实一点，别让类型放开到「国内 + Cloudflare」这种不存在的组合。 */
-export type ProviderPage = 'cn/zeronews' | 'cn/jdxb' | 'cn/frp' | 'global/cloudflare'
+export type ProviderPage = 'cn/zeronews' | 'global/cloudflare'
 
 /** 每家服务商属于哪个地区、页面标题用哪个键。 */
 export const PROVIDERS: Record<NetworkProvider, { region: NetworkRegion }> = {
   zeronews: { region: 'cn' },
-  jdxb: { region: 'cn' },
-  frp: { region: 'cn' },
   cloudflare: { region: 'global' },
 }
 
@@ -32,8 +31,6 @@ const PAGE_PATHS: Record<Exclude<NetworkPage, 'home'>, string> = {
   cn: 'network/cn',
   global: 'network/global',
   'cn/zeronews': 'network/cn/zeronews',
-  'cn/jdxb': 'network/cn/jdxb',
-  'cn/frp': 'network/cn/frp',
   'global/cloudflare': 'network/global/cloudflare',
 }
 

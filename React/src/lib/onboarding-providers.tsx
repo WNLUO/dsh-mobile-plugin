@@ -1,3 +1,4 @@
+// 2026-11-27：国内服务商只留 ZeroNews，节点小宝与 FRP 的入口与就绪判定收掉。
 // 2026-11-27：引导页国内只列 ZeroNews，可见范围由 onboardingProviderKeys 收口。
 // 2026-11-25：服务商「已接好」还要求线路真能用（端口已绕开 / 没有未解决的兜底原因）。
 // 引导页的服务商注册表：地区、是否主推、就绪判定、点开时挂载哪个配置面板。
@@ -10,15 +11,13 @@
  * `Record<NetworkProvider, ...>` —— 少补一条，TypeScript 当场编译不过，引导页本身一个字都不用改。
  *
  * 引导页可见哪些家由 `onboardingProviderKeys` 单独定：国内这一轮只放 ZeroNews，
- * 节点小宝与 FRP 的程序接入和控制台那一层照旧，只是不出现在首次接入这一步。国际不变。
+ * 节点小宝与 FRP 的宿主能力照旧，只是入口不在这里；国际不变。
  */
 import type { ComponentType } from 'react'
 
 import type { StatusView } from './api.ts'
 import { PROVIDERS, providersOfRegion, type NetworkProvider, type NetworkRegion } from './network-region.ts'
 import { CloudflarePage } from '../components/CloudflarePage.tsx'
-import { FrpProviderPage } from '../components/FrpProviderPage.tsx'
-import { JdxbPage } from '../components/JdxbPage.tsx'
 import { ZeroNewsPage } from '../components/ZeroNewsPage.tsx'
 
 /** 各服务商配置面板共用的入参：都复用它们自己那一页，引导页不另写一套连接逻辑。 */
@@ -32,11 +31,9 @@ export type ProviderPanelProps = {
   onChanged?: () => void
 }
 
-/** 判「这家接好了没有」要看的现场：状态，外加节点小宝那条（它不在 /status 里，单独读）。 */
+/** 判「这家接好了没有」要看的现场：状态。 */
 export type ReadyContext = {
   status: StatusView
-  /** 节点小宝的外网地址（空 = 没接）。 */
-  jdxbUrl: string
 }
 
 type SetupEntry = {
@@ -71,24 +68,6 @@ const PROVIDER_SETUP: Record<NetworkProvider, SetupEntry> = {
       <ZeroNewsPage open={props.open} onOpenChange={props.onOpenChange} status={props.status} busy={props.busy ?? ''} />
     ),
   },
-  jdxb: {
-    primary: false,
-    ready: ({ status, jdxbUrl }) => lanRouteUsable(status) && Boolean(jdxbUrl),
-    Page: (props) => <JdxbPage open={props.open} onOpenChange={props.onOpenChange} status={props.status} />,
-  },
-  frp: {
-    primary: false,
-    // FRP 整机只有一条线路：-running 且有公网地址才算接好，不认服务商名字。
-    ready: ({ status }) => lanRouteUsable(status) && Boolean(status.frp?.running && status.frp?.remoteAddress),
-    Page: (props) => (
-      <FrpProviderPage
-        open={props.open}
-        onOpenChange={props.onOpenChange}
-        status={props.status}
-        onChanged={props.onChanged ?? (() => {})}
-      />
-    ),
-  },
   cloudflare: {
     primary: true,
     ready: ({ status }) => Boolean(status.cloudflare?.running && status.cloudflare?.url),
@@ -107,22 +86,16 @@ export type OnboardingProvider = {
 }
 
 /**
- * 引导页这一步实际露出哪几家公司，跟 `providersOfRegion` 的控制台清单分开。
- * 国内只放 ZeroNews：节点小宝、FRP 仍由控制台那一层管，不进首次接入。
- * 国际不收窄，仍是 Cloudflare —— 切 tab 时两边各一家、行结构一致，面板宽高不跳。
+ * 引导页这一步露出哪几家公司，跟注册表同源：国内只剩 ZeroNews，国际只有 Cloudflare，
+ * 切 tab 时两边各一家、行结构一致，面板宽高不跳。
  */
-function onboardingProviderKeys(region: NetworkRegion): NetworkProvider[] {
-  return region === 'cn' ? ['zeronews'] : providersOfRegion(region)
-}
-
-/** 某地区的服务商清单，主推那家排最前。 */
 export function onboardingProvidersOf(region: NetworkRegion): OnboardingProvider[] {
-  return onboardingProviderKeys(region)
+  return providersOfRegion(region)
     .map((provider) => ({ provider, region: PROVIDERS[provider].region, ...PROVIDER_SETUP[provider] }))
     .sort((a, b) => Number(b.primary) - Number(a.primary))
 }
 
 /** 这个地区有没有任意一家已经配好 —— 决定引导页放不放二维码。 */
 export function regionHasReadyRoute(region: NetworkRegion, ctx: ReadyContext): boolean {
-  return onboardingProviderKeys(region).some((provider) => PROVIDER_SETUP[provider].ready(ctx))
+  return providersOfRegion(region).some((provider) => PROVIDER_SETUP[provider].ready(ctx))
 }

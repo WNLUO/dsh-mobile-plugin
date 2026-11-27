@@ -1,3 +1,5 @@
+// 2026-11-27 需求变更：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页及文案从面板撤掉，
+// 宿主侧线路能力保留；下面相应断言随之收窄。
 // 网络配置独立页：hash 路由、隐藏顶栏、自建中转检测与明文 http 提示。
 'use strict';
 const fs = require('node:fs');
@@ -16,7 +18,9 @@ test('网络配置是独立子页：用 hash 路由，刷新留在这一页，�
   assert.match(consoleSrc, /'hashchange'/, '前进后退 / 手改 hash 要跟着切视图');
   assert.match(consoleSrc, /page !== 'home' \? null/, '在网络配置这一组页面里不显示顶部状态栏');
   const routes = read('React', 'src', 'lib', 'network-region.ts');
-  for (const hash of ['network/cn', 'network/global', 'network/cn/zeronews', 'network/cn/jdxb', 'network/global/cloudflare']) {
+  // 2026-11-27 需求变更：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页从面板撤掉，
+  // 宿主能力保留。原来钉住的 cn/jdxb、cn/frp 路由随之删除。
+  for (const hash of ['network/cn', 'network/global', 'network/cn/zeronews', 'network/global/cloudflare']) {
     assert.ok(routes.includes(hash), `要有 ${hash} 这条路径`);
   }
 });
@@ -123,15 +127,12 @@ test('网络配置页分区：主配置页平铺字段，线路按地区与服�
     assert.ok(!page.includes(`'${key}'`), `不再渲染分组标题 ${key}`);
   }
   assert.ok(page.includes('<NetworkRegions onOpen={onOpenRegion} />'), '主配置页底部挂地区入口');
-  assert.ok(!page.includes('<JdxbLineCard />'), '节点小宝不在主配置页里');
   assert.ok(!page.includes("'panel.zeronews.section'"), 'ZeroNews 不在主配置页里');
   const china = read('React', 'src', 'components', 'ChinaLinesPage.tsx');
   assert.ok(china.includes('providersOfRegion(\'cn\')'), '中国页列国内服务商');
   const globalPage = read('React', 'src', 'components', 'GlobalLinesPage.tsx');
   assert.ok(globalPage.includes('providersOfRegion(\'global\')'), '国际页列国际服务商');
-  const jdxb = read('React', 'src', 'components', 'JdxbPage.tsx');
-  assert.ok(jdxb.includes('<JdxbLineCard />'), '节点小宝在它自己那页');
-  assert.ok(jdxb.includes('LineGuide'), '节点小宝那页带步骤条');
+  // 2026-11-27 需求变更：节点小宝与 FRP 的配置页已从面板撤掉，宿主能力保留，这里不再钉它们的页面。
   // 四入口标题改成不歧义的短名（直连 / TCP 直连 / IPv4 / IPv6）。
   for (const key of ['panel.address.direct', 'panel.address.tcp', 'panel.address.ipv4Url', 'panel.address.ipv6Url']) {
     assert.ok(page.includes(`'${key}'`), `要有字段 ${key}`);
@@ -157,12 +158,3 @@ test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重�
   }
 });
 
-test('节点小宝绑定成功要自己收掉链接：轮询设备端状态，读到已绑就清空', () => {
-  // 授权/绑定是在它自己的页面完成的，插件这边只有轮询这一条路。不轮询的话，用户明明绑好了，
-  // 链接还挂在面板上，看起来就像没成功（现场反馈）。
-  const card = read('React', 'src', 'components', 'JdxbLineCard.tsx');
-  assert.match(card, /setInterval\(/, '要定时问一次状态');
-  assert.match(card, /jdxbStatus\(\)/, '问的是宿主那条 status 路由');
-  assert.match(card, /next\.bound\) setBindLink\(''\)/, '读到已绑定就把链接收掉');
-  assert.match(card, /clearInterval\(/, '卸载时要停掉轮询');
-});

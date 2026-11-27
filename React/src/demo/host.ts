@@ -1,3 +1,4 @@
+// 2026-11-27：国内服务商只留 ZeroNews，节点小宝的演示假接口随配置页收掉。
 // 演示宿主保留固定端口设置与穿透自动锁定状态。
 /**
  * 演示宿主的版本坐标由统一发版脚本更新。
@@ -583,19 +584,6 @@ function route(pathname: string, init?: RequestInit, search = new URLSearchParam
     state.znConnected = false
     state.znUrl = ''
     return json({ ok: true })
-  }
-  // 节点小宝（国内备选）：状态与轻动作给一份最小应答，点进那页不报「没有这条接口」。
-  if (pathname === '/api/relay/jdxb/status' && method === 'GET') {
-    return json({ ok: true, supported: true, installed: false, bound: false, peerid: '', tun: '', port: 0, error: '', url: '' })
-  }
-  if (pathname === '/api/relay/jdxb/bind' && method === 'GET') {
-    return json({ ok: true, url: '', bound: false, error: '' })
-  }
-  if (pathname === '/api/relay/jdxb/install' && method === 'POST') {
-    return json({ ok: true, installed: true, started: true, error: '' })
-  }
-  if (pathname === '/api/relay/jdxb/url' && method === 'POST') {
-    return json({ ok: true, url: String(body(init).url || '') })
   }
   if (pathname === '/api/relay/restart-sidecar' && method === 'POST') {
     return json({ ok: true, status: statusView() })

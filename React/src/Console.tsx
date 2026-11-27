@@ -1,3 +1,4 @@
+// 2026-11-27：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页从路由撤掉（宿主能力保留）。
 // 2026-11-26 用户要求：顶栏的重启 / 检查更新 / 收件箱三颗按钮从前端撤掉，功能逻辑与接口不动。
 // 2026-11-25：兜底仍不可用时弹端口冲突指引，按钮直接打开已有的端口设置弹窗。
 // 2026-11-24 用户要求：更新按钮挪到顶栏后底部横条空了，撤掉固定高度的空容器，组件逻辑照旧。
@@ -33,9 +34,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChinaLinesPage } from './components/ChinaLinesPage.tsx'
 import { CloudflareDialog } from './components/CloudflareDialog.tsx'
 import { CloudflarePage } from './components/CloudflarePage.tsx'
-import { FrpProviderPage } from './components/FrpProviderPage.tsx'
 import { GlobalLinesPage } from './components/GlobalLinesPage.tsx'
-import { JdxbPage } from './components/JdxbPage.tsx'
 import { ZeroNewsPage } from './components/ZeroNewsPage.tsx'
 import { ConnectionCard } from './components/ConnectionCard.tsx'
 import { LanguageMenu } from './components/LanguageMenu.tsx'
@@ -568,19 +567,6 @@ export function Console() {
         onOpenChange={(next) => (next ? openProvider('zeronews') : backToRegion('cn'))}
         status={status}
         busy={busy}
-      />
-
-      <JdxbPage
-        open={page === 'cn/jdxb'}
-        onOpenChange={(next) => (next ? openProvider('jdxb') : backToRegion('cn'))}
-        status={status}
-      />
-
-      <FrpProviderPage
-        open={page === 'cn/frp'}
-        onOpenChange={(next) => (next ? openProvider('frp') : backToRegion('cn'))}
-        status={status}
-        onChanged={() => void loadStatus()}
       />
 
       <GlobalLinesPage

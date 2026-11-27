@@ -1,4 +1,5 @@
 // 2026-11-27：引导页加一页「选个方式」插在装 App 之后，原配网络/扫码顺延成第三/四页。
+// 2026-11-27：国内服务商只留 ZeroNews，节点小宝的状态轮询与入口收掉（宿主能力保留）。
 // 2026-11-27：第二页国内只露 ZeroNews 一家；服务商行固定下限高，切 tab 面板不跳。
 // 2026-11-26：引导页拆成三页——下载 App / 配网络（可跳过，跳过直接进控制台）/ 扫码连接。
 // 2026-11-26：第三页出码前先让宿主把码里的地址真拨一遍；全不通不出码，只有回环通要另说。
@@ -55,7 +56,6 @@ import {
   apiPost,
   cloudflareStart,
   errorText,
-  jdxbStatus,
   lanFallbackReason,
   pairingRenewIn,
   type AddressBook,
@@ -135,8 +135,6 @@ export function Onboarding({ onDone }: Props) {
   const [checkError, setCheckError] = useState('')
   /** 正在配置哪家服务商（null = 没开面板）；开了就把它自己那一页铺上来。 */
   const [providerOpen, setProviderOpen] = useState<OnboardingProvider['provider'] | null>(null)
-  /** 节点小宝的外网地址：它不在 /status 里，只在国内时单独读，用来判「这条接好了没有」。 */
-  const [jdxbUrl, setJdxbUrl] = useState('')
   const [firewallOpen, setFirewallOpen] = useState(false)
   const [qrZoomOpen, setQrZoomOpen] = useState(false)
   const [tailcatOpen, setTailcatOpen] = useState(false)
@@ -251,30 +249,6 @@ export function Onboarding({ onDone }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [region, status?.cloudflare])
 
-  /** 国内时读一次节点小宝那条地址，用来判它接好没有（它不在 /status 里）。 */
-  useEffect(() => {
-    if (region !== 'cn') {
-      setJdxbUrl('')
-      return undefined
-    }
-    let active = true
-    const tick = async () => {
-      if (!pageVisible()) return
-      try {
-        const next = await jdxbStatus()
-        if (active) setJdxbUrl(next.url || '')
-      } catch {
-        /* 读不到就当没接，别打断。 */
-      }
-    }
-    void tick()
-    const timer = window.setInterval(() => void tick(), 5000)
-    return () => {
-      active = false
-      window.clearInterval(timer)
-    }
-  }, [region])
-
   async function loadStatus() {
     try {
       setStatus(await apiGet<StatusView>('/api/relay/status'))
@@ -318,7 +292,7 @@ export function Onboarding({ onDone }: Props) {
 
   /** 服务商清单（主推排最前）+ 当前地区是否已有能用的线路。 */
   const providers = onboardingProvidersOf(region)
-  const readyCtx = { status: status as StatusView, jdxbUrl }
+  const readyCtx = { status: status as StatusView }
   const anyReady = status !== null && regionHasReadyRoute(region, readyCtx)
   const activeEntry = providers.find((entry) => entry.provider === providerOpen) ?? null
 
