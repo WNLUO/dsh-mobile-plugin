@@ -1,3 +1,4 @@
+// 2026-11-27：线路级问题码也归这一处守卫，搬出装配层后逐条钉住。
 // 2026-11-25：回环入口判据守卫：每条判据都配一次变异，旧实现必须转红。
 'use strict';
 
@@ -124,6 +125,40 @@ test('兜底原因码：有可用线路不重复起，cloudflared 不在如实�
     const mutated = loadMutated(src => replaceOnce(src, "return 'cloudflare-unavailable';", "return 'port-conflict';"));
     assert.equal(mutated.fallbackReasonOf({ ...base, cloudflareAvailable: false }), 'cloudflare-unavailable');
   }, assert.AssertionError, 'cloudflared 不可用被吞掉必须转红');
+});
+
+test('线路级问题码：兜底顶上时仍说出旧隧道落点、外部目标与端口被抢', () => {
+  const bypass = guard.signalsOf({ requestedPort: 18787, boundPort: 18787, loopbackBlocked: true });
+  const calm = guard.signalsOf({ requestedPort: 18787, boundPort: 18787, loopbackBlocked: false });
+  const base = {
+    signals: bypass, ingressPort: 41081, hasUsableRoute: true, cloudflareAvailable: true,
+    hasLegacyTunnel: true, legacyTunnelPort: 18787,
+  };
+  assert.equal(guard.routeIssueOf(base).routeIssue, 'zeronews-stale', '兜底已顶上也要让用户看见旧隧道落在旧端口');
+  assert.equal(guard.routeIssueOf(base).fallbackReason, '', '有可用路线时不报兜底失败');
+  assert.equal(guard.routeIssueOf({ ...base, legacyTunnelPort: 41081, externalTarget: true }).routeIssue,
+    'external-target', '旧隧道落点对了就报外部手填目标');
+  assert.equal(guard.routeIssueOf({ ...base, hasLegacyTunnel: false, ingressPort: 0 }).routeIssue,
+    'port-conflict', '回环被抢又没拿到专属入口');
+  assert.equal(guard.routeIssueOf({ ...base, signals: calm }).routeIssue, '', '没绕开就没有线路问题');
+  const blocked = { ...base, hasUsableRoute: false, cloudflareAvailable: false };
+  assert.equal(guard.routeIssueOf(blocked).routeIssue, 'cloudflare-unavailable', '兜底也顶不上时线路码让位给兜底码');
+  assert.throws(() => {
+    const mutated = loadMutated(src => replaceOnce(src,
+      'if (fallbackReason) return { fallbackReason, routeIssue: fallbackReason };',
+      "if (fallbackReason) return { fallbackReason, routeIssue: 'x' };"));
+    assert.equal(mutated.routeIssueOf(blocked).routeIssue, 'cloudflare-unavailable');
+  }, assert.AssertionError, '丢掉兜底码必须转红');
+  assert.throws(() => {
+    const mutated = loadMutated(src => replaceOnce(src, '!== ingressPort)', '=== ingressPort)'));
+    assert.equal(mutated.routeIssueOf(base).routeIssue, 'zeronews-stale');
+  }, assert.AssertionError, '不比旧隧道落点必须转红');
+  assert.throws(() => {
+    const mutated = loadMutated(src => replaceOnce(src,
+      "else if (input.externalTarget === true) routeIssue = 'external-target';",
+      "else if (false) routeIssue = 'external-target';"));
+    assert.equal(mutated.routeIssueOf({ ...base, legacyTunnelPort: 41081, externalTarget: true }).routeIssue, 'external-target');
+  }, assert.AssertionError, '漏掉外部手填目标必须转红');
 });
 
 test('自检回环判据记进来，状态能读到；没探测就当没证据', () => {
