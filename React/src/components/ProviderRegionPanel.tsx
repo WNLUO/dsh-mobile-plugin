@@ -52,6 +52,14 @@ const ZN_QUOTAS: Record<PlanTier, Quota> = {
   pro: { bandwidthMbps: 5, devices: 4, concurrency: 30, trafficGb: null, tunnels: 4, domains: 4 },
   proPlus: { bandwidthMbps: 10, devices: 8, concurrency: 50, trafficGb: null, tunnels: 8, domains: 8 },
 }
+/**
+ * 当前公开价（2026-11-27 官方定价页）：个人 Pro ¥22 月 / 个人 Pro+ ¥69 月；免费档显示套餐名即可。
+ * ¥ 与数字是通用符号，不进文案表；改价只动这里。
+ */
+const ZN_PRICE_MONTHLY: Record<'pro' | 'proPlus', string> = {
+  pro: '\u00a522',
+  proPlus: '\u00a569',
+}
 /** 对照表的展示顺序：当前档排最前，其余按从低到高。 */
 const ZN_TIERS: PlanTier[] = ['free', 'pro', 'proPlus']
 
@@ -118,58 +126,65 @@ function ProviderHeading({ icon, name, subtitle, statusText, tone }: {
   )
 }
 
-/** 套餐对照里的一行：参数名 + 值。 */
-function TierRow({ label, value }: { label: string; value: string }) {
+/** 套餐对照里的一组「参数名：值」小标签，一行铺不下自动换行。 */
+function TierFacts({ facts }: { facts: Array<{ label: string; value: string }> }) {
   return (
-    <div className="flex items-baseline justify-between gap-2 border-b border-border-muted py-1 last:border-b-0">
-      <span className="shrink-0 text-xs text-foreground-muted">{label}</span>
-      <span className="min-w-0 truncate text-right text-xs text-foreground-strong">{value}</span>
+    <div className="flex flex-wrap gap-x-3 gap-y-1">
+      {facts.map((fact) => (
+        <span key={fact.label} className="text-xs text-foreground-muted">
+          {fact.label} <span className="font-medium text-foreground-strong">{fact.value}</span>
+        </span>
+      ))}
     </div>
   )
 }
 
-/** 三档套餐对照：当前档高亮，每档一个官方订阅入口。 */
+/** 三档套餐对照：当前档排最前并用边框高亮，右上角一颗胶囊按钮直达官方定价页。 */
 function PlanCompare({ current }: { current: PlanTier | null }) {
   const ordered = current ? [current, ...ZN_TIERS.filter((tier) => tier !== current)] : ZN_TIERS
   return (
     <div className="flex flex-col gap-2">
       <span className="text-xs font-medium text-foreground-strong">{t('panel.providerRegion.plansTitle')}</span>
-      <div className="grid gap-2 md:grid-cols-3">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {ordered.map((tier) => {
           const quota = ZN_QUOTAS[tier]
           const active = tier === current
+          const price = tier === 'free' ? t(`panel.providerRegion.tier.${tier}`) : ZN_PRICE_MONTHLY[tier]
           return (
             <div
               key={tier}
               className={cn(
-                'flex flex-col gap-1 rounded-md border p-3',
+                'flex flex-col gap-2 rounded-md border p-3',
                 active ? 'border-primary bg-primary-subtle' : 'border-border-muted bg-background-muted',
               )}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-foreground-strong">{t(`panel.providerRegion.tier.${tier}`)}</span>
-                {active ? <Badge variant="soft" size="xs">{t('panel.providerRegion.currentPlan')}</Badge> : null}
+                <span className="text-sm font-medium text-foreground-strong">
+                  {t(`panel.providerRegion.tier.${tier}`)}
+                  <span className="ms-1.5 text-xs font-normal text-foreground-muted">{price}</span>
+                </span>
+                <a
+                  href={ZN_PRICING_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 rounded-full border border-border-muted bg-background px-2.5 py-0.5 text-xs text-foreground-strong transition-colors hover:bg-background-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  {t('panel.providerRegion.planAction')}
+                </a>
               </div>
-              <TierRow label={t('panel.providerRegion.bandwidth')} value={t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps })} />
-              <TierRow label={t('panel.providerRegion.tunnels')} value={String(quota.tunnels)} />
-              <TierRow label={t('panel.providerRegion.domains')} value={String(quota.domains)} />
-              <TierRow label={t('panel.providerRegion.devices')} value={String(quota.devices)} />
-              <TierRow label={t('panel.providerRegion.concurrency')} value={String(quota.concurrency)} />
-              <TierRow
-                label={t('panel.providerRegion.traffic')}
-                value={quota.trafficGb !== null ? t('panel.providerRegion.trafficValue', { traffic: quota.trafficGb }) : t('panel.providerRegion.unlimited')}
-              />
-              <a
-                href={ZN_PRICING_URL}
-                target="_blank"
-                rel="noreferrer"
-                className={cn(
-                  'mt-1 rounded px-2 py-1 text-center text-xs underline transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
-                  active ? 'text-foreground-strong' : 'text-accent',
-                )}
-              >
-                {active ? t('panel.providerRegion.planDetails') : t('panel.providerRegion.planSubscribe')}
-              </a>
+              <TierFacts facts={[
+                { label: t('panel.providerRegion.bandwidth'), value: t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }) },
+                { label: t('panel.providerRegion.tunnels'), value: String(quota.tunnels) },
+                { label: t('panel.providerRegion.domains'), value: String(quota.domains) },
+                { label: t('panel.providerRegion.devices'), value: String(quota.devices) },
+                { label: t('panel.providerRegion.concurrency'), value: String(quota.concurrency) },
+                {
+                  label: t('panel.providerRegion.traffic'),
+                  value: quota.trafficGb !== null
+                    ? t('panel.providerRegion.trafficValue', { traffic: quota.trafficGb })
+                    : t('panel.providerRegion.unlimited'),
+                },
+              ]} />
             </div>
           )
         })}

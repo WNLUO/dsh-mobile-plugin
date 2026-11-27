@@ -1,3 +1,4 @@
+// 2026-11-27 用户反馈第四轮：套餐卡片精简——统一按钮/胶囊/去下划线/紧凑布局/加价格。
 // 2026-11-27 用户反馈第三轮：排版重做——套餐对照、去标题、地址独行、文案人话化、断开后刷新、去控制台按钮。
 // 2026-11-27 用户反馈第二轮：补退出/清除入口、套餐权益扩三档、四格改带宽/设备/在线/并发。
 // 2026-11-27 用户按截图反馈：面板去掉重复状态与详细配置按钮、删红框内容、套餐账号搬到标题下做副标题。
@@ -196,12 +197,24 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   assert.ok(panels.includes("t('panel.providerRegion.devices')"), '设备那格保留已用');
   assert.match(panels, /function PlanCompare/, '有三档套餐对照组件');
   assert.match(panels, /ZN_PRICING_URL/, '对照区指向官方定价页可直接订阅');
-  assert.match(panels, /active \? ZN_TIERS\.filter|const ordered = current \? \[current/, '当前档排最前');
-  assert.match(panels, /active \? <Badge/, '当前档高亮标记');
+  assert.match(panels, /const ordered = current \? \[current/, '当前档排最前');
+  assert.match(panels, /active \? 'border-primary bg-primary-subtle'/, '当前档靠边框高亮，不再用标签');
+  assert.ok(!panels.includes('currentPlan'), '不再有「当前套餐」标签');
+  // 2026-11-27 卡片精简：按钮统一文案、右上角胶囊、去下划线、参数压成一行小标签、加价格。
+  assert.match(panels, /function TierFacts/, '参数压成一行小标签，不再一行一个');
+  assert.ok(!panels.includes('function TierRow'), '旧的逐行参数组件去掉');
+  assert.match(panels, /t\('panel\.providerRegion\.planAction'\)/, '按钮统一文案');
+  assert.ok(!panels.includes('planDetails') && !panels.includes('planSubscribe'), '旧的两个按钮文案去掉');
+  assert.match(panels, /rounded-full border border-border-muted/, '按钮胶囊样式');
+  assert.ok(!panels.includes('underline'), '按钮不再带下划线');
+  assert.match(panels, /const ZN_PRICE_MONTHLY/, '有价格常量');
+  assert.match(panels, /tier === 'free' \? t\(`panel\.providerRegion\.tier/, '免费档显示套餐名作价格');
+  assert.match(panels, /sm:grid-cols-2/, '窄屏两列，不再一行一个');
   const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'provider-region.ts');
-  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'currentPlan', 'tier.free', 'tier.pro', 'tier.proPlus', 'planSubscribe', 'planHint']) {
+  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'tier.free', 'tier.pro', 'tier.proPlus', 'planAction', 'planHint']) {
     assert.equal((dict.match(new RegExp(`'panel\\.providerRegion\\.${key.replace('.', '\\.')}':`, 'g')) || []).length, 11, `${key} 文案十一门齐全`);
   }
+  assert.ok(!dict.includes('currentPlan') && !dict.includes('planDetails') && !dict.includes('planSubscribe'), '旧三键已清');
   assert.ok(!dict.includes('详细配置') && !dict.includes('詳細設定'), '已删按钮的提示文案清掉');
 });
 
