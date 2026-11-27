@@ -1,3 +1,4 @@
+// 2026-11-27：复用本机客户端前比对身份，另一个身份占位就报错，不冒充已连接。
 // 2026-11-26：体检要探隧道落点端口，没监听就判失效；只看 CLI 的 running 会把死线路当可用。
 // 2026-11-25：新版 CLI 只报 connected 不报 running，体检仍要认出客户端活着。
 // 2026-11-25：端口失配给错误打上 reason，接线层据此清掉状态里的旧地址。
@@ -16,6 +17,14 @@ const {
 const {
   endpointUrl, pickEndpoint, createZeroNewsRunner,
 } = require('../lib/zeronews/runner.cjs');
+
+/** 运行中客户端与当前配置共用的身份：status --json 的 client_id / cloud_server_addr（account.cjs 同名字段）。 */
+const OWN_IDENTITY = { clientId: 'cid-own', node: 'zns1012.fzv2.zeronews.cc:7000' };
+const runningStatus = (extra = {}) => JSON.stringify({
+  login: true, running: true,
+  client_id: OWN_IDENTITY.clientId, cloud_server_addr: OWN_IDENTITY.node,
+  ...extra,
+});
 
 // ── provision：四平台地址 + 缓存 / 下载优先级 ──────────────────────────────
 
@@ -419,10 +428,10 @@ test('stop 撤状态，可重复调用', async () => {
   assert.equal(runner.stop().phase, 'off');
 });
 
-test('重载 / 自动更新后有客户端已在跑：复用，不再重复起第二个', async () => {
+test('重载 / 自动更新后有客户端已在跑：身份一致就复用，不再重复起第二个', async () => {
   const spawnCalls = [];
   const runImpl = async (bin, args) => {
-    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, running: true }), stderr: '' };
+    if (args[0] === 'status') return { code: 0, stdout: runningStatus(), stderr: '' };
     return { code: 0, stdout: '', stderr: '' };
   };
   const fetchImpl = async (url) => {
@@ -433,6 +442,7 @@ test('重载 / 自动更新后有客户端已在跑：复用，不再重复起�
   };
   const runner = createZeroNewsRunner({
     ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl, runImpl,
+    identityOf: () => OWN_IDENTITY,
     spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {}, kill() {} }; },
     sleepImpl: () => Promise.resolve(),
   });
@@ -440,6 +450,55 @@ test('重载 / 自动更新后有客户端已在跑：复用，不再重复起�
   assert.equal(s.phase, 'connected');
   assert.ok(!spawnCalls.includes('start'), '已有客户端在跑就不再 spawn 第二个（重复拉起会自己退出，表现成崩溃）');
   assert.equal(runner.status().running, true, '复用的客户端视为在跑');
+});
+
+test('另一个身份的客户端占了本机端口：不 attach、明确报错、不冒充已连接', async () => {
+  const spawnCalls = [];
+  const runImpl = async (bin, args) => {
+    if (args[0] === 'status') return { code: 0, stdout: runningStatus({ client_id: 'cid-other', cloud_server_addr: 'zns-other.example:7000' }), stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const fetchCalls = [];
+  const fetchImpl = async (url) => { fetchCalls.push(url); return { ok: false }; };
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl, runImpl,
+    identityOf: () => OWN_IDENTITY,
+    spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {}, kill() {} }; },
+    sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'error', '不是 connected：别人的客户端不能算自己的');
+  assert.equal(s.running, false, 'running 不能为真，面板不能显示已连接');
+  assert.match(s.error, /另一个身份.*让开端口|让开端口.*另一个身份/, '要说清是另一个身份占位、让用户让开端口');
+  assert.doesNotMatch(s.error, /DNS|dns|lookup|网络故障/, '不能把身份冲突说成 DNS / 网络故障');
+  assert.equal(s.errorReason, 'identity-mismatch', '给出可识别原因');
+  assert.equal(s.retryable, false, '身份不会自己变，别无限自动重试');
+  assert.ok(!spawnCalls.includes('start'), '不另起一个客户端去抢端口');
+  assert.ok(!fetchCalls.some((u) => u.includes('/api/v1/endpoints')), '不读别人的隧道、不建隧道');
+});
+
+test('运行中客户端身份读不出来：明确报错，不静默 attach', async () => {
+  const runImpl = async (bin, args) => {
+    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, running: true }), stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const runner = createZeroNewsRunner({
+    ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906,
+    fetchImpl: async () => ({ ok: false }), runImpl,
+    identityOf: () => OWN_IDENTITY,
+    spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve(),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'error');
+  assert.equal(s.running, false);
+  assert.equal(s.errorReason, 'identity-mismatch', '读不到身份按无法确认处理，不当成自己人');
+});
+
+test('变异证明：attach 前必须比身份，错配报 identity-mismatch 且不 attach', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'runner.cjs'), 'utf8');
+  assert.match(source, /if \(externalRunning && !sameIdentity\(/, '复用分支前要有身份校验');
+  assert.match(source, /identity-mismatch/, '错配要打可识别 reason');
+  assert.match(source, /clientId: typeof obj\.client_id/, 'CLI status 的身份字段要解析进来');
 });
 
 test('连上后客户端意外退出：状态转 error 并回调交接线层自愈', async () => {
@@ -472,7 +531,7 @@ test('连上后守护进程死了：体检把 connected 打回 error 并回调�
   let daemonAlive = true;
   const exits = [];
   const runImpl = async (bin, args) => {
-    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, running: daemonAlive }), stderr: '' };
+    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, running: daemonAlive, client_id: OWN_IDENTITY.clientId, cloud_server_addr: OWN_IDENTITY.node }), stderr: '' };
     return { code: 0, stdout: '', stderr: '' };
   };
   const fetchImpl = async (url) => {
@@ -483,6 +542,7 @@ test('连上后守护进程死了：体检把 connected 打回 error 并回调�
   };
   const runner = createZeroNewsRunner({
     ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl, runImpl,
+    identityOf: () => OWN_IDENTITY,
     spawnImpl: () => ({ on() {}, unref() {}, kill() {} }), sleepImpl: () => Promise.resolve(),
     onUnexpectedExit: (message) => exits.push(message),
   });
@@ -509,10 +569,11 @@ test('体检读不到 CLI 状态时不抖掉一条还能用的线路', async () 
     ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl,
     runImpl: async (bin, args) => {
       if (args[0] === 'status' && failCli) throw new Error('status 暂时读不到');
-      if (args[0] === 'status') return { code: 0, stdout: '{"login":true,"running":true}', stderr: '' };
+      if (args[0] === 'status') return { code: 0, stdout: runningStatus(), stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     },
     spawnImpl: () => ({ on() {}, unref() {}, kill() {} }), sleepImpl: () => Promise.resolve(),
+    identityOf: () => OWN_IDENTITY,
     onUnexpectedExit: () => { throw new Error('不该安排重连'); },
   });
   await runner.start();
@@ -534,11 +595,12 @@ test('新版 CLI 只报 connected 不报 running：体检不误判掉线、不�
     ensure: async () => ({ ok: true, path: '/x' }), portOf: () => 49906, fetchImpl,
     // 厂商 4.1.0 的 status --json 报的是 connected:true，没有 running 字段。
     runImpl: async (bin, args) => {
-      if (args[0] === 'status') return { code: 0, stdout: '{"login":true,"connected":true}', stderr: '' };
+      if (args[0] === 'status') return { code: 0, stdout: runningStatus({ running: undefined, connected: true }), stderr: '' };
       return { code: 0, stdout: '', stderr: '' };
     },
     spawnImpl: (b, args) => { spawnCalls.push(args[0]); return { on() {}, unref() {}, kill() {} }; },
     sleepImpl: () => Promise.resolve(),
+    identityOf: () => OWN_IDENTITY,
     onUnexpectedExit: (message) => exits.push(message),
   });
   const connected = await runner.start();
@@ -577,13 +639,14 @@ function aliveHarness({ localPort = 18787, port = 52831, listen = true } = {}) {
   };
   const runImpl = async (_bin, args) => {
     cmds.push(args.join(' '));
-    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({ login: true, running: true }), stderr: '' };
+    if (args[0] === 'status') return { code: 0, stdout: runningStatus(), stderr: '' };
     return { code: 0, stdout: '', stderr: '' };
   };
   // 复刻 wiring.tunnelPort() 的稳态：已有隧道时 portOf() 返回隧道自己的落点端口，
   // 所以 ensureTunnel 的 current 与 endpoints 的 localPort 恒等，失配分支永远不触发。
   const runner = createZeroNewsRunner({
     ensure: async () => ({ ok: true, path: '/x' }), portOf: () => (localPort > 0 ? localPort : port), fetchImpl, runImpl,
+    identityOf: () => OWN_IDENTITY,
     spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve(),
     onUnexpectedExit: (message) => exits.push(message),
     probePort: async (p) => { probed.push(p); return listen; },

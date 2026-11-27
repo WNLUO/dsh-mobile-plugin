@@ -1,3 +1,4 @@
+// 2026-11-27：连上后落盘零讯客户端身份，复用前交给 runner 比对；错配不认已连接。
 // 2026-11-27：外部把隧道重建到新端口后第一次 connect 就该成功，真实失配仍按旧/当前标注。
 // 2026-11-26：运行中才点连接也要挂体检，客户端静默退出后能自愈重连。
 // 2026-11-26：体检发现落点端口失效要清掉旧地址并通知兜底重新判定，不自动重连。
@@ -58,8 +59,9 @@ test('彻底清理：停进程、跑 reset、三格状态一次清掉（与断�
   assert.equal(result.ok, true);
   assert.deepEqual(calls, ['stop', 'purge'], '先停进程再清本机客户端');
   assert.ok(
-    env.updates.some((p) => p.zeroNewsUrl === '' && p.zeroNewsEnabled === false && p.zeroNewsBound === false),
-    '地址、开关、已绑定标记一次清掉',
+    env.updates.some((p) => p.zeroNewsUrl === '' && p.zeroNewsEnabled === false && p.zeroNewsBound === false
+      && p.zeroNewsClientId === '' && p.zeroNewsNode === ''),
+    '地址、开关、已绑定标记、客户端身份一次清掉',
   );
   env.cleanup();
 });
@@ -677,4 +679,68 @@ test('真实失配：云端隧道仍指旧端口时按旧/当前标注，不删�
   assert.ok(!env.cmds.some((c) => c.startsWith('add ')), '失配不自动建新隧道');
   assert.ok(!env.cmds.some((c) => /^(delete|remove)\b/.test(c)), '失配不自动删云端隧道');
   assert.ok(env.writes.some((w) => w.patch.zeroNewsUrl === '' && w.options && w.options.notify === false), '失配只清本机旧地址');
+});
+
+test('连上后把客户端身份落盘，复用本机客户端前交给 runner 比对', async () => {
+  const state = { zeroNewsEnabled: true, zeroNewsClientId: '', zeroNewsNode: '' };
+  const updates = [];
+  let runnerOpts = null;
+  const runner = {
+    start: async () => ({ phase: 'connected', url: 'https://ok.example.com', running: true,
+      clientId: 'cid-own', node: 'zns.example:7000' }),
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'connected', url: 'https://ok.example.com', running: true,
+      clientId: 'cid-own', node: 'zns.example:7000' }),
+  };
+  const facade = mountZeroNews({
+    mount: (_name, run) => { run(); return () => {}; },
+    settings: { update: async (patch) => { updates.push(patch); Object.assign(state, patch); } },
+    getState: () => state,
+    control: {}, warn: () => {},
+    ctx: { effect: () => () => {} },
+    name: 'test-identity',
+    portOf: () => 18787,
+    runnerFactory: (opts) => { runnerOpts = opts; return runner; },
+    ensure: async () => ({ ok: true, path: '/x' }),
+  });
+  const result = await facade.start();
+  assert.equal(result.clientId, 'cid-own');
+  assert.ok(updates.some((p) => p.zeroNewsClientId === 'cid-own' && p.zeroNewsNode === 'zns.example:7000'),
+    '连上后把 identity 落盘，重载后才知道哪个客户端是自己的');
+  assert.deepEqual(runnerOpts.identityOf(), { clientId: 'cid-own', node: 'zns.example:7000' },
+    'runner 复用前读到的期望身份就是落盘那份');
+});
+
+test('真 runner 经接线层：另一个身份占端口时不写回地址、不认已连接', async () => {
+  const state = { zeroNewsEnabled: true, zeroNewsUrl: '', zeroNewsClientId: 'cid-own', zeroNewsNode: 'zns.example:7000' };
+  const writes = [];
+  const cmds = [];
+  const runImpl = async (_bin, args) => {
+    cmds.push(args.join(' '));
+    if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({
+      login: true, running: true, client_id: 'cid-other', cloud_server_addr: 'zns.other:7000',
+    }), stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const facade = mountZeroNews({
+    mount: (_name, run) => { run(); return () => {}; },
+    settings: { update: async (patch, options) => { writes.push({ patch, options }); Object.assign(state, patch); } },
+    getState: () => state,
+    control: {}, warn: () => {},
+    ctx: { effect: () => () => {} },
+    name: 'test-identity-mismatch',
+    portOf: () => 18787,
+    runnerFactory: (opts) => createZeroNewsRunner({ ...opts, runImpl,
+      fetchImpl: async () => ({ ok: false }),
+      spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve() }),
+    ensure: async () => ({ ok: true, path: '/x' }),
+    retryBaseMs: 100000,
+  });
+  const result = await facade.start();
+  assert.equal(result.phase, 'error');
+  assert.equal(result.running, false, '不能把别人的客户端报成已连接');
+  assert.match(result.error, /另一个身份.*让开端口/, '报错说清是另一个身份占位、让用户让开端口');
+  assert.ok(!writes.some((w) => w.patch.zeroNewsUrl), '不把别人的隧道地址写回状态');
+  assert.ok(!writes.some((w) => w.patch.zeroNewsClientId === 'cid-other'), '不把别人的身份落盘');
+  assert.ok(!cmds.some((c) => c.startsWith('add ')), '不删不建云端隧道');
 });
