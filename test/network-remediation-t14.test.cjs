@@ -422,3 +422,85 @@ test('变异：首源独占预算会被每源时限拒绝', async () => {
 test('变异：响应头后即清时限会被响应体预算契约拒绝', async () => {
   await assert.rejects(provisionContract('body', (source) => source.replace('buffer = Buffer.from(await response.arrayBuffer());', 'clearTimeout(timer); buffer = Buffer.from(await response.arrayBuffer());')), assert.AssertionError);
 });
+
+// 2026-11-27：FRP 导入「点保存没反应」的回归——成功要有可见反馈，晚到的读回不能盖掉粘贴。
+const FRP_CONF = 'serverAddr = "example.com"\n[[proxies]]\ntype = "tcp"';
+const frpProps = (overrides = {}) => ({
+  open: true, status: { ...STATUS, frp: { running: false, error: '', remoteAddress: '' } },
+  addressBook: BOOK, addressError: '', lanUrls: [], busy: '',
+  onSave() {}, onSavePreferred() {}, onRetryAddresses() {}, onProviderChanged() {}, ...overrides,
+});
+const frpApi = (overrides = {}) => ({
+  frpConfig: async () => ({ ok: true, config: '' }),
+  importFrp: async () => ({ ok: true, status: {} }),
+  stopFrp: async () => ({ ok: true }),
+  probeDirect: async () => ({}), probeRelays: async () => ({}), publicIp: async () => ({ ip: null }),
+  ...overrides,
+});
+async function openFrp(env, props) {
+  let tree = env.render(props); env.flush(); await settle();
+  button(tree, 'panel.frp.import').props.onClick();
+  await settle(); tree = env.render(props); env.flush();
+  return tree;
+}
+
+async function frpSuccessContract(mutate = (source) => source) {
+  let imported = '';
+  let refreshed = 0;
+  const props = frpProps({ onProviderChanged() { refreshed++; } });
+  const env = component('components/RelayConfigDialog.tsx', 'RelayConfigDialog', {
+    '../lib/api.ts': frpApi({ importFrp: async (config) => { imported = config; return { ok: true, status: { running: true, error: '', remoteAddress: '' } }; } }),
+  }, {}, mutate);
+  const tree0 = await openFrp(env, props);
+  nodes(tree0, 'textarea')[0].props.onChange({ target: { value: FRP_CONF } });
+  let tree = env.render(props);
+  button(tree, 'panel.frp.saveStart').props.onClick();
+  await settle(); tree = env.render(props);
+  assert.equal(imported, FRP_CONF, '配置原样交给宿主');
+  const frpDialog = nodes(tree, 'Dialog').find((item) => nodes(item, 'textarea').length > 0);
+  assert.equal(frpDialog?.props.open, false, '成功要关窗，不能让用户对着原样的弹窗以为没点上');
+  assert.equal(refreshed, 1, '成功立刻重读宿主状态，地址不等下一次轮询');
+}
+test('PLUG-30 后续：FRP 导入成功要关窗并刷新状态，不能静默', runtimeOptions, () => frpSuccessContract());
+test('变异：成功静默（不关窗不刷新）会被可见反馈守卫拒绝', runtimeOptions, async () => {
+  await assert.rejects(frpSuccessContract((source) => source.replace('closeFrpDialog()\n      onProviderChanged?.()', '')), assert.AssertionError);
+});
+
+async function frpRaceContract(mutate = (source) => source) {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const props = frpProps();
+  const env = component('components/RelayConfigDialog.tsx', 'RelayConfigDialog', {
+    '../lib/api.ts': frpApi({ frpConfig: async () => { await gate; return { ok: true, config: '' }; } }),
+  }, {}, mutate);
+  const tree0 = await openFrp(env, props);
+  nodes(tree0, 'textarea')[0].props.onChange({ target: { value: FRP_CONF } });
+  let tree = env.render(props);
+  assert.equal(button(tree, 'panel.frp.saveStart').props.disabled, false);
+  release(); await settle(); tree = env.render(props); env.flush();
+  assert.equal(nodes(tree, 'textarea')[0].props.value, FRP_CONF, '晚到回填不能清空刚粘贴的配置');
+  assert.equal(button(tree, 'panel.frp.saveStart').props.disabled, false, '按钮不能变灰');
+}
+test('PLUG-30 后续：晚到的配置回填不能盖掉用户粘贴，否则保存按钮变灰', runtimeOptions, () => frpRaceContract());
+test('变异：无条件回填覆盖粘贴会被竞态守卫拒绝', runtimeOptions, async () => {
+  await assert.rejects(frpRaceContract((source) => source.replace("if (!frpEditedRef.current) setFrpText(res?.config || '')", "setFrpText(res?.config || '')")), assert.AssertionError);
+});
+
+test('PLUG-30 后续：FRP 导入在途要给进度，不能只把按钮灰着', runtimeOptions, async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const props = frpProps();
+  const env = component('components/RelayConfigDialog.tsx', 'RelayConfigDialog', {
+    '../lib/api.ts': frpApi({ importFrp: async () => { await gate; return { ok: true, status: {} }; } }),
+  });
+  const tree0 = await openFrp(env, props);
+  nodes(tree0, 'textarea')[0].props.onChange({ target: { value: FRP_CONF } });
+  let tree = env.render(props);
+  button(tree, 'panel.frp.saveStart').props.onClick();
+  await settle(); tree = env.render(props);
+  assert.equal(button(tree, 'panel.frp.saveStart').props.disabled, true, '在途按钮禁用防重复提交');
+  assert.equal(nodes(tree, 'Spinner').length, 1, '等待期间要有转圈');
+  assert.match(JSON.stringify(tree), /panel\.shell\.busy/, '等待期间要有文案');
+  release(); await settle(); tree = env.render(props);
+  assert.equal(nodes(tree, 'Spinner').length, 0);
+});

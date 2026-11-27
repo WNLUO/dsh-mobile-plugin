@@ -1,3 +1,4 @@
+// 2026-11-27：FRP 导入保存要有可见反馈——成功关窗并刷新状态、等待给进度，晚到的配置回填不盖用户粘贴。
 // 2026-11-27：服务商面板未接入时给「登录」按钮，透传进服务商页的回调。
 // 2026-11-27：服务商线路标题右边加中国/国际标签，下面铺对应专属面板（详细配置进服务商页）。
 // 2026-11-22：网络配置页去掉「中转 / 直连 / 局域网与 IPv6 / FRP」大标题，字段平铺；各栏统一一颗
@@ -211,6 +212,8 @@ export function RelayConfigDialog({
   const editedIpv4Ref = useRef(false)
   const editedTcpRef = useRef(false)
   const editedPreferredRef = useRef(false)
+  /** FRP 弹窗里用户粘过配置没有：异步读回的落盘配置不能盖掉正在编辑的内容。 */
+  const frpEditedRef = useRef(false)
 
   /** 能用的局域网地址（与宿主 `advertisedCandidates` 同口径：有私网就只带私网）。 */
   const pickableAddresses = addressBook ? (addressBook.lan.length > 0 ? addressBook.lan : addressBook.public) : []
@@ -229,6 +232,7 @@ export function RelayConfigDialog({
     if (open) return
     setLanPickerOpen(false)
     setFrpDialogOpen(false)
+    frpEditedRef.current = false
   }, [open])
 
   // 地址库是开窗之后才取回来的（App 那边是异步的），所以手填的两条单独跟它走：
@@ -351,13 +355,22 @@ export function RelayConfigDialog({
     return <span className={`text-xs ${tone}`}>{text}</span>
   }
 
+  /** 关掉 FRP 弹窗：下次开窗照当前落盘配置回显，上一轮的错误也不带进来。 */
+  function closeFrpDialog() {
+    setFrpDialogOpen(false)
+    setFrpNote('')
+    frpEditedRef.current = false
+  }
+
   /** 读当前 frpc 配置，填进管理框（没接 frpc 能力就留空并提示）。 */
   async function loadFrpConfig() {
     try {
       const res = await frpConfig()
-      setFrpText(res?.config || '')
+      // 粘贴可能发生在请求在途时：晚到的落盘配置不能盖掉正在编辑的内容，
+      // 否则输入框被清空、保存按钮变灰，看着就像「点保存没反应」。
+      if (!frpEditedRef.current) setFrpText(res?.config || '')
     } catch {
-      setFrpText('')
+      if (!frpEditedRef.current) setFrpText('')
     }
   }
 
@@ -368,7 +381,13 @@ export function RelayConfigDialog({
     setFrpNote('')
     try {
       const res = await importFrp(frpText)
-      setFrpNote(res.ok ? '' : (res.status?.error || t('panel.frp.statusStop')))
+      if (!res.ok) {
+        setFrpNote(res.status?.error || t('panel.frp.statusStop'))
+        return
+      }
+      // 成功要看得见：关窗并立刻重读宿主状态，地址栏不用等下一次轮询。
+      closeFrpDialog()
+      onProviderChanged?.()
     } catch (error) {
       setFrpNote(error instanceof Error ? error.message : String(error))
     } finally {
@@ -864,7 +883,7 @@ export function RelayConfigDialog({
       </Dialog>
 
       {/* FRP 配置：粘贴 frpc 配置，保存并启动本地 frpc（2026-11-22：从主窗挪进弹窗，少占版面）。 */}
-      <Dialog open={frpDialogOpen} onOpenChange={setFrpDialogOpen}>
+      <Dialog open={frpDialogOpen} onOpenChange={(next) => { if (next) setFrpDialogOpen(true); else closeFrpDialog() }}>
         <DialogContent className="w-[min(560px,92vw)]">
           <DialogHeader>
             <DialogTitle>{t('panel.frp.manageTitle')}</DialogTitle>
@@ -874,7 +893,7 @@ export function RelayConfigDialog({
               className="min-h-40 w-full rounded-md border border-border bg-background p-2 font-mono text-xs text-foreground focus-visible:outline-none"
               value={frpText}
               placeholder={t('panel.frp.configLabel')}
-              onChange={(event) => setFrpText(event.target.value)}
+              onChange={(event) => { frpEditedRef.current = true; setFrpText(event.target.value) }}
             />
             {status.frp?.running && status.frp?.remoteAddress ? (
               <p className="mt-1 text-xs text-foreground-muted">{status.frp.remoteAddress}</p>
@@ -883,10 +902,16 @@ export function RelayConfigDialog({
             {frpNote ? <p className="mt-1 text-xs text-error">{frpNote}</p> : null}
           </DialogBody>
           <DialogFooter className="flex justify-end gap-2">
+            {frpBusy !== '' ? (
+              <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-foreground-muted">
+                <Spinner />
+                {t('panel.shell.busy')}
+              </span>
+            ) : null}
             <Button variant="ghost" size="sm" disabled={frpBusy !== ''} onClick={stopFrpNow}>
               {t('panel.frp.stop')}
             </Button>
-            <Button variant="outline" onClick={() => setFrpDialogOpen(false)}>
+            <Button variant="outline" onClick={closeFrpDialog}>
               {t('panel.common.cancel')}
             </Button>
             <Button variant="primary" disabled={frpBusy !== '' || !frpText.trim()} onClick={() => { void saveFrp() }}>
