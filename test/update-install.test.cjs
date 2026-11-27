@@ -21,6 +21,9 @@
  *   · **自动那一轮照样要有新版才装**（自动这条跳过了「有对话在跑」那道闸）：不因为带上了
  *     发布时长开关就变成每 2 分钟把同一个版本重装一遍。
  *
+ *   · **自动那一轮：没新版不动盘；真装失败的版本本进程不再每两分钟重装再回滚**，
+ *     免得一直占着 profile 写锁把插件市场拖到每次更新都超时。手动点更新、强制更新、
+ *     下一版发布都不受这道闸影响；等锁让路这种「现在不行」也不记成这版坏了。
  * 假包管理器是**真的可执行文件**（临时目录里的 sh 脚本 + 真 spawn），所以 cwd、参数、
  * 环境变量、退出码全是被测对象，不是打桩过的函数调用。
  */
@@ -739,6 +742,123 @@ test('auto 只跳过对话那道闸：已经是最新时照样不动盘', async 
     assert.equal(outcome.skipped, true);
     assert.equal(outcome.check.updateAvailable, false);
     assert.deepEqual(fake.calls(), [], '已经是最新时不许每一轮把同一个版本重装一遍');
+  });
+});
+
+test('自动装失败的版本本进程不再每两分钟重装：手动与新版本照常', async () => {
+  // 账挂在 globalThis 上，先清掉别的用例留下的痕，免得互相污染。
+  const key = Symbol.for('dsh-mobile-plugin.autoFailedVersions');
+  delete globalThis[key];
+  try {
+    await withRegistry('0.2.0', async () => {
+      const profile = makeProfile('auto-defer', '0.1.60');
+      const fake = makeFakePnpm('auto-defer');
+      // 假 pnpm 在 0.2.0 上真失败、写不下版本：这是「真装了、真没装上」。
+      const opts = {
+        profileNodeModules: profile.nodeModules,
+        auto: true,
+        dirs: [fake.binDir],
+        env: isolatedEnv(fake.binDir, { FAKE_PNPM_MODE: 'fail' }),
+      };
+      const first = await installLatestIfNeeded(opts);
+      assert.equal(first.installed, false);
+      assert.equal(first.failure.code, 'INSTALL_FAILED');
+      assert.equal(fake.calls().length, 1, '第一拍真跑了包管理器');
+
+      // 第二拍：注册表还是那版，盘上还是旧版（模拟回滚后的现场），自动不再重装。
+      const second = await installLatestIfNeeded(opts);
+      assert.equal(second.skipped, true);
+      assert.equal(second.failure.code, 'AUTO_VERSION_DEFERRED');
+      assert.equal(fake.calls().length, 1, '第二拍不许再跑包管理器、不许再占写锁');
+
+      // 手动那一颗按钮（不带 auto）照样能装。
+      const manual = await installLatestIfNeeded({
+        ...opts,
+        auto: false,
+        env: isolatedEnv(fake.binDir),
+      });
+      assert.equal(manual.installed, true, '手动点更新不受这道闸影响');
+      assert.equal(fake.calls().length, 2);
+    });
+
+    // 下一版发布：key 变了，自动照常装。
+    await withRegistry('0.3.0', async () => {
+      const profile = makeProfile('auto-new-version', '0.1.60');
+      const fake = makeFakePnpm('auto-new-version');
+      const outcome = await installLatestIfNeeded({
+        profileNodeModules: profile.nodeModules,
+        auto: true,
+        dirs: [fake.binDir],
+        env: isolatedEnv(fake.binDir, { FAKE_PNPM_VERSION: '0.3.0' }),
+      });
+      assert.equal(outcome.installed, true, '新版本不该被旧版本的失败记录挡住');
+      assert.equal(outcome.installedVersion, '0.3.0');
+    });
+  } finally {
+    delete globalThis[key];
+  }
+});
+
+test('等锁让路不算失败：松开锁后照常再试', async () => {
+  const key = Symbol.for('dsh-mobile-plugin.autoFailedVersions');
+  delete globalThis[key];
+  try {
+    await withRegistry('0.2.0', async () => {
+      const profile = makeProfile('auto-retryable', '0.1.60');
+      const fake = makeFakePnpm('auto-retryable');
+      fs.writeFileSync(path.join(profile.profileDir, 'package.json.lock'), '1\n');
+      const busy = await installLatestIfNeeded({
+        profileNodeModules: profile.nodeModules,
+        auto: true,
+        dirs: [fake.binDir],
+        env: isolatedEnv(fake.binDir),
+        lockWaitMs: 120,
+      });
+      assert.equal(busy.skipped, true);
+      assert.equal(busy.retryable, true);
+      assert.equal(busy.failure, null);
+      assert.deepEqual(fake.calls(), [], '抢不到锁时一次都不许跑');
+
+      fs.rmSync(path.join(profile.profileDir, 'package.json.lock'));
+      const next = await installLatestIfNeeded({
+        profileNodeModules: profile.nodeModules,
+        auto: true,
+        dirs: [fake.binDir],
+        env: isolatedEnv(fake.binDir),
+      });
+      assert.equal(next.installed, true, '「现在不行」不能记成这版坏了，松开锁就该装上');
+    });
+  } finally {
+    delete globalThis[key];
+  }
+});
+
+test('变异证明：去掉失败记账，自动就会每两分钟重装', async () => {
+  const vm = require('node:vm');
+  const { createRequire } = require('node:module');
+  const file = require.resolve('../lib/update-install.cjs');
+  const source = fs.readFileSync(file, 'utf8');
+  const marker = 'autoFailedVersions().add(autoFailKey(profileNodeModules, check.latestVersion))';
+  assert.ok(source.includes(marker), '变异锚点要存在');
+  const mod = { exports: {} };
+  vm.runInNewContext(source.replace(marker, 'void 0'), {
+    module: mod, exports: mod.exports, require: createRequire(file),
+    process, URL, Buffer, setTimeout, clearTimeout,
+  });
+  const mutant = mod.exports.installLatestIfNeeded;
+  await withRegistry('0.2.0', async () => {
+    const profile = makeProfile('mutant-defer', '0.1.60');
+    const fake = makeFakePnpm('mutant-defer');
+    const opts = {
+      profileNodeModules: profile.nodeModules,
+      auto: true,
+      dirs: [fake.binDir],
+      env: isolatedEnv(fake.binDir, { FAKE_PNPM_MODE: 'fail' }),
+    };
+    await mutant(opts); // 失败但没记账
+    const second = await mutant(opts);
+    assert.equal(second.skipped, false, '注掉记账后第二拍不该跳过');
+    assert.equal(fake.calls().length, 2, '注掉记账后第二拍会再跑包管理器');
   });
 });
 
