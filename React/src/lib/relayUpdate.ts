@@ -24,6 +24,7 @@ export const UPDATE_PATHS = {
   check: '/api/relay/update/check',
   apply: '/api/relay/update/apply',
   auto: '/api/relay/update/auto',
+  log: '/api/relay/update/log',
   otaStatus: '/api/relay/update/ota/status',
   otaCheck: '/api/relay/update/ota/check',
   otaApply: '/api/relay/update/ota/apply',
@@ -258,6 +259,16 @@ export async function updateAuto(enabled: boolean): Promise<{ enabled: boolean; 
   return {
     enabled: data.enabled === true,
     status: data.status ? normalizeStatus(data.status) : null,
+  }
+}
+
+/** 最近几天的更新日志正文（宿主只给文本，面板负责展示与复制）。 */
+export async function updateLog(): Promise<{ text: string; keepDays: number }> {
+  const body = await request(UPDATE_PATHS.log)
+  const data = asRecord(body.data)
+  return {
+    text: asString(data.text) ?? '',
+    keepDays: asNumber(data.keepDays) ?? 7,
   }
 }
 

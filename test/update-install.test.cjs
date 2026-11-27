@@ -39,7 +39,7 @@ const test = require('node:test');
 const PLUGIN = 'dsh-mobile-plugin';
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mobile-install-'));
 
-const { installLatest, installLatestIfNeeded, declaredSource, toolSearchDirs, normalizeInvocation, runningAgentIds, profileRegistry, cmdInvocation, runCommand, withProfileLock, DEFAULT_NAME } = require('../lib/update-install.cjs');
+const { installLatest, installLatestIfNeeded, declaredSource, toolSearchDirs, normalizeInvocation, runningAgentIds, profileRegistry, cmdInvocation, runCommand, withProfileLock, DEFAULT_NAME, appendUpdateLog, readUpdateLog, UPDATE_LOG_KEEP_DAYS } = require('../lib/update-install.cjs');
 
 /** 造一个假 profile：`<tmp>/profiles/desktop/node_modules/<插件>` 里放一个版本号。 */
 function makeProfile(label, version) {
@@ -860,6 +860,58 @@ test('变异证明：去掉失败记账，自动就会每两分钟重装', async
     assert.equal(second.skipped, false, '注掉记账后第二拍不该跳过');
     assert.equal(fake.calls().length, 2, '注掉记账后第二拍会再跑包管理器');
   });
+});
+
+test('更新日志：按天落盘、记下失败原因、轮转清旧文件、读取按天合并', () => {
+  const home = path.join(TMP, 'update-log-home');
+  const env = { DSH_HOME: home };
+  const now = Date.UTC(2026, 10, 27, 12, 0, 0); // 2026-11-27
+  const dir = path.join(home, 'logs');
+  fs.mkdirSync(dir, { recursive: true });
+  // 两个旧文件（一个早于保留期、一个刚好在保留期内）和一个同天文件。
+  fs.writeFileSync(path.join(dir, 'mobile-plugin-update-2026-11-19.log'), 'old\n');
+  fs.writeFileSync(path.join(dir, 'mobile-plugin-update-2026-11-20.log'), 'kept-old\n');
+  fs.writeFileSync(path.join(dir, 'unrelated.log'), 'not ours\n');
+
+  appendUpdateLog({ phase: 'install-started', version: '0.5.129', command: 'pnpm add dsh-mobile-plugin@0.5.129' }, { env, now });
+  appendUpdateLog({ phase: 'result', version: '0.5.129', failure: 'INSTALL_INCOMPLETE', reason: '安装 0.5.129 不完整：ENOENT tailcat' }, { env, now });
+
+  const today = fs.readFileSync(path.join(dir, 'mobile-plugin-update-2026-11-27.log'), 'utf8');
+  assert.match(today, /phase=install-started/);
+  assert.match(today, /version=0\.5\.129/);
+  assert.match(today, /failure=INSTALL_INCOMPLETE/);
+  assert.match(today, /ENOENT tailcat/, '失败原因的原文要在日志里');
+  assert.equal(fs.existsSync(path.join(dir, 'mobile-plugin-update-2026-11-19.log')), false, '超出保留期的旧日志要清掉');
+  assert.equal(fs.readFileSync(path.join(dir, 'mobile-plugin-update-2026-11-20.log'), 'utf8'), 'kept-old\n', '保留期内的旧日志不动');
+  assert.equal(fs.readFileSync(path.join(dir, 'unrelated.log'), 'utf8'), 'not ours\n', '不碰别人的日志文件');
+  assert.equal(UPDATE_LOG_KEEP_DAYS, 7);
+
+  const merged = readUpdateLog({ env, now });
+  assert.match(merged, /kept-old/, '保留期内的旧日志也要读出来');
+  assert.match(merged, /ENOENT tailcat/, '今天的失败原因也要读出来');
+  assert.ok(merged.indexOf('kept-old') < merged.indexOf('ENOENT tailcat'), '按天从旧到新拼');
+  assert.ok(!merged.split('\n').includes('old'), '超期的那份不读（它只有一行 old）');
+});
+
+test('变异证明：不写日志就读不到失败原因', () => {
+  const home = path.join(TMP, 'update-log-mutant');
+  const env = { DSH_HOME: home };
+  const now = Date.UTC(2026, 10, 27, 12, 0, 0);
+  assert.equal(readUpdateLog({ env, now }), '', '没写过时是空的');
+  // 注掉追加后，读到的仍是空 —— 这条证明「有内容」完全来自 appendUpdateLog 那一步。
+  const vm = require('node:vm');
+  const { createRequire } = require('node:module');
+  const file = require.resolve('../lib/update-install.cjs');
+  const source = fs.readFileSync(file, 'utf8');
+  const marker = 'fs.appendFileSync(file, `${new Date(now).toISOString()} ${fields}\\n`);';
+  assert.ok(source.includes(marker), '变异锚点要存在');
+  const mod = { exports: {} };
+  vm.runInNewContext(source.replace(marker, 'void 0'), {
+    module: mod, exports: mod.exports, require: createRequire(file),
+    process, URL, Buffer, setTimeout, clearTimeout, Symbol, Date, String, Object,
+  });
+  mod.exports.appendUpdateLog({ phase: 'result', reason: 'should-not-appear' }, { env, now });
+  assert.equal(mod.exports.readUpdateLog({ env, now }).includes('should-not-appear'), false, '注掉写入后读不到');
 });
 
 test('agents 判据：读不到 / 抛错 / 形状不对一律当「没人跑」，不许把更新锁死', () => {

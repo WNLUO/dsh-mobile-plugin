@@ -11,6 +11,9 @@
  *
  * **关掉要确认**（用户要求）：自动更新一关，新版本就不再自动装，页面也不会主动提醒，容易
  * 一停好几版。确认弹窗里说清这件事，并把「保持开启」摆在主位。
+ *
+ * 2026-11-27：加一颗「查看更新日志」——更新失败时用户手里要有能贴给客服的事实，
+ * 不再靠猜。日志由宿主按天落盘、保留几天，这里只读出来展示与复制。
  */
 import { Button } from '@appica/ui-react/button'
 import {
@@ -31,6 +34,7 @@ import { useNotify } from '../lib/notify.ts'
 import {
   DEFAULT_AUTO_INTERVAL_MS,
   updateAuto,
+  updateLog,
   updateStatus,
   type UpdateStatusView,
 } from '../lib/relayUpdate.ts'
@@ -42,7 +46,25 @@ export function AutoUpdateSection() {
   const [saving, setSaving] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const [offOpen, setOffOpen] = useState(false)
+  const [logOpen, setLogOpen] = useState(false)
+  const [logText, setLogText] = useState('')
+  const [logLoading, setLogLoading] = useState(false)
   const notify = useNotify()
+
+  /** 打开日志：现读一次，不缓存 —— 用户点开就是要看最新的失败原因。 */
+  const openLog = useCallback(async () => {
+    setLogOpen(true)
+    setLogLoading(true)
+    try {
+      const result = await updateLog()
+      setLogText(result.text)
+    } catch (err) {
+      setLogText('')
+      notify('error', t('panel.update.logFailed', { message: errorText(err) }))
+    } finally {
+      setLogLoading(false)
+    }
+  }, [notify])
 
   useEffect(() => {
     let alive = true
@@ -97,6 +119,9 @@ export function AutoUpdateSection() {
           </button>
         </span>
         <span className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" disabled={logLoading} onClick={() => void openLog()}>
+            {logLoading ? t('panel.update.logLoading') : t('panel.update.logView')}
+          </Button>
           {saving ? <Spinner /> : null}
           <Switch
             size="md"
@@ -122,6 +147,39 @@ export function AutoUpdateSection() {
           </DialogBody>
           <DialogFooter className="flex justify-end">
             <Button variant="outline" onClick={() => setInfoOpen(false)}>
+              {t('panel.common.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 更新日志：出问题时让用户手里有能贴给客服的事实（版本、命令、失败原因）。 */}
+      <Dialog open={logOpen} onOpenChange={setLogOpen}>
+        <DialogContent className="max-w-2xl" closeLabel={t('panel.common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('panel.update.logTitle')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="text-sm leading-6 text-foreground-muted">
+            <p className="mb-2">{t('panel.update.logHint')}</p>
+            <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-background p-2 text-xs">
+              {logText || t('panel.update.logEmpty')}
+            </pre>
+          </DialogBody>
+          <DialogFooter className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!logText}
+              onClick={() => {
+                void navigator.clipboard.writeText(logText).then(
+                  () => notify('soft', t('panel.update.logCopied')),
+                  (err) => notify('error', t('panel.update.logCopyFailed', { message: errorText(err) })),
+                )
+              }}
+            >
+              {t('panel.common.copy')}
+            </Button>
+            <Button variant="outline" onClick={() => setLogOpen(false)}>
               {t('panel.common.close')}
             </Button>
           </DialogFooter>
