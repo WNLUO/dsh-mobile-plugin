@@ -8,6 +8,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const { readFeedback } = require('../lib/mobile/feedback.js');
+const { handlePanelFeedback } = require('../lib/mobile/feedback.js');
 
 async function withFetch(fake, fn) {
   const original = globalThis.fetch;
@@ -109,5 +110,65 @@ test('readFeedback：平台错误保留原文与状态，非 JSON 和缺线程�
   });
   await withFetch(async () => { throw new Error('network down'); }, async () => {
     await assert.rejects(() => readFeedback('key'), /network down/);
+  });
+});
+
+test('面板反馈同源转发：Node 侧发 multipart，字段与插件自报逐字一致', async () => {
+  const calls = [];
+  const fake = async (url, init) => {
+    calls.push({ url, init });
+    return response({ data: { thread_key: 'panel-key' } });
+  };
+  const deps = {
+    readJson: async () => ({
+      summary: '会话镜像\n隧道未连接，镜像未推送',
+      detail: '会话镜像\n隧道未连接，镜像未推送\ntunnel_state=off',
+      context: { tunnel_state: 'off', title: '会话镜像', detail: '隧道未连接，镜像未推送' },
+      version: '0.5.127', deviceId: 'install-1', submissionId: 'sub-1',
+    }),
+    sendJson: (res, status, body) => { res.status = status; res.body = body; },
+  };
+  await withFetch(fake, async () => {
+    const res = {};
+    await handlePanelFeedback({ ...deps, req: { method: 'POST' }, res });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.threadKey, 'panel-key');
+    assert.equal(res.body.submissionId, 'sub-1');
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://app.wnluo.com/api/sdk/feedback');
+  assert.equal(calls[0].init.method, 'POST');
+  const form = calls[0].init.body;
+  const fields = Object.fromEntries([...form.entries()].map(([k, v]) => [k, String(v)]));
+  assert.equal(fields.content, '会话镜像\n隧道未连接，镜像未推送');
+  assert.equal(fields.source, 'plugin');
+  assert.equal(fields.product_slug, 'dsh-mobile');
+  assert.equal(fields.component_id, 'dsh-mobile-plugin');
+  assert.equal(fields.component_version, '0.5.127');
+  assert.equal(fields.device_id, 'install-1');
+  assert.equal(fields.submission_id, 'sub-1');
+  const context = JSON.parse(fields.context);
+  assert.equal(context.device_source, 'install');
+  assert.equal(context.tunnel_state, 'off');
+  assert.ok(!('submit_kind' in context), '必须保持插件自报形态，不能变成 AI 代发技术报告');
+  assert.ok(form.get('files'), '诊断文本要作为附件发出');
+});
+
+test('面板反馈转发失败：平台错误与超时原样回给面板，不伪装成功', async () => {
+  const deps = {
+    readJson: async () => ({ summary: 'x', detail: 'y', version: '0.5.127' }),
+    sendJson: (res, status, body) => { res.status = status; res.body = body; },
+  };
+  await withFetch(async () => response({ error: '反馈只收最新版插件' }, 400), async () => {
+    const res = {};
+    await handlePanelFeedback({ ...deps, req: { method: 'POST' }, res });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error.message, /最新版/);
+  });
+  await withFetch(async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); }, async () => {
+    const res = {};
+    await handlePanelFeedback({ ...deps, req: { method: 'POST' }, res });
+    assert.equal(res.status, 502);
+    assert.match(res.body.error.message, /超时/);
   });
 });

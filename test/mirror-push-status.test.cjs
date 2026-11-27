@@ -64,7 +64,8 @@ test('三条推送路径都记账（成功、失败、跳过）', () => {
     )
   }
   const skips = SOURCE.match(/recordMirrorPush\(false, [^)]*未推送/g) || []
-  assert.ok(skips.length >= 2, '跳过理由未透出「未推送」，运维看不出镜像为何冻住')
+  assert.ok(skips.length >= 1, '跳过理由未透出「未推送」，运维看不出镜像为何冻住')
+  assert.ok(SOURCE.includes("const TUNNEL_OFFLINE_ERROR = '隧道未连接，镜像未推送'"), '隧道断线理由提成常量后仍要保留「未推送」字样')
 })
 
 test('status() 暴露的镜像字段来自记账器', () => {
@@ -75,11 +76,33 @@ test('status() 暴露的镜像字段来自记账器', () => {
     'status() 未暴露推送状态',
   );
   assert.ok(
-    /getMirrorPush: \(\) => \(\{[\s\S]{0,400}?pushedAt: mirrorPushAt, ok: mirrorPushOk, error: mirrorPushError,/.test(
+    /getMirrorPush:\s*mirrorPushView/.test(
       fs.readFileSync(path.join(__dirname, '..', 'lib', 'mirror', 'pusher.cjs'), 'utf8'),
     ),
     '推送调度器必须用取值器把镜像记账喂给状态视图',
   );
+  // 取值器把「上次推送的结果」投影成「当前状态」：隧道已恢复时，断线那条旧错误不再代表现在。
+  const pusherSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mirror', 'pusher.cjs'), 'utf8');
+  const start = pusherSrc.indexOf('const mirrorPushView = () => {');
+  assert.notEqual(start, -1, '缺少镜像状态投影');
+  const body = pusherSrc.slice(start, pusherSrc.indexOf('\n  };', start)) + '\n  };';
+  const state = {
+    tunnelConnected: () => true,
+    TUNNEL_OFFLINE_ERROR: '隧道未连接，镜像未推送',
+    mirrorPushAt: 123, mirrorPushOk: false, mirrorPushError: '隧道未连接，镜像未推送',
+    mirrorBodySkipCount: 0, mirrorBodySkipReason: null,
+    mirrorListSessions: 0, mirrorListActiveSessions: 0, mirrorListSubagents: 0, mirrorListAt: 0,
+  };
+  const project = new Function(...Object.keys(state), `${body}\nreturn mirrorPushView();`);
+  const view = project(...Object.values(state));
+  assert.equal(view.ok, null, '隧道已连时不能继续报上次断线的失败');
+  assert.equal(view.error, null, '旧错误不该继续挂在面板上');
+  assert.equal(view.pushedAt, 123, '记账时刻不能被抹掉');
+  state.tunnelConnected = () => false;
+  assert.equal(project(...Object.values(state)).error, '隧道未连接，镜像未推送', '隧道仍断时如实报');
+  state.tunnelConnected = () => true;
+  state.mirrorPushError = 'push timeout';
+  assert.equal(project(...Object.values(state)).error, 'push timeout', '只有隧道断线那条旧错误可被清');
   // 「正文缺失、清单照推」是与「镜像还在不在更新」**分开**的诊断字段：把它并进
   // ok/pushedAt 就会重现 0.1.51 的误判（一次正文缺失把成功的清单推送翻成失败，
   // mirror.ok 长期 false，看的人以为镜像死了）。这里钉住两者没有混在一个布尔里。
@@ -110,7 +133,7 @@ test('隧道未连接时镜像推送先短路，不请求也不刷屏', () => {
   assert.notEqual(gate, -1, 'pushMirrorPayload 没有按隧道状态短路')
   assert.ok(send > gate, '短路必须发生在 pushSync 之前')
   assert.ok(
-    body.includes("recordMirrorPush(false, '隧道未连接，镜像未推送')"),
+    body.includes('recordMirrorPush(false, TUNNEL_OFFLINE_ERROR)'),
     '短路路径未记账（镜像冻结会无声）',
   )
 })

@@ -420,13 +420,18 @@ test('installFeedback：显式取 tools 服务，有就挂；真没有才跳过�
   assert.throws(() => installFeedback(broken, depsFor()), /tool registry exploded/);
 });
 
-test('就地反馈源码：IssueMark 附件走 files、context 不留 attachment 键，提交号成功后清除', () => {
+test('就地反馈源码：附件在 Node 侧走 files，context 不留 attachment 键，提交号成功后清除', () => {
+  // 需求变了（2026-11-27）：面板因跨域假失败改成同源转发，浏览器侧不再拼 FormData，
+  // 「附件走 files」这条约束移到 Node 侧的 buildFeedbackForm（feedback-read.test.cjs 有实测）。
   const source = fs.readFileSync(path.join(ROOT, 'React', 'src', 'components', 'IssueMark.tsx'), 'utf8');
-  assert.match(source, /form\.append\('files',\s*new Blob\(\[draft\.detail\]/);
+  assert.doesNotMatch(source, /new FormData\(\)/, '浏览器侧不该再拼表单');
+  assert.match(source, /apiPost<FeedbackResult>\(FEEDBACK_PATH/, '提交走本机同源接口');
   assert.doesNotMatch(source, /form\.append\('attachment'/);
   assert.doesNotMatch(source, /attachment:\s*\{\s*name:\s*ATTACHMENT_NAME/);
   assert.match(source, /if \(!submissionIds\.has\(text\)\) submissionIds\.set\(text, randomId\(\)\)/);
-  assert.match(source, /if \(!threadKey\) throw new Error\(t\('panel\.feedback\.noKey'\)\)[\s\S]{0,300}?submissionIds\.delete\(draft\.summary\)/);
+  assert.match(source, /if \(!result\?\.threadKey\) throw new Error\(t\('panel\.feedback\.noKey'\)\)[\s\S]{0,600}?submissionIds\.delete\(draft\.summary\)/);
+  const node = fs.readFileSync(path.join(ROOT, 'lib', 'mobile', 'feedback.js'), 'utf8');
+  assert.match(node, /form\.append\('files',\s*new Blob/);
 });
 
 test('client.js 源码：成功后清 submission_id、失败保留，附件只拼安全字段', () => {

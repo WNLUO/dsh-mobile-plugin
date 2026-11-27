@@ -148,6 +148,31 @@ test('面板不再有「我的反馈」历史入口与弹窗（2026-11-21 用户
   assert.match(source('Onboarding.tsx'), /panel\.feedback\.receipt/);
 });
 
+test('面板反馈走同源本机接口，不在浏览器里直连分发平台（跨域假失败）', () => {
+  const source = name => fs.readFileSync(path.join(SRC, name), 'utf8');
+  const issue = source('components/IssueMark.tsx');
+  const onboarding = source('Onboarding.tsx');
+  assert.match(issue, /FEEDBACK_PATH = '\/api\/relay\/feedback\/direct'/, '面板提交改走本机同源端点');
+  assert.match(issue, /apiPost<FeedbackResult>\(FEEDBACK_PATH/, '提交经 apiPost 走本机接口');
+  assert.doesNotMatch(issue, /https:\/\/app\.wnluo\.com/, '浏览器侧不该再硬编码平台地址');
+  assert.doesNotMatch(issue, /new FormData\(\)/, '表单不该在浏览器侧拼（跨域读不到回执才会报 Failed to fetch）');
+  assert.match(issue, /request_timeout'\) throw new Error\(t\('panel\.feedback\.timeout'\)/, '超时仍要说人话');
+  // 引导页同样复用这条函数，不能悄悄退回直连。
+  assert.match(onboarding, /submitDirectFeedback/);
+  // 本机端点必须挂 localOnly：本机来源是它唯一的防线。
+  const routes = fs.readFileSync(path.join(ROOT, 'lib', 'routes', 'control-plane.js'), 'utf8');
+  assert.match(routes, /path: '\/api\/relay\/feedback\/direct', handler: localOnly\(\['POST'\]/, '转发端点必须只收本机来源');
+});
+
+test('变异证明：反馈端点从 localOnly 摘掉会被回归发现', () => {
+  const file = path.join(ROOT, 'lib', 'routes', 'control-plane.js');
+  const source = fs.readFileSync(file, 'utf8');
+  const before = "path: '/api/relay/feedback/direct', handler: localOnly(['POST']";
+  assert.equal(source.split(before).length, 2, '变异必须命中唯一实现');
+  const broken = source.replace(before, "path: '/api/relay/feedback/direct', handler: (() => (req, res) => {})()");
+  assert.throws(() => assert.match(broken, /path: '\/api\/relay\/feedback\/direct', handler: localOnly\(\['POST'\]/));
+});
+
 test('变异证明：错误脱敏被去掉会被回归发现', () => {
   const brokenFacts = load('feedback-diagnostics', { mutate: source => source.replace(".replace(/\\b(token|secret|key|password|passwd|lansecret|pairingcode|signingkey|registrykey)\\s*=\\s*[^\\s,;&\"'）)]+/gi, '$1=[redacted]')", '') });
   assert.throws(() => assert.doesNotMatch(JSON.stringify(brokenFacts.api.connectionFeedbackFacts(status())), /private/));

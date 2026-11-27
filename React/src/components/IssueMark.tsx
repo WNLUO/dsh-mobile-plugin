@@ -12,18 +12,14 @@ import { CopyButton } from '@appica/ui-react/copy-button'
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@appica/ui-react/dialog'
 import { useState } from 'react'
 
-import { apiGet } from '../lib/api.ts'
+import { ApiError, apiGet, apiPost } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 import { useNotify } from '../lib/notify.ts'
 import { InfoMark } from './InfoMark.tsx'
 
-const FEEDBACK_URL = 'https://app.wnluo.com/api/sdk/feedback'
-const PRODUCT_SLUG = 'dsh-mobile'
-const SOURCE = 'plugin'
-const COMPONENT_ID = 'dsh-mobile-plugin'
-const ATTACHMENT_NAME = 'diagnosis.txt'
+const FEEDBACK_PATH = '/api/relay/feedback/direct'
 const DEVICE_ID_KEY = 'dsh-mobile-plugin.feedback.deviceId'
-const SUBMIT_TIMEOUT_MS = 30_000
+const SUBMIT_TIMEOUT_MS = 35_000
 const submissionIds = new Map<string, string>()
 
 function randomId(): string {
@@ -75,55 +71,30 @@ export type FeedbackDraft = {
 export type FeedbackResult = { threadKey: string; submissionId: string }
 
 /**
- * 就地反馈：直接 POST 公开接口，不经 AI 工具、不用先看有没有配对手机。
- * 受影响手机的字段一律留空，device_id 用本机持久随机 id，来源标成 plugin。
+ * 就地反馈：先把草稿交给本机同源接口，由 Node 侧拼表单并发到分发平台。
+ * 浏览器直连平台会触发跨域（面板来自 127.0.0.1，平台只放行自己站点），请求其实到了、
+ * 响应却读不到，只抛一句 Failed to fetch —— 用户看到假失败还会重发。
  */
 export async function submitDirectFeedback(draft: FeedbackDraft): Promise<FeedbackResult> {
   const version = draft.version ?? (await componentVersion())
   const submissionId = submissionIdOf(draft.summary)
-  const context = {
-    product_slug: PRODUCT_SLUG,
-    source: SOURCE,
-    component_id: COMPONENT_ID,
-    component_version: version,
-    device_source: 'install',
-    files: { name: ATTACHMENT_NAME, type: 'text/plain' },
-    ...(draft.context || {}),
-  }
-  const form = new FormData()
-  for (const key of ['package_id', 'platform', 'version_name', 'build_number', 'model', 'system_version', 'channel']) {
-    form.append(key, '')
-  }
-  form.append('device_id', localDeviceId())
-  form.append('content', draft.summary)
-  form.append('product_slug', PRODUCT_SLUG)
-  form.append('source', SOURCE)
-  form.append('component_id', COMPONENT_ID)
-  form.append('component_version', version)
-  form.append('submission_id', submissionId)
-  form.append('context', JSON.stringify(context))
-  form.append('files', new Blob([draft.detail], { type: 'text/plain' }), ATTACHMENT_NAME)
-
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS)
   try {
-    const response = await fetch(FEEDBACK_URL, { method: 'POST', body: form, signal: controller.signal })
-    let body: { error?: string; data?: { thread_key?: string } } | null = null
-    try { body = await response.json() } catch { body = null }
-    if (!response.ok) {
-      throw new Error(body?.error || `HTTP ${response.status}`)
-    }
-    const threadKey = body?.data?.thread_key
-    if (!threadKey) throw new Error(t('panel.feedback.noKey'))
+    const result = await apiPost<FeedbackResult>(FEEDBACK_PATH, {
+      summary: draft.summary,
+      detail: draft.detail,
+      context: draft.context || {},
+      version,
+      deviceId: localDeviceId(),
+      submissionId,
+    }, { timeoutMs: SUBMIT_TIMEOUT_MS })
+    if (!result?.threadKey) throw new Error(t('panel.feedback.noKey'))
     // 成功后清掉：同文案下次提交是新反馈，不能被平台当成重试返回旧线程。
     // 失败时保留，重试沿用同一个号；在途的重复点击此前已取到同一个号，不受影响。
     submissionIds.delete(draft.summary)
-    return { threadKey, submissionId }
+    return { threadKey: result.threadKey, submissionId: result.submissionId || submissionId }
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') throw new Error(t('panel.feedback.timeout'))
+    if (error instanceof ApiError && error.code === 'request_timeout') throw new Error(t('panel.feedback.timeout'))
     throw error
-  } finally {
-    window.clearTimeout(timer)
   }
 }
 
