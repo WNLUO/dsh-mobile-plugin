@@ -89,13 +89,13 @@ function readZnCache(): ZeroNewsAccount | null {
   }
 }
 
-/** 一个指标格：大内容 + 小标签。 */
-function Stat({ value, label }: { value: ReactNode; label: string }) {
+/** 一行里的一项：标题在左、值在右（公网地址 / 带宽 / 设备三项共用，横排塞进同一行）。 */
+function InlineFact({ label, children, mono }: { label: string; children: ReactNode; mono?: boolean }) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-md border border-border-muted bg-background-muted px-3 py-2">
-      <span className="text-lg font-semibold leading-none text-foreground-strong">{value}</span>
-      <span className="text-xs text-foreground-muted">{label}</span>
-    </div>
+    <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="shrink-0 text-xs text-foreground-muted">{label}</span>
+      <span className={cn('min-w-0 break-all text-xs text-foreground-strong', mono && 'font-mono')}>{children}</span>
+    </span>
   )
 }
 
@@ -293,23 +293,16 @@ function ChinaProviderPanel({ status, onChanged }: { status: StatusView; onChang
           tone={tone}
         />
 
-        {address ? (
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-md border border-border-muted bg-background-muted px-3 py-2">
-            <span className="shrink-0 text-xs text-foreground-muted">{t('panel.providerRegion.address')}</span>
-            <span className="min-w-0 break-all font-mono text-xs text-foreground-strong">{address}</span>
-          </div>
-        ) : null}
-
-        {/* 两格够用：带宽是套餐上限，设备带「已用 / 名额 + 在线」；并发与流量在下面套餐卡里按档对照。 */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Stat
-            value={quota ? t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }) : '—'}
-            label={t('panel.providerRegion.bandwidth')}
-          />
-          <Stat
-            value={quota ? `${devices} / ${quota.devices}` : devices}
-            label={t('panel.providerRegion.devicesWithOnline', { online })}
-          />
+        {/* 公网地址 / 单隧道带宽 / 认证设备三项同一行，每项标题左、值在右；窄屏自然换行。 */}
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 rounded-md border border-border-muted bg-background-muted px-3 py-2">
+          {address ? <InlineFact label={t('panel.providerRegion.address')} mono>{address}</InlineFact> : null}
+          <InlineFact label={t('panel.providerRegion.bandwidth')}>
+            {quota ? t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }) : '—'}
+          </InlineFact>
+          <InlineFact label={t('panel.providerRegion.devices')}>
+            {quota ? `${devices} / ${quota.devices}` : devices}
+            <span className="ms-1 text-foreground-muted">{t('panel.zeronews.state.online')} {online}</span>
+          </InlineFact>
         </div>
 
         <PlanCompare current={tier} />

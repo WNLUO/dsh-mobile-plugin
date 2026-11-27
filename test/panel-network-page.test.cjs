@@ -1,3 +1,4 @@
+// 2026-11-27 用户反馈第七轮：公网地址/带宽/设备三项同一行，每项标题左值右。
 // 2026-11-27 用户反馈第六轮：当前档按钮改「正在使用」，付费档识别回顾（套餐名精确匹配）。
 // 2026-11-27 用户反馈第五轮：价格标周期、重点参数加粗标亮、顶部四格压成两格。
 // 2026-11-27 用户反馈第四轮：套餐卡片精简——统一按钮/胶囊/去下划线/紧凑布局/加价格。
@@ -204,8 +205,12 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   assert.match(panels, /t\('panel\.providerRegion\.priceMonthly', \{ price: ZN_PRICE_MONTHLY\[tier\] \}\)/, '付费档价格带 /月周期');
   assert.match(panels, /strong \? 'font-semibold' : 'font-medium'/, '重点参数加粗标亮');
   assert.equal((panels.match(/strong: true/g) || []).length, 3, '带宽/流量/设备三项标亮');
-  assert.match(panels, /t\('panel\.providerRegion\.devicesWithOnline', \{ online \}\)/, '设备指标合并在线数');
-  assert.ok(!panels.includes('sm:grid-cols-4'), '顶部四格压成两格，不再四列');
+  // 2026-11-27 第七轮：公网地址/带宽/设备三项同一行，每项标题左值右（InlineFact）。
+  assert.match(panels, /function InlineFact/, '有行内「标题左值右」小组件');
+  assert.ok(!panels.includes('function Stat'), '旧的上下堆叠指标卡去掉');
+  assert.match(panels, /flex flex-wrap items-baseline gap-x-5/, '三项放同一行，窄屏可换行');
+  assert.equal((panels.match(/<InlineFact/g) || []).length, 3, '地址/带宽/设备三项都用 InlineFact');
+  assert.match(panels, /t\('panel\.zeronews\.state\.online'\)/, '在线数复用已有文案');
   // 2026-11-27 卡片精简：按钮统一文案、右上角胶囊、去下划线、参数压成一行小标签、加价格。
   assert.match(panels, /function TierFacts/, '参数压成一行小标签，不再一行一个');
   assert.ok(!panels.includes('function TierRow'), '旧的逐行参数组件去掉');
@@ -222,7 +227,7 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   assert.match(panels, /\? t\(`panel\.providerRegion\.tier\.\$\{tier\}`\)/, '免费档显示套餐名作价格');
   assert.match(panels, /sm:grid-cols-2/, '窄屏两列，不再一行一个');
   const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'provider-region.ts');
-  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'tier.free', 'tier.pro', 'tier.proPlus', 'planAction', 'planInUse', 'planHint', 'priceMonthly', 'devicesWithOnline']) {
+  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'tunnels', 'domains', 'traffic', 'trafficValue', 'unlimited', 'plansTitle', 'tier.free', 'tier.pro', 'tier.proPlus', 'planAction', 'planInUse', 'planHint', 'priceMonthly']) {
     assert.equal((dict.match(new RegExp(`'panel\\.providerRegion\\.${key.replace('.', '\\.')}':`, 'g')) || []).length, 11, `${key} 文案十一门齐全`);
   }
   assert.ok(!dict.includes('currentPlan') && !dict.includes('planDetails') && !dict.includes('planSubscribe'), '旧三键已清');
