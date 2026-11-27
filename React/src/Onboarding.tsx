@@ -1,3 +1,4 @@
+// 2026-11-27：修引导页第三页「下一步」误留在第三页（setStep(3)），小白走到配网络就再也到不了扫码页；改为进第四页。
 // 2026-11-27：引导页加一页「选个方式」插在装 App 之后，原配网络/扫码顺延成第三/四页。
 // 2026-11-27：国内服务商只留 ZeroNews，节点小宝的状态轮询与入口收掉（宿主能力保留）。
 // 2026-11-27：第二页国内只露 ZeroNews 一家；服务商行固定下限高，切 tab 面板不跳。
@@ -743,7 +744,7 @@ export function Onboarding({ onDone }: Props) {
             <Button variant="ghost" onClick={() => void skipSetup()}>
               {t('panel.onboarding.skipSetup')}
             </Button>
-            <Button variant="primary" disabled={!anyReady} onClick={() => setStep(3)}>
+            <Button variant="primary" disabled={!anyReady} onClick={() => setStep(4)}>
               {t('panel.onboarding.next')}
             </Button>
           </div>
