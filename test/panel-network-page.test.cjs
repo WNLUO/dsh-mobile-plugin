@@ -172,6 +172,22 @@ test('服务商线路：标题右边中国/国际标签，按语言定默认、�
   assert.ok(chinaPart.indexOf('subtitle') < chinaPart.indexOf("'panel.providerRegion.usage'"), '副标题排在使用情况之前');
 });
 
+test('免费版权益只作套餐上限展示，且只在确认免费套餐时套用', () => {
+  // 2026-11-27 用户要求：免费版权益是公开固定信息（官方定价页 / FAQ），与实时用量不同，
+  // 可以写死一处常量；但付费套餐不能套用免费上限，已用数字始终从账号快照读，流量已用不编。
+  const panels = read('React', 'src', 'components', 'ProviderRegionPanel.tsx');
+  assert.match(panels, /const ZN_FREE_QUOTA = \{/, '免费权益集中一处常量');
+  assert.match(panels, /zeronews\.cc\/pricing/, '常量注明核对来源');
+  assert.match(panels, /function isFreePlan\(/, '有免费套餐判定');
+  assert.match(panels, /\\u514d\\u8d39/, '中文套餐名用码点写，不在界面文件留钉死的中文字面量');
+  assert.match(panels, /limit=\{free \?/, '上限只在免费套餐时传入');
+  assert.match(panels, /free \? \(\s*\n\s*<p/, '权益摘要只在免费套餐时显示');
+  assert.ok(!panels.includes('monthlyTrafficGb') || panels.includes("traffic: ZN_FREE_QUOTA.monthlyTrafficGb"), '月流量只给额度');
+  const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'provider-region.ts');
+  assert.equal((dict.match(/'panel\.providerRegion\.freeQuota':/g) || []).length, 11, '权益文案十一门齐全');
+  assert.ok(!dict.includes('详细配置') && !dict.includes('詳細設定'), '已删按钮的提示文案清掉');
+});
+
 test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重试、超时收口，并留 AuthToken 兜底', () => {
   // 现场反馈：登录页弹不出来 / 确认没生效时，面板只显示「已打开浏览器，请确认登录」一直转圈，
   // 地址被藏起来、按钮锁死，用户只能干看着。现在等确认时把地址摆出来，可重开或点「我已登录，
