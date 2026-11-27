@@ -1,3 +1,4 @@
+// 2026-11-27：引导页加一页「选个方式」插在装 App 之后，原配网络/扫码顺延成第三/四页。
 // 2026-11-27：第二页国内只露 ZeroNews 一家；服务商行固定下限高，切 tab 面板不跳。
 // 2026-11-26：引导页拆成三页——下载 App / 配网络（可跳过，跳过直接进控制台）/ 扫码连接。
 // 2026-11-26：第三页出码前先让宿主把码里的地址真拨一遍；全不通不出码，只有回环通要另说。
@@ -7,13 +8,14 @@
 // 2026-11-25：直连那一行复用错误档带回环 health 被抢的原因。
 // 用途：首次接入引导页；错误处可直接提交脱敏摘要与诊断附件，并回显反馈编号。
 /**
- * 首次接入引导（三步）：宿主还没配过、或走 `/api/relay/panel/setup` 时进这一页。
+ * 首次接入引导（四步）：宿主还没配过、或走 `/api/relay/panel/setup` 时进这一页。
  *
- * 2026-11-26 起一屏拆成三页，顺序照新用户真实的动作走：
+ * 一屏一页，顺序照新用户真实的动作走：
  *   1. **下载 App** —— 手机还没装 App 的话，后面扫码也没处扫；
- *   2. **配网络** —— 按地区（默认看这台电脑的时区，可手动切）列出服务商，主推一家；这一页可以
- *      **跳过**，跳过就直接进控制台（不接线路、也不去第三页）；
- *   3. **扫码连接** —— 线路接好之后才放二维码，手机扫了才能连。
+ *   2. **选个方式** —— 先看用户有没有网络基础：小白走引导，自己会配的直接进控制台；
+ *   3. **配网络** —— 按地区（默认看这台电脑的时区，可手动切）列出服务商，主推一家；这一页可以
+ *      **跳过**，跳过就直接进控制台（不接线路、也不去扫码页）；
+ *   4. **扫码连接** —— 线路接好之后才放二维码，手机扫了才能连。
  *
  * 局域网直连照旧一起开着，在家同一 Wi-Fi 也能扫。兜底的隧道（Tailcat / Cloudflare / P2P）
  * 只当兜底，新装用户只靠局域网、自己配的线路和兜底隧道。
@@ -125,9 +127,9 @@ export function Onboarding({ onDone }: Props) {
   const [preferred, setPreferred] = useState('')
   /** 当前地区：默认按系统时区猜，用户可切。 */
   const [region, setRegion] = useState<NetworkRegion>(detectRegion)
-  /** 走到第几页：1 下载 App、2 配网络、3 扫码连接。 */
-  const [step, setStep] = useState<1 | 2 | 3>(1)
-  /** 第三页出码前的自检结果：码里的地址宿主真拨了一遍。 */
+  /** 走到第几页：1 下载 App、2 选个方式、3 配网络、4 扫码连接。 */
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
+  /** 第四页出码前的自检结果：码里的地址宿主真拨了一遍。 */
   const [check, setCheck] = useState<PairingCheck | null>(null)
   const [checkRunning, setCheckRunning] = useState(false)
   const [checkError, setCheckError] = useState('')
@@ -360,11 +362,11 @@ export function Onboarding({ onDone }: Props) {
   const portConflict = portConflictReason(lanFallbackReason(status))
 
   /**
-   * 进第三页就查一次。回第二页换了一家服务商再进来会重查 —— 码里的地址跟着变了，旧结论作废。
+   * 进第四页就查一次。回第三页换了一家服务商再进来会重查 —— 码里的地址跟着变了，旧结论作废。
    * 「重新检查」那颗按钮另走 `startCheck`。
    */
   useEffect(() => {
-    if (step !== 3 || !status?.enabled) return
+    if (step !== 4 || !status?.enabled) return
     void startCheck()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在进出这一页时查一次，重查由按钮发起
   }, [step, status?.enabled])
@@ -437,7 +439,7 @@ export function Onboarding({ onDone }: Props) {
 
   /**
    * 跳过服务商配置：不接线路也让人进控制台自己配（局域网直连进页时已开好）。
-   * 2026-11-26 起这颗按钮常驻在第二页，跳过就直接进控制台，不再走第三页扫码。
+   * 2026-11-26 起这颗按钮常驻在配网络那页，跳过就直接进控制台，不再走扫码页。
    * 进页那一发 `connect()` 会写 onboarded，这里再补一次幂等写入 —— 万一点得比它快，
    * 下次打开 /panel 又会被判成「没配过」弹回引导页。
    */
@@ -605,11 +607,12 @@ export function Onboarding({ onDone }: Props) {
       }
     : null
 
-  /** 三步的标题都取自现成文案，不另起一套叫法。 */
-  const steps: { value: 1 | 2 | 3; title: string }[] = [
+  /** 四步的标题都取自现成文案，不另起一套叫法。 */
+  const steps: { value: 1 | 2 | 3 | 4; title: string }[] = [
     { value: 1, title: t('panel.download.title') },
-    { value: 2, title: t('panel.onboarding.setupTitle') },
-    { value: 3, title: t('panel.onboarding.pairingHint') },
+    { value: 2, title: t('panel.onboarding.modeTitle') },
+    { value: 3, title: t('panel.onboarding.setupTitle') },
+    { value: 4, title: t('panel.onboarding.pairingHint') },
   ]
 
   return (
@@ -680,8 +683,26 @@ export function Onboarding({ onDone }: Props) {
         </Card>
       ) : null}
 
-      {/* 第二页：选地区 + 服务商。接好了才放行到扫码页；不想接的人可以直接跳过进控制台。 */}
+      {/* 第二页：先问网络基础。小白顺着引导走，自己会配的直接进控制台。 */}
       {step === 2 ? (
+        <Card frame="solid" className="w-full max-w-4xl">
+          <div className="flex flex-col gap-4 p-4">
+            <p className="text-center text-sm font-medium text-foreground-strong">{t('panel.onboarding.modeTitle')}</p>
+            <p className="text-center text-xs leading-5 text-foreground-muted">{t('panel.onboarding.modeHint')}</p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button variant="primary" onClick={() => setStep(3)}>
+                {t('panel.onboarding.modeBeginner')}
+              </Button>
+              <Button variant="outline" onClick={() => void skipSetup()}>
+                {t('panel.onboarding.modeExpert')}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {/* 第三页：选地区 + 服务商。接好了才放行到扫码页；不想接的人可以直接跳过进控制台。 */}
+      {step === 3 ? (
         <Card frame="solid" className="w-full max-w-4xl">
           <div className="flex flex-col gap-4 p-4">
             <div className="flex flex-col gap-1.5">
@@ -755,8 +776,8 @@ export function Onboarding({ onDone }: Props) {
         </Card>
       ) : null}
 
-      {/* 第三页：二维码 + 状态。接好了二维码才出来，扫完自动进控制台。 */}
-      {step === 3 ? (
+      {/* 第四页：二维码 + 状态。接好了二维码才出来，扫完自动进控制台。 */}
+      {step === 4 ? (
         <Card frame="solid" className="w-full max-w-4xl">
           <div className="flex flex-col items-center gap-2 px-4 pb-2">
             <div className="flex flex-col items-center gap-2 md:col-start-1 md:row-start-1">

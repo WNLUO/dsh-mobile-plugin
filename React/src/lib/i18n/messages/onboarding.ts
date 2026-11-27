@@ -1,3 +1,4 @@
+// 2026-11-27：引导页新增第二页「选个方式」，十一门语言补 mode 四条文案。
 // 2026-11-27：简体中文「装 App」提示改短为「先下个app吧」。
 // 2026-11-26：面板补齐第 11 门语言土耳其语（tr），新增完整 tr 文案表。
 // 2026-11-25：端口冲突弹窗与线路未就绪提示，十门语言逐键对齐。
@@ -17,6 +18,10 @@ import type { PanelMessages } from './shell.ts'
 export const ONBOARDING: PanelMessages = {
   'zh-Hans': {
     'panel.onboarding.pairingHint': '扫码连接',
+    'panel.onboarding.modeTitle': '选个方式',
+    'panel.onboarding.modeHint': '你懂网络、能自己把线路搭起来吗？',
+    'panel.onboarding.modeBeginner': '我是小白，带我一步步配',
+    'panel.onboarding.modeExpert': '我是高手，自己去控制面板配',
     'panel.onboarding.setupTitle': '先配好网络',
     'panel.onboarding.setupHint': '选一家服务商，接好后二维码就会出来，手机扫码即可连上。',
     'panel.onboarding.regionAuto': '（按这台电脑的时区自动选的，不对就点一下切换）',
@@ -115,6 +120,10 @@ export const ONBOARDING: PanelMessages = {
 
   'zh-Hant': {
     'panel.onboarding.pairingHint': '掃碼連線',
+    'panel.onboarding.modeTitle': '選個方式',
+    'panel.onboarding.modeHint': '你懂網路、能自己把線路架起來嗎？',
+    'panel.onboarding.modeBeginner': '我是小白，帶我一步步配',
+    'panel.onboarding.modeExpert': '我是高手，自己去控制台配',
     'panel.onboarding.setupTitle': '先配好網路',
     'panel.onboarding.setupHint': '選一家服務商，接好後 QR 碼就會出現，手機一掃就能連上。',
     'panel.onboarding.regionAuto': '（依這台電腦的時區自動選的，不對就點一下切換）',
@@ -211,6 +220,10 @@ export const ONBOARDING: PanelMessages = {
 
   en: {
     'panel.onboarding.pairingHint': 'Scan to connect',
+    'panel.onboarding.modeTitle': 'Pick a path',
+    'panel.onboarding.modeHint': 'Do you know your way around networks and can you set them up yourself?',
+    'panel.onboarding.modeBeginner': 'I\'m new to this — walk me through it',
+    'panel.onboarding.modeExpert': 'I\'m experienced — take me straight to the console',
     'panel.onboarding.setupTitle': 'Set up the network first',
     'panel.onboarding.setupHint': 'Pick a provider; once it is connected the QR code appears and the phone can scan it.',
     'panel.onboarding.regionAuto': '(auto-picked from this computer\'s time zone — tap to switch if wrong)',
@@ -307,6 +320,10 @@ export const ONBOARDING: PanelMessages = {
 
   ja: {
     'panel.onboarding.pairingHint': 'スキャンして接続',
+    'panel.onboarding.modeTitle': '方法を選ぶ',
+    'panel.onboarding.modeHint': 'ネットワークに詳しく、自分で回線を構築できますか？',
+    'panel.onboarding.modeBeginner': '初心者です。手順に沿って設定したい',
+    'panel.onboarding.modeExpert': '上級者です。コンソールで自分で設定する',
     'panel.onboarding.setupTitle': '先にネットワークを設定',
     'panel.onboarding.setupHint': 'プロバイダーを1つ選んで接続すると、QR コードが表示され、スマホでスキャンして接続できます。',
     'panel.onboarding.regionAuto': '（このパソコンのタイムゾーンで自動選択。違う場合はタップで切り替え）',
@@ -403,6 +420,10 @@ export const ONBOARDING: PanelMessages = {
 
   ko: {
     'panel.onboarding.pairingHint': '스캔하여 연결',
+    'panel.onboarding.modeTitle': '방식 선택',
+    'panel.onboarding.modeHint': '네트워크를 잘 알고 직접 회선을 구성할 수 있나요?',
+    'panel.onboarding.modeBeginner': '초보자예요. 단계별로 안내해 주세요',
+    'panel.onboarding.modeExpert': '고수예요. 콘솔에서 직접 설정할게요',
     'panel.onboarding.setupTitle': '먼저 네트워크 설정',
     'panel.onboarding.setupHint': '서비스 제공자를 하나 골라 연결하면 QR 코드가 나타나고, 휴대폰으로 스캔해 연결할 수 있습니다.',
     'panel.onboarding.regionAuto': '(이 컴퓨터의 시간대로 자동 선택됨 — 다르면 눌러서 전환)',
@@ -498,6 +519,10 @@ export const ONBOARDING: PanelMessages = {
   },
   de: {
     'panel.onboarding.pairingHint': 'Zum Verbinden scannen',
+    'panel.onboarding.modeTitle': 'Weg wählen',
+    'panel.onboarding.modeHint': 'Kennst du dich mit Netzwerken aus und kannst sie selbst einrichten?',
+    'panel.onboarding.modeBeginner': 'Ich bin Anfänger — bitte Schritt für Schritt',
+    'panel.onboarding.modeExpert': 'Ich bin erfahren — direkt in die Konsole',
     'panel.onboarding.setupTitle': 'Zuerst das Netzwerk einrichten',
     'panel.onboarding.setupHint': 'Wähle einen Anbieter; sobald er verbunden ist, erscheint der QR-Code und das Handy kann ihn scannen.',
     'panel.onboarding.regionAuto': '(automatisch aus der Zeitzone dieses Rechners gewählt – zum Wechseln tippen)',
@@ -593,6 +618,10 @@ export const ONBOARDING: PanelMessages = {
   },
   es: {
     'panel.onboarding.pairingHint': 'Escanea para conectar',
+    'panel.onboarding.modeTitle': 'Elige un camino',
+    'panel.onboarding.modeHint': '¿Entiendes de redes y puedes configurarlas tú mismo?',
+    'panel.onboarding.modeBeginner': 'Soy principiante, guíame paso a paso',
+    'panel.onboarding.modeExpert': 'Soy avanzado, llévame directo a la consola',
     'panel.onboarding.setupTitle': 'Configura la red primero',
     'panel.onboarding.setupHint': 'Elige un proveedor; cuando esté conectado aparecerá el código QR y el teléfono podrá escanearlo.',
     'panel.onboarding.regionAuto': '(elegido según la zona horaria de este ordenador; toca para cambiar si no es correcta)',
@@ -688,6 +717,10 @@ export const ONBOARDING: PanelMessages = {
   },
   fr: {
     'panel.onboarding.pairingHint': 'Scanne pour te connecter',
+    'panel.onboarding.modeTitle': 'Choisissez une voie',
+    'panel.onboarding.modeHint': 'Connaissez-vous les réseaux et pouvez-vous les configurer vous-même ?',
+    'panel.onboarding.modeBeginner': 'Je suis débutant, guidez-moi pas à pas',
+    'panel.onboarding.modeExpert': 'Je suis expérimenté, emmenez-moi directement à la console',
     'panel.onboarding.setupTitle': 'Configure d\'abord le réseau',
     'panel.onboarding.setupHint': 'Choisis un fournisseur ; une fois connecté, le QR code apparaît et le téléphone peut le scanner.',
     'panel.onboarding.regionAuto': '(choisi d\'après le fuseau horaire de cet ordinateur — touche pour changer si besoin)',
@@ -783,6 +816,10 @@ export const ONBOARDING: PanelMessages = {
   },
   pt: {
     'panel.onboarding.pairingHint': 'Escaneie para conectar',
+    'panel.onboarding.modeTitle': 'Escolha um caminho',
+    'panel.onboarding.modeHint': 'Você entende de redes e consegue configurá-las sozinho?',
+    'panel.onboarding.modeBeginner': 'Sou iniciante, me guie passo a passo',
+    'panel.onboarding.modeExpert': 'Sou experiente, me leve direto ao console',
     'panel.onboarding.setupTitle': 'Configure a rede primeiro',
     'panel.onboarding.setupHint': 'Escolha um provedor; quando estiver conectado o código QR aparece e o celular pode escaneá-lo.',
     'panel.onboarding.regionAuto': '(escolhido pelo fuso horário deste computador — toque para trocar se estiver errado)',
@@ -878,6 +915,10 @@ export const ONBOARDING: PanelMessages = {
   },
   ru: {
     'panel.onboarding.pairingHint': 'Сканируй для подключения',
+    'panel.onboarding.modeTitle': 'Выберите путь',
+    'panel.onboarding.modeHint': 'Разбираетесь в сетях и можете настроить их сами?',
+    'panel.onboarding.modeBeginner': 'Я новичок — проведите меня по шагам',
+    'panel.onboarding.modeExpert': 'Я опытный — отведите меня прямо в консоль',
     'panel.onboarding.setupTitle': 'Сначала настройте сеть',
     'panel.onboarding.setupHint': 'Выберите провайдера; когда он подключится, появится QR-код и телефон сможет его отсканировать.',
     'panel.onboarding.regionAuto': '(выбрано по часовому поясу этого компьютера — нажмите, чтобы сменить)',
@@ -973,6 +1014,10 @@ export const ONBOARDING: PanelMessages = {
   },
   tr: {
     'panel.onboarding.pairingHint': 'Bağlanmak için tarayın',
+    'panel.onboarding.modeTitle': 'Bir yol seçin',
+    'panel.onboarding.modeHint': 'Ağları biliyor ve kendiniz kurabiliyor musunuz?',
+    'panel.onboarding.modeBeginner': 'Acemiyim, adım adım anlatın',
+    'panel.onboarding.modeExpert': 'Deneyimliyim, doğrudan konsola götürün',
     'panel.onboarding.setupTitle': 'Önce ağı kurun',
     'panel.onboarding.setupHint': 'Bir sağlayıcı seçin; bağlandığında QR kodu görünür ve telefon tarayabilir.',
     'panel.onboarding.regionAuto': '(bu bilgisayarın saat dilimine göre otomatik seçildi; yanlışsa dokunup değiştirin)',
