@@ -1,3 +1,4 @@
+// 2026-11-27：取码失败时把宿主给的真实原因露出来，不再只显示一句笼统提示。
 // 扫码绑定成功后收起二维码弹窗，收起那一刻不让二维码闪成空白或旧码；放大弹窗左侧放大码、右侧同框摆已绑定设备列表（含解绑与清空历史）。
 /**
  * 配对与二维码卡片：区分取码等待与失败，失败时可单独重试，SVG 默认遮挡。
@@ -164,6 +165,9 @@ export function PairingCard({
               ) : error ? (
                 <>
                   <span className="text-xs">{t('panel.pairing.qrFailed')}</span>
+                  {error && error !== t('panel.pairing.qrFailed') ? (
+                    <span className="text-center text-xs">{error}</span>
+                  ) : null}
                   <Button variant="ghost" size="sm" disabled={idle} onClick={onRetryPairing}>
                     {t('panel.console.retryPairing')}
                   </Button>

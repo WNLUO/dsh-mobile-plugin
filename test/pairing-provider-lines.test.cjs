@@ -1,3 +1,4 @@
+// 2026-11-27：进码的服务商名字按二维码字节预算截短，完整名字仍在心跳与总控那份里。
 // 配对二维码带上服务商线路：以后加服务商不用再改二维码（与心跳 / 总控同源）。
 // 公用中转正式退役：码里不再塞内置地址，下面关于二维码兜底的旧断言不再成立。
 'use strict';
@@ -67,6 +68,15 @@ test('服务商线路条数封顶（码太密扫不出来）', () => {
   const customRoutes = Array.from({ length: 12 }, (_, i) => ({ url: `https://line-${i}.example.com`, transport: 'http' }));
   const { payload } = pairingPayload(baseState({ customRoutes }), 18787);
   assert.equal(payload.routes.length, 8);
+});
+
+test('进码的服务商名字按二维码预算截短（名字只给人看，长名字会把码撑爆）', () => {
+  const { payload } = pairingPayload(baseState({
+    customRoutes: [{ url: 'https://line.example.com', name: '名'.repeat(80), transport: 'http' }],
+  }), 18787);
+  assert.equal(payload.routes[0].name.length, 40);
+  assert.equal(providerLinesOf({ customRoutes: [{ url: 'https://line.example.com', name: '名'.repeat(80) }] })[0].name.length, 80,
+    '完整名字照旧留在心跳 / 总控那份清单里，只截二维码这一份');
 });
 
 test('同址已经在 lanUrls 里的线路不重复写进 routes', () => {

@@ -1943,6 +1943,30 @@ test('控制台：已就绪页面保活，失败或未就绪页面重新打开�
   }
 });
 
+test('控制台：收起保活窗要摘掉弹窗身份，官方快捷键不该被看不见的模态框挡着', async () => {
+  const { env } = clickEnv();
+  const icon = await railIcon(env);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  const frame = consoleFrame(env);
+  frame.contentWindow = { postMessage() {} };
+  sendPanelState(env, frame, 'ready');
+  const overlay = diagnosisNode(env);
+  assert.equal(overlay.attrs.role, 'dialog');
+  assert.equal(overlay.attrs['aria-modal'], 'true');
+  sendPanelAction(env, 'close');
+  await settle();
+  assert.equal(diagnosisNode(env), overlay, '保活的那一窗仍然留在 DOM 里');
+  // 官方快捷键按这两个属性认弹窗、不看可见性：藏着还留着它们，就等于一直有一扇挡在前面。
+  assert.equal(overlay.attrs.role, undefined, '藏起来的窗不该再自称对话框');
+  assert.equal(overlay.attrs['aria-modal'], undefined);
+  await icon.props.onClick({ preventDefault() {} });
+  await settle();
+  assert.equal(consoleFrame(env), frame, '再打开还是热的那一页');
+  assert.equal(overlay.attrs.role, 'dialog', '亮出来的窗要把身份挂回去');
+  assert.equal(overlay.attrs['aria-modal'], 'true');
+});
+
 test('控制台：文档就绪标记可补发回执，加载提示随即撤掉', async () => {
   const { env } = clickEnv();
   const icon = await railIcon(env);
