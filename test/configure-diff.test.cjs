@@ -53,7 +53,7 @@ function bootWorker(options = {}) {
   const switches = []
   const fakeTunnel = { updateRegistration: (patch) => registrations.push(patch) }
   const api = new Function('deps', `
-    const { status, stopLan, startLan, stopTunnel, startTunnel, stopNetworkMonitor, startNetworkMonitor, lanUrls, lanUrlPort, core, publishState, switchRelay, openTunnel, reconnect } = deps;
+    const { status, stopLan, startLan, stopTunnel, startTunnel, stopNetworkMonitor, startNetworkMonitor, lanUrls, lanUrlPort, core, publishState, switchRelay, openTunnel, reconnect, setIpVersionPolicy } = deps;
     let config = deps.initialConfig;
     let tunnel = deps.tunnel;
     let tunnelRoute = deps.initialRoute || null;
@@ -85,6 +85,8 @@ function bootWorker(options = {}) {
     publishState: options.publishState || (() => {}),
     switchRelay: options.switchRelay || ((opts) => { calls.switchRelay += 1; switches.push(opts); return options.switchResult ? options.switchResult(opts) : Promise.resolve(true) }),
     openTunnel: options.openTunnel || (() => Promise.resolve()),
+    // configure() 会把策略落到本进程候选层；这里只验 configure 的编排，桩掉即可。
+    setIpVersionPolicy: () => {},
     initialConfig: {},
     tunnel: fakeTunnel,
   })
@@ -102,6 +104,16 @@ test('配置一个字没变：不重建隧道、不重建局域网代理、重�
   await w.configure(baseConfig())
   assert.deepEqual(w.calls, before, '同样的配置再下发一次，隧道与局域网代理都不许动')
   assert.equal(w.registrations.length, 0, '没有需要重报的元信息')
+})
+
+test('协议族策略下发被接受；改策略要重建隧道', async () => {
+  const w = bootWorker()
+  // 白名单若漏了 ipVersionPolicy，这里会抛 unknown configuration field，配置下发整条失败。
+  await w.configure({ ...baseConfig(), ipVersionPolicy: 'auto' })
+  const before = { ...w.calls }
+  await w.configure({ ...baseConfig(), ipVersionPolicy: 'ipv4-only' })
+  assert.equal(w.calls.startTunnel, before.startTunnel + 1, '改协议族策略要重建隧道')
+  assert.equal(w.currentConfig().ipVersionPolicy, 'ipv4-only')
 })
 
 test('只改名：不重建，只在现有连接上重报一次', async () => {
