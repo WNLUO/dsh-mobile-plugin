@@ -1,3 +1,4 @@
+// 2026-11-27 用户反馈第二轮：补退出/清除入口、套餐权益扩三档、四格改带宽/设备/在线/并发。
 // 2026-11-27 用户按截图反馈：面板去掉重复状态与详细配置按钮、删红框内容、套餐账号搬到标题下做副标题。
 // 2026-11-27 需求变更：国内服务商只留 ZeroNews，节点小宝与 FRP 的配置页及文案从面板撤掉，
 // 宿主侧线路能力保留；下面相应断言随之收窄。
@@ -172,20 +173,39 @@ test('服务商线路：标题右边中国/国际标签，按语言定默认、�
   assert.ok(chinaPart.indexOf('subtitle') < chinaPart.indexOf("'panel.providerRegion.usage'"), '副标题排在使用情况之前');
 });
 
-test('免费版权益只作套餐上限展示，且只在确认免费套餐时套用', () => {
-  // 2026-11-27 用户要求：免费版权益是公开固定信息（官方定价页 / FAQ），与实时用量不同，
-  // 可以写死一处常量；但付费套餐不能套用免费上限，已用数字始终从账号快照读，流量已用不编。
+test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认不出的套餐不套上限', () => {
+  // 2026-11-27 用户要求：免费版权益是公开固定信息（官方定价页），可写死一处常量；
+  // 三档（免费 / 个人 Pro / 个人 Pro+）精确识别，认不出不显示；付费不套免费数字，流量已用不编。
   const panels = read('React', 'src', 'components', 'ProviderRegionPanel.tsx');
-  assert.match(panels, /const ZN_FREE_QUOTA = \{/, '免费权益集中一处常量');
+  assert.match(panels, /const ZN_QUOTAS: Record<[^>]+> = \{/, '三档权益集中一处常量表');
   assert.match(panels, /zeronews\.cc\/pricing/, '常量注明核对来源');
-  assert.match(panels, /function isFreePlan\(/, '有免费套餐判定');
+  assert.match(panels, /function quotaOf\(/, '有套餐判定');
   assert.match(panels, /\\u514d\\u8d39/, '中文套餐名用码点写，不在界面文件留钉死的中文字面量');
-  assert.match(panels, /limit=\{free \?/, '上限只在免费套餐时传入');
-  assert.match(panels, /free \? \(\s*\n\s*<p/, '权益摘要只在免费套餐时显示');
-  assert.ok(!panels.includes('monthlyTrafficGb') || panels.includes("traffic: ZN_FREE_QUOTA.monthlyTrafficGb"), '月流量只给额度');
+  assert.match(panels, /return null\n\}/, '认不出的套餐返回 null 不套上限');
+  for (const tier of ['free', 'pro', 'proPlus']) {
+    assert.ok(panels.includes(`${tier}: { bandwidthMbps`), `有 ${tier} 档权益`);
+  }
+  assert.ok(!panels.includes('tunnels.slice'), '隧道那格改成带宽限制，不再列隧道域名');
+  assert.ok(panels.includes("t('panel.providerRegion.concurrency')"), '域名那格换成单隧道并发');
+  assert.ok(panels.includes("t('panel.zeronews.overview.online')"), '在线设备那格保留');
+  assert.ok(panels.includes("t('panel.zeronews.overview.devices')"), '设备那格保留已用');
   const dict = read('React', 'src', 'lib', 'i18n', 'messages', 'provider-region.ts');
-  assert.equal((dict.match(/'panel\.providerRegion\.freeQuota':/g) || []).length, 11, '权益文案十一门齐全');
+  for (const key of ['bandwidth', 'bandwidthValue', 'concurrency', 'quotaTraffic', 'quotaUnlimited']) {
+    assert.equal((dict.match(new RegExp(`'panel\\.providerRegion\\.${key}':`, 'g')) || []).length, 11, `${key} 文案十一门齐全`);
+  }
   assert.ok(!dict.includes('详细配置') && !dict.includes('詳細設定'), '已删按钮的提示文案清掉');
+});
+
+test('中国面板有退出（断开）与彻底清理入口，清理沿用二次确认', () => {
+  // 2026-11-27 用户反馈：删掉详细配置后退出/清除也没了。补回两个破坏性入口，
+  // 断开轻操作、彻底清理必须二次确认，沿用配置页同款接口与文案。
+  const panels = read('React', 'src', 'components', 'ProviderRegionPanel.tsx');
+  assert.match(panels, /zeroNewsDisconnect\(\)/, '有断开接口调用');
+  assert.match(panels, /zeroNewsPurge\(\)/, '有彻底清理接口调用');
+  assert.match(panels, /window\.confirm\(t\('panel\.zeronews\.purgeConfirm'\)\)/, '清理前二次确认，沿用配置页文案');
+  assert.match(panels, /t\('panel\.zeronews\.linkDisconnect'\)/, '断开按钮文案');
+  assert.match(panels, /t\('panel\.zeronews\.purge'\)/, '清理按钮文案');
+  assert.match(panels, /connected \? \(/, '只在已接入时露出这两个入口');
 });
 
 test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重试、超时收口，并留 AuthToken 兜底', () => {

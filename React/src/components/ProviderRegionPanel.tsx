@@ -3,19 +3,23 @@
  * 「中国 / 国际」标签下的专属面板（2026-11-27 用户要求）。
  *
  * 两块面板结构对齐：服务商身份 + 使用情况 + 控制台入口。内容分两类，绝不混：
- *   · 已用数量（隧道 / 设备 / 域名）与套餐名 —— 读宿主账号快照，是真实事实；
- *   · 免费版权益上限 —— 公开的套餐信息，写死在下方一处常量，不代表实时用量。
- * 只有确认是免费套餐时才把上限套到「已用」上；付费套餐不套，免得拿免费数字误导。
+ *   · 已用数量（设备 / 在线设备）与套餐名 —— 读宿主账号快照，是真实事实；
+ *   · 套餐权益（带宽 / 设备名额 / 并发） —— 公开的套餐信息，写死在下方一处常量表，
+ *     只按精确识别到的套餐显示，认不出就不显示，绝不拿免费数字套付费用户。
  * 流量已用量是云端数据、CLI 拿不到，只给额度与控制台入口，不编已用数字。
  *
  * 账号快照自己读一次（读宿主只读接口 `/api/relay/zeronews/account`），与配置页共用同一份
- * 接口与留底键；面板是只读视图，登录 / 连接 / 清理这些动作都在宿主侧已有入口里做。
+ * 接口与留底键。退出登录 / 彻底清理是破坏性动作，沿用配置页同款接口与二次确认文案。
  */
 import { Badge } from '@appica/ui-react/badge'
+import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import { useEffect, useState, type ReactNode } from 'react'
 
-import { zeroNewsAccount, type StatusView, type ZeroNewsAccount } from '../lib/api.ts'
+import {
+  zeroNewsAccount, zeroNewsDisconnect, zeroNewsPurge,
+  type StatusView, type ZeroNewsAccount,
+} from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 import { CloudflarePanel } from './CloudflarePanel.tsx'
 import { CloudflareIcon, ZeroNewsIcon } from './ProviderIcons.tsx'
@@ -24,24 +28,31 @@ const ZN_CONSOLE_URL = 'https://user.zeronews.cc/'
 const ZN_ACCOUNT_CACHE_KEY = 'dsh-mobile-plugin:zeronews-account'
 
 /**
- * 免费版权益上限（2026-11-27 核对官方定价页 https://zeronews.cc/pricing 与 FAQ 计划与配额，
- * 两处都写：1 Mbps 总带宽 / 单隧道、1 GB 月流量、1 条在线隧道、1 个域名、1 个端口、
- * 并发 5、1 个认证客户端、HTTPS、标准隧道）。官方曾发升级公告说 2Mbps / 2 条，
- * 以当前定价页为准；权益若再变只改这一处。仅作套餐上限展示，不是实时用量。
+ * 各套餐权益（2026-11-27 核对官方定价页 https://zeronews.cc/pricing，当前三档：免费 / 个人 Pro / 个人 Pro+）。
+ * 只列面板要用的四格：单隧道带宽、认证客户端数、单隧道并发、月流量额度。
+ * 官方曾发升级公告说免费版 2Mbps / 2 条，当前定价页是 1Mbps / 1 条，以定价页为准；
+ * 套餐权益若再变，只改这一处表。仅作套餐上限展示，不是实时用量。
  */
-const ZN_FREE_QUOTA = {
-  bandwidthMbps: 1,
-  monthlyTrafficGb: 1,
-  tunnels: 1,
-  devices: 1,
-  domains: 1,
-  concurrency: 5,
-} as const
+type Quota = { bandwidthMbps: number; devices: number; concurrency: number; trafficGb: number | null }
+const ZN_QUOTAS: Record<'free' | 'pro' | 'proPlus', Quota> = {
+  free: { bandwidthMbps: 1, devices: 1, concurrency: 5, trafficGb: 1 },
+  pro: { bandwidthMbps: 5, devices: 4, concurrency: 30, trafficGb: null },
+  proPlus: { bandwidthMbps: 10, devices: 8, concurrency: 50, trafficGb: null },
+}
 
-/** 套餐名是否免费：官方给的名字是中文「免费」，兼容英文 Free；用码点写中文避免界面文件里出现钉死的字面量。 */
-function isFreePlan(planName: string): boolean {
-  const zhFree = '\u514d\u8d39'
-  return new RegExp(`^\\s*(${zhFree}|free)\\s*$`, 'i').test(planName)
+/**
+ * 套餐名 → 权益档：官方原始名字没有实测样本（付费档可能中英文混用），只精确认三档，
+ * 认不出返回 null —— 宁可少显示，也不给付费用户套错数字。中文用码点写，避免界面文件
+ * 出现钉死的中文字面量触发 i18n 守卫。
+ */
+function quotaOf(planName: string): Quota | null {
+  const free = '\u514d\u8d39'
+  const pro = '\u4e2a\u4eba'
+  const key = planName.trim().toLowerCase()
+  if (key === free || key === 'free') return ZN_QUOTAS.free
+  if (key === `${pro} pro` || key === 'pro') return ZN_QUOTAS.pro
+  if (key === `${pro} pro+` || key === 'pro+') return ZN_QUOTAS.proPlus
+  return null
 }
 
 function readZnCache(): ZeroNewsAccount | null {
@@ -55,13 +66,11 @@ function readZnCache(): ZeroNewsAccount | null {
   }
 }
 
-/** 使用情况里的一格：大数字 + 小标签；免费套餐时在数字后带出「/ 上限」。 */
-function Stat({ value, label, limit }: { value: number | string; label: string; limit?: number }) {
+/** 使用情况里的一格：大内容 + 小标签。 */
+function Stat({ value, label }: { value: ReactNode; label: string }) {
   return (
     <div className="flex flex-col gap-0.5 rounded-md border border-border-muted bg-background-muted px-3 py-2">
-      <span className="text-lg font-semibold leading-none text-foreground-strong">
-        {value}{limit !== undefined ? <span className="text-xs font-normal text-foreground-muted"> / {limit}</span> : null}
-      </span>
+      <span className="text-lg font-semibold leading-none text-foreground-strong">{value}</span>
       <span className="text-xs text-foreground-muted">{label}</span>
     </div>
   )
@@ -93,18 +102,33 @@ function ProviderHeading({ icon, name, subtitle, statusText }: {
   )
 }
 
-/** 底部一行：服务商控制台入口。 */
-function PanelActions({ consoleUrl }: { consoleUrl: string }) {
+/** 底部一行：控制台入口 + 已接入时的断开 / 彻底清理。 */
+function PanelActions({ connected, busy, onDisconnect, onPurge }: {
+  connected: boolean
+  busy: boolean
+  onDisconnect: () => void
+  onPurge: () => void
+}) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
       <a
-        href={consoleUrl}
+        href={ZN_CONSOLE_URL}
         target="_blank"
         rel="noreferrer"
         className="rounded px-2 py-1 text-xs text-foreground-muted underline transition-colors hover:text-foreground-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
         {t('panel.zeronews.console')}
       </a>
+      {connected ? (
+        <>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onDisconnect}>
+            {t('panel.zeronews.linkDisconnect')}
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onPurge}>
+            {t('panel.zeronews.purge')}
+          </Button>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -112,6 +136,9 @@ function PanelActions({ consoleUrl }: { consoleUrl: string }) {
 function ChinaProviderPanel({ status }: { status: StatusView }) {
   /** 先用本地留底铺上，再悄悄刷一次；面板只读，不轮询。 */
   const [account, setAccount] = useState<ZeroNewsAccount | null>(() => readZnCache())
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+
   useEffect(() => {
     let active = true
     void zeroNewsAccount()
@@ -127,14 +154,51 @@ function ChinaProviderPanel({ status }: { status: StatusView }) {
   }, [])
 
   const connected = status.zeroNews?.phase === 'connected'
-  const counts = account?.counts || { tunnels: 0, devices: 0, domains: 0 }
+  const devices = (account?.devices || []).length
   const online = (account?.devices || []).filter((device) => device.online).length
   const plan = account?.account?.planName || ''
   const identity = account?.account?.userTel || account?.account?.userId || ''
-  const free = isFreePlan(plan)
+  const quota = quotaOf(plan)
   const statusText = connected
     ? t('panel.zeronews.linkOn', { url: status.zeroNews?.url || '' })
     : t('panel.providerRegion.notConnected')
+
+  /** 断开：停客户端、撤域名；成功后重读账号让界面跟上。 */
+  async function disconnect() {
+    if (busy) return
+    setBusy(true)
+    setNote('')
+    try {
+      const res = await zeroNewsDisconnect()
+      const error = typeof res.error === 'string' ? res.error : res.error?.message
+      if (!res.ok && error) setNote(error)
+      setAccount(await zeroNewsAccount())
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 彻底清理：与断开分开的破坏性入口，沿用配置页的二次确认文案。 */
+  async function purge() {
+    if (busy || !window.confirm(t('panel.zeronews.purgeConfirm'))) return
+    setBusy(true)
+    setNote('')
+    try {
+      const res = await zeroNewsPurge()
+      if (!res.ok && res.error) setNote(res.error)
+      else {
+        setNote(t('panel.zeronews.purgeDone'))
+        setAccount(null)
+        try { localStorage.removeItem(ZN_ACCOUNT_CACHE_KEY) } catch { /* 留底删不掉不影响清理本身 */ }
+      }
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <Card frame="solid">
@@ -154,23 +218,32 @@ function ChinaProviderPanel({ status }: { status: StatusView }) {
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-foreground-strong">{t('panel.providerRegion.usage')}</span>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat value={counts.tunnels} label={t('panel.zeronews.overview.tunnels')} limit={free ? ZN_FREE_QUOTA.tunnels : undefined} />
-            <Stat value={counts.devices} label={t('panel.zeronews.overview.devices')} limit={free ? ZN_FREE_QUOTA.devices : undefined} />
+            <Stat
+              value={quota ? t('panel.providerRegion.bandwidthValue', { bw: quota.bandwidthMbps }) : '—'}
+              label={t('panel.providerRegion.bandwidth')}
+            />
+            <Stat
+              value={quota ? `${devices} / ${quota.devices}` : devices}
+              label={t('panel.zeronews.overview.devices')}
+            />
             <Stat value={online} label={t('panel.zeronews.overview.online')} />
-            <Stat value={counts.domains} label={t('panel.zeronews.overview.domains')} limit={free ? ZN_FREE_QUOTA.domains : undefined} />
+            <Stat
+              value={quota ? quota.concurrency : '—'}
+              label={t('panel.providerRegion.concurrency')}
+            />
           </div>
-          {free ? (
+          {quota ? (
             <p className="text-xs leading-5 text-foreground-muted">
-              {t('panel.providerRegion.freeQuota', {
-                bw: ZN_FREE_QUOTA.bandwidthMbps,
-                traffic: ZN_FREE_QUOTA.monthlyTrafficGb,
-                concurrency: ZN_FREE_QUOTA.concurrency,
-              })}
+              {quota.trafficGb !== null
+                ? t('panel.providerRegion.quotaTraffic', { traffic: quota.trafficGb })
+                : t('panel.providerRegion.quotaUnlimited')}
             </p>
           ) : null}
         </div>
 
-        <PanelActions consoleUrl={ZN_CONSOLE_URL} />
+        {note ? <p className="text-xs leading-5 text-foreground-muted">{note}</p> : null}
+
+        <PanelActions connected={connected} busy={busy} onDisconnect={() => void disconnect()} onPurge={() => void purge()} />
       </div>
     </Card>
   )
