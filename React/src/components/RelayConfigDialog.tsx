@@ -31,7 +31,6 @@ import { useEffect, useRef, useState } from 'react'
 import { frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
-import type { NetworkProvider } from '../lib/network-region.ts'
 import { AddressPicker } from './AddressPicker.tsx'
 import { NetworkRegions } from './NetworkRegions.tsx'
 
@@ -112,8 +111,6 @@ type Props = {
   onSave: (patch: ConfigPatch) => void
   /** 「手机优先用这条」：点了就存、不关窗，所以和上面那个带保存按钮的 `onSave` 分开。 */
   onSavePreferred: (address: string) => void
-  /** 面板「详细配置」：直接进对应服务商的配置页（由 Console 换 hash）。 */
-  onOpenProvider: (provider: NetworkProvider) => void
 }
 
 /**
@@ -152,7 +149,6 @@ export function RelayConfigDialog({
   busy,
   onSave,
   onSavePreferred,
-  onOpenProvider,
 }: Props) {
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
@@ -497,7 +493,7 @@ export function RelayConfigDialog({
                 先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
             <section className="flex flex-col gap-3">
               <div className="border-b border-border-muted pb-3">
-                <NetworkRegions status={status} onOpenProvider={onOpenProvider} />
+                <NetworkRegions status={status} />
               </div>
             </section>
             <section className="flex flex-col gap-3">

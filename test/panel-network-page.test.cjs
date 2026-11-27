@@ -128,7 +128,7 @@ test('网络配置页分区：主配置页平铺字段，线路按地区与服�
   }
   // 2026-11-27 需求变更：服务商线路改成标题右边的「中国 / 国际」标签 + 专属面板，
   // 不再是两张地区入口卡；面板「详细配置」直接进服务商页。地区页路由保留给老 hash。
-  assert.ok(page.includes('<NetworkRegions status={status} onOpenProvider={onOpenProvider} />'), '主配置页挂标签面板');
+  assert.ok(page.includes('<NetworkRegions status={status} />'), '主配置页挂标签面板');
   assert.ok(!page.includes('<JdxbLineCard />'), '节点小宝不在主配置页里');
   const china = read('React', 'src', 'components', 'ChinaLinesPage.tsx');
   assert.ok(china.includes('providersOfRegion(\'cn\')'), '中国页列国内服务商');
@@ -156,7 +156,13 @@ test('服务商线路：标题右边中国/国际标签，按语言定默认、�
   assert.match(panels, /region === 'cn'/, '中国标签铺 zeronews 面板');
   assert.match(panels, /zeroNewsAccount\(\)/, '中国面板读宿主账号快照');
   assert.match(panels, /<CloudflarePanel/, '国际面板复用 Cloudflare 面板实现');
-  assert.match(panels, /panel\.providerRegion\.consoleHint/, '拿不到的用量如实指向服务商控制台');
+  // 2026-11-27 用户按截图反馈收敛：面板不放「详细配置」按钮，状态只在 CloudflarePanel 里出现一次；
+  // 中国面板也不再铺隧道域名行与「流量用量…」提示，只留使用情况与控制台入口。
+  assert.ok(!panels.includes('openDetail'), '面板不再有详细配置入口');
+  assert.ok(!panels.includes('consoleHint'), '面板不再摆流量用量提示');
+  assert.ok(!panels.includes('tunnels.slice'), '面板不再列隧道域名');
+  const globalPart = panels.slice(panels.indexOf('function GlobalProviderPanel'));
+  assert.ok(!globalPart.includes('statusText='), 'Cloudflare 头部不再重复显示状态，状态只在面板里');
 });
 
 test('ZeroNews 等浏览器确认不再无限转圈：显地址、可重开/重试、超时收口，并留 AuthToken 兜底', () => {

@@ -523,7 +523,6 @@ export function Console() {
             busy={busy}
             onSave={(patch) => void saveConfig(patch)}
             onSavePreferred={(address) => void savePreferredLanAddress(address)}
-            onOpenProvider={openProvider}
           />
         </div>
 

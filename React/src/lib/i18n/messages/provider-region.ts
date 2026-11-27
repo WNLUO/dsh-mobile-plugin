@@ -3,8 +3,8 @@
  * 服务商线路区的标签与专属面板文案。
  *
  * 标题右边那两个标签（中国 / 国际）默认按界面语言选：中文 / 繁体默认中国，其余默认国际；
- * 用户点过一次之后以手动选择为准。面板只展示宿主已给的事实，拿不到的（套餐用量、流量）
- * 如实说「去服务商控制台看」，不编 X/Y。
+ * 用户点过一次之后以手动选择为准。面板只展示宿主已给的事实，不编造套餐用量与流量数字。
+ * 这一份只管标签、地区说明与中国面板的使用情况标题，其余沿用已有词条。
  */
 import type { PanelMessages } from './shell.ts'
 
@@ -14,8 +14,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': '国际',
     'panel.providerRegion.chinaHint': '国内线路 · ZeroNews',
     'panel.providerRegion.globalHint': '国际线路 · Cloudflare',
-    'panel.providerRegion.openDetail': '详细配置',
-    'panel.providerRegion.consoleHint': '流量用量与套餐升级请到服务商控制台查看。',
     'panel.providerRegion.usage': '使用情况',
     'panel.providerRegion.notConnected': '尚未接入，点「详细配置」开始。',
   },
@@ -24,8 +22,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': '國際',
     'panel.providerRegion.chinaHint': '國內線路 · ZeroNews',
     'panel.providerRegion.globalHint': '國際線路 · Cloudflare',
-    'panel.providerRegion.openDetail': '詳細設定',
-    'panel.providerRegion.consoleHint': '流量用量與方案升級請到服務商控制台查看。',
     'panel.providerRegion.usage': '使用情況',
     'panel.providerRegion.notConnected': '尚未接入，點「詳細設定」開始。',
   },
@@ -34,8 +30,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': 'International',
     'panel.providerRegion.chinaHint': 'China routes · ZeroNews',
     'panel.providerRegion.globalHint': 'Global routes · Cloudflare',
-    'panel.providerRegion.openDetail': 'Configure',
-    'panel.providerRegion.consoleHint': 'Check traffic usage and upgrade your plan in the provider console.',
     'panel.providerRegion.usage': 'Usage',
     'panel.providerRegion.notConnected': 'Not connected yet. Open Configure to set it up.',
   },
@@ -44,8 +38,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': '国際',
     'panel.providerRegion.chinaHint': '中国回線 · ZeroNews',
     'panel.providerRegion.globalHint': '国際回線 · Cloudflare',
-    'panel.providerRegion.openDetail': '詳細設定',
-    'panel.providerRegion.consoleHint': '通信量とプランの変更はプロバイダーのコンソールで確認してください。',
     'panel.providerRegion.usage': '利用状況',
     'panel.providerRegion.notConnected': 'まだ接続されていません。「詳細設定」から開始してください。',
   },
@@ -54,8 +46,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': '국제',
     'panel.providerRegion.chinaHint': '중국 회선 · ZeroNews',
     'panel.providerRegion.globalHint': '국제 회선 · Cloudflare',
-    'panel.providerRegion.openDetail': '상세 설정',
-    'panel.providerRegion.consoleHint': '트래픽 사용량과 요금제 변경은 공급자 콘솔에서 확인하세요.',
     'panel.providerRegion.usage': '사용량',
     'panel.providerRegion.notConnected': '아직 연결되지 않았습니다. 「상세 설정」에서 시작하세요.',
   },
@@ -64,8 +54,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': 'International',
     'panel.providerRegion.chinaHint': 'China-Routen · ZeroNews',
     'panel.providerRegion.globalHint': 'Globale Routen · Cloudflare',
-    'panel.providerRegion.openDetail': 'Konfigurieren',
-    'panel.providerRegion.consoleHint': 'Traffic-Verbrauch und Tarifupgrade findest du in der Konsole des Anbieters.',
     'panel.providerRegion.usage': 'Verbrauch',
     'panel.providerRegion.notConnected': 'Noch nicht verbunden. Öffne „Konfigurieren" zum Einrichten.',
   },
@@ -74,8 +62,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': 'Internacional',
     'panel.providerRegion.chinaHint': 'Rutas en China · ZeroNews',
     'panel.providerRegion.globalHint': 'Rutas globales · Cloudflare',
-    'panel.providerRegion.openDetail': 'Configurar',
-    'panel.providerRegion.consoleHint': 'Consulta el consumo de tráfico y la mejora de plan en la consola del proveedor.',
     'panel.providerRegion.usage': 'Uso',
     'panel.providerRegion.notConnected': 'Aún no conectado. Abre «Configurar» para empezar.',
   },
@@ -84,8 +70,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': 'International',
     'panel.providerRegion.chinaHint': 'Routes en Chine · ZeroNews',
     'panel.providerRegion.globalHint': 'Routes mondiales · Cloudflare',
-    'panel.providerRegion.openDetail': 'Configurer',
-    'panel.providerRegion.consoleHint': 'Consultez la consommation de trafic et le changement de forfait dans la console du fournisseur.',
     'panel.providerRegion.usage': 'Utilisation',
     'panel.providerRegion.notConnected': 'Pas encore connecté. Ouvrez « Configurer » pour commencer.',
   },
@@ -94,8 +78,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': 'Internacional',
     'panel.providerRegion.chinaHint': 'Rotas na China · ZeroNews',
     'panel.providerRegion.globalHint': 'Rotas globais · Cloudflare',
-    'panel.providerRegion.openDetail': 'Configurar',
-    'panel.providerRegion.consoleHint': 'Veja o consumo de tráfego e a mudança de plano na console do provedor.',
     'panel.providerRegion.usage': 'Uso',
     'panel.providerRegion.notConnected': 'Ainda não conectado. Abra «Configurar» para começar.',
   },
@@ -104,8 +86,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': 'Международный',
     'panel.providerRegion.chinaHint': 'Маршруты в Китае · ZeroNews',
     'panel.providerRegion.globalHint': 'Глобальные маршруты · Cloudflare',
-    'panel.providerRegion.openDetail': 'Настроить',
-    'panel.providerRegion.consoleHint': 'Расход трафика и смену тарифа смотрите в консоли провайдера.',
     'panel.providerRegion.usage': 'Использование',
     'panel.providerRegion.notConnected': 'Ещё не подключено. Откройте «Настроить», чтобы начать.',
   },
@@ -114,8 +94,6 @@ export const PROVIDER_REGION: PanelMessages = {
     'panel.providerRegion.tabGlobal': 'Uluslararası',
     'panel.providerRegion.chinaHint': 'Çin hatları · ZeroNews',
     'panel.providerRegion.globalHint': 'Küresel hatlar · Cloudflare',
-    'panel.providerRegion.openDetail': 'Yapılandır',
-    'panel.providerRegion.consoleHint': 'Trafik kullanımını ve paket yükseltmesini sağlayıcı konsolundan görüntüleyin.',
     'panel.providerRegion.usage': 'Kullanım',
     'panel.providerRegion.notConnected': 'Henüz bağlanılmadı. Başlamak için «Yapılandır»ı açın.',
   },

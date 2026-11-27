@@ -2,22 +2,19 @@
 /**
  * 「中国 / 国际」标签下的专属面板（2026-11-27 用户要求）。
  *
- * 两块面板结构对齐：都是「服务商身份 + 连接状态 + 使用情况 + 详细配置入口」。
- * 内容只展示宿主已经给出的事实：zeronews 有套餐名、脱敏账号、已用数量、隧道带宽；
- * Cloudflare 有开关与地址。流量用量这类官方 CLI 没暴露的，**不编数字**，只给入口去控制台看。
+ * 两块面板结构对齐：服务商身份 + 使用情况 + 控制台入口。内容只展示宿主已经给出的事实：
+ * zeronews 有套餐名、脱敏账号、已用数量；Cloudflare 有开关与地址（状态行在 CloudflarePanel 里，
+ * 头部不再重复显示）。流量用量这类官方 CLI 没暴露的，不在这里编数字。
  *
  * 账号快照自己读一次（读宿主只读接口 `/api/relay/zeronews/account`），与配置页共用同一份
- * 接口与留底键；面板是只读视图，登录 / 连接 / 清理这些动作都在「详细配置」页里做。
+ * 接口与留底键；面板是只读视图，登录 / 连接 / 清理这些动作都在宿主侧已有入口里做。
  */
 import { Badge } from '@appica/ui-react/badge'
-import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import { useEffect, useState, type ReactNode } from 'react'
 
 import { zeroNewsAccount, type StatusView, type ZeroNewsAccount } from '../lib/api.ts'
-import { cn, toneText, type Tone } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
-import type { NetworkProvider } from '../lib/network-region.ts'
 import { CloudflarePanel } from './CloudflarePanel.tsx'
 import { CloudflareIcon, ZeroNewsIcon } from './ProviderIcons.tsx'
 
@@ -45,13 +42,12 @@ function Stat({ value, label }: { value: number | string; label: string }) {
   )
 }
 
-/** 头部一行：图标 + 名字 + 地区说明 + 连接状态点。 */
-function ProviderHeading({ icon, name, hint, tone, statusText }: {
+/** 头部一行：图标 + 名字 + 地区说明，右侧可选带一条状态（Cloudflare 的状态在面板里另有一行，不重复带）。 */
+function ProviderHeading({ icon, name, hint, statusText }: {
   icon: ReactNode
   name: string
   hint: string
-  tone: Tone
-  statusText: string
+  statusText?: string
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -62,36 +58,33 @@ function ProviderHeading({ icon, name, hint, tone, statusText }: {
           <span className="text-xs text-foreground-muted">{hint}</span>
         </span>
       </div>
-      <span className={cn('inline-flex shrink-0 items-center gap-1.5 text-xs', toneText[tone])}>
-        <span className={cn('size-1.5 rounded-full', tone === 'ok' ? 'bg-success' : 'bg-foreground-muted')} />
-        {statusText}
-      </span>
+      {statusText ? (
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-success">
+          <span className="size-1.5 rounded-full bg-success" />
+          {statusText}
+        </span>
+      ) : null}
     </div>
   )
 }
 
-/** 底部一行：控制台入口 + 详细配置。两面板同款。 */
-function PanelActions({ consoleUrl, onOpenDetail }: { consoleUrl?: string; onOpenDetail: () => void }) {
+/** 底部一行：服务商控制台入口。 */
+function PanelActions({ consoleUrl }: { consoleUrl: string }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      {consoleUrl ? (
-        <a
-          href={consoleUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded px-2 py-1 text-xs text-foreground-muted underline transition-colors hover:text-foreground-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          {t('panel.zeronews.console')}
-        </a>
-      ) : null}
-      <Button variant="ghost" size="sm" onClick={onOpenDetail}>
-        {t('panel.providerRegion.openDetail')}
-      </Button>
+      <a
+        href={consoleUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="rounded px-2 py-1 text-xs text-foreground-muted underline transition-colors hover:text-foreground-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        {t('panel.zeronews.console')}
+      </a>
     </div>
   )
 }
 
-function ChinaProviderPanel({ status, onOpenDetail }: { status: StatusView; onOpenDetail: () => void }) {
+function ChinaProviderPanel({ status }: { status: StatusView }) {
   /** 先用本地留底铺上，再悄悄刷一次；面板只读，不轮询。 */
   const [account, setAccount] = useState<ZeroNewsAccount | null>(() => readZnCache())
   useEffect(() => {
@@ -113,11 +106,9 @@ function ChinaProviderPanel({ status, onOpenDetail }: { status: StatusView; onOp
   const online = (account?.devices || []).filter((device) => device.online).length
   const plan = account?.account?.planName || ''
   const identity = account?.account?.userTel || account?.account?.userId || ''
-  const tunnels = account?.tunnels || []
   const statusText = connected
     ? t('panel.zeronews.linkOn', { url: status.zeroNews?.url || '' })
     : t('panel.providerRegion.notConnected')
-  const tone: Tone = connected ? 'ok' : 'off'
 
   return (
     <Card frame="solid">
@@ -126,7 +117,6 @@ function ChinaProviderPanel({ status, onOpenDetail }: { status: StatusView; onOp
           icon={<ZeroNewsIcon />}
           name={t('panel.provider.zeronews')}
           hint={t('panel.providerRegion.chinaHint')}
-          tone={tone}
           statusText={statusText}
         />
 
@@ -145,38 +135,15 @@ function ChinaProviderPanel({ status, onOpenDetail }: { status: StatusView; onOp
             <Stat value={online} label={t('panel.zeronews.overview.online')} />
             <Stat value={counts.domains} label={t('panel.zeronews.overview.domains')} />
           </div>
-          {tunnels.length > 0 ? (
-            <div className="flex flex-col">
-              {tunnels.slice(0, 3).map((tunnel) => (
-                <div key={tunnel.id} className="flex items-center justify-between gap-3 border-b border-border-muted py-1.5 last:border-b-0">
-                  <span className="truncate font-mono text-xs text-foreground-strong">{tunnel.domain || '—'}</span>
-                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-foreground-muted">
-                    {tunnel.bw > 0 ? <span>{t('panel.zeronews.tunnels.bw', { bw: tunnel.bw })}</span> : null}
-                    <Badge variant={tunnel.enabled ? 'soft' : 'secondary'} size="xs">
-                      {tunnel.enabled ? t('panel.zeronews.state.enabled') : t('panel.zeronews.state.disabled')}
-                    </Badge>
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <p className="text-xs leading-5 text-foreground-muted">{t('panel.providerRegion.consoleHint')}</p>
         </div>
 
-        <PanelActions consoleUrl={ZN_CONSOLE_URL} onOpenDetail={onOpenDetail} />
+        <PanelActions consoleUrl={ZN_CONSOLE_URL} />
       </div>
     </Card>
   )
 }
 
-function GlobalProviderPanel({ status, onOpenDetail }: { status: StatusView; onOpenDetail: () => void }) {
-  const cf = status.cloudflare ?? null
-  const running = Boolean(cf?.running)
-  const statusText = running
-    ? t('panel.cloudflare.running')
-    : t('panel.cloudflare.available')
-  const tone: Tone = running ? 'ok' : 'off'
-
+function GlobalProviderPanel({ status }: { status: StatusView }) {
   return (
     <Card frame="solid">
       <div className="flex flex-col gap-3 p-4">
@@ -184,23 +151,19 @@ function GlobalProviderPanel({ status, onOpenDetail }: { status: StatusView; onO
           icon={<CloudflareIcon />}
           name={t('panel.provider.cloudflare')}
           hint={t('panel.providerRegion.globalHint')}
-          tone={tone}
-          statusText={statusText}
         />
         <CloudflarePanel status={status} />
-        <PanelActions onOpenDetail={onOpenDetail} />
       </div>
     </Card>
   )
 }
 
 /** 按地区选面板：中国给 zeronews 概览，国际给 Cloudflare。 */
-export function ProviderRegionPanel({ region, status, onOpenDetail }: {
+export function ProviderRegionPanel({ region, status }: {
   region: 'cn' | 'global'
   status: StatusView
-  onOpenDetail: (provider: NetworkProvider) => void
 }) {
   return region === 'cn'
-    ? <ChinaProviderPanel status={status} onOpenDetail={() => onOpenDetail('zeronews')} />
-    : <GlobalProviderPanel status={status} onOpenDetail={() => onOpenDetail('cloudflare')} />
+    ? <ChinaProviderPanel status={status} />
+    : <GlobalProviderPanel status={status} />
 }
