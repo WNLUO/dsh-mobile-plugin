@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.137",
+  "version": "0.5.138",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -117,23 +117,23 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.137",
+    "version": "0.5.138",
     "kinds": [
-      "feature",
-      "fix"
+      "fix",
+      "feature"
     ],
     "notes": {
-      "zh-Hans": "- 电脑端装上新版 DSH 后，模型一次改好几个文件时，过程清单会写清改的是哪些文件，审批卡也会说出改哪份，不再只剩一个工具名。\n- 对话里提到的文件，只要这一轮改过就仍然可以点开查看；新版默认的多文件改写方式也不会漏掉这些文件。",
-      "zh-Hant": "- 電腦端裝上新版 DSH 後，模型一次改好幾個檔案時，過程清單會寫清楚改的是哪些檔案，審批卡也會說出改哪一份，不再只剩一個工具名稱。\n- 對話裡提到的檔案，只要這一輪改過就仍然可以點開查看；新版預設的多檔案改寫方式也不會漏掉這些檔案。",
-      "en": "- With the new DSH release on your computer, when the model edits several files in one step the step list names those files and the approval card says which file it touches, instead of showing only a tool name.\n- Files mentioned in a reply stay tappable when they changed in that turn, including files edited through the new multi-file editing mode that DSH now uses by default.",
-      "ja": "- パソコン側の DSH を新しい版にすると、モデルが一度に複数のファイルを編集するときも、手順リストにどのファイルを編集しているかが出て、承認カードでも編集するファイルが分かります。ツール名だけの表示にはなりません。\n- 返信内で触れたファイルは、そのターンで変更されていれば引き続きタップして開けます。新しい DSH が既定で使う複数ファイル編集でも取りこぼしません。",
-      "ko": "- 컴퓨터의 DSH를 새 버전으로 올리면 모델이 한 번에 여러 파일을 고칠 때도 단계 목록에 어떤 파일을 고치는지 표시되고, 승인 카드에서도 어떤 파일인지 알 수 있습니다. 이제 도구 이름만 남지 않습니다.\n- 답변에서 언급한 파일은 그 턴에 변경되었다면 계속 눌러서 열 수 있습니다. 새 DSH가 기본으로 쓰는 여러 파일 편집 방식에서도 빠지지 않습니다.",
-      "de": "- Mit der neuen DSH-Version auf dem Rechner nennt die Schrittliste beim Bearbeiten mehrerer Dateien die betroffenen Dateien, und die Freigabekarte sagt, welche Datei geändert wird – statt nur eines Toolnamens.\n- In einer Antwort erwähnte Dateien bleiben antippbar, wenn sie in diesem Durchgang geändert wurden – auch bei der neuen Mehrfachbearbeitung, die DSH jetzt standardmäßig nutzt.",
-      "es": "- Con la nueva versión de DSH en el ordenador, cuando el modelo edita varios archivos de una vez la lista de pasos indica cuáles son y la tarjeta de aprobación dice qué archivo se toca, en lugar de mostrar solo el nombre de la herramienta.\n- Los archivos mencionados en una respuesta siguen siendo pulsables si cambiaron en ese turno, incluidos los editados con el nuevo modo de edición múltiple que DSH usa ahora por defecto.",
-      "fr": "- Avec la nouvelle version de DSH sur l'ordinateur, quand le modèle modifie plusieurs fichiers d'un coup, la liste des étapes indique lesquels et la carte d'approbation précise le fichier concerné, au lieu d'afficher seulement le nom de l'outil.\n- Les fichiers cités dans une réponse restent cliquables s'ils ont changé pendant ce tour, y compris ceux modifiés par le nouveau mode d'édition multiple que DSH utilise désormais par défaut.",
-      "pt": "- Com a nova versão do DSH no computador, quando o modelo edita vários arquivos de uma vez a lista de etapas mostra quais são e o cartão de aprovação diz qual arquivo será alterado, em vez de exibir só o nome da ferramenta.\n- Os arquivos citados numa resposta continuam tocáveis quando mudaram nesse turno, inclusive os editados pelo novo modo de edição múltipla que o DSH agora usa por padrão.",
-      "ru": "- С новой версией DSH на компьютере, когда модель правит несколько файлов за раз, в списке шагов видно, какие это файлы, а карточка подтверждения называет изменяемый файл, а не только имя инструмента.\n- Файлы, упомянутые в ответе, по-прежнему открываются нажатием, если они менялись в этом ходе, включая правки через новый режим множественного редактирования, который DSH теперь использует по умолчанию.",
-      "tr": "- Bilgisayardaki DSH yeni sürüme güncellendiğinde, model bir seferde birden çok dosyayı düzenlese bile adım listesi hangi dosyaların değiştiğini gösterir, onay kartı da hangi dosyanın değişeceğini söyler; artık yalnızca araç adı görünmez.\n- Yanıtta geçen dosyalar, o turda değiştiyse yine dokunarak açılabilir; DSH'nin artık varsayılan olarak kullandığı çoklu dosya düzenleme yöntemiyle yapılan değişiklikler de atlanmaz."
+      "zh-Hans": "- 端口被占用时 ZeroNews 隧道会自动改到新的专属入口，域名不变，不用删旧隧道重建\n- 面板报错按界面语言显示，外文界面不再夹中文原文\n- 安卓下载渠道按界面语言排序，地区默认两页统一",
+      "zh-Hant": "- 連接埠被佔用時 ZeroNews 隧道會自動改到新的專屬入口，網域不變，不用刪舊隧道重建\n- 面板報錯按介面語言顯示，外文介面不再夾中文原文\n- 安卓下載渠道按介面語言排序，地區預設兩頁統一",
+      "en": "- When a port is occupied, the ZeroNews tunnel repoints itself to the new dedicated entry: the domain stays the same and the old tunnel does not need deleting or rebuilding.\n- Panel errors now follow your interface language instead of showing raw Chinese text on non-Chinese screens.\n- Android download links are ordered by interface language, and region defaults are consistent across pages.",
+      "ja": "- ポートが占有されている場合、ZeroNews トンネルは新しい専用入口へ自動的に切り替わります。ドメインは変わらず、古いトンネルを削除して作り直す必要はありません。\n- パネルのエラーは画面の言語で表示され、外国語画面に中国語の本文が混ざらなくなりました。\n- Android のダウンロードリンクは画面言語順に並び、地域の初期値もページ間で統一されました。",
+      "ko": "- 포트가 사용 중이면 ZeroNews 터널이 새 전용 진입점으로 자동 전환됩니다. 도메인은 그대로이며, 기존 터널을 삭제하고 다시 만들 필요가 없습니다.\n- 패널 오류가 화면 언어로 표시되어, 외국어 화면에 중국어 원문이 섞이지 않습니다.\n- Android 다운로드 링크는 화면 언어 순으로 정렬되고, 지역 기본값도 페이지 간에 통일되었습니다.",
+      "de": "- Wenn ein Port belegt ist, verlegt der ZeroNews-Tunnel seinen Zielport automatisch auf den neuen dedizierten Eingang. Die Domain bleibt gleich, der alte Tunnel muss nicht gelöscht oder neu erstellt werden.\n- Fehlermeldungen im Panel folgen jetzt der Sprache der Oberfläche; fremdsprachige Ansichten zeigen keinen chinesischen Rohtext mehr.\n- Android-Downloadlinks sind nach der Sprache der Oberfläche geordnet, und die Regionsvoreinstellung ist auf allen Seiten einheitlich.",
+      "es": "- Cuando un puerto está ocupado, el túnel ZeroNews se redirige automáticamente a la nueva entrada dedicada: el dominio no cambia y no hace falta borrar y recrear el túnel antiguo.\n- Los errores del panel siguen ahora el idioma de la interfaz, así que las pantallas en otros idiomas ya no muestran texto chino sin traducir.\n- Los enlaces de descarga de Android se ordenan según el idioma de la interfaz y la región predeterminada es coherente en todas las páginas.",
+      "fr": "- Lorsqu'un port est occupé, le tunnel ZeroNews se redirige automatiquement vers la nouvelle entrée dédiée : le domaine reste le même et il n'est pas nécessaire de supprimer et recréer l'ancien tunnel.\n- Les erreurs du panel suivent désormais la langue de l'interface ; les écrans en d'autres langues n'affichent plus de texte chinois brut.\n- Les liens de téléchargement Android sont triés selon la langue de l'interface et la région par défaut est uniforme d'une page à l'autre.",
+      "pt": "- Quando uma porta está ocupada, o túnel ZeroNews é redirecionado automaticamente para a nova entrada dedicada: o domínio não muda e não é preciso excluir e recriar o túnel antigo.\n- Os erros do painel agora seguem o idioma da interface, então telas em outros idiomas não mostram mais texto chinês sem tradução.\n- Os links de download do Android são ordenados pelo idioma da interface e a região padrão é consistente em todas as páginas.",
+      "ru": "- Если порт занят, туннель ZeroNews автоматически переключается на новый выделенный вход: домен не меняется, старый туннель не нужно удалять и создавать заново.\n- Сообщения об ошибках в панели теперь соответствуют языку интерфейса, поэтому на других языках больше не появляется китайский текст.\n- Ссылки для скачивания Android упорядочены по языку интерфейса, а регион по умолчанию одинаков на всех страницах.",
+      "tr": "- Bir port meşgul olduğunda ZeroNews tüneli otomatik olarak yeni özel giriş noktasına yönlendirilir; alan adı değişmez, eski tüneli silip yeniden oluşturmanız gerekmez.\n- Panel hataları artık arayüz dilini takip eder; diğer dillerdeki ekranlarda ham Çince metin görünmez.\n- Android indirme bağlantıları arayüz diline göre sıralanır ve varsayılan bölge tüm sayfalarda tutarlıdır."
     }
   }
 }
