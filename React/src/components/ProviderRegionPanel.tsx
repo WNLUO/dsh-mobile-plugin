@@ -9,9 +9,9 @@
  * 未接入时给「登录」按钮进配置页走一键接入，已接入后是「停止连接」与「重置本机设置」两颗
  * （重置是破坏性动作、带二次确认）；不再单列「打开控制台」——想看用量 / 升级都在套餐入口里完成。
  *
- * 数据分两类绝不混：设备数 / 在线数 / 套餐名 / 地址来自宿主账号快照与 status，是真实事实；
+ * 数据分两类绝不混：设备数 / 在线数 / 套餐名 / 地址 / 本月流量来自宿主账号快照与 status，是真实事实；
  * 套餐权益是公开固定信息，写死在下方一处常量表，只按精确识别到的套餐显示，认不出不显示。
- * 流量已用量是云端数据、CLI 拿不到，只给额度，不编已用数字。
+ * 流量已用量由客户端 4.1.1 的 `show traffic` 给出（见 zeronews/account.cjs），读不到就不显示这一格。
  *
  * 断开 / 重置完成后调 onChanged 让外层立刻重读 status —— 其他面板组件早有这个回调，
  * 这个面板之前漏了，导致地址与「已连接」最多挂着旧值 3 秒。
@@ -238,6 +238,8 @@ function ChinaProviderPanel({ status, onChanged, onOpenProvider }: {
   const devices = (account?.devices || []).length
   const online = (account?.devices || []).filter((device) => device.online).length
   const plan = account?.account?.planName || ''
+  /** 本月流量：客户端太旧或读不出时没有这一格，界面直接不显示。 */
+  const traffic = account?.traffic || null
   const identity = account?.account?.userTel || account?.account?.userId || ''
   const tier = tierOf(plan)
   const quota = tier ? ZN_QUOTAS[tier] : null
@@ -309,6 +311,12 @@ function ChinaProviderPanel({ status, onChanged, onOpenProvider }: {
             {quota ? `${devices} / ${quota.devices}` : devices}
             <span className="ms-1 text-foreground-muted">{t('panel.zeronews.state.online')} {online}</span>
           </InlineFact>
+          {traffic ? (
+            <InlineFact label={t('panel.providerRegion.traffic')}>
+              {`${traffic.used || '—'} / ${traffic.total || '—'}`}
+              {traffic.over ? <span className="ms-1 text-foreground-muted">{t('panel.providerRegion.trafficOver')}</span> : null}
+            </InlineFact>
+          ) : null}
         </div>
 
         <PlanCompare current={tier} />

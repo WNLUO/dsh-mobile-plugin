@@ -226,7 +226,8 @@ test('套餐权益三档精确匹配：带宽/设备/在线/并发四格，认�
   assert.match(panels, /function InlineFact/, '有行内「标题左值右」小组件');
   assert.ok(!panels.includes('function Stat'), '旧的上下堆叠指标卡去掉');
   assert.match(panels, /flex flex-wrap items-baseline gap-x-5/, '三项放同一行，窄屏可换行');
-  assert.equal((panels.match(/<InlineFact/g) || []).length, 3, '地址/带宽/设备三项都用 InlineFact');
+  // 2026-11-28：需求变了——同一行再加一格「月流量」，读得到用量时才渲染，所以是四格。
+  assert.equal((panels.match(/<InlineFact/g) || []).length, 4, '地址/带宽/设备/月流量四格都用 InlineFact');
   assert.match(panels, /t\('panel\.zeronews\.state\.online'\)/, '在线数复用已有文案');
   // 2026-11-27 卡片精简：按钮统一文案、右上角胶囊、去下划线、参数压成一行小标签、加价格。
   assert.match(panels, /function TierFacts/, '参数压成一行小标签，不再一行一个');
