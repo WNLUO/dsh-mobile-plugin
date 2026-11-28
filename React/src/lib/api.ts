@@ -1,3 +1,4 @@
+// 2026-11-28：报错按错误码/中文原文取词，外文界面不再冒宿主给的中文。
 // 2026-11-28：状态契约与配置补丁补 `ipVersionPolicy`（出站协议族：auto / ipv4-first / ipv4-only）。
 // 2026-11-25：状态契约补回环入口端口、绕开标记、冲突形态与兜底原因码（老宿主缺格按缺省）。
 // 2026-11-25：自检的直连那一格带回环 health 结果，端口被抢也能看得见。
@@ -15,7 +16,7 @@
  */
 
 // 状态与二维码读取各有超时；取码校验 SVG，管理写操作也带一份兜底超时（调用方可覆盖）。
-import { t } from './i18n/index.ts'
+import { panelLanguage, t } from './i18n/index.ts'
 
 export type PairingPolicy = 'code' | 'deny'
 
@@ -989,11 +990,69 @@ export function cloudflareStop(): Promise<CloudflareActionReply> {
   return apiPost('/api/cloudflare/stop')
 }
 
+/**
+ * 宿主只写中文，面板按错误码、再按中文原文认出常见错误。
+ * 认不出的：中文界面照旧给原文（细节有用），外文界面收成一句通用失败，不让界面夹中文。
+ */
+const ERROR_MESSAGES: Record<string, string> = {
+  // 中文原文用码点写：这张表本身不是界面文案，但守卫按「已接字典的文件不许写中文」统一拦，
+  // 照 ProviderRegionPanel 里认套餐名的写法来，既不放松守卫也不让界面冒中文。
+  '\u8fd9\u53f0\u5bbf\u4e3b\u6ca1\u6709\u63a5\u5165 frpc \u8fd0\u884c\u80fd\u529b': 'panel.error.frpUnavailable',
+  '\u7f3a\u5c11 frpc \u914d\u7f6e': 'panel.error.frpConfigMissing',
+  '\u65e7 INI \u683c\u5f0f\u4e0d\u80fd\u8fd0\u884c\uff0c\u8bf7\u8ba9\u670d\u52a1\u5546\u63d0\u4f9b TOML \u6216 JSON \u914d\u7f6e': 'panel.error.frpIniUnsupported',
+  '\u8fd9\u53f0\u5bbf\u4e3b\u6ca1\u6709\u63a5\u5165 Cloudflare \u96a7\u9053\u80fd\u529b': 'panel.error.cloudflareUnavailable',
+  '\u8fd9\u53f0\u5bbf\u4e3b\u6ca1\u6709\u63a5\u5165 ZeroNews \u7ebf\u8def\u80fd\u529b': 'panel.error.zeronewsUnavailable',
+  '\u5f53\u524d\u540e\u53f0\u670d\u52a1\u4e0d\u652f\u6301\u4e3b\u52a8\u91cd\u8fde': 'panel.error.reconnectUnavailable',
+  '\u914d\u5bf9\u72b6\u6001\u5df2\u66f4\u65b0\uff0c\u8bf7\u91cd\u65b0\u83b7\u53d6\u4e8c\u7ef4\u7801': 'panel.error.pairingStale',
+}
+const ERROR_CODES: Record<string, string> = {
+  'frp-unavailable': 'panel.error.frpUnavailable',
+  'frp-ini-unsupported': 'panel.error.frpIniUnsupported',
+  'cloudflare-unavailable': 'panel.error.cloudflareUnavailable',
+  'zeronews-unavailable': 'panel.error.zeronewsUnavailable',
+  'update_unavailable': 'panel.error.updateUnavailable',
+  'ota_unavailable': 'panel.error.otaUnavailable',
+  'bad-request': 'panel.error.badRequest',
+  internal: 'panel.error.badRequest',
+}
+
+function isChineseUI(): boolean {
+  const language = panelLanguage()
+  return language === 'zh-Hans' || language === 'zh-Hant'
+}
+
+function localizedError(message: string, code?: string): string {
+  const key = ERROR_MESSAGES[message] || (code ? ERROR_CODES[code] : undefined)
+  if (key) return t(key)
+  if (!message) return t('panel.net.requestFailedNoStatus')
+  if (!isChineseUI() && /[\u4e00-\u9fff]/.test(message)) return t('panel.error.unknown')
+  return message
+}
+
 /** 界面上的错误一律走这里：网络层自己抛的 TypeError 也得变成一句人话。 */
 export function errorText(error: unknown): string {
-  if (error instanceof ApiError) return error.message
-  if (error instanceof Error) return error.message || t('panel.net.requestFailedNoStatus')
-  return String(error)
+  if (error instanceof ApiError) return localizedError(error.message, error.code)
+  if (error instanceof Error) return localizedError(error.message || t('panel.net.requestFailedNoStatus'))
+  return localizedError(String(error))
+}
+
+/** 回包里的 `error` 直接显示时走这里：`{code,message}` 与裸中文串都认，没有错误给空串。 */
+export function replyErrorText(payload: { error?: unknown } | null | undefined, fallback = ''): string {
+  const raw = payload?.error
+  if (typeof raw === 'string' && raw) return localizedError(raw)
+  if (raw && typeof raw === 'object') {
+    const detail = raw as { code?: unknown; message?: unknown }
+    const code = typeof detail.code === 'string' ? detail.code : ''
+    const message = typeof detail.message === 'string' ? detail.message : ''
+    if (message || code) return localizedError(message || t('panel.error.unknown'), code)
+  }
+  return fallback
+}
+
+/** 宿主状态里的单条错误文案（tunnel / lan / tailcat / p2p / frp 的 error 字段）。 */
+export function apiMessageText(text: unknown, fallback = ''): string {
+  if (typeof text !== 'string' || !text) return fallback
+  return localizedError(text)
 }
 
 /** 宿主代测一组地址（`POST /api/relay/probe-relays`）：中转回 service=dsh-mobile-relay + version，

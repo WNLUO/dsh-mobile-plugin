@@ -1,3 +1,4 @@
+// 2026-11-28：宿主状态里的错误文案不再原样显示，外文界面收成通用失败。
 /**
  * Tailcat 隧道（手机直连隧道）的管理弹窗。
  *
@@ -22,7 +23,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { Switch } from '@appica/ui-react/switch'
 import { useCallback, useEffect, useState } from 'react'
 
-import { apiGet, apiPost, errorText, type TailcatStatus, type TailcatView } from '../lib/api.ts'
+import { apiGet, apiMessageText, apiPost, errorText, type TailcatStatus, type TailcatView } from '../lib/api.ts'
 import { pageVisible } from '../lib/embed-visibility.ts'
 import { t } from '../lib/i18n/index.ts'
 import { useNotify } from '../lib/notify.ts'
@@ -138,7 +139,7 @@ export function TailcatDialog({ open, onOpenChange, onChanged }: Props) {
                 <span className="shrink-0 text-sm text-foreground-muted">{t('panel.tailcat.title')}</span>
                 <span className="min-w-0 text-right text-sm break-all">
                   {t(statusTextKey(status))}
-                  {status.error ? <span className="ml-1 text-xs text-foreground-muted">{status.error}</span> : null}
+                  {status.error ? <span className="ml-1 text-xs text-foreground-muted">{apiMessageText(status.error)}</span> : null}
                 </span>
               </div>
 

@@ -1,4 +1,5 @@
 // 2026-11-24：概览卡加「彻底清理」入口，二次确认后把本机登录、配置与缓存一次清掉。
+// 2026-11-28：错误提示按错误码/原文取词，外文界面不再显示宿主给的中文。
 // ZeroNews 服务商主页：账号概览 + 隧道 / 设备左右两栏。进入即看，数据本地留底。
 /**
  * ZeroNews 的配置页（2026-11-23 第二次重做）。
@@ -23,7 +24,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useState } from 'react'
 
 import type { StatusView, ZeroNewsAccount } from '../lib/api.ts'
-import { zeroNewsAccount, zeroNewsConnect, zeroNewsDisconnect, zeroNewsPrepare, zeroNewsPurge } from '../lib/api.ts'
+import { errorText, replyErrorText, zeroNewsAccount, zeroNewsConnect, zeroNewsDisconnect, zeroNewsPrepare, zeroNewsPurge } from '../lib/api.ts'
 import { cn, timeText, toneText, type Tone } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
 import { Dot } from './InfoRow.tsx'
@@ -200,7 +201,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     try {
       const next = await zeroNewsAccount()
       if (next && next.ok === false) {
-        if (showSpinner) setNote(next.error || t('panel.zeronews.loadFailed'))
+        if (showSpinner) setNote(replyErrorText(next, t('panel.zeronews.loadFailed')))
         return
       }
       setSnapshot(next)
@@ -221,7 +222,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     let needSetup = false
     try {
       const res = await zeroNewsConnect()
-      const error = typeof res.error === 'string' ? res.error : res.error?.message
+      const error = replyErrorText(res)
       if (res.phase === 'login') {
         // 这台机器还没登录：别再干等，转去会打开浏览器确认页的接入流程。
         needSetup = true
@@ -231,7 +232,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
       else if (error) setNote(error)
       await refresh(false)
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error))
+      setNote(errorText(error))
     } finally {
       setLinkBusy(false)
     }
@@ -247,7 +248,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     setNoteOk(false)
     try {
       const res = await zeroNewsConnect(value)
-      const error = typeof res.error === 'string' ? res.error : res.error?.message
+      const error = replyErrorText(res)
       if (!res.ok && error) setNote(error)
       else if (error) setNote(error)
       else {
@@ -257,7 +258,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
       }
       await refresh(false)
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error))
+      setNote(errorText(error))
     } finally {
       setLinkBusy(false)
     }
@@ -273,7 +274,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     try {
       const res = await zeroNewsPrepare()
       if (!res.ok) {
-        setNote(res.error || t('panel.zeronews.loadFailed'))
+        setNote(replyErrorText(res, t('panel.zeronews.loadFailed')))
         return
       }
       if (res.already) {
@@ -287,7 +288,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
       }
       await refresh(false)
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error))
+      setNote(errorText(error))
     } finally {
       setLinkBusy(false)
       if (autoConnect) void connect(true, true)
@@ -302,11 +303,11 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     setNoteOk(false)
     try {
       const res = await zeroNewsDisconnect()
-      const error = typeof res.error === 'string' ? res.error : res.error?.message
+      const error = replyErrorText(res)
       if (!res.ok && error) setNote(error)
       await refresh(false)
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error))
+      setNote(errorText(error))
     } finally {
       setLinkBusy(false)
     }
@@ -320,7 +321,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
     setNoteOk(false)
     try {
       const res = await zeroNewsPurge()
-      const error = typeof res.error === 'string' ? res.error : ''
+      const error = replyErrorText(res)
       if (!res.ok && error) setNote(error)
       else { setNote(t('panel.zeronews.purgeDone')); setNoteOk(true) }
       await refresh(false)
@@ -328,7 +329,7 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
         try { localStorage.removeItem(CACHE_KEY) } catch { /* 留底删不掉不影响清理本身 */ }
       }
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error))
+      setNote(errorText(error))
     } finally {
       setLinkBusy(false)
     }

@@ -169,8 +169,14 @@ test('服务商线路：标题右边中国/国际标签，按语言定默认、�
   // 2026-11-27 用户要求：面板区分区分国内 / 国际用户。识别只决定默认标签，不锁死；
   // 用户点一次标签就记住选择，改界面语言也不会被切到另一边。
   const region = read('React', 'src', 'components', 'NetworkRegions.tsx');
+  // 2026-11-28 需求变更：地区默认口径统一到 lib/network-region.ts 一处，引导页与主页共用；
+  // 断言改成钉住共用实现，不放宽「中文默认国内、其余默认国际」这件事。
   assert.match(region, /usePanelLanguage\(\)/, '默认标签看界面语言，不是系统时区');
-  assert.match(region, /language === 'zh-Hans' \|\| language === 'zh-Hant' \? 'cn' : 'global'/, '中文 / 繁体默认中国，其余默认国际');
+  const shared = read('React', 'src', 'lib', 'network-region.ts');
+  assert.match(shared, /if \(language === 'zh-Hans' \|\| language === 'zh-Hant'\) return 'cn'/, '中文 / 繁体默认中国');
+  assert.match(shared, /if \(language\) return 'global'/, '其余语言默认国际');
+  const onboarding = read('React', 'src', 'Onboarding.tsx');
+  assert.match(onboarding, /chosenRegion \?\? defaultRegionOf\(language\)/, '引导页也用同一套地区默认');
   assert.match(region, /localStorage\.setItem\(REGION_CHOICE_KEY/, '手动选择要记下来');
   assert.match(region, /chosen \?\? defaultRegionOf\(language\)/, '没手动选过才跟语言走');
   assert.match(region, /t\('panel\.region\.title'\)/, '标题还是服务商线路');

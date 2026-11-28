@@ -1,3 +1,4 @@
+// 2026-11-28：宿主状态里的错误文案不再原样显示，外文界面收成通用失败。
 // 2026-11-26 用户要求：撤掉局域网端口那行的编辑按钮；端口只读展示，逻辑与冲突修复入口不动。
 // 复用现有状态行和按钮展示 FRP 运行、恢复与主动停用入口。
 // 2026-11-20 用户要求：去掉「设备名」「实例 ID」两行与 TCP 直连的地址。
@@ -14,6 +15,7 @@ import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 
 import type { AddressBook, CloudflareStatus, P2PStatus, StatusView, TailcatStatus } from '../lib/api.ts'
+import { apiMessageText } from '../lib/api.ts'
 import { sidecarText, timeText, tunnelText, tunnelTone, type Tone } from '../lib/format.ts'
 import { InfoList, InfoRow, ToneValue } from './InfoRow.tsx'
 import { IssueMark, type Issue } from './IssueMark.tsx'
@@ -183,7 +185,7 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
         <InfoRow
           label={t('panel.connection.tunnel')}
           tone={tunnelTone(tunnel.state)}
-          labelExtra={tunnel.error ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.tunnel'), detail: tunnel.error }} /> : undefined}
+          labelExtra={tunnel.error ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.tunnel'), detail: tunnel.error ? apiMessageText(tunnel.error) : '' }} /> : undefined}
         >
           <ToneValue tone={tunnelTone(tunnel.state)} text={tunnelText(tunnel.state)} />
         </InfoRow>
@@ -192,7 +194,7 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
             label={t('panel.tailcat.title')}
             tone={tailcatTone(tailcat)}
             labelExtra={(!tailcat.available || tailcat.error)
-              ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.tailcat.title'), detail: !tailcat.available ? t('panel.tailcat.unavailable') : (tailcat.error ?? '') }} />
+              ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.tailcat.title'), detail: !tailcat.available ? t('panel.tailcat.unavailable') : apiMessageText(tailcat.error) }} />
               : undefined}
           >
             <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
@@ -208,7 +210,7 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
             label={t('panel.p2p.title')}
             tone={p2pTone(p2p)}
             labelExtra={(!p2p.available || p2p.error)
-              ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.p2p.title'), detail: !p2p.available ? t('panel.p2p.unavailable') : (p2p.error ?? '') }} />
+              ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.p2p.title'), detail: !p2p.available ? t('panel.p2p.unavailable') : apiMessageText(p2p.error) }} />
               : undefined}
           >
             <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
@@ -226,7 +228,7 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
           <InfoRow
             label={t('panel.connection.frp')}
             tone={frpTone}
-            labelExtra={frp?.error ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.frp'), detail: frp.error }} /> : undefined}
+            labelExtra={frp?.error ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.frp'), detail: frp.error ? apiMessageText(frp.error) : '' }} /> : undefined}
           >
             <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
               <ToneValue tone={frpTone} text={frpText} />
@@ -240,12 +242,12 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
           label={t('panel.cloudflare.title')}
           tone={cloudflareTone(cloudflare)}
           labelExtra={cloudflare && (!cloudflare.available || cloudflare.error)
-            ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.cloudflare.title'), detail: !cloudflare.available ? t('panel.cloudflare.unavailable') : (cloudflare.error ?? '') }} />
+            ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.cloudflare.title'), detail: !cloudflare.available ? t('panel.cloudflare.unavailable') : apiMessageText(cloudflare.error) }} />
             : undefined}
         >
           <span className="inline-flex flex-wrap items-center justify-end gap-x-2">
             <ToneValue tone={cloudflareTone(cloudflare)} text={t(cloudflareTextKey(cloudflare))}
-              {...(cloudflare?.waitingForPort && status.lan?.error ? { detail: status.lan.error } : {})} />
+              {...(cloudflare?.waitingForPort && status.lan?.error ? { detail: apiMessageText(status.lan.error) } : {})} />
             <Button variant="ghost" size="sm" onClick={onManageCloudflare}>
               {t('panel.tailcat.manage')}
             </Button>
@@ -263,7 +265,7 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
         </InfoRow>
         <InfoRow
           label={t('panel.connection.mirror')}
-          labelExtra={status.mirror.ok === false ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.mirror'), detail: status.mirror.error || '' }} /> : undefined}
+          labelExtra={status.mirror.ok === false ? <IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.mirror'), detail: status.mirror.error ? apiMessageText(status.mirror.error) : '' }} /> : undefined}
         >
           <ToneValue
             tone={status.mirror.ok ? 'ok' : status.mirror.error ? 'error' : 'warn'}
@@ -282,7 +284,7 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
         <InfoList>
           <InfoRow
             label={t('panel.connection.lan')}
-            labelExtra={<IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.lan'), detail: (status.lan.error || status.lan.discovery?.error) ?? '' }} />}
+            labelExtra={<IssueMark issue={{ facts: connectionFeedbackFacts(status), title: t('panel.connection.lan'), detail: apiMessageText(status.lan.error || status.lan.discovery?.error) }} />}
           >
             <ToneValue tone="warn" text={t('panel.lan.error')} />
           </InfoRow>

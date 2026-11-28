@@ -1,3 +1,4 @@
+// 2026-11-28：地区默认口径合成一处——按界面语言，读不到语言才按时区兜底。
 // 2026-11-27：国内服务商只留 ZeroNews，节点小宝与 FRP 的入口收掉（宿主能力保留）。
 // 网络线路的地址与互相跳转：网络配置主内容铺在首页，只有地区页 #network/cn|global 与
 // 地区下面每家服务商各占一页（#network/cn/zeronews 之类）。
@@ -10,6 +11,24 @@
  * 单文件，多一层依赖只为几个地址不值）。
  */
 export type NetworkRegion = 'cn' | 'global'
+
+/** 只认中国大陆与港澳的时区，别的都当海外；仅在没有界面语言时兜底用。 */
+const CN_TIMEZONES = /^Asia\/(Shanghai|Chongqing|Harbin|Urumqi|Kashgar|Hong_Kong|Macau)$/
+
+/**
+ * 没手动选过地区时的默认值：中文界面给国内，其余语言给国际。
+ * 语言实在读不到才看系统时区 —— 引导页与主页共用这一处口径，别一边按语言一边按时区。
+ */
+export function defaultRegionOf(language: string, timeZone?: string): NetworkRegion {
+  if (language === 'zh-Hans' || language === 'zh-Hant') return 'cn'
+  if (language) return 'global'
+  try {
+    const zone = timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? ''
+    return CN_TIMEZONES.test(zone) ? 'cn' : 'global'
+  } catch {
+    return 'global'
+  }
+}
 
 /** 地区下的服务商。国内现在只有 ZeroNews，国际目前只有 Cloudflare。 */
 export type NetworkProvider = 'zeronews' | 'cloudflare'

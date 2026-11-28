@@ -1,3 +1,4 @@
+// 2026-11-28：错误提示按错误码/原文取词，外文界面不再显示宿主给的中文。
 // 2026-11-27：未接入时给「登录」按钮，点进 zeronews 配置页走一键接入；已接入仍是停止/重置。
 // 2026-11-27：服务商线路专属面板——按标签展示 zeronews 账号概览或 Cloudflare 状态。
 /**
@@ -21,8 +22,7 @@ import { Button } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import { useEffect, useState, type ReactNode } from 'react'
 
-import {
-  zeroNewsAccount, zeroNewsDisconnect, zeroNewsPurge,
+import { errorText, replyErrorText, zeroNewsAccount, zeroNewsDisconnect, zeroNewsPurge,
   type StatusView, type ZeroNewsAccount,
 } from '../lib/api.ts'
 import { cn, toneText, type Tone } from '../lib/format.ts'
@@ -253,12 +253,12 @@ function ChinaProviderPanel({ status, onChanged, onOpenProvider }: {
     setNote('')
     try {
       const res = await zeroNewsDisconnect()
-      const error = typeof res.error === 'string' ? res.error : res.error?.message
+      const error = replyErrorText(res)
       if (!res.ok && error) setNote(error)
       setAccount(await zeroNewsAccount())
       onChanged?.()
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error))
+      setNote(errorText(error))
     } finally {
       setBusy(false)
     }
@@ -271,7 +271,7 @@ function ChinaProviderPanel({ status, onChanged, onOpenProvider }: {
     setNote('')
     try {
       const res = await zeroNewsPurge()
-      if (!res.ok && res.error) setNote(res.error)
+      if (!res.ok && res.error) setNote(replyErrorText(res))
       else {
         setNote(t('panel.zeronews.purgeDone'))
         setAccount(null)
@@ -279,7 +279,7 @@ function ChinaProviderPanel({ status, onChanged, onOpenProvider }: {
         onChanged?.()
       }
     } catch (error) {
-      setNote(error instanceof Error ? error.message : String(error))
+      setNote(errorText(error))
     } finally {
       setBusy(false)
     }

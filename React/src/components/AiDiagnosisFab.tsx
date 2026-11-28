@@ -1,3 +1,4 @@
+// 2026-11-28：错误提示按错误码/原文取词，外文界面不再显示宿主给的中文。
 // 2026-11-26 用户要求：弹窗标题与描述说清「点下去会发生什么」；工作区默认让宿主决定，不显选技术名。
 // 2026-11-26 用户要求：问诊胶囊改成白底黑字，原先的 bg-surface 在这块看着是透明的。
 /**
@@ -21,7 +22,7 @@ import {
 } from '@appica/ui-react/dialog'
 import { useEffect, useState } from 'react'
 
-import { apiGet, apiPost, errorText } from '../lib/api.ts'
+import { apiGet, apiPost, errorText, replyErrorText } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 
 /**
@@ -71,7 +72,7 @@ export function AiDiagnosisFab() {
         const next = await apiGet<Options>('/api/relay/ai-diagnosis/options')
         if (!alive) return
         if (!next.ok) {
-          setLoadError(next.error?.message || t('panel.net.requestFailedNoStatus'))
+          setLoadError(replyErrorText(next, t('panel.net.requestFailedNoStatus')))
           setOptions(next)
           return
         }
@@ -99,7 +100,7 @@ export function AiDiagnosisFab() {
         ...(provider && model ? { provider, model } : {}),
         prompt: t('panel.aiDiagnosis.prompt'),
       })
-      if (!sent.ok) throw new Error(sent.error?.message || '')
+      if (!sent.ok) throw new Error(replyErrorText(sent) || t('panel.error.unknown'))
       setResult({ text: t('panel.aiDiagnosis.started'), failed: false })
     } catch (error) {
       setResult({ text: t('panel.aiDiagnosis.failed', { message: errorText(error) }), failed: true })

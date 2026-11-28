@@ -1,4 +1,5 @@
 // Cloudflare 匿名隧道的管理与状态：国际线路那一页与「连接状态」卡里的管理弹窗共用这一份。
+// 2026-11-28：错误提示按错误码/原文取词，外文界面不再显示宿主给的中文。
 // 等待端口时把局域网端口的真实错误带出来，免得用户以为这条隧道自己坏了。
 /**
  * Cloudflare 兜底隧道的面板内容（不含窗口外壳）。
@@ -12,7 +13,7 @@
 import { Switch } from '@appica/ui-react/switch'
 import { useEffect, useState } from 'react'
 
-import { cloudflareStart, cloudflareStop, errorText, type CloudflareStatus, type StatusView } from '../lib/api.ts'
+import { apiMessageText, cloudflareStart, cloudflareStop, errorText, replyErrorText, type CloudflareStatus, type StatusView } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 import { InfoRow, ToneValue } from './InfoRow.tsx'
 
@@ -65,8 +66,8 @@ export function CloudflarePanel({ status, onChanged }: Props) {
               ? t('panel.cloudflare.waitingForPort')
               : t('panel.cloudflare.available')
   /** 状态行的细节：运行中给当前地址，出错给原因，等端口时给局域网那头的真实原因；其余不留。 */
-  const detail = cf?.running && cf.url ? `${t('panel.cloudflare.url')}: ${cf.url}` : cf?.error ? cf.error
-    : cf?.waitingForPort && status.lan?.error ? status.lan.error : undefined
+  const detail = cf?.running && cf.url ? `${t('panel.cloudflare.url')}: ${cf.url}` : cf?.error ? apiMessageText(cf.error)
+    : cf?.waitingForPort && status.lan?.error ? apiMessageText(status.lan.error) : undefined
   /** 请求在飞、或 cloudflared 未安装时开关不可点。 */
   const disabled = busy || cf?.available === false
 
@@ -78,7 +79,7 @@ export function CloudflarePanel({ status, onChanged }: Props) {
     try {
       const reply = next ? await cloudflareStart() : await cloudflareStop()
       if (reply.ok === false) {
-        setError(reply.error?.message || t('panel.cloudflare.error'))
+        setError(replyErrorText(reply, t('panel.cloudflare.error')))
         return
       }
       setLive({

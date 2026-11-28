@@ -1,3 +1,4 @@
+// 2026-11-28：宿主状态里的错误文案不再原样显示，外文界面收成通用失败。
 // 2026-11-28：按用户要求撤掉两张入口卡上的图标，只留标题、说明与进入提示。
 // 2026-11-28：网络配置首页改成两张大入口卡（服务商 / 自定义网络），点进去展开对应区域，顶部可返回。
 // 2026-11-28：网络配置加「出站协议族」三档单选（auto / ipv4-first / ipv4-only），变了才进 patch。
@@ -36,7 +37,7 @@ import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
 import { useEffect, useRef, useState } from 'react'
 
-import { frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
+import { apiMessageText, frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { RELAY_REPO_URL } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
 import type { NetworkProvider } from '../lib/network-region.ts'
@@ -441,7 +442,7 @@ export function RelayConfigDialog({
     try {
       const res = await importFrp(frpText)
       if (!res.ok) {
-        setFrpNote(res.status?.error || t('panel.frp.statusStop'))
+        setFrpNote(apiMessageText(res.status?.error, t('panel.frp.statusStop')))
         return
       }
       // 成功要看得见：关窗并立刻重读宿主状态，地址栏不用等下一次轮询。
@@ -1004,7 +1005,7 @@ export function RelayConfigDialog({
             {status.frp?.running && status.frp?.remoteAddress ? (
               <p className="mt-1 text-xs text-foreground-muted">{status.frp.remoteAddress}</p>
             ) : null}
-            {status.frp?.error ? <p className="mt-1 text-xs text-error">{status.frp.error}</p> : null}
+            {status.frp?.error ? <p className="mt-1 text-xs text-error">{apiMessageText(status.frp.error)}</p> : null}
             {frpNote ? <p className="mt-1 text-xs text-error">{frpNote}</p> : null}
           </DialogBody>
           <DialogFooter className="flex justify-end gap-2">

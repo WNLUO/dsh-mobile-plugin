@@ -1,3 +1,4 @@
+// 2026-11-28：宿主状态里的错误文案不再原样显示，外文界面收成通用失败。
 /**
  * 点对点隧道（P2P）的管理弹窗。
  *
@@ -26,7 +27,7 @@ import { Spinner } from '@appica/ui-react/spinner'
 import { Switch } from '@appica/ui-react/switch'
 import { useCallback, useEffect, useState } from 'react'
 
-import { apiGet, apiPost, errorText, type P2PStatus } from '../lib/api.ts'
+import { apiGet, apiMessageText, apiPost, errorText, type P2PStatus } from '../lib/api.ts'
 import { pageVisible } from '../lib/embed-visibility.ts'
 import { t } from '../lib/i18n/index.ts'
 import { useNotify } from '../lib/notify.ts'
@@ -140,7 +141,7 @@ export function P2PDialog({ open, onOpenChange, onChanged }: Props) {
                 <span className="shrink-0 text-sm text-foreground-muted">{t('panel.p2p.stateLabel')}</span>
                 <span className="min-w-0 text-right text-sm break-all">
                   {t(statusTextKey(status))}
-                  {status.error ? <span className="ml-1 text-xs text-foreground-muted">{status.error}</span> : null}
+                  {status.error ? <span className="ml-1 text-xs text-foreground-muted">{apiMessageText(status.error)}</span> : null}
                 </span>
               </div>
 

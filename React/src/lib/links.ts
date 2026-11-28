@@ -1,3 +1,4 @@
+// 2026-11-28：下载渠道按界面语言排序，海外界面把 GitHub 放前面。
 /**
  * 面板里指向站外的固定链接。
  *
@@ -47,6 +48,8 @@ export type DownloadChannel = {
   /** 只写「怎么来的、适合谁」，别写安装步骤——面板不是手册。这一格是字典键。 */
   hintKey: string
   url: string
+  /** 只在这条渠道明确适合某一边时填；排序把匹配的那条提前，没填的保持原顺序。 */
+  preferredRegion?: 'cn' | 'global'
 }
 
 /**
@@ -72,11 +75,13 @@ export const DOWNLOAD_CHANNELS: { platform: DownloadPlatform; channels: Download
         nameKey: 'panel.links.distPlatform',
         hintKey: 'panel.links.domesticRecommended',
         url: 'https://app.wnluo.com/api/public/apps/14/download-latest',
+        preferredRegion: 'cn',
       },
       {
         name: 'GitHub',
         hintKey: 'panel.links.overseasRecommended',
         url: 'https://github.com/WNLUO/dsh-mobile-plugin/releases/latest/download/ai-hub-android.apk',
+        preferredRegion: 'global',
       },
     ],
   },
@@ -98,3 +103,15 @@ export const DOWNLOAD_CHANNELS: { platform: DownloadPlatform; channels: Download
     ],
   },
 ]
+
+/**
+ * 按界面语言排渠道：中文把国内分发平台放前，其余语言把 GitHub 放前。
+ * 四条都照常显示、苹果那组顺序不动 —— 只改真正有地区偏好的那两条。
+ */
+export function downloadChannels(language: string): typeof DOWNLOAD_CHANNELS {
+  const preferred: DownloadChannel['preferredRegion'] = language === 'zh-Hans' || language === 'zh-Hant' ? 'cn' : 'global'
+  return DOWNLOAD_CHANNELS.map((group) => ({
+    ...group,
+    channels: [...group.channels].sort((a, b) => Number(b.preferredRegion === preferred) - Number(a.preferredRegion === preferred)),
+  }))
+}

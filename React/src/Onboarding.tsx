@@ -1,3 +1,4 @@
+// 2026-11-28：宿主状态里的错误文案不再原样塞进提示，外文界面收成通用失败。
 // 2026-11-27：修引导页第三页「下一步」误留在第三页（setStep(3)），小白走到配网络就再也到不了扫码页；改为进第四页。
 // 2026-11-27：引导页加一页「选个方式」插在装 App 之后，原配网络/扫码顺延成第三/四页。
 // 2026-11-27：国内服务商只留 ZeroNews，节点小宝的状态轮询与入口收掉（宿主能力保留）。
@@ -15,7 +16,7 @@
  * 一屏一页，顺序照新用户真实的动作走：
  *   1. **下载 App** —— 手机还没装 App 的话，后面扫码也没处扫；
  *   2. **选个方式** —— 先看用户有没有网络基础：小白走引导，自己会配的直接进控制台；
- *   3. **配网络** —— 按地区（默认看这台电脑的时区，可手动切）列出服务商，主推一家；这一页可以
+ *   3. **配网络** —— 按地区（默认按界面语言，可手动切）列出服务商，主推一家；这一页可以
  *      **跳过**，跳过就直接进控制台（不接线路、也不去扫码页）；
  *   4. **扫码连接** —— 线路接好之后才放二维码，手机扫了才能连。
  *
@@ -54,6 +55,7 @@ import { QuestionMark } from './components/QuestionMark.tsx'
 import { submitDirectFeedback } from './components/IssueMark.tsx'
 import {
   apiGet,
+  apiMessageText,
   apiPost,
   cloudflareStart,
   errorText,
@@ -77,6 +79,8 @@ import {
 } from './lib/selfcheck.ts'
 import { onboardingProvidersOf, regionHasReadyRoute, type OnboardingProvider } from './lib/onboarding-providers.tsx'
 import type { NetworkRegion } from './lib/network-region.ts'
+import { defaultRegionOf } from './lib/network-region.ts'
+import { usePanelLanguage } from './lib/i18n/use-language.ts'
 import { t } from './lib/i18n/index.ts'
 import { pageVisible } from './lib/embed-visibility.ts'
 import { usePairingCompletion } from './lib/usePairingCompletion.ts'
@@ -84,22 +88,6 @@ import { usePairingCompletion } from './lib/usePairingCompletion.ts'
 type Props = {
   /** 配好之后去哪。默认回插件主页。 */
   onDone?: () => void
-}
-
-/** 中国时区：这些时区默认按「国内」处理（只认 PRC 及港澳，别的一律当海外）。 */
-const CN_TIMEZONES = /^Asia\/(Shanghai|Chongqing|Harbin|Urumqi|Kashgar|Hong_Kong|Macau)$/
-
-/**
- * 这台电脑大概在哪个地区：按系统时区猜，猜错用户点一下就能切。
- * 只作为默认值 —— 页面上始终摆着「国内 / 国际」两颗，不靠它做任何不可逆的判断。
- */
-function detectRegion(): NetworkRegion {
-  try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
-    return CN_TIMEZONES.test(tz) ? 'cn' : 'global'
-  } catch {
-    return 'global'
-  }
 }
 
 /**
@@ -127,8 +115,10 @@ export function Onboarding({ onDone }: Props) {
   const [pairing, setPairing] = useState<PairingInfo | null>(null)
   const [pairingError, setPairingError] = useState('')
   const [preferred, setPreferred] = useState('')
-  /** 当前地区：默认按系统时区猜，用户可切。 */
-  const [region, setRegion] = useState<NetworkRegion>(detectRegion)
+  /** 当前地区：没手动选过时跟界面语言走，用户可切。 */
+  const [chosenRegion, setChosenRegion] = useState<NetworkRegion | null>(null)
+  const language = usePanelLanguage()
+  const region = chosenRegion ?? defaultRegionOf(language)
   /** 走到第几页：1 下载 App、2 选个方式、3 配网络、4 扫码连接。 */
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   /** 第四页出码前的自检结果：码里的地址宿主真拨了一遍。 */
@@ -576,10 +566,10 @@ export function Onboarding({ onDone }: Props) {
         title: status.lan.state === 'error' ? t('panel.onboarding.lanFailed') : t('panel.onboarding.relayFailed'),
         message: status.lan.state === 'error'
           ? status.lan.error
-            ? t('panel.onboarding.lanErrorWithPort', { error: status.lan.error })
+            ? t('panel.onboarding.lanErrorWithPort', { error: apiMessageText(status.lan.error) })
             : t('panel.onboarding.lanNoStart')
           : status.tunnel.error
-            ? t('panel.onboarding.tunnelErrorHint', { error: status.tunnel.error })
+            ? t('panel.onboarding.tunnelErrorHint', { error: apiMessageText(status.tunnel.error) })
             : t('panel.onboarding.tunnelNoStart'),
       }
     : null
@@ -690,7 +680,7 @@ export function Onboarding({ onDone }: Props) {
                     <button
                       key={value}
                       type="button"
-                      onClick={() => setRegion(value)}
+                      onClick={() => setChosenRegion(value)}
                       className={cn(
                         'cursor-pointer rounded px-2.5 py-1 text-xs transition-colors',
                         region === value ? 'bg-primary text-primary-foreground' : 'text-foreground-muted hover:text-foreground-strong',

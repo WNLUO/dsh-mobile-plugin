@@ -1,3 +1,4 @@
+// 2026-11-28：地区默认改用 lib/network-region 的共用口径，与引导页一致。
 // 2026-11-27：未接入时面板给「登录」按钮，透传进服务商页的回调。
 // 2026-11-27：服务商线路标题右边的中国/国际标签，按界面语言定默认，切标签换专属面板。
 // 2026-11-27：面板去掉「详细配置」按钮，ServiceRegion 的页面路径保留但不从面板进入。
@@ -18,14 +19,10 @@ import { cn } from '../lib/format.ts'
 import { t } from '../lib/i18n/index.ts'
 import { usePanelLanguage } from '../lib/i18n/use-language.ts'
 import type { NetworkProvider, NetworkRegion } from '../lib/network-region.ts'
+import { defaultRegionOf } from '../lib/network-region.ts'
 import { ProviderRegionPanel } from './ProviderRegionPanel.tsx'
 
 const REGION_CHOICE_KEY = 'dsh-mobile-plugin:provider-region-choice'
-
-/** 界面语言 → 默认地区：中文 / 繁体归国内，其余归国际。 */
-function defaultRegionOf(language: string): NetworkRegion {
-  return language === 'zh-Hans' || language === 'zh-Hant' ? 'cn' : 'global'
-}
 
 /** 用户手动选过就记住；没选过跟着语言走。 */
 function savedRegion(): NetworkRegion | null {

@@ -1,6 +1,7 @@
 // Cloudflare 兜底隧道：ConnectionCard 入口行 + CloudflarePanel 开关/状态源码断言。
 // 等待端口时两处都要带出局域网端口的真实错误，别让用户误判这条隧道。
 // 接口与文案由 api.ts / panel.ts 钉住；管理弹窗与国际线路页共用 CloudflarePanel，不写两份实现。
+// 2026-11-28 需求变更：错误文案按语言取词，回包与状态里的原文不再直接透出；断言跟着改，行为检查不放宽。
 'use strict';
 
 /**
@@ -59,19 +60,19 @@ test('CloudflarePanel 状态行复用 InfoRow / 状态点，从传入的 status.
   assert.match(panel, /panel\.cloudflare\.url/, '运行中要能显示当前地址');
   assert.match(panel, /cf\.running/, '运行态按 cf.running 判');
   assert.match(panel, /cf\.error/, '错误态按 cf.error 判');
-  assert.match(panel, /cf\?\.waitingForPort && status\.lan\?\.error \? status\.lan\.error/, '等端口时带出局域网真实错误');
+  assert.match(panel, /cf\?\.waitingForPort && status\.lan\?\.error \? apiMessageText\(status\.lan\.error\)/, '等端口时带出局域网真实错误（经本地化）');
 });
 
 test('连接卡的 Cloudflare 行在等待端口时也带出局域网错误', () => {
   const card = read('React', 'src', 'components', 'ConnectionCard.tsx');
-  assert.match(card, /cloudflare\?\.waitingForPort && status\.lan\?\.error \? \{ detail: status\.lan\.error \}/);
+  assert.match(card, /cloudflare\?\.waitingForPort && status\.lan\?\.error \? \{ detail: apiMessageText\(status\.lan\.error\) \}/);
 });
 
 test('CloudflarePanel 失败按现有方式在行下给红字提示', () => {
   const panel = read('React', 'src', 'components', 'CloudflarePanel.tsx');
   assert.match(panel, /error \? <p className="text-xs text-error">\{error\}<\/p> : null/, '失败沿用现有的红字提示');
   assert.match(panel, /errorText\(err\)/, '网络层错误也要变成一句人话');
-  assert.match(panel, /reply\.error\?\.message/, '回包里的失败原因要透出来');
+  assert.match(panel, /replyErrorText\(reply, t\('panel\.cloudflare\.error'\)\)/, '回包里的失败原因经本地化后透出来');
 });
 
 test('CloudflareDialog 只做窗口外壳，内容交给共用的 CloudflarePanel', () => {

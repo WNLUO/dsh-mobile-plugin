@@ -1,3 +1,4 @@
+// 2026-11-28：反馈失败提示不再夹宿主给的中文原文。
 // 用途：异常提示入口；把这条已脱敏摘要直接提交到公开反馈接口，并把线程 key 就地回显。
 /**
  * 异常提示入口：标签右边一颗红色感叹号，点开看全文，还能一键复制发给别人。
@@ -12,7 +13,7 @@ import { CopyButton } from '@appica/ui-react/copy-button'
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@appica/ui-react/dialog'
 import { useState } from 'react'
 
-import { ApiError, apiGet, apiPost } from '../lib/api.ts'
+import { ApiError, apiGet, apiMessageText, apiPost } from '../lib/api.ts'
 import { t } from '../lib/i18n/index.ts'
 import { useNotify } from '../lib/notify.ts'
 import { InfoMark } from './InfoMark.tsx'
@@ -131,7 +132,7 @@ export function IssueMark({ issue }: { issue: Issue }) {
       })
       setThreadKey(result.threadKey)
     } catch (error) {
-      setSendError(t('panel.feedback.failed', { error: (error as Error).message || String(error) }))
+      setSendError(t('panel.feedback.failed', { error: apiMessageText(error instanceof Error ? error.message : String(error)) }))
     } finally {
       setSending(false)
     }

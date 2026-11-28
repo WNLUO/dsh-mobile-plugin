@@ -1,3 +1,4 @@
+// 2026-11-28：用户确认扩大范围——日语问诊词里不许再夹中文网络术语；其余断言不放宽。
 // 2026-11-27：用户要求加一条「外语文案照抄中文」守卫；日韩汉字合法，只钉与中文源逐字相同的。
 // 2026-11-26：两档版日夜按钮与永不渲染的外壳按钮组一并清掉，守卫跟着改，其余断言不放宽。
 // 2026-11-26：用户要求顶栏三颗按钮从前端撤掉，位置断言跟着改，字典与其余断言不放宽。
@@ -133,6 +134,21 @@ test('外语文案不许照抄中文（拉丁与西里尔全量，日韩只钉�
   }
 
   assert.deepEqual(copied.slice(0, 20), [], '这些外语文案还是中文');
+});
+
+/**
+ * 2026-11-28 用户确认扩大范围：日语正文里汉字合法，但「公网 / 映射 / 自建 / 排查」这批
+ * 中文网络术语不是日语，之前就混在问诊提示词里。这里只钉这几个词，不做一刀切 CJK 检查。
+ */
+test('日语问诊提示词不夹中文网络术语', () => {
+  const table = loadDomain('ai-diagnosis.ts')
+  const jargon = ['公网', '映射', '自建', '排查', '第一步', '第二步', '第三步']
+  const found = []
+  for (const key of ['panel.aiDiagnosis.prompt', 'panel.aiDiagnosis.hint']) {
+    const text = table[key]?.ja || ''
+    for (const term of jargon) if (text.includes(term)) found.push(`${key}: ${term}`)
+  }
+  assert.deepEqual(found, [], '这些中文术语还留在日语问诊词里');
 });
 
 test('同一个键不许落在两个领域文件里', () => {

@@ -1,3 +1,4 @@
+// 2026-11-28：下载渠道按顺序随界面语言走，海外界面 GitHub 在前。
 /**
  * 「下载 APP」按钮 + 它点开的渠道弹窗。
  * 入口用手机轮廓与下载箭头表达移动端下载，不依赖平台品牌标识。
@@ -26,8 +27,9 @@ import {
 import { useRef, useState } from 'react'
 
 import appLogo from '../assets/ai-hub-logo.png'
-import { DOWNLOAD_CHANNELS, type DownloadChannel } from '../lib/links.ts'
+import { downloadChannels, type DownloadChannel } from '../lib/links.ts'
 import { t } from '../lib/i18n/index.ts'
+import { usePanelLanguage } from '../lib/i18n/use-language.ts'
 
 type Props = {
   /** 对齐旁边那排按钮的尺寸；引导页底部那一排是默认的 md，标题栏里用 sm。 */
@@ -78,9 +80,10 @@ function ChannelCard({ channel }: { channel: DownloadChannel }) {
  * 这里是纯内容，不带弹窗外壳，谁要摆就直接摆。
  */
 export function DownloadChannelsGrid() {
+  const language = usePanelLanguage()
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      {DOWNLOAD_CHANNELS.map((group) => (
+      {downloadChannels(language).map((group) => (
         <div key={group.platform} className="flex flex-col gap-2">
           <div className="flex items-center justify-center gap-1.5 pb-0.5 text-xs text-foreground-muted">
             {platformGlyph(group.platform)}

@@ -1,3 +1,4 @@
+// 2026-11-28：爱发电只对中文用户显示，与微信群按钮同一口径。
 /**
  * 「赞助」按钮，点开弹赞助窗：USDT 收款二维码 + 爱发电入口。
  *
@@ -44,6 +45,7 @@ import { useState } from 'react'
 
 import sponsorQr from '../assets/sponsor-usdt-qr.png'
 import { t } from '../lib/i18n/index.ts'
+import { usePanelLanguage } from '../lib/i18n/use-language.ts'
 import { AFDIAN_URL } from '../lib/links.ts'
 
 /** 收款地址：全小写、不带任何链前缀。改地址时连同二维码一起换（那张图是按这个串生成的）。 */
@@ -141,6 +143,10 @@ function SponsorDialog({
   copyFailed: boolean
   setCopyFailed: (value: boolean) => void
 }) {
+  // 爱发电走微信 / 支付宝，只对中文用户有意义；微信群那颗按钮也是同一条规矩。
+  // USDT 是全球通的，所以只藏这一块，赞助按钮本身各门语言都在。
+  const language = usePanelLanguage()
+  const showAfdian = language === 'zh-Hans' || language === 'zh-Hant'
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-sm">
@@ -150,28 +156,30 @@ function SponsorDialog({
           </DialogHeader>
 
           <DialogBody className="flex flex-col gap-4">
-            {/* 爱发电在最上面：进窗第一眼就看到还有这种支持方式，不用等看完收款码。
-                开系统浏览器由 `<a>` 交给壳处理（见 links.ts / StarButton）。 */}
-            <div className="flex flex-col gap-2 rounded-lg border border-border-muted bg-background-muted p-3">
-              <div className="flex items-center justify-center gap-2">
-                <AfdianMark />
-                <p className="text-sm font-medium text-foreground-strong">
-                  {t('panel.links.sponsorAfdianTitle')}
+            {showAfdian ? (
+              /* 爱发电在最上面：进窗第一眼就看到还有这种支持方式，不用等看完收款码。
+                 开系统浏览器由 `<a>` 交给壳处理（见 links.ts / StarButton）。 */
+              <div className="flex flex-col gap-2 rounded-lg border border-border-muted bg-background-muted p-3">
+                <div className="flex items-center justify-center gap-2">
+                  <AfdianMark />
+                  <p className="text-sm font-medium text-foreground-strong">
+                    {t('panel.links.sponsorAfdianTitle')}
+                  </p>
+                </div>
+                <p className="text-center text-xs leading-5 text-foreground-muted">
+                  {t('panel.links.sponsorAfdianIntro')}
                 </p>
+                <a
+                  href={AFDIAN_URL}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className={buttonVariants({ variant: 'primary', className: 'w-full' })}
+                >
+                  {t('panel.links.sponsorAfdianAction')}
+                  <ExternalLinkIcon />
+                </a>
               </div>
-              <p className="text-center text-xs leading-5 text-foreground-muted">
-                {t('panel.links.sponsorAfdianIntro')}
-              </p>
-              <a
-                href={AFDIAN_URL}
-                target="_blank"
-                rel="noreferrer noopener"
-                className={buttonVariants({ variant: 'primary', className: 'w-full' })}
-              >
-                {t('panel.links.sponsorAfdianAction')}
-                <ExternalLinkIcon />
-              </a>
-            </div>
+            ) : null}
 
             {/* 二维码：收到 180 以内，留白给下面的地址与提醒；底色必须是白的，深色主题下
                 半透明白底会让码的对比度掉下来。 */}
