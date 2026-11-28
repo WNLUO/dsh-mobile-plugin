@@ -392,8 +392,8 @@ test('已有隧道不重复建（免费档只有一条额度）', async () => {
   assert.equal(added, false, '已有隧道绝不重复建');
 });
 
-/** 隧道复用假体：endpoints 里那条 active 的 HTTPS 隧道可带 local_port。 */
-function tunnelHarness({ localPort, port = 28787 } = {}) {
+/** 隧道复用假体：endpoints 里那条 active 的 HTTPS 隧道可带 local_port / tunnel_id，setLocal 注入改端口结果。 */
+function tunnelHarness({ localPort, port = 28787, tunnelId, setLocal } = {}) {
   const calls = [];
   const fetchImpl = async (url) => {
     const key = url.replace(/^https?:\/\/[^/]+/, '');
@@ -401,12 +401,14 @@ function tunnelHarness({ localPort, port = 28787 } = {}) {
     if (key !== '/api/v1/endpoints') return { ok: false };
     const item = { type: 'HTTPS', domain: 'old.example.com', status: 'active' };
     if (localPort !== undefined) item.local_port = localPort;
+    if (tunnelId !== undefined) item.tunnel_id = tunnelId;
     return { ok: true, json: async () => ({ data: { items: [item] } }) };
   };
   const runImpl = async (_bin, args) => {
     calls.push(args.join(' '));
     if (args[0] === 'status') return { code: 0, stdout: '{"login":true}', stderr: '' };
     if (args[0] === 'add') return { code: 0, stdout: JSON.stringify({ public_url: 'https://new.example.com' }), stderr: '' };
+    if (args[0] === 'tunnel' && typeof setLocal === 'function') return setLocal(args);
     return { code: 0, stdout: '', stderr: '' };
   };
   const runner = createZeroNewsRunner({
@@ -424,6 +426,45 @@ test('旧隧道指向旧端口：标 error、不可重试，且不猜命令去�
   assert.equal(s.errorReason, 'port-mismatch', '给出可识别的 reason，接线层据此清掉旧地址');
   assert.equal(s.retryable, false, '换端口后旧隧道不会自己变，自动重试只会反复超时');
   assert.ok(!calls.some((c) => c.startsWith('add ')), '失配时不自动建新隧道（免费档只有一条额度）');
+});
+
+test('旧隧道指向旧端口：用官方 set-local 原地改到当前端口，不删不建', async () => {
+  const { runner, calls } = tunnelHarness({
+    localPort: 18787, tunnelId: 'tid-1',
+    setLocal: async (args) => {
+      assert.deepEqual(args, ['tunnel', 'tid-1', 'set-local', '127.0.0.1', '28787', '--json'], '命令按官方推荐形状：隧道 ID 在前');
+      return { code: 0, stdout: '{"ok":true,"tunnel_id":"tid-1","local_ip":"127.0.0.1","local_port":28787}', stderr: '' };
+    },
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'connected', '改好端口就直接复用这条隧道，不再报错');
+  assert.equal(s.url, 'https://old.example.com', '域名不变，还是原来那条隧道');
+  assert.ok(calls.includes('tunnel tid-1 set-local 127.0.0.1 28787 --json'), '要真的去改端口');
+  assert.ok(!calls.some((c) => c.startsWith('add ')), '改端口不是新建隧道（免费档只有一条额度）');
+});
+
+test('老客户端没有 set-local：只打帮助、退出码仍是 0，也不能当成功', async () => {
+  const { runner } = tunnelHarness({
+    localPort: 18787, tunnelId: 'tid-1',
+    // 4.1.0 实测就是这个形状：不认识的子命令打帮助，退出码 0。
+    setLocal: async () => ({ code: 0, stdout: 'Manage account tunnels on the control plane\n\nUsage:\n  zeronews tunnel [flags]', stderr: '' }),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'error', '帮助文本不是成功回执');
+  assert.equal(s.errorReason, 'port-mismatch');
+  assert.match(s.error, /不支持自动改端口/);
+  assert.match(s.error, /4\.1\.1/, '告诉用户升级客户端，或去控制台改');
+});
+
+test('账号侧拒绝改端口：把原文透出来，别假装改好了', async () => {
+  const { runner } = tunnelHarness({
+    localPort: 18787, tunnelId: 'tid-1',
+    setLocal: async () => ({ code: 1, stdout: '', stderr: 'set local port failed: forbidden' }),
+  });
+  const s = await runner.start();
+  assert.equal(s.phase, 'error');
+  assert.equal(s.errorReason, 'port-mismatch');
+  assert.match(s.error, /自动改到当前端口失败.*forbidden/);
 });
 
 test('endpoints 没有 local_port 仍复用（老数据不误报失配）', async () => {
