@@ -822,17 +822,13 @@ export function RelayConfigDialog({
           </div>
 
           <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
-            {/* 出站协议族：文字按钮带出设置弹窗，不在正文占一整行。当前档位显示在按钮上。 */}
+            {/* 出站协议族：文字按钮带出设置弹窗，紧挨「保存配置」靠右，不占正文行。 */}
             <button
               type="button"
-              className="mr-auto text-sm text-foreground-muted underline decoration-dotted underline-offset-4 hover:text-foreground"
+              className="text-sm text-foreground-muted hover:text-foreground"
               onClick={() => { setIpVersionDraft(ipVersionPolicy); setIpVersionDialogOpen(true) }}
             >
-              {t('panel.network.ipVersionTitle')}：{ipVersionPolicy === 'auto'
-                ? t('panel.network.ipVersionAuto')
-                : ipVersionPolicy === 'ipv4-first'
-                  ? t('panel.network.ipVersionV4First')
-                  : t('panel.network.ipVersionV4Only')}
+              {t('panel.network.ipVersionTitle')}
             </button>
             {/* 保存期间给一条进度（含 FRP 导入最多等 8 秒），并可随时取消。 */}
             {busy === 'config' ? (
