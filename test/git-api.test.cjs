@@ -1,3 +1,4 @@
+// 本次改动：仓库摘要要带回宿主识别出的全部仓库根，手机端才能切换。
 'use strict';
 
 // 移动端 Git 接口（lib/mobile/git.js）的活体测试：真 git、真临时仓库、真 handler。
@@ -124,6 +125,10 @@ test('仓库摘要：分支、上游、脏文件数', async (t) => {
   assert.equal(result.body.upstream, null);
   assert.equal(result.body.ahead, null);
   assert.equal(result.body.dirtyCount, 1);
+  assert.equal(result.body.repos.length, 1);
+  assert.equal(result.body.repos[0].root, project);
+  assert.equal(result.body.repos[0].main, true);
+  assert.equal(result.body.truncated, false);
 });
 
 test('变更清单：已暂存 / 未暂存 / 未跟踪三组分开', async (t) => {
@@ -304,6 +309,10 @@ test('一个项目里两个仓库：请求指哪个就操作哪个', async (t) =
   const two = path.join(project, 'two');
   const repoOne = await call(gitApi.handleGitRepo, ctxFor(project), `/api/mobile/v1/git/repo${q({ workspaceId: 'w1', repo: one })}`);
   assert.equal(repoOne.body.root, one);
+  // 摘要里带的是整个项目的仓库清单，不是「当前这个」：切换入口靠它列出另一条。
+  assert.deepEqual(repoOne.body.repos.map((repo) => repo.root).sort(), [one, two].sort());
+  assert.equal(repoOne.body.repos.find((repo) => repo.root === one).main, true);
+  assert.equal(repoOne.body.truncated, false);
   const logTwo = await call(gitApi.handleGitLog, ctxFor(project), `/api/mobile/v1/git/log${q({ workspaceId: 'w1', repo: two })}`);
   assert.equal(logTwo.body.commits[0].subject, 'two 的第一个提交');
 });
