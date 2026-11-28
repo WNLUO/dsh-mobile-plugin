@@ -1,4 +1,5 @@
 // 2026-11-24：本机面板 AI 问诊按钮的取选项 / 发首句纯函数契约（假 ctx，不碰真宿主）。
+// 2026-11-28：首句带包内 dsh-mobile-kb 正文，缺失时退回原首句。
 'use strict';
 
 /**
@@ -8,7 +9,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildAiDiagnosisOptions, launchAiDiagnosis } = require('../lib/ai-diagnosis.js');
+const path = require('node:path');
+const { buildAiDiagnosisOptions, launchAiDiagnosis, withKnowledgeBase } = require('../lib/ai-diagnosis.js');
 
 function ok(value) { return { result: { ok: true, value } }; }
 function fail(code, message) { return { result: { ok: false, error: { code, message } } }; }
@@ -157,15 +159,17 @@ test('launch：建会话并把首句与 modelSelection 一起发出去', async (
   assert.deepEqual(calls.find((call) => call[0] === 'session.create')[1], {
     rpcId: 'mobile', method: 'session.create', payload: { workspaceId: 'w1' },
   });
-  assert.deepEqual(calls.find((call) => call[0] === 'session.prompt')[1], {
-    rpcId: 'panel-ai-diagnosis',
-    method: 'session.prompt',
-    payload: {
-      sessionId: 's-1',
-      content: [{ type: 'text', text: '帮我看下网络' }],
-      modelSelection: { provider: 'deepseek', model: 'deepseek-chat' },
-    },
-  });
+  const promptCall = calls.find((call) => call[0] === 'session.prompt')[1];
+  assert.equal(promptCall.rpcId, 'panel-ai-diagnosis');
+  assert.equal(promptCall.method, 'session.prompt');
+  assert.equal(promptCall.payload.sessionId, 's-1');
+  assert.deepEqual(promptCall.payload.modelSelection, { provider: 'deepseek', model: 'deepseek-chat' });
+  // 需求变了：桌面会话调不到 dsh-mobile-kb，首句要带正文，而不是只发面板那句话。
+  const text = promptCall.payload.content[0].text;
+  assert.ok(text.startsWith('帮我看下网络'));
+  assert.ok(text.includes('dsh-mobile-kb 技能的正文'));
+  assert.ok(text.includes('name: dsh-mobile-kb'));
+  assert.ok(text.includes('references/network.md'));
 
   const partial = ctxOf();
   await launchAiDiagnosis(partial.ctx, { prompt: 'hi', provider: 'deepseek' });
@@ -204,4 +208,9 @@ test('launch：发首句失败时归档刚建的会话；建会话失败不归�
   const noProxy = await launchAiDiagnosis({ apiProxy: {} }, { prompt: 'hi' });
   assert.equal(noProxy.ok, false);
   assert.equal(noProxy.error.code, 'internal');
+});
+
+test('知识库读不到时只发原首句，不让问诊整体失败', () => {
+  const prompt = '帮我看下网络';
+  assert.equal(withKnowledgeBase(prompt, path.join(__dirname, 'missing-kb')), prompt);
 });
