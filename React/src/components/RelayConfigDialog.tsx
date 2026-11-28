@@ -713,32 +713,6 @@ export function RelayConfigDialog({
                   </Field>
 
                   <Field>
-                    {/* 出站协议族：中转 / 总控 WS 与 Cloudflare 出站走哪一族 IP，三档单选。 */}
-                    <FieldLabel htmlFor="relay-ip-version">{t('panel.network.ipVersionTitle')}</FieldLabel>
-                    <RadioGroup
-                      id="relay-ip-version"
-                      className="flex flex-wrap items-center gap-x-4 gap-y-1"
-                      value={ipVersionPolicy}
-                      onValueChange={(next) => {
-                        if (next === 'auto' || next === 'ipv4-first' || next === 'ipv4-only') setIpVersionPolicy(next)
-                      }}
-                    >
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <Radio value="auto" />
-                        <span className="text-sm text-foreground">{t('panel.network.ipVersionAuto')}</span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <Radio value="ipv4-first" />
-                        <span className="text-sm text-foreground">{t('panel.network.ipVersionV4First')}</span>
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-2">
-                        <Radio value="ipv4-only" />
-                        <span className="text-sm text-foreground">{t('panel.network.ipVersionV4Only')}</span>
-                      </label>
-                    </RadioGroup>
-                  </Field>
-
-                  <Field>
                     {/* TCP 直连：手机用裸 TCP 拨的目标（iOS 经本机回环绕 ATS、安卓直连）。
                         与上面的直连地址是两条独立入口，互不覆盖。 */}
                     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -838,6 +812,33 @@ export function RelayConfigDialog({
                     {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
                   </Field>
               </div>
+
+              {/* 出站协议族不是一条地址，是这批出站连接（中转 / 总控 WS 与 Cloudflare）走哪族 IP 的全局策略。
+                  从七栏地址里单拎出来占一行，免得夹在 IPv6 与 TCP 之间看着像某条地址。 */}
+              <section className="flex flex-col gap-2">
+                <FieldLabel htmlFor="relay-ip-version">{t('panel.network.ipVersionTitle')}</FieldLabel>
+                <RadioGroup
+                  id="relay-ip-version"
+                  className="flex flex-wrap items-center gap-x-4 gap-y-1"
+                  value={ipVersionPolicy}
+                  onValueChange={(next) => {
+                    if (next === 'auto' || next === 'ipv4-first' || next === 'ipv4-only') setIpVersionPolicy(next)
+                  }}
+                >
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Radio value="auto" />
+                    <span className="text-sm text-foreground">{t('panel.network.ipVersionAuto')}</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Radio value="ipv4-first" />
+                    <span className="text-sm text-foreground">{t('panel.network.ipVersionV4First')}</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <Radio value="ipv4-only" />
+                    <span className="text-sm text-foreground">{t('panel.network.ipVersionV4Only')}</span>
+                  </label>
+                </RadioGroup>
+              </section>
             </section>
           </div>
 
