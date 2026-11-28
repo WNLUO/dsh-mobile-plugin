@@ -54,9 +54,12 @@ It connects to **your own DeepSeek Harness**, not to some cloud service.
 
 ### Connection
 
-- Two ways in: back over the relay v2 tunnel from anywhere, or straight through the LAN proxy on the same Wi-Fi. Public entry points now use a dedicated loopback ingress managed by the plugin instead of relying on the LAN port; the plugin routes around conflicts automatically and shows an in-panel prompt when it cannot.
+- Several ways in, and the phone tries them one by one and picks one that works: back over the relay v2 tunnel from anywhere, straight through the LAN proxy on the same Wi-Fi, or a self-hosted tunnel's direct address, IPv6 direct, TCP direct, and peer-to-peer direct.
+- The LAN default port is **51887**; existing configurations keep their saved port. When it is taken, the plugin retries the original port first; only when every paired phone supports LAN discovery and nothing depends on a fixed entry does it move to a free port and save it. Public entry points use a dedicated loopback ingress managed by the plugin instead of relying on the LAN default port; when it is taken the plugin routes around it, and shows an in-panel prompt when it cannot.
+- When using external tunneling software, turn on "fixed port" in the port settings. Tunnels configured inside the plugin and manually entered fixed addresses keep their port automatically; when the port is taken the plugin prompts you to free it. The built-in tunnel waits for the real listener to be ready and follows manual port changes to update its local target.
+- With address reporting on, the plugin sends its current address to the directory encrypted. The app keeps subscribing while in the foreground, verifies the new entry after the address changes and reconnects, and refetches the latest snapshot when returning to the foreground or when the directory reconnects. Only line modes that explicitly disable the directory — plain LAN and the like — keep their original scope.
 - Pairing codes with an optional pairing policy; device credentials can be revoked one by one or all at once.
-- Optional iOS push notifications; leaving it off affects nothing else.
+- iOS offline push is handled by the directory (the Apple key is configured only on the directory host); neither the plugin nor the relay needs it.
 
 The mobile API exposes only what the phone needs (`/api/mobile/v1/*`) — no shell, no system settings, no arbitrary file writes.
 
@@ -72,7 +75,7 @@ The window opens in the desktop display shell the plugin ships, laid out like th
 
 ## Security and privacy
 
-On mobile protocol v2, each session encrypts every request end to end with a session key derived from the device's master key (`deviceKey`): requests and replies are both ciphertext, and the signature covers the ciphertext too. Along this path the relay forwards only ciphertext and cannot see session content. The old protocol — and any client that has not upgraded to v2 — still travels in plaintext; that path is not encrypted, and only v2 closes it.
+On mobile protocol v2, each session encrypts every request end to end with a session key derived from the device's master key (`deviceKey`): requests and replies are both ciphertext, and the signature covers the ciphertext too. Along this path the relay forwards only ciphertext and cannot see session content.
 
 The app ships with default relay addresses run by the project, so it connects out of the box, and you can also point it at a relay you host yourself. So that the phone's high-frequency reads (session lists, workspaces and the like) do not hit the main process on the computer every time, the session list and workspace mirror snapshots are pushed through the relay and cached at that layer for read isolation. In other words, those list snapshots do pass through the relay; the contents of v2-encrypted sessions are not on that shortcut and still travel as ciphertext.
 
@@ -140,7 +143,7 @@ For people (and AI) reading this repository: locate things here first, then open
 - `lib/mobile/` — what the phone receives: streaming events, session projection, approvals, push, pairing.
 - `lib/relay/` — relay registration, address reporting to the directory, the route list, config and state on disk.
 - `lib/remote/` — remote computers: binding, route selection, windows.
-- `lib/zeronews/`, `lib/jdxb/`, `lib/frpc/`, `lib/cloudflared/` — the routes already wired in; copy their shape for a new one.
+- `lib/zeronews/`, `lib/jdxb/`, `lib/frpc/`, `lib/cloudflared/`, `lib/p2p/`, `lib/tailcat/` — the routes already wired in; copy their shape for a new one.
 - `lib/panel/` — built desktop panel; the source lives in `React/`. Change the source and commit both.
 - `config/` — presets, bundled skills, extension catalog.
 - `test/` — `node --test`, one file per area; filenames work as search keywords.
@@ -149,7 +152,7 @@ For people (and AI) reading this repository: locate things here first, then open
 ### Docs
 
 - [Mobile API contract](docs/mobile-api-contract.md): read this before writing your own client — pairing, sealed envelopes, endpoint list.
-- [Integrating a route](docs/line-integration.md): what to change for a new route and how old App versions stay compatible.
+- [Integrating a route](docs/line-integration.md): what to change for a new route.
 - [Mobile extension authoring](docs/extension-authoring.md): writing an extension page, how the package is laid out, how it talks to the App.
 - [Headless deployment](docs/headless-deploy.md): running on a server with no display, and the local endpoints.
 - [Keeping the chat top bar](docs/chat-embed.md): how a web plugin keeps the top bar on the phone's chat page.
@@ -170,7 +173,7 @@ pnpm install --frozen-lockfile
 npm test
 ```
 
-Adding a route? Read [Integrating a route](docs/line-integration.md) first; it also covers old App versions.
+Adding a route? Read [Integrating a route](docs/line-integration.md) first.
 
 If you changed anything under `React/`, run `pnpm run build` there first and commit the generated `lib/panel/index.html` together with the source.
 
