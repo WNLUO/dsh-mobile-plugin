@@ -815,7 +815,7 @@ export function RelayConfigDialog({
 
               {/* 出站协议族不是一条地址，是这批出站连接（中转 / 总控 WS 与 Cloudflare）走哪族 IP 的全局策略。
                   从七栏地址里单拎出来占一行，免得夹在 IPv6 与 TCP 之间看着像某条地址。 */}
-              <section className="flex flex-col gap-2">
+              <Field>
                 <FieldLabel htmlFor="relay-ip-version">{t('panel.network.ipVersionTitle')}</FieldLabel>
                 <RadioGroup
                   id="relay-ip-version"
@@ -838,7 +838,7 @@ export function RelayConfigDialog({
                     <span className="text-sm text-foreground">{t('panel.network.ipVersionV4Only')}</span>
                   </label>
                 </RadioGroup>
-              </section>
+              </Field>
             </section>
           </div>
 
