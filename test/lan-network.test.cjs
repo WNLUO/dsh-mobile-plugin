@@ -1,3 +1,4 @@
+// 反馈 1569：容器里 eth0 是容器内网、手机拨不进来，按「进程在容器里」整条私网清单不产出。
 // 反馈 1012：172.16/12 整段都算局域网候选，容器 / 虚拟网卡靠网卡名黑名单挡；用户已确认需求变化，旧断言照此改。
 // 反馈 1562：节点小宝 NodeBabyLink 是第三方穿透 VPN 虚拟网卡，按网卡名挡，不进局域网候选。
 'use strict'
@@ -28,6 +29,7 @@ const {
   isVpnInterface,
   isVirtualInterface,
   interfaceRank,
+  isContainerRuntime,
   lanInterfaces,
   lanUrls,
   lanCandidates,
@@ -39,6 +41,7 @@ const {
   ipv6Candidates,
   orderCandidates,
   manualCandidate,
+  withManualCandidate,
   phoneCandidates,
   manualIpv6Candidate,
   withManualIpv6Candidate,
@@ -615,4 +618,39 @@ test('只有 IPv6、没有任何 IPv4 的机器上 advertisedCandidates 仍然�
   assert.deepEqual(advertisedCandidates(18787, onlyV6), [])
   // 同一份快照在 IPv6 那份清单里照常产出：回空是因为「不掺进来」，不是因为枚举瞎了。
   assert.deepEqual(ipv6Urls(18787, onlyV6), ['http://[240e::1]:18787'])
+})
+
+// 反馈 1569：插件跑在容器里时，eth0 上的容器内网地址（172.18.0.2 等）手机拨不进来。
+// 判据走「进程是不是在容器里」的开关（测试用 opts.inContainer 注入），不碰 172 地址段规则。
+test('容器里没有局域网候选：容器 eth0 不进清单，172 段判据本身不变', () => {
+  const containerIfaces = ifaces({ lo: '127.0.0.1', eth0: '172.18.0.2' })
+  // 不在容器：eth0 的 172 段照旧是合法局域网候选（1012 拍板不被本改动推翻）。
+  assert.deepEqual(lanUrls(18787, containerIfaces, { inContainer: false }), ['http://172.18.0.2:18787'])
+  // 在容器：同一份网卡快照一条私网候选都不产出。
+  assert.deepEqual(lanUrls(18787, containerIfaces, { inContainer: true }), [])
+  assert.deepEqual(lanCandidates(18787, containerIfaces, { inContainer: true }), [])
+})
+
+test('容器里 advertisedCandidates 退到公网候选 + 手填地址，不是彻底失联', () => {
+  // 容器网卡是私网（172.18.0.2），公网地址挂在另一块网卡上：容器开关下私网清单空，
+  // advertisedCandidates 按既有逻辑退回公网，二维码仍有可拨地址（配自建/公网线路的场景）。
+  const ifs = ifaces({ lo: '127.0.0.1', eth0: '172.18.0.2', eth1: '36.140.243.33' })
+  assert.deepEqual(
+    advertisedCandidates(18787, ifs, { inContainer: false }).map((c) => c.url),
+    ['http://172.18.0.2:18787'],
+  )
+  assert.deepEqual(
+    advertisedCandidates(18787, ifs, { inContainer: true }).map((c) => c.url),
+    ['http://36.140.243.33:18787'],
+  )
+  // 手填地址走 withManualCandidate 单独追加，不受容器开关影响（容器用户常靠手填公网入口）。
+  assert.deepEqual(
+    withManualCandidate(lanInterfaces(18787, ifs, { inContainer: true }), 'https://my-host.example:8443').map((c) => c.url),
+    ['https://my-host.example:8443'],
+  )
+})
+
+test('容器标记探测返回布尔，读不到标记时按不在容器处理', () => {
+  // 只钉「函数存在且返回布尔」，不钉具体值 —— 测试机可能在也可能不在容器里。
+  assert.equal(typeof isContainerRuntime(), 'boolean')
 })
