@@ -214,6 +214,24 @@ test('备份那一步自己炸了也不许挡住更新', async () => {
   assert.equal(result.installed, true, '备份是多一层保险，不该变成更新的前置条件');
 });
 
+test('装前停不掉隧道助手：不跑包管理器，报可重试（避免 Windows 上失败重装再回滚）', async () => {
+  const profile = makeProfile('tailcat-busy', '0.1.60');
+  const fake = makeFakePnpm('tailcat-busy');
+  const result = await installLatest({
+    profileNodeModules: profile.nodeModules,
+    version: '0.2.0',
+    dirs: [fake.binDir],
+    env: isolatedEnv(fake.binDir),
+    beforeInstall: () => ({ tailcat: { ok: false, error: new Error('exe busy') } }),
+  });
+  assert.equal(result.installed, false);
+  assert.equal(result.skipped, true);
+  assert.equal(result.retryable, true, '停不掉是「现在不行」，下个 tick 该再来');
+  assert.equal(result.failure.code, 'TAILCAT_BUSY');
+  assert.equal(fake.calls().length, 0, '停不掉助手就绝不跑包管理器、绝不回滚');
+  assert.equal(result.installedVersion, '0.1.60', '盘上版本保持不动');
+});
+
 test('没有新版时不去备份（每个 tick 都抄一遍等于白耗盘）', async () => {
   const profile = makeProfile('before-latest', '0.1.60');
   let called = 0;
