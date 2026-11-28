@@ -1019,7 +1019,7 @@ export function RelayConfigDialog({
               placeholder={t('panel.relay.registerSecretPlaceholder')}
               onChange={(event) => setRegisterSecretDraft(event.target.value)}
             />
-            <p className="text-xs text-foreground-muted">{t('panel.relay.registerSecretHint')}</p>
+            <p className="mt-2 text-xs text-foreground-muted">{t('panel.relay.registerSecretHint')}</p>
           </DialogBody>
           <DialogFooter className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setRegisterSecretDialogOpen(false)}>
