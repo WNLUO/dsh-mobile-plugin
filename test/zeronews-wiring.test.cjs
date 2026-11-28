@@ -1,3 +1,4 @@
+// 2026-11-28：退让时端口跟判据走，入口判据翻转就重连，让官方 set-local 原地改老隧道落点。
 // 2026-11-27：连上后落盘零讯客户端身份，复用前交给 runner 比对；错配不认已连接。
 // 2026-11-27：外部把隧道重建到新端口后第一次 connect 就该成功，真实失配仍按旧/当前标注。
 // 2026-11-26：运行中才点连接也要挂体检，客户端静默退出后能自愈重连。
@@ -29,11 +30,12 @@ function mountWith(runner, overrides = {}) {
     warn: () => {},
     ctx,
     name: 'test',
-    portOf: () => 18787,
+    portOf: () => (Number.isInteger(overrides.overridesPreferred) ? overrides.overridesPreferred : 18787),
     retryBaseMs: 5,
     runnerFactory: overrides.runnerFactory || (() => runner),
     ensure: async () => ({ ok: true, path: '/x' }),
     purgeLocal: overrides.purgeLocal,
+    ...(overrides.onRouteStale ? { onRouteStale: overrides.onRouteStale } : {}),
     ...(overrides.healthCheckMs ? { healthCheckMs: overrides.healthCheckMs } : {}),
   });
   return { facade, updates, cleanup: () => cleanup && cleanup() };
@@ -570,16 +572,34 @@ test('端口失配：清掉状态里的旧地址，配对码整串都不带失�
   assert.match(source, /zeroNewsUrl: '' \}, \{ notify: false \}/, '清地址要 notify:false，避免通知循环');
 });
 
-test('落点端口：已有隧道时沿用它自己的端口，不当成「指向旧端口」', () => {
+test('落点端口：判据给出新落点时不再沿用旧隧道端口，让 set-local 去改', () => {
   let received = null;
   const runner = {
     start: async () => ({ phase: 'off' }),
     stop: () => ({ phase: 'off' }),
     status: () => ({ phase: 'connected', url: 'https://x.example', tunnelLocalPort: 41081 }),
   };
-  const env = mountWith(runner, { runnerFactory: (opts) => { received = opts; return runner; } });
+  const env = mountWith(runner, {
+    runnerFactory: (opts) => { received = opts; return runner; },
+    overridesPreferred: 49697,
+  });
   assert.ok(received, 'runner 工厂拿到端口取值器');
-  assert.equal(received.portOf(), 41081, '隧道已经在 41081 上，就必须继续用它');
+  assert.equal(received.portOf(), 49697, '退让到专属入口，旧落点 41081 不再无条件沿用');
+  env.cleanup();
+});
+
+test('落点端口：判据没给端口时才沿用已有隧道的落点', () => {
+  let received = null;
+  const runner = {
+    start: async () => ({ phase: 'off' }),
+    stop: () => ({ phase: 'off' }),
+    status: () => ({ phase: 'connected', url: 'https://x.example', tunnelLocalPort: 41081 }),
+  };
+  const env = mountWith(runner, {
+    runnerFactory: (opts) => { received = opts; return runner; },
+    overridesPreferred: 0,
+  });
+  assert.equal(received.portOf(), 41081, '取值器缺席时沿用旧落点，不把隧道建错地方');
   env.cleanup();
 });
 
@@ -697,25 +717,32 @@ test('运行中才点连接：连上后体检挂上，客户端静默退出能�
 });
 
 /**
- * 真 runner 经接线层挂载：portOf() 走 wiring 的 tunnelPort()（先缓存、再首选值），落点端口可随时改。
+ * 真 runner 经接线层挂载：portOf() 走 wiring 的 tunnelPort()（按判据首选值），落点端口可随时改。
  * CLI / HTTP / spawn / sleep 全用假体，形状抄 zeronews-runner.test.cjs 的 tunnelHarness。
  */
-function mountRealRunner({ preferredPort, localPort: initialLocalPort }) {
+function mountRealRunner({ preferredPort, localPort: initialLocalPort, repointOk = false, withTunnelId = false }) {
   const state = { zeroNewsEnabled: true, zeroNewsUrl: '' };
   const writes = [];
   const cmds = [];
   let localPort = initialLocalPort;
+  let preferred = preferredPort;
   const fetchImpl = async (url) => {
     const key = url.replace(/^https?:\/\/[^/]+/, '');
     if (key === '/healthz') return { ok: true, json: async () => ({ ok: true }) };
     if (key === '/api/v1/endpoints') return { ok: true, json: async () => ({ data: { items: [
-      { type: 'HTTPS', domain: 'https://new.example.com', status: 'active', local_port: localPort },
+      { type: 'HTTPS', domain: 'https://new.example.com', status: 'active', local_port: localPort,
+        ...(withTunnelId ? { tunnel_id: 'tid-1' } : {}) },
     ] } }) };
     return { ok: false };
   };
   const runImpl = async (_bin, args) => {
     cmds.push(args.join(' '));
     if (args[0] === 'status') return { code: 0, stdout: '{"login":true}', stderr: '' };
+    if (repointOk && args[2] === 'set-local') {
+      const port = Number(args[4]);
+      localPort = port; // endpoints 立刻反映新落点
+      return { code: 0, stdout: JSON.stringify({ ok: true, tunnel_id: args[1], local_port: port }), stderr: '' };
+    }
     return { code: 0, stdout: '', stderr: '' };
   };
   const facade = mountZeroNews({
@@ -725,12 +752,12 @@ function mountRealRunner({ preferredPort, localPort: initialLocalPort }) {
     control: {}, warn: () => {},
     ctx: { effect: () => () => {} }, // 不让挂载 effect 自动起连接，手动 start 控时序
     name: 'test-real-runner',
-    portOf: () => preferredPort,
+    portOf: () => preferred,
     runnerFactory: (opts) => createZeroNewsRunner({ ...opts, fetchImpl, runImpl,
       spawnImpl: () => ({ on() {}, unref() {} }), sleepImpl: () => Promise.resolve() }),
     ensure: async () => ({ ok: true, path: '/x' }),
   });
-  return { facade, state, writes, cmds, setLocalPort: (p) => { localPort = p; } };
+  return { facade, state, writes, cmds, setLocalPort: (p) => { localPort = p; }, setPreferred: (p) => { preferred = p; } };
 }
 
 test('外部把隧道改成新端口：第一次 connect 就认下，不报失配也不清域名', async () => {
@@ -766,6 +793,49 @@ test('真实失配：云端隧道仍指旧端口时按旧/当前标注，不删�
   assert.ok(!env.cmds.some((c) => c.startsWith('add ')), '失配不自动建新隧道');
   assert.ok(!env.cmds.some((c) => /^(delete|remove)\b/.test(c)), '失配不自动删云端隧道');
   assert.ok(env.writes.some((w) => w.patch.zeroNewsUrl === '' && w.options && w.options.notify === false), '失配只清本机旧地址');
+});
+
+test('退让到专属入口：重连时用 set-local 把老隧道原地拨到新落点，域名不变', async () => {
+  const env = mountRealRunner({ preferredPort: 18787, localPort: 18787, repointOk: true, withTunnelId: true });
+  env.state.zeroNewsUrl = 'https://new.example.com';
+  const first = await env.facade.start();
+  assert.equal(first.phase, 'connected', '老隧道原本照旧能连');
+  assert.equal(first.tunnelLocalPort, 18787, '记住老落点');
+
+  // 回环被占，判据把落点改到专属入口。用户不用点断开/连接，叫一次重连即可。
+  env.setPreferred(49697);
+  const after = await env.facade.reconcile();
+  assert.equal(after.phase, 'connected', '改完端口继续连着');
+  assert.equal(after.url, 'https://new.example.com', '域名不变');
+  assert.equal(after.tunnelLocalPort, 49697, '隧道落点跟到新入口');
+  assert.ok(env.cmds.some((c) => /^tunnel tid-1 set-local 127\.0\.0\.1 49697 --json$/.test(c)), '真的原地改端口');
+  assert.ok(!env.cmds.some((c) => c.startsWith('add ')), '不新建隧道，不占免费档额度');
+  assert.ok(!env.writes.some((w) => w.patch.zeroNewsUrl === ''), '不把域名当失效清掉');
+
+  // 变异证明：接线层若继续沿用旧落点，重连时就不会失配、不会调 set-local。
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'zeronews', 'wiring.cjs'), 'utf8');
+  assert.match(source, /if \(Number\.isInteger\(preferred\) && preferred > 0\) return preferred;/, '判据端口优先于隧道旧落点');
+});
+
+test('入口判据翻转的接线在装配层：零讯也跟着重连，不是只有 Cloudflare 兜底', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'lib', 'impl.js'), 'utf8');
+  assert.match(source, /onIngressVerdictChanged:[^\n]*zeroNews\.reconcile\?\.\(\)/, '判据变化要叫醒零讯');
+  const stripped = source.replace('void zeroNews.reconcile?.().catch(() => undefined)', '');
+  assert.doesNotMatch(stripped, /onIngressVerdictChanged:[^\n]*zeroNews\.reconcile/, '抹掉这行守卫必须转红');
+});
+
+test('端口失配清地址后也通知兜底重判，不让老用户彻底没线路', async () => {
+  let stale = 0;
+  const failed = { phase: 'error', errorReason: 'port-mismatch', retryable: false };
+  const runner = { start: async () => failed, stop: () => ({ phase: 'off' }), status: () => failed };
+  const env = mountWith(runner, {
+    // 显式关着挂载 effect 的自动连接，只数这次手动 start 的通知次数。
+    state: { zeroNewsEnabled: false, zeroNewsUrl: 'https://stale.example.com' },
+    onRouteStale: () => { stale += 1; },
+  });
+  await env.facade.start();
+  assert.equal(stale, 1, '清掉失效域名后要让 Cloudflare 兜底重新判定');
+  env.cleanup();
 });
 
 test('连上后把客户端身份落盘，复用本机客户端前交给 runner 比对', async () => {
