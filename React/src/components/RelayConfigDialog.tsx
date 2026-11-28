@@ -177,8 +177,10 @@ export function RelayConfigDialog({
   const [ipVersionDialogOpen, setIpVersionDialogOpen] = useState(false)
   /** 弹窗里的草稿值，开窗时灌入当前落盘值，保存才写回，取消不碰主窗。 */
   const [ipVersionDraft, setIpVersionDraft] = useState<'auto' | 'ipv4-first' | 'ipv4-only'>(status.ipVersionPolicy ?? 'auto')
-  /** 自建中转的注册密钥：只写不回显（status 不回明文），留空表示不改动已存的那条。 */
-  const [registerSecret, setRegisterSecret] = useState('')
+  /** 自建中转的注册密钥弹窗：地址框里一个文字按钮点开，密钥只写不回显，留空=不改动。 */
+  const [registerSecretDialogOpen, setRegisterSecretDialogOpen] = useState(false)
+  /** 弹窗里的密钥草稿，开窗清空（不回显已存的），填了才写下去。 */
+  const [registerSecretDraft, setRegisterSecretDraft] = useState('')
   /** TCP 那栏的填写提示：这格只收「主机:端口」，填了带 scheme 的地址就提示去「直连地址」。 */
   const [tcpHint, setTcpHint] = useState('')
   /** 自建中转的检测结果：用宿主已有的 /api/relay/probe-relays 确认「是不是我们的中转」并取版本、延迟。 */
@@ -234,19 +236,21 @@ export function RelayConfigDialog({
   useEffect(() => {
     if (!open) return
     setRelayUrl(status.relayUrl)
-    setRegisterSecret('')
+    setRegisterSecretDraft('')
+    setRegisterSecretDialogOpen(false)
     setIpVersionPolicy(status.ipVersionPolicy ?? 'auto')
     setIpVersionDraft(status.ipVersionPolicy ?? 'auto')
     void loadFrpConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
 
-  // 主窗关掉时把两个子弹窗一起收掉：下次开窗不能带着上一轮的清单挡在主窗前面。
+  // 主窗关掉时把子弹窗一起收掉：下次开窗不能带着上一轮的清单挡在主窗前面。
   useEffect(() => {
     if (open) return
     setLanPickerOpen(false)
     setFrpDialogOpen(false)
     setIpVersionDialogOpen(false)
+    setRegisterSecretDialogOpen(false)
     frpEditedRef.current = false
   }, [open])
 
@@ -462,9 +466,8 @@ export function RelayConfigDialog({
     }
     const patch: ConfigPatch = {}
     if (relayUrl.trim() !== status.relayUrl) patch.relayUrl = relayUrl.trim()
-    // 注册密钥：留空 = 不改动（status 不回明文，没法判断是否动过）；只有填了才带下去。
-    // 空串绝不能进 patch —— 宿主会把它当成「清空密钥」，用户只改了个地址就白白关掉准入。
-    if (registerSecret !== '') patch.registerSecret = registerSecret
+    // 注册密钥不在这里带：它在地址框的「注册密钥」按钮弹窗里单独保存（status 不回明文，
+    // 主窗无从判断动没动过；空串进 patch 会被宿主当成「清空」）。
     // 出站协议族：跟落盘的现值比，真的变了才带，别每次都触发一轮隧道重建。
     if (ipVersionPolicy !== (status.ipVersionPolicy ?? 'auto')) patch.ipVersionPolicy = ipVersionPolicy
     // 手填地址：空串是合法值（= 清掉这一条），所以这里跟 `name` 不一样，只在**真的变了**时带上，
@@ -638,6 +641,15 @@ export function RelayConfigDialog({
                       value={relayUrl}
                       placeholder="https://example.com"
                       onChange={(event) => setRelayUrl(event.target.value)}
+                      endSlot={
+                        <button
+                          type="button"
+                          className="-mr-1 shrink-0 cursor-pointer whitespace-nowrap px-1 text-xs text-foreground-muted hover:text-foreground-strong focus-visible:outline-none"
+                          onClick={() => { setRegisterSecretDraft(''); setRegisterSecretDialogOpen(true) }}
+                        >
+                          {t('panel.relay.registerSecret')}
+                        </button>
+                      }
                     />
                     {/^http:\/\//i.test(trimUrl(relayUrl)) ? (
                       <p className="text-xs text-warning">{t('panel.address.plainHttpWarn')}</p>
@@ -823,21 +835,6 @@ export function RelayConfigDialog({
                     />
                     {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
                   </Field>
-
-                  {/* 注册密钥（对偶于中转的 TUNNEL_REGISTER_SECRET）：status 不回明文，所以这里永远空着。
-                      留空 = 不改动，只有填了值才进 patch（空串进 patch 会被宿主当成"清空"）。
-                      独立一栏、排在七栏之后：Base UI 的 Field 会给内部控件分配 id，
-                      和地址框同一个 Field 会撞 id；放末尾也不动用户定的七栏顺序。 */}
-                  <Field>
-                    <FieldLabel htmlFor="relay-register-secret">{t('panel.relay.registerSecret')}</FieldLabel>
-                    <Input
-                      inputProps={{ id: 'relay-register-secret', type: 'password', autoComplete: 'off', className: 'font-mono' }}
-                      value={registerSecret}
-                      placeholder={t('panel.relay.registerSecretPlaceholder')}
-                      onChange={(event) => setRegisterSecret(event.target.value)}
-                    />
-                    <p className="text-xs text-foreground-muted">{t('panel.relay.registerSecretHint')}</p>
-                  </Field>
               </div>
             </section>
           </div>
@@ -1002,6 +999,36 @@ export function RelayConfigDialog({
                 onSave({ ipVersionPolicy: ipVersionDraft })
               }
               setIpVersionDialogOpen(false)
+            }}>
+            {t('panel.common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 注册密钥：地址框里那颗文字按钮点开，在这里填。只写不回显，留空=不改动。 */}
+      <Dialog open={registerSecretDialogOpen} onOpenChange={setRegisterSecretDialogOpen}>
+        <DialogContent className="w-[min(440px,92vw)]">
+          <DialogHeader>
+            <DialogTitle>{t('panel.relay.registerSecret')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <Input
+              inputProps={{ id: 'relay-register-secret', type: 'password', autoComplete: 'off', className: 'font-mono' }}
+              value={registerSecretDraft}
+              placeholder={t('panel.relay.registerSecretPlaceholder')}
+              onChange={(event) => setRegisterSecretDraft(event.target.value)}
+            />
+            <p className="text-xs text-foreground-muted">{t('panel.relay.registerSecretHint')}</p>
+          </DialogBody>
+          <DialogFooter className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRegisterSecretDialogOpen(false)}>
+              {t('panel.common.cancel')}
+            </Button>
+            <Button variant="primary" disabled={!canSave} onClick={() => {
+              // 留空 = 不改动（空串进 patch 会被宿主当成「清空密钥」）；填了才写下去。
+              if (registerSecretDraft !== '') onSave({ registerSecret: registerSecretDraft })
+              setRegisterSecretDialogOpen(false)
             }}>
               {t('panel.common.save')}
             </Button>

@@ -151,9 +151,11 @@ test('网络配置弹窗是一屏两列，自建中转能填注册密钥', () =>
   assert.match(dialog, /grid-cols-2/, '地址那几块要分两列排');
   assert.ok(!/max-h-\[70vh\]/.test(dialog), '别再留原来那圈 70vh 内滚动：正常窗口要一屏排完');
   // 2026-11-28 需求变更（用户要求）：自建中转的用户需要填注册密钥，之前「运营版中转不做了、
-  // 密钥下线」的口径作废，输入框补回自建中转那栏。留空=不改动，只有填了才进 patch。
-  assert.match(dialog, /panel\.relay\.registerSecret/, '自建中转那栏要能填注册密钥');
-  assert.match(dialog, /if \(registerSecret !== ''\) patch\.registerSecret = registerSecret/, '留空不改密钥：只有填了才进 patch');
+  // 密钥下线」的口径作废。密钥在地址框的「注册密钥」文字按钮弹窗里填，留空=不改动。
+  assert.match(dialog, /panel\.relay\.registerSecret/, '自建中转那栏要有注册密钥入口');
+  assert.match(dialog, /endSlot=\{[\s\S]{0,700}panel\.relay\.registerSecret/, '入口是地址框里的文字按钮');
+  assert.match(dialog, /registerSecretDialogOpen/, '点按钮弹出填写密钥的弹窗');
+  assert.match(dialog, /if \(registerSecretDraft !== ''\) onSave\(\{ registerSecret: registerSecretDraft \}\)/, '留空不改密钥：只有填了才落盘');
   const panel = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'lib', 'i18n', 'messages', 'panel.ts'), 'utf8');
   assert.ok(panel.includes("'panel.relay.registerSecret':"), '注册密钥的文案键要在字典里');
   // 准入被拒的提示要把人指向那个真实存在的输入框，而不是说「面板已不再提供填写入口」。
