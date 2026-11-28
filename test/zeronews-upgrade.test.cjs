@@ -138,6 +138,7 @@ function upgradeHarness({ connections, secondStart }) {
     stop: () => { events.push('stop'); phase = 'off'; return { phase: 'off' }; },
     status: () => ({ phase, url: phase === 'connected' ? 'https://old.example.com' : '', binary: '/fake/zeronews' }),
     checkAlive: async () => ({ phase, url: phase === 'connected' ? 'https://old.example.com' : '' }),
+    binaryPath: () => '/fake/zeronews',
   };
   const updater = {
     desiredVersion: '4.1.1',
@@ -268,6 +269,7 @@ test('客户端装在只读位置：新版装到插件目录、配置搬过去�
     stop: () => { events.push('stop'); return { phase: 'off' }; },
     status: () => ({ phase: 'connected', url: 'https://old.example.com', clientId: 'cid-1', binary: systemBinary }),
     checkAlive: async () => ({ phase: 'connected', url: 'https://old.example.com' }),
+    binaryPath: () => systemBinary,
   };
   let cleanupFn = null;
   mountZeroNews({
