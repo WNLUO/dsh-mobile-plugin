@@ -1,3 +1,4 @@
+// 2026-11-28：网络配置首页改成两张大入口卡（服务商 / 自定义网络），点进去展开对应区域，顶部可返回。
 // 2026-11-28：网络配置加「出站协议族」三档单选（auto / ipv4-first / ipv4-only），变了才进 patch。
 // 2026-11-27：FRP 导入保存要有可见反馈——成功关窗并刷新状态、等待给进度，晚到的配置回填不盖用户粘贴。
 // 2026-11-27：服务商面板未接入时给「登录」按钮，透传进服务商页的回调。
@@ -15,6 +16,7 @@
 // 用途：网络配置——自建中转、直连、IPv4/IPv6、TCP、FRP 与局域网地址都在这一页改。
 // 2026-11-26：七栏按用户指定顺序重排为一段自然流（局域网 / 自建中转 / IPv4 / IPv6 / TCP 直连 / 直连 / FRP），空位留末尾。
 // 2026-11-26：服务商线路入口挪到字段上方、紧跟标题，让不自建网络的用户先看到可选线路；分隔线改在它下方。
+import { Badge } from '@appica/ui-react/badge'
 import { Button, buttonVariants } from '@appica/ui-react/button'
 import { Card } from '@appica/ui-react/card'
 import {
@@ -31,7 +33,7 @@ import { Input } from '@appica/ui-react/input'
 import { Radio } from '@appica/ui-react/radio'
 import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { RELAY_REPO_URL } from '../lib/links.ts'
@@ -103,6 +105,43 @@ function AddressCombo({
   )
 }
 
+/**
+ * 首页那两张大入口卡：服务商 / 自定义网络。
+ *
+ * 做成大块而不是小条目 —— 这块后面还要往里丰富内容，卡片本身得撑得起版面。
+ * 两张卡样式完全同一份，只换图标、标题和说明，免得左右两张越改越不一样。
+ */
+function NetworkChoiceCard({ icon, title, description, badge, onClick }: {
+  icon: ReactNode
+  title: string
+  description: string
+  badge?: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-[220px] cursor-pointer flex-col items-start gap-4 rounded-xl border border-border-muted bg-background-muted/40 p-6 text-left transition-colors hover:bg-background-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    >
+      <span className="flex size-12 items-center justify-center rounded-lg bg-primary-subtle text-foreground-strong">{icon}</span>
+      <span className="flex flex-col gap-2">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-lg font-semibold text-foreground-strong">{title}</span>
+          {badge ? <Badge variant="soft" size="xs">{badge}</Badge> : null}
+        </span>
+        <span className="text-sm leading-6 text-foreground-muted">{description}</span>
+      </span>
+      <span className="mt-auto inline-flex items-center gap-1 text-sm text-foreground-muted">
+        {t('panel.network.choice.enter')}
+        <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M5 12h14m-6-6 6 6-6 6" />
+        </svg>
+      </span>
+    </button>
+  )
+}
+
 type Props = {
   /** 首页显示网络配置时为真；离开首页（进地区 / 服务商页）置假，字段随之复位。 */
   open: boolean
@@ -144,7 +183,7 @@ type Props = {
  * **局域网直连开关已撤**（2026-11-01 用户口径：它是基本能力，不该是个可关的选项）：
  * 宿主那份 `lanEnabled` 配置项原样留着，面板不再改它。
  * **「配对策略」改成「允许配对」开关**：开 = 凭配对码允许（`code`），关 = 一律拒绝（`deny`）。
- * 注册密钥那栏已下线（运营版中转不做了），宿主侧配置项原样留给自建中转。
+ * 自建中转的注册密钥在地址框里那颗文字按钮上填写（只写不回显，留空 = 不改动）。
  *
  * 提交只带**真的变过的字段**：宿主每收一个字段都会走一次下发，把没动的值原样发回去等于
  * 每次都触发一轮隧道 / 监听的重建。
@@ -162,6 +201,8 @@ export function RelayConfigDialog({
   onProviderChanged,
   onOpenProvider,
 }: Props) {
+  /** 首页先看两张大入口卡；点一张就收起卡片、展开那块详细区域，顶部可返回。 */
+  const [networkChoice, setNetworkChoice] = useState<'choice' | 'provider' | 'custom'>('choice')
   const [relayUrl, setRelayUrl] = useState(status.relayUrl)
   /** 直连地址（`manualLanUrl`）：用户手填的穿透域名 / 公网 IP。 */
   const [manualLanUrl, setManualLanUrl] = useState('')
@@ -535,18 +576,56 @@ export function RelayConfigDialog({
           {t('panel.notice.text')}
         </div>
         <Card frame="solid">
-          {/* 一屏两列（宽够时）：7 个 Field 交同一段 grid 按行自动填，从左到右、从上到下依次是
-              局域网地址 / 自建中转 / IPv4 / IPv6 / TCP 直连 / 直连 / FRP（2026-11-26 用户定的顺序）。
-              新方式顺着往下加即可，空位留在最后；窄窗口自动收成一列。 */}
-          <div className="flex flex-col gap-5 px-4 pb-4 pt-8">
-            {/* 国内 / 国际线路入口放到最上面（2026-11-26 用户要求）：绝大多数用户不自建网络，
-                先给服务商线路更醒目。点开是独立一页，线路越加越多也不会把这一页撑长。 */}
-            <section className="flex flex-col gap-3">
-              <div className="border-b border-border-muted pb-3">
+          {/* 首页先看两张大入口卡（2026-11-28 用户要求）：这一块后面还要丰富，卡片做成大块。 */}
+          <div className={networkChoice === 'choice' ? 'grid grid-cols-1 gap-4 px-4 pb-5 pt-8 md:grid-cols-2' : 'hidden'}>
+            <NetworkChoiceCard
+              icon={
+                <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0" />
+                  <circle cx="12" cy="19" r="1" />
+                </svg>
+              }
+              title={t('panel.network.choice.providerTitle')}
+              description={t('panel.network.choice.providerDesc')}
+              badge={t('panel.network.choice.recommended')}
+              onClick={() => setNetworkChoice('provider')}
+            />
+            <NetworkChoiceCard
+              icon={
+                <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 7h9m4 0h3M4 17h3m4 0h9" />
+                  <circle cx="15" cy="7" r="2" />
+                  <circle cx="9" cy="17" r="2" />
+                </svg>
+              }
+              title={t('panel.network.choice.customTitle')}
+              description={t('panel.network.choice.customDesc')}
+              onClick={() => setNetworkChoice('custom')}
+            />
+          </div>
+
+          {/* 点进任意一张卡：入口退出，详细区域展开，顶部留返回。 */}
+          <div className={networkChoice === 'choice' ? 'hidden' : ''}>
+            <div className="flex items-center gap-3 border-b border-border-muted px-4 pb-3 pt-8">
+              <button
+                type="button"
+                onClick={() => setNetworkChoice('choice')}
+                className="inline-flex cursor-pointer items-center gap-1 text-sm text-foreground-muted hover:text-foreground-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M19 12H5m6-6-6 6 6 6" />
+                </svg>
+                {t('panel.network.choice.back')}
+              </button>
+              <span className="text-sm font-medium text-foreground-strong">
+                {t(networkChoice === 'provider' ? 'panel.network.choice.providerTitle' : 'panel.network.choice.customTitle')}
+              </span>
+            </div>
+            <div className="flex flex-col gap-5 px-4 pb-4 pt-4">
+              <section className={networkChoice === 'provider' ? 'flex flex-col gap-3' : 'hidden'}>
                 <NetworkRegions status={status} onChanged={onProviderChanged} onOpenProvider={onOpenProvider} />
-              </div>
-            </section>
-            <section className="flex flex-col gap-3">
+              </section>
+              <section className={networkChoice === 'custom' ? 'flex flex-col gap-3' : 'hidden'}>
               {/* 自定义网络：用户自己填地址的那一组，标题跟服务商线路同款。 */}
               <span className="text-sm font-medium text-foreground-strong">{t('panel.network.customTitle')}</span>
               <div className="grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-2">
@@ -838,8 +917,9 @@ export function RelayConfigDialog({
               </div>
             </section>
           </div>
+        </div>
 
-          <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
+        <div className={networkChoice === 'custom' ? 'flex items-center justify-end gap-2 border-t border-border-muted p-3' : 'hidden'}>
             {/* 出站协议族：文字按钮带出设置弹窗，紧挨「保存配置」靠右，不占正文行。 */}
             <button
               type="button"

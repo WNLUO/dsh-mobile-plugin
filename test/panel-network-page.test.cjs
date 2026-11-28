@@ -1,3 +1,4 @@
+// 2026-11-28 需求变更：网络配置首页改两张大入口卡，点进去展开对应区域、顶部可返回。
 // 2026-11-27 用户反馈第七轮：公网地址/带宽/设备三项同一行，每项标题左值右。
 // 2026-11-27 用户反馈第六轮：当前档按钮改「正在使用」，付费档识别回顾（套餐名精确匹配）。
 // 2026-11-27 用户反馈第五轮：价格标周期、重点参数加粗标亮、顶部四格压成两格。
@@ -148,6 +149,20 @@ test('网络配置页分区：主配置页平铺字段，线路按地区与服�
   for (const key of ['panel.address.direct', 'panel.address.tcp', 'panel.address.ipv4Url', 'panel.address.ipv6Url']) {
     assert.ok(page.includes(`'${key}'`), `要有字段 ${key}`);
   }
+});
+
+test('网络配置首页是两张大入口卡：先选服务商或自定义网络，进去可返回', () => {
+  // 2026-11-28 需求变更：原来服务商与七栏自定义网络一屏全铺，用户嫌太大太乱；
+  // 改成首页只给两张大卡，点进去才展开对应区域，顶部给返回；字段与保存逻辑一点没减。
+  const page = read('React', 'src', 'components', 'RelayConfigDialog.tsx');
+  assert.match(page, /useState<'choice' \| 'provider' \| 'custom'>\('choice'\)/, '首页默认停在入口卡');
+  assert.match(page, /setNetworkChoice\('provider'\)/, '服务商卡可点进去');
+  assert.match(page, /setNetworkChoice\('custom'\)/, '自定义卡可点进去');
+  assert.match(page, /setNetworkChoice\('choice'\)/, '详细区域能返回入口卡');
+  assert.match(page, /min-h-\[220px\]/, '入口卡做成大块，不是小条目');
+  assert.match(page, /'panel\.network\.choice\.providerDesc'/, '服务商卡有说明');
+  assert.match(page, /'panel\.network\.choice\.customDesc'/, '自定义卡有说明');
+  assert.match(page, /networkChoice === 'custom' \? 'flex items-center justify-end/, '保存栏只在自定义网络里出现');
 });
 
 test('服务商线路：标题右边中国/国际标签，按语言定默认、点过以手动为准，下面铺两地面板', () => {
