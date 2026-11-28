@@ -177,6 +177,8 @@ export function RelayConfigDialog({
   const [ipVersionDialogOpen, setIpVersionDialogOpen] = useState(false)
   /** 弹窗里的草稿值，开窗时灌入当前落盘值，保存才写回，取消不碰主窗。 */
   const [ipVersionDraft, setIpVersionDraft] = useState<'auto' | 'ipv4-first' | 'ipv4-only'>(status.ipVersionPolicy ?? 'auto')
+  /** 自建中转的注册密钥：只写不回显（status 不回明文），留空表示不改动已存的那条。 */
+  const [registerSecret, setRegisterSecret] = useState('')
   /** TCP 那栏的填写提示：这格只收「主机:端口」，填了带 scheme 的地址就提示去「直连地址」。 */
   const [tcpHint, setTcpHint] = useState('')
   /** 自建中转的检测结果：用宿主已有的 /api/relay/probe-relays 确认「是不是我们的中转」并取版本、延迟。 */
@@ -232,6 +234,7 @@ export function RelayConfigDialog({
   useEffect(() => {
     if (!open) return
     setRelayUrl(status.relayUrl)
+    setRegisterSecret('')
     setIpVersionPolicy(status.ipVersionPolicy ?? 'auto')
     setIpVersionDraft(status.ipVersionPolicy ?? 'auto')
     void loadFrpConfig()
@@ -459,6 +462,9 @@ export function RelayConfigDialog({
     }
     const patch: ConfigPatch = {}
     if (relayUrl.trim() !== status.relayUrl) patch.relayUrl = relayUrl.trim()
+    // 注册密钥：留空 = 不改动（status 不回明文，没法判断是否动过）；只有填了才带下去。
+    // 空串绝不能进 patch —— 宿主会把它当成「清空密钥」，用户只改了个地址就白白关掉准入。
+    if (registerSecret !== '') patch.registerSecret = registerSecret
     // 出站协议族：跟落盘的现值比，真的变了才带，别每次都触发一轮隧道重建。
     if (ipVersionPolicy !== (status.ipVersionPolicy ?? 'auto')) patch.ipVersionPolicy = ipVersionPolicy
     // 手填地址：空串是合法值（= 清掉这一条），所以这里跟 `name` 不一样，只在**真的变了**时带上，
@@ -816,6 +822,21 @@ export function RelayConfigDialog({
                       onChange={() => { /* 只读：地址由导入的配置决定，点候选只是回显同一条 */ }}
                     />
                     {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
+                  </Field>
+
+                  {/* 注册密钥（对偶于中转的 TUNNEL_REGISTER_SECRET）：status 不回明文，所以这里永远空着。
+                      留空 = 不改动，只有填了值才进 patch（空串进 patch 会被宿主当成"清空"）。
+                      独立一栏、排在七栏之后：Base UI 的 Field 会给内部控件分配 id，
+                      和地址框同一个 Field 会撞 id；放末尾也不动用户定的七栏顺序。 */}
+                  <Field>
+                    <FieldLabel htmlFor="relay-register-secret">{t('panel.relay.registerSecret')}</FieldLabel>
+                    <Input
+                      inputProps={{ id: 'relay-register-secret', type: 'password', autoComplete: 'off', className: 'font-mono' }}
+                      value={registerSecret}
+                      placeholder={t('panel.relay.registerSecretPlaceholder')}
+                      onChange={(event) => setRegisterSecret(event.target.value)}
+                    />
+                    <p className="text-xs text-foreground-muted">{t('panel.relay.registerSecretHint')}</p>
                   </Field>
               </div>
             </section>

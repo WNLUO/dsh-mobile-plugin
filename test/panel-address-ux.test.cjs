@@ -144,17 +144,20 @@ test('网络配置弹窗：两列一屏、局域网开关撤掉、配对策略�
   assert.match(pairingCard, /onChangePolicy\(next \? 'code' : 'deny'\)/, '开关要接回同一份 pairingPolicy');
 });
 
-test('网络配置弹窗是一屏两列，注册密钥已下线', () => {
+test('网络配置弹窗是一屏两列，自建中转能填注册密钥', () => {
   const dialog = read('RelayConfigDialog.tsx');
   // 2026-11-22 需求变更：网络配置从弹窗改成独立一页，不再用固定弹窗宽度；宽够时仍分两列。
   assert.ok(!/w-\[min\(1100px,92vw\)\]/.test(dialog), '改成整页后不再用固定弹窗宽度');
   assert.match(dialog, /grid-cols-2/, '地址那几块要分两列排');
   assert.ok(!/max-h-\[70vh\]/.test(dialog), '别再留原来那圈 70vh 内滚动：正常窗口要一屏排完');
-  // 注册密钥下线（用户口径：运营版中转不做了）：这扇窗里不许再有它的输入框。
-  assert.ok(!/registerSecret/.test(dialog), '网络配置弹窗里又出现了注册密钥');
+  // 2026-11-28 需求变更（用户要求）：自建中转的用户需要填注册密钥，之前「运营版中转不做了、
+  // 密钥下线」的口径作废，输入框补回自建中转那栏。留空=不改动，只有填了才进 patch。
+  assert.match(dialog, /panel\.relay\.registerSecret/, '自建中转那栏要能填注册密钥');
+  assert.match(dialog, /if \(registerSecret !== ''\) patch\.registerSecret = registerSecret/, '留空不改密钥：只有填了才进 patch');
   const panel = fs.readFileSync(path.join(__dirname, '..', 'React', 'src', 'lib', 'i18n', 'messages', 'panel.ts'), 'utf8');
-  assert.ok(!panel.includes('panel.connection.registerSecret'), '注册密钥那条文案键该跟着一起删');
-  // 但它描述的那种中转还在：警告正文不能把人指向一个已经不存在的位置。
+  assert.ok(panel.includes("'panel.relay.registerSecret':"), '注册密钥的文案键要在字典里');
+  // 准入被拒的提示要把人指向那个真实存在的输入框，而不是说「面板已不再提供填写入口」。
   const body = panel.match(/'panel\.connection\.relayNeedsSecretBody': '([^']*)'/);
-  assert.ok(body && !body[1].includes('注册密钥 →') && !body[1].includes('Registration secret above'), '警告正文还指着已经删掉的输入框');
+  assert.ok(body && body[1].includes('自建中转'), '警告正文没指向自建中转那栏的密钥输入框');
+  assert.ok(!/不再提供填写入口|no longer has a field/.test(body?.[1] || ''), '警告正文还说面板没有填写入口');
 });

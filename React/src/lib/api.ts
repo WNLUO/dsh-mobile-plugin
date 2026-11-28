@@ -656,6 +656,8 @@ export type PortCheck = {
 
 /** `/api/relay/config` 只认这几个字段，其余一律忽略（宿主侧白名单）。 */
 export type ConfigPatch = {
+  /** 自建中转的注册密钥（宿主侧 `TUNNEL_REGISTER_SECRET` 的对偶值）。空串=不改动，别带。 */
+  registerSecret?: string
   relayUrl?: string
   /** 中转地址清单（宿主保留字段）。 */
   relayUrls?: string[]

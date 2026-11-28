@@ -295,8 +295,8 @@ export function ConnectionCard({ status, addressBook, busy, port, portAdjusted, 
 
 /**
  * 隧道被拒的两种原因，各自给出**下一步动作**。
- * 注册密钥只存在于中转的部署参数里，中转不会通过任何接口公开它，
- * 所以这里只能如实说「向部署者索取」，不假装有自助路径。
+ * 注册密钥只存在于中转的部署参数里，中转不会通过任何接口公开它的值，
+ * 所以这里说「向部署者索取，填进网络配置的自建中转那栏」——不假装有读出密钥的捷径。
  */
 function AdmissionNotice({ status }: { status: StatusView }) {
   const hint = status.tunnel.admissionHint
