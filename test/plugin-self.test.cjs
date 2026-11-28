@@ -92,6 +92,19 @@ test('有外壳：版本、来源、回退结果都投影出来', () => {
   assert.equal(Object.prototype.hasOwnProperty.call(value.lastApply, 'command'), false, 'lastApply 不许带装法命令行');
 });
 
+test('有外壳：外壳能力契约透传给手机（老外壳按 legacy）', () => {
+  const modern = snapshot(ctxWith({
+    apply: async () => {},
+    status: () => ({ version: '1.0.0', shellApiVersion: 3, shellCapabilities: ['route-dispatch'] }),
+  }));
+  assert.equal(modern.shellApiVersion, 3);
+  assert.equal(modern.shellLegacy, false);
+
+  const legacy = snapshot(ctxWith({ apply: async () => {}, status: () => ({ version: '0.9.0' }) }));
+  assert.equal(legacy.shellApiVersion, 0);
+  assert.equal(legacy.shellLegacy, true, '没报版本 = 老外壳，按 legacy 降级');
+});
+
 test('状态里的未知 state 收敛成 null，不原样透传', () => {
   assert.equal(applyView({ state: 'weird-value' }).state, null);
   assert.equal(applyView({ state: 'succeeded' }).state, 'succeeded');

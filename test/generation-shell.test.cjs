@@ -944,6 +944,20 @@ test('停用外壳：分派器与路由撤干净，不再转给已卸载的实�
   assert.equal(await routeReply(server, '/api/relay/gen'), 'unload-b', '再启用后请求应由新一代处理');
 });
 
+test('外壳对外报出能力契约：status 里带接口版本与能力名', async t => {
+  await resetProfile();
+  install(makeGeneration('compat', '0.9.40', goodGeneration('compat')));
+  const { fiber, runtime } = await bootShell();
+  t.after(async () => { await fiber.dispose(); });
+  await waitForStatus(runtime);
+  const status = runtime.status();
+  assert.ok(Number.isInteger(status.shellApiVersion) && status.shellApiVersion >= 1, '外壳要报一个 ≥1 的接口版本');
+  assert.ok(Array.isArray(status.shellCapabilities), '外壳要报能力清单');
+  for (const cap of ['route-dispatch', 'transport-hosts', 'update-orchestration']) {
+    assert.ok(status.shellCapabilities.includes(cap), `能力清单该含 ${cap}`);
+  }
+});
+
 /** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */async function waitFor(probe, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
