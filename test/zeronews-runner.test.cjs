@@ -26,6 +26,66 @@ const runningStatus = (extra = {}) => JSON.stringify({
   ...extra,
 });
 
+for (const boundary of ['ensure', 'status', 'authtoken', 'login-status', 'login-sleep', 'login-after',
+  'health', 'health-sleep', 'endpoints', 'add', 'endpoint-poll', 'endpoint-sleep']) {
+  test(`stop during ${boundary} prevents further CLI, spawn and tunnel work`, { timeout: 1000 }, async (t) => {
+    let entered;
+    let release;
+    const reached = new Promise((resolve) => { entered = resolve; });
+    const pending = new Promise((resolve) => { release = resolve; });
+    const calls = [];
+    let paused = false;
+    let statuses = 0;
+    let endpoints = 0;
+    const loginPending = boundary.startsWith('login-');
+    async function pause(key) {
+      if (!paused && boundary === key) { paused = true; entered(); await pending; }
+    }
+    const runner = createZeroNewsRunner({
+      portOf: () => 51887,
+      ensure: async () => { calls.push('ensure'); await pause('ensure'); return { ok: true, path: '/synthetic/zeronews' }; },
+      runImpl: async (_binary, args) => {
+        calls.push(args[0]);
+        let key = args[0];
+        if (args[0] === 'status' && ++statuses > 1) {
+          key = boundary === 'login-after' && statuses > 2 ? 'login-after' : 'login-status';
+        }
+        await pause(key);
+        if (args[0] === 'status') return { code: 0, stdout: JSON.stringify({
+          login: !loginPending, login_pending: loginPending && statuses < 3,
+          login_error: boundary === 'login-after' && statuses === 2 ? 'denied' : '',
+        }) };
+        return { code: 0, stdout: '' };
+      },
+      spawnImpl: () => { calls.push('spawn'); return { on() {}, unref() {}, kill() {} }; },
+      fetchImpl: async (url) => {
+        const key = url.endsWith('/healthz') ? 'health' : ++endpoints > 1 ? 'endpoint-poll' : 'endpoints';
+        calls.push(key);
+        await pause(key);
+        return { ok: key !== 'health' || boundary !== 'health-sleep', json: async () => ({ data: [] }) };
+      },
+      sleepImpl: async () => {
+        calls.push('sleep');
+        await pause(loginPending ? 'login-sleep' : endpoints > 0 ? 'endpoint-sleep' : 'health-sleep');
+      },
+    });
+    t.after(() => { runner.stop(); release(); });
+    const starting = runner.start(boundary === 'authtoken' ? { token: 'synthetic-only' } : {});
+    await reached;
+    const before = [...calls];
+    runner.stop();
+    release();
+    const result = await starting;
+    assert.deepEqual(calls, before, '停止后不再发起后续操作');
+    assert.equal(result.phase, 'off');
+    assert.equal(result.running, false);
+    assert.equal(result.url, '');
+    assert.equal(result.tunnelLocalPort, 0);
+    assert.equal(result.clientId, '');
+    assert.equal(result.node, '');
+  });
+}
+
 // ── provision：四平台地址 + 缓存 / 下载优先级 ──────────────────────────────
 
 test('四平台有官方地址，错误平台如实标不支持', () => {
