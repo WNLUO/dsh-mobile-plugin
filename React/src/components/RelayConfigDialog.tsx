@@ -1,3 +1,4 @@
+// 2026-11-28：按用户要求撤掉两张入口卡上的图标，只留标题、说明与进入提示。
 // 2026-11-28：网络配置首页改成两张大入口卡（服务商 / 自定义网络），点进去展开对应区域，顶部可返回。
 // 2026-11-28：网络配置加「出站协议族」三档单选（auto / ipv4-first / ipv4-only），变了才进 patch。
 // 2026-11-27：FRP 导入保存要有可见反馈——成功关窗并刷新状态、等待给进度，晚到的配置回填不盖用户粘贴。
@@ -33,7 +34,7 @@ import { Input } from '@appica/ui-react/input'
 import { Radio } from '@appica/ui-react/radio'
 import { RadioGroup } from '@appica/ui-react/radio-group'
 import { Spinner } from '@appica/ui-react/spinner'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { frpConfig, importFrp, probeDirect, probeRelays, publicIp, stopFrp, type AddressBook, type ConfigPatch, type StatusView } from '../lib/api.ts'
 import { RELAY_REPO_URL } from '../lib/links.ts'
@@ -109,10 +110,9 @@ function AddressCombo({
  * 首页那两张大入口卡：服务商 / 自定义网络。
  *
  * 做成大块而不是小条目 —— 这块后面还要往里丰富内容，卡片本身得撑得起版面。
- * 两张卡样式完全同一份，只换图标、标题和说明，免得左右两张越改越不一样。
+ * 两张卡样式完全同一份，只换标题和说明，免得左右两张越改越不一样。
  */
-function NetworkChoiceCard({ icon, title, description, badge, onClick }: {
-  icon: ReactNode
+function NetworkChoiceCard({ title, description, badge, onClick }: {
   title: string
   description: string
   badge?: string
@@ -124,7 +124,6 @@ function NetworkChoiceCard({ icon, title, description, badge, onClick }: {
       onClick={onClick}
       className="flex min-h-[220px] cursor-pointer flex-col items-start gap-4 rounded-xl border border-border-muted bg-background-muted/40 p-6 text-left transition-colors hover:bg-background-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
-      <span className="flex size-12 items-center justify-center rounded-lg bg-primary-subtle text-foreground-strong">{icon}</span>
       <span className="flex flex-col gap-2">
         <span className="flex flex-wrap items-center gap-2">
           <span className="text-lg font-semibold text-foreground-strong">{title}</span>
@@ -579,25 +578,12 @@ export function RelayConfigDialog({
           {/* 首页先看两张大入口卡（2026-11-28 用户要求）：这一块后面还要丰富，卡片做成大块。 */}
           <div className={networkChoice === 'choice' ? 'grid grid-cols-1 gap-4 px-4 pb-5 pt-8 md:grid-cols-2' : 'hidden'}>
             <NetworkChoiceCard
-              icon={
-                <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M2 8.5a15 15 0 0 1 20 0M5.5 12a10 10 0 0 1 13 0M9 15.5a5 5 0 0 1 6 0" />
-                  <circle cx="12" cy="19" r="1" />
-                </svg>
-              }
               title={t('panel.network.choice.providerTitle')}
               description={t('panel.network.choice.providerDesc')}
               badge={t('panel.network.choice.recommended')}
               onClick={() => setNetworkChoice('provider')}
             />
             <NetworkChoiceCard
-              icon={
-                <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M4 7h9m4 0h3M4 17h3m4 0h9" />
-                  <circle cx="15" cy="7" r="2" />
-                  <circle cx="9" cy="17" r="2" />
-                </svg>
-              }
               title={t('panel.network.choice.customTitle')}
               description={t('panel.network.choice.customDesc')}
               onClick={() => setNetworkChoice('custom')}
