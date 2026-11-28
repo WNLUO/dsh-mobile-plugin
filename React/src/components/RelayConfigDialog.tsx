@@ -173,6 +173,10 @@ export function RelayConfigDialog({
   const [manualTcpUrl, setManualTcpUrl] = useState('')
   /** 出站协议族策略（`ipVersionPolicy`）：auto / ipv4-first / ipv4-only，默认跟随系统。 */
   const [ipVersionPolicy, setIpVersionPolicy] = useState<'auto' | 'ipv4-first' | 'ipv4-only'>(status.ipVersionPolicy ?? 'auto')
+  /** 出站协议族设置弹窗：正文只摆一个文字按钮点开，三档在弹窗里选，保存直接落盘。 */
+  const [ipVersionDialogOpen, setIpVersionDialogOpen] = useState(false)
+  /** 弹窗里的草稿值，开窗时灌入当前落盘值，保存才写回，取消不碰主窗。 */
+  const [ipVersionDraft, setIpVersionDraft] = useState<'auto' | 'ipv4-first' | 'ipv4-only'>(status.ipVersionPolicy ?? 'auto')
   /** TCP 那栏的填写提示：这格只收「主机:端口」，填了带 scheme 的地址就提示去「直连地址」。 */
   const [tcpHint, setTcpHint] = useState('')
   /** 自建中转的检测结果：用宿主已有的 /api/relay/probe-relays 确认「是不是我们的中转」并取版本、延迟。 */
@@ -229,6 +233,7 @@ export function RelayConfigDialog({
     if (!open) return
     setRelayUrl(status.relayUrl)
     setIpVersionPolicy(status.ipVersionPolicy ?? 'auto')
+    setIpVersionDraft(status.ipVersionPolicy ?? 'auto')
     void loadFrpConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：只认 open
   }, [open])
@@ -238,6 +243,7 @@ export function RelayConfigDialog({
     if (open) return
     setLanPickerOpen(false)
     setFrpDialogOpen(false)
+    setIpVersionDialogOpen(false)
     frpEditedRef.current = false
   }, [open])
 
@@ -812,40 +818,25 @@ export function RelayConfigDialog({
                     {frpNote ? <p className="text-xs text-error">{frpNote}</p> : null}
                   </Field>
               </div>
-
-              {/* 出站协议族不是一条地址，是这批出站连接（中转 / 总控 WS 与 Cloudflare）走哪族 IP 的全局策略。
-                  从七栏地址里单拎出来占一行，免得夹在 IPv6 与 TCP 之间看着像某条地址。 */}
-              <Field>
-                <FieldLabel htmlFor="relay-ip-version">{t('panel.network.ipVersionTitle')}</FieldLabel>
-                <RadioGroup
-                  id="relay-ip-version"
-                  className="flex flex-wrap items-center gap-x-4 gap-y-1"
-                  value={ipVersionPolicy}
-                  onValueChange={(next) => {
-                    if (next === 'auto' || next === 'ipv4-first' || next === 'ipv4-only') setIpVersionPolicy(next)
-                  }}
-                >
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <Radio value="auto" />
-                    <span className="text-sm text-foreground">{t('panel.network.ipVersionAuto')}</span>
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <Radio value="ipv4-first" />
-                    <span className="text-sm text-foreground">{t('panel.network.ipVersionV4First')}</span>
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <Radio value="ipv4-only" />
-                    <span className="text-sm text-foreground">{t('panel.network.ipVersionV4Only')}</span>
-                  </label>
-                </RadioGroup>
-              </Field>
             </section>
           </div>
 
           <div className="flex items-center justify-end gap-2 border-t border-border-muted p-3">
+            {/* 出站协议族：文字按钮带出设置弹窗，不在正文占一整行。当前档位显示在按钮上。 */}
+            <button
+              type="button"
+              className="mr-auto text-sm text-foreground-muted underline decoration-dotted underline-offset-4 hover:text-foreground"
+              onClick={() => { setIpVersionDraft(ipVersionPolicy); setIpVersionDialogOpen(true) }}
+            >
+              {t('panel.network.ipVersionTitle')}：{ipVersionPolicy === 'auto'
+                ? t('panel.network.ipVersionAuto')
+                : ipVersionPolicy === 'ipv4-first'
+                  ? t('panel.network.ipVersionV4First')
+                  : t('panel.network.ipVersionV4Only')}
+            </button>
             {/* 保存期间给一条进度（含 FRP 导入最多等 8 秒），并可随时取消。 */}
             {busy === 'config' ? (
-              <span className="mr-auto inline-flex items-center gap-1.5 text-xs text-foreground-muted">
+              <span className="inline-flex items-center gap-1.5 text-xs text-foreground-muted">
                 <Spinner />
                 {t('panel.shell.busy')}
               </span>
@@ -951,6 +942,51 @@ export function RelayConfigDialog({
             </Button>
             <Button variant="primary" disabled={frpBusy !== '' || !frpText.trim()} onClick={() => { void saveFrp() }}>
               {t('panel.frp.saveStart')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 出站协议族：三档在弹窗里选，保存直接落盘（走 onSave 的配置补丁，与其余字段同一条路径）。 */}
+      <Dialog open={ipVersionDialogOpen} onOpenChange={setIpVersionDialogOpen}>
+        <DialogContent className="w-[min(440px,92vw)]">
+          <DialogHeader>
+            <DialogTitle>{t('panel.network.ipVersionTitle')}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <RadioGroup
+              className="flex flex-col gap-3"
+              value={ipVersionDraft}
+              onValueChange={(next) => {
+                if (next === 'auto' || next === 'ipv4-first' || next === 'ipv4-only') setIpVersionDraft(next)
+              }}
+            >
+              <label className="flex cursor-pointer items-center gap-2">
+                <Radio value="auto" />
+                <span className="text-sm text-foreground">{t('panel.network.ipVersionAuto')}</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Radio value="ipv4-first" />
+                <span className="text-sm text-foreground">{t('panel.network.ipVersionV4First')}</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Radio value="ipv4-only" />
+                <span className="text-sm text-foreground">{t('panel.network.ipVersionV4Only')}</span>
+              </label>
+            </RadioGroup>
+          </DialogBody>
+          <DialogFooter className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIpVersionDialogOpen(false)}>
+              {t('panel.common.cancel')}
+            </Button>
+            <Button variant="primary" disabled={!canSave} onClick={() => {
+              if (ipVersionDraft !== ipVersionPolicy) {
+                setIpVersionPolicy(ipVersionDraft)
+                onSave({ ipVersionPolicy: ipVersionDraft })
+              }
+              setIpVersionDialogOpen(false)
+            }}>
+              {t('panel.common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
