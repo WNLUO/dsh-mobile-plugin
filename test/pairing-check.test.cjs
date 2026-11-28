@@ -1,3 +1,4 @@
+// 2026-11-28：补服务商 TCP 线路（FRP 裸 host:port）的守卫：补前缀、幂等、端到端拨得通。
 // 2026-11-26：配对地址自检的守卫——码里每条地址真拨一次，拨自己的那条只算「本机回环」。
 'use strict'
 
@@ -12,6 +13,7 @@
 
 const assert = require('node:assert/strict')
 const http = require('node:http')
+const net = require('node:net')
 const test = require('node:test')
 
 const { pairingCheck, targetsOf, summarize, hostOf } = require('../lib/relay/pairing-check.cjs')
@@ -21,6 +23,21 @@ async function startServer(t, handler) {
   const sockets = new Set()
   const server = http.createServer(handler)
   server.on('connection', (socket) => {
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(async () => {
+    for (const socket of sockets) socket.destroy()
+    await new Promise((resolve) => server.close(resolve))
+  })
+  return server.address().port
+}
+
+/** 起一台只听 127.0.0.1 的裸 TCP 服务（FRP 那类线路不是 HTTP，拨的是 socket）。 */
+async function startTcpServer(t) {
+  const sockets = new Set()
+  const server = net.createServer((socket) => {
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
   })
@@ -59,6 +76,22 @@ test('码里要拨的地址：服务商线路优先于同名局域网副本，TC
   assert.equal(zeronews[0].name, 'ZeroNews')
   assert.equal(targets.find((row) => row.kind === 'tcp').url, 'tcp://192.168.1.5:18787')
   assert.equal(targets.filter((row) => row.kind === 'lan').length, 1, '局域网条目末尾斜杠不影响去重')
+})
+
+test('服务商 TCP 线路（FRP 裸 host:port）在自检清单里补上 tcp:// 前缀', () => {
+  const targets = targetsOf({ routes: [{ url: '110.42.96.64:37971', transport: 'tcp', name: 'FRP' }] })
+  assert.equal(targets.length, 1)
+  const [frp] = targets
+  assert.equal(frp.url, 'tcp://110.42.96.64:37971')
+  assert.equal(frp.kind, 'route')
+  assert.equal(frp.name, 'FRP')
+  assert.equal(frp.transport, 'tcp')
+})
+
+test('已带 scheme 的 TCP 线路不被重复补前缀（幂等）', () => {
+  const targets = targetsOf({ routes: [{ url: 'tcp://110.42.96.64:37971', transport: 'tcp', name: 'FRP' }] })
+  assert.equal(targets.length, 1)
+  assert.equal(targets[0].url, 'tcp://110.42.96.64:37971')
 })
 
 test('IPv6 地址也能取出主机名', () => {
@@ -111,6 +144,18 @@ test('拨一次：4xx 算通、5xx 不算通、关着的端口算不通', async 
   assert.equal(refused.targets.length, 1)
   assert.equal(refused.targets[0].ok, false)
   assert.equal(refused.summary.allFailed, true)
+})
+
+test('端到端：FRP 裸 TCP 线路走完整拼码链路，自检拨得通', async (t) => {
+  const port = await startTcpServer(t)
+  const result = await pairingCheck(stateOf({ frpUrl: `127.0.0.1:${port}` }), { timeoutMs: 2000 })
+  const frp = result.targets.find((row) => row.name === 'FRP')
+  assert.ok(frp, 'FRP 线路进了自检清单')
+  assert.equal(frp.kind, 'route')
+  assert.equal(frp.transport, 'tcp')
+  assert.equal(frp.url, `tcp://127.0.0.1:${port}`)
+  assert.equal(frp.ok, true, '裸 TCP 线路拨得通')
+  assert.equal(result.summary.allFailed, false)
 })
 
 test('拨自己：局域网地址算本机回环，外部地址不算', async (t) => {
