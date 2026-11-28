@@ -913,6 +913,37 @@ export function apply(ctx) {
   }
 });
 
+test('停用外壳：分派器与路由撤干净，不再转给已卸载的实现；再启用挂的是新一代', async t => {
+  await resetProfile();
+  install(makeGeneration('unload-a', '0.9.30', goodGeneration('unload-a')));
+  const { server, fiber, runtime } = await bootShell();
+  const before = await waitForStatus(runtime);
+  assert.equal(before.version, '0.9.30');
+  assert.ok(server.routes.has('/api/relay/gen'), '装载后这一代的路由应在');
+  assert.ok(server.routes.has('/api/relay/host-half'), '外壳自检口也应在');
+
+  // 停用/卸载外壳这一层：实现路由与外壳自检口都要撤掉，宿主上一条插件路由都不该剩。
+  await fiber.dispose();
+  await waitFor(() => server.routes.size === 0);
+  assert.equal(server.routes.size, 0, '停用后不应再有插件路由挂在宿主上');
+  assert.equal(server.routes.has('/api/relay/gen'), false, '已卸载实现的路由必须撤掉');
+  assert.equal(server.routes.has('/api/relay/host-half'), false, '外壳自检口也必须撤掉');
+
+  // 再启用：若旧分派器没撤，这里会因路由撞名抛错；新装上的实现要能真接管请求。
+  install(makeGeneration('unload-b', '0.9.31', goodGeneration('unload-b')));
+  const { Context } = await import('@deepseek-ai/cordis');
+  const { shell } = await loadShellModules();
+  const ctx2 = new Context();
+  ctx2.provide('webServer', server);
+  ctx2.provide('sessions', { list: () => [] });
+  const fiber2 = await ctx2.plugin({ inject: shell.inject, apply: shell.apply });
+  t.after(async () => { await fiber2.dispose(); });
+  const runtime2 = ctx2.get('dshMobilePluginRuntime');
+  const after = await waitForStatus(runtime2);
+  assert.equal(after.version, '0.9.31', '再启用应激活新装的那一代');
+  assert.equal(await routeReply(server, '/api/relay/gen'), 'unload-b', '再启用后请求应由新一代处理');
+});
+
 /** 轮询等待条件成立（外壳的 start() 是 fire-and-forget，测试必须等它落定）。 */async function waitFor(probe, timeoutMs = 5000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
