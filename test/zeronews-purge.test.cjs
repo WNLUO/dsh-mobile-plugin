@@ -11,6 +11,8 @@ const { purgeZeroNews, runElevatedReset, RESET_TIMEOUT_MS } = require('../lib/ze
 
 const ROOT = '/tmp/dsh-zeronews-purge-test';
 const CACHED = path.join(ROOT, 'zeronews');
+// 2026-11-28：客户端换代会把插件自己那份记一行路径（只读安装时搬到自己目录），彻底清理一并清掉。
+const ACTIVE_MARKER = path.join(ROOT, '.active-binary');
 const SYSTEM_BIN = '/Applications/zeronews/zeronews';
 
 function harness({ resetOk = true, located = true, rmThrows = false, resetStderr = 'need administrator privileges', platform = 'darwin' } = {}) {
@@ -48,7 +50,7 @@ test('macOS 上 reset 走系统授权框，成功才删插件缓存的客户端'
   assert.equal(h.commands[0][0], 'osascript', '经 osascript 走系统授权，不让用户开终端');
   assert.match(h.commands[0][1][1], /with administrator privileges/, '不能绕过系统授权');
   assert.equal(h.commands[0][2].timeoutMs, RESET_TIMEOUT_MS);
-  assert.deepEqual(h.removed, [[CACHED, { force: true }]], '只删缓存那份，系统安装的不碰');
+  assert.deepEqual(h.removed, [[ACTIVE_MARKER, { force: true }], [CACHED, { force: true }]], '只删插件自己那份与它的标记，系统安装的不碰');
   assert.equal(result.cacheRemoved, true);
   assert.equal(result.error, '');
 });
@@ -131,7 +133,7 @@ test('本机没装客户端：跳过 reset，仍清掉缓存残留', async () =>
   assert.equal(result.ok, true);
   assert.equal(result.reset.attempted, false);
   assert.deepEqual(h.commands, [], '没二进制就不跑命令');
-  assert.deepEqual(h.removed, [[CACHED, { force: true }]]);
+  assert.deepEqual(h.removed, [[ACTIVE_MARKER, { force: true }], [CACHED, { force: true }]]);
 });
 
 test('缓存删不掉：如实报，不让界面说已经清理干净', async () => {

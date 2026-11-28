@@ -91,7 +91,7 @@ test('切换是两次 rename：旧版退到 .prev，新版顶上；回滚能换�
   const { next, prev } = pathsOf(binary);
   fs.writeFileSync(next, 'new-binary', { mode: 0o755 });
   const updater = createClientUpdater({ desiredVersion: '4.1.1', run: fakeRun({}) });
-  const applied = updater.apply(binary);
+  const applied = await updater.apply(binary);
   assert.equal(applied.ok, true);
   assert.equal(fs.readFileSync(binary, 'utf8'), 'new-binary');
   assert.equal(fs.readFileSync(prev, 'utf8'), 'old-binary', '旧版留着，回滚靠它');
@@ -199,4 +199,97 @@ test('新版本起不来：换回旧版再起，不让用户停在「升级后�
   assert.equal(env.events.includes('cleanup'), false, '没连上就别删旧版');
   await ticks();
   assert.equal(env.events.filter((e) => e === 'apply').length, 1, '同一版起不来就不要再拿它反复折腾');
+});
+
+test('Windows 上客户端刚退出、句柄还没松开：改名重试到成功，不因为一次抖动判失败', async () => {
+  const { binary } = sandbox();
+  const { next } = pathsOf(binary);
+  fs.writeFileSync(next, 'new-binary', { mode: 0o755 });
+  // 前两次改名抛 EBUSY（真实现场：进程刚退、杀毒软件短占），之后放行。
+  let attempts = 0;
+  const shaky = {
+    statSync: (...args) => fs.statSync(...args),
+    rmSync: (...args) => fs.rmSync(...args),
+    mkdirSync: (...args) => fs.mkdirSync(...args),
+    writeFileSync: (...args) => fs.writeFileSync(...args),
+    renameSync: (from, to) => {
+      attempts += 1;
+      if (attempts <= 2) { const error = new Error('EBUSY: resource busy or locked'); error.code = 'EBUSY'; throw error; }
+      return fs.renameSync(from, to);
+    },
+  };
+  const updater = createClientUpdater({ desiredVersion: '4.1.1', run: fakeRun({}), fsImpl: shaky, wait: async () => {} });
+  const applied = await updater.apply(binary);
+  assert.equal(applied.ok, true, '重试之后应当换成功');
+  assert.equal(fs.readFileSync(binary, 'utf8'), 'new-binary');
+});
+
+test('只读安装位置：下载报 no-permission，好让上层改走插件自己的目录', async () => {
+  const { binary } = sandbox();
+  const updater = createClientUpdater({
+    desiredVersion: '4.1.1',
+    run: fakeRun({ 'old-binary': '4.1.0' }),
+    download: async () => ({ ok: false, code: 'no-permission' }),
+  });
+  const staged = await updater.stage(binary);
+  assert.equal(staged.ok, false);
+  assert.equal(staged.code, 'no-permission', '权限问题要和没网分开，前者只能换地方装');
+});
+
+test('客户端装在只读位置：新版装到插件目录、配置搬过去，连上就接着用', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zn-root-'));
+  const sysDir = path.join(root, 'system-app');
+  fs.mkdirSync(sysDir, { recursive: true });
+  const systemBinary = path.join(sysDir, 'zeronews');
+  fs.writeFileSync(systemBinary, 'old-binary', { mode: 0o755 });
+  const config = 'authtoken: tok\nclient_id: cid-1\n';
+  fs.writeFileSync(path.join(sysDir, 'config.yml'), config);
+
+  const events = [];
+  const updater = {
+    desiredVersion: '4.1.1',
+    recover: () => '',
+    versionOf: async () => '4.1.0',
+    stagedVersion: async () => '',
+    stage: async () => { events.push('stage'); return { ok: false, version: '', error: 'no-permission', code: 'no-permission' }; },
+    stageInto: async (target) => {
+      events.push('stageInto');
+      fs.writeFileSync(`${target}.next`, 'new-binary', { mode: 0o755 });
+      return { ok: true, version: '4.1.1', error: '', code: '' };
+    },
+    commitStaged: (target) => { fs.renameSync(`${target}.next`, target); return { ok: true }; },
+    shutdown: async () => { events.push('shutdown'); },
+    apply: () => { events.push('apply'); return { ok: true }; },
+    rollback: () => ({ ok: true }),
+    cleanup: () => {},
+  };
+  const runner = {
+    start: async () => ({ phase: 'connected', url: 'https://old.example.com', clientId: 'cid-1', binary: systemBinary }),
+    stop: () => { events.push('stop'); return { phase: 'off' }; },
+    status: () => ({ phase: 'connected', url: 'https://old.example.com', clientId: 'cid-1', binary: systemBinary }),
+    checkAlive: async () => ({ phase: 'connected', url: 'https://old.example.com' }),
+  };
+  let cleanupFn = null;
+  mountZeroNews({
+    mount: (_name, run) => run(),
+    settings: { update: async () => {} },
+    getState: () => ({ zeroNewsEnabled: true, zeroNewsUrl: 'https://old.example.com', zeroNewsClientId: 'cid-1' }),
+    control: {}, warn: () => {},
+    ctx: { effect: (fn) => { cleanupFn = fn(); return () => {}; } },
+    name: 'test', portOf: () => 18787, retryBaseMs: 5, healthCheckMs: 5,
+    runnerFactory: () => runner,
+    ensure: async () => ({ ok: true, path: systemBinary }),
+    updaterFactory: () => updater,
+    activeMuxConnections: () => 0,
+    root,
+  });
+  t.after(() => { if (cleanupFn) cleanupFn(); });
+  await ticks(120);
+
+  const own = path.join(root, 'zeronews');
+  const marker = path.join(root, '.active-binary');
+  assert.equal(fs.readFileSync(own, 'utf8'), 'new-binary', '新版落在插件自己的目录里');
+  assert.equal(fs.readFileSync(path.join(root, 'config.yml'), 'utf8'), config, '身份跟着配置搬过去，用户不用重新登录');
+  assert.equal(fs.readFileSync(marker, 'utf8'), own, '之后一律跑这一份');
+  assert.ok(events.includes('stageInto'), '走的是「装到插件目录」那条路');
 });
