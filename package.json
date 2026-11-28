@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.132",
+  "version": "0.5.133",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -117,22 +117,23 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.132",
+    "version": "0.5.133",
     "kinds": [
-      "fix"
+      "fix",
+      "feature"
     ],
     "notes": {
-      "zh-Hans": "- 回环端口被占用、地址遭遮蔽时，兜底隧道会重新指向当前可用的端口，不再停在失效地址上。\n- 首选局域网地址现在在设备概况和配对回包里也排在最前，各处线路列表的顺序一致。\n- 节点小宝的虚拟网卡不再混进局域网候选，选路时不会误提到它。\n- 回环来源的网络通道改标为隧道，不再冒充局域网线路。",
-      "zh-Hant": "- 回環連接埠被佔用、位址遭遮蔽時，兜底隧道會重新指向目前可用的連接埠，不再停在失效位址上。\n- 優先區域網路位址現在在裝置概況和配對回包裡也排在最前，各處線路清單的順序一致。\n- 節點小寶的虛擬網卡不再混進區域網路候選，選路時不會誤提到它。\n- 回環來源的網路通道改標為隧道，不再冒充區域網路線路。",
-      "en": "- When a loopback port is taken and the address is shadowed, the fallback tunnel now repoints to the currently available port instead of staying on a dead address.\n- Your preferred LAN address now also comes first in the device overview and pairing replies, so route lists are ordered consistently everywhere.\n- The JDXB virtual network adapter is no longer mixed into LAN candidates, so route selection won't pick it by mistake.\n- Network channels coming from loopback are now labeled as tunnels instead of being shown as LAN routes.",
-      "ja": "- ループバックポートが占有されてアドレスが隠された場合、フォールバックトンネルは無効なアドレスに留まらず、現在使えるポートへ切り替えます。\n- 優先する LAN アドレスが端末の概要とペアリングの応答でも先頭に表示されるようになり、どのルート一覧でも並び順が同じになりました。\n- ノード小宝の仮想ネットワークアダプターが LAN 候補に混じらなくなり、ルート選択で誤って選ばれることがありません。\n- ループバック由来のネットワークチャネルは LAN 回線ではなくトンネルと表示されるようになりました。",
-      "ko": "- 루프백 포트가 점유되어 주소가 가려지면, 대체 터널이 죽은 주소에 머무르지 않고 현재 사용 가능한 포트로 다시 연결됩니다.\n- 기본 설정한 LAN 주소가 기기 개요와 페어링 응답에서도 맨 앞에 표시되어, 모든 경로 목록의 순서가 일치합니다.\n- 노드 샤오바오의 가상 네트워크 어댑터가 더 이상 LAN 후보에 섞이지 않아 경로 선택에서 잘못 선택되지 않습니다.\n- 루프백에서 오는 네트워크 채널은 이제 LAN 경로가 아닌 터널로 표시됩니다.",
-      "de": "- Wenn ein Loopback-Port belegt und die Adresse verdeckt ist, zeigt der Fallback-Tunnel jetzt auf den aktuell verfügbaren Port statt auf einer ungültigen Adresse zu bleiben.\n- Die bevorzugte LAN-Adresse steht nun auch in der Geräteübersicht und in Pairing-Antworten an erster Stelle, sodass Routenlisten überall gleich sortiert sind.\n- Die virtuelle Netzwerkkarte von JDXB taucht nicht mehr unter LAN-Kandidaten auf, damit die Routenwahl sie nicht versehentlich auswählt.\n- Netzwerkkanäle aus dem Loopback werden jetzt als Tunnel gekennzeichnet und nicht mehr als LAN-Route ausgegeben.",
-      "es": "- Cuando un puerto de bucle local está ocupado y la dirección queda oculta, el túnel de respaldo ahora apunta al puerto disponible actual en lugar de quedarse en una dirección inactiva.\n- Tu dirección LAN preferida también aparece primero en el resumen del dispositivo y en las respuestas de emparejamiento, para que las listas de rutas estén ordenadas igual en todas partes.\n- La tarjeta virtual de JDXB ya no se mezcla con los candidatos LAN, de modo que la selección de rutas no la elige por error.\n- Los canales de red que vienen del bucle local ahora se etiquetan como túneles en vez de mostrarse como rutas LAN.",
-      "fr": "- Lorsqu'un port de bouclage est occupé et l'adresse masquée, le tunnel de secours pointe désormais vers le port disponible actuel au lieu de rester sur une adresse inactive.\n- Votre adresse LAN préférée figure aussi en tête dans la vue d'appareil et dans les réponses d'appariement, afin que les listes de routes soient ordonnées de la même façon partout.\n- La carte réseau virtuelle de JDXB n'apparaît plus parmi les candidats LAN, ce qui évite à la sélection de route de la choisir par erreur.\n- Les canaux réseau issus du bouclage sont désormais étiquetés comme tunnels et non plus affichés comme routes LAN.",
-      "pt": "- Quando uma porta de loopback está ocupada e o endereço fica oculto, o túnel de reserva agora aponta para a porta disponível atual em vez de permanecer num endereço inativo.\n- O seu endereço LAN preferido também vem primeiro na visão geral do dispositivo e nas respostas de emparelhamento, para que as listas de rotas fiquem ordenadas igualmente em todos os lugares.\n- A placa de rede virtual da JDXB não entra mais nos candidatos LAN, evitando que a seleção de rota a escolha por engano.\n- Os canais de rede vindos do loopback passam a ser marcados como túnel, em vez de aparecerem como rotas LAN.",
-      "ru": "- Если порт петлевого интерфейса занят и адрес перекрыт, резервный туннель теперь указывает на доступный порт, а не остаётся на нерабочем адресе.\n- Предпочитаемый адрес локальной сети теперь стоит первым и в обзоре устройства, и в ответах на сопряжение, поэтому списки маршрутов везде отсортированы одинаково.\n- Виртуальный сетевой адаптер JDXB больше не попадает в кандидаты локальной сети, и выбор маршрута не может случайно выбрать его.\n- Сетевые каналы от петлевого интерфейса теперь помечаются как туннель, а не показываются как маршрут локальной сети.",
-      "tr": "- Bir geri döngü (loopback) portu meşgulse ve adres gölgede kalırsa, yedek tünel artık ölü bir adreste kalmak yerine o anda kullanılabilir porta yönlenir.\n- Tercih ettiğiniz yerel ağ adresi artık cihaz genel bakışında ve eşleştirme yanıtlarında da en başta gelir; böylece rota listeleri her yerde aynı sıralanır.\n- JDXB'nin sanal ağ kartı artık yerel ağ adaylarına karışmıyor, rota seçimi onu yanlışlıkla seçmiyor.\n- Geri döngüden gelen ağ kanalları artık yerel ağ rotası olarak değil tünel olarak etiketleniyor."
+      "zh-Hans": "- 插件跑在容器里时，配对二维码不再给出拨不通的容器内网地址，改用公网候选或手填地址。\n- 仓库摘要现在带出项目里的全部仓库根，手机上可以切换到并列仓库、子模块和工作树。",
+      "zh-Hant": "- 外掛在容器裡執行時，配對二維碼不再給出連不上的容器內網位址，改採公網候選或手填位址。\n- 倉庫摘要現在帶出專案裡的全部倉庫根，手機上可以切換到並列倉庫、子模組與工作樹。",
+      "en": "- When the plugin runs inside a container, the pairing QR code no longer leads with an unreachable container-internal address; it falls back to public candidates or a manually entered address.\n- The repository summary now includes every repository root in the project, so you can switch to sibling repositories, submodules, and worktrees on your phone.",
+      "ja": "- プラグインがコンテナ内で動いている場合、ペアリング用QRコードに接続できないコンテナ内網アドレスが表示されなくなり、公開アドレス候補または手入力アドレスに切り替わります。\n- リポジトリの概要にプロジェクト内のすべてのリポジトリルートが含まれるようになり、スマートフォンで並列リポジトリ、サブモジュール、ワークツリーに切り替えられます。",
+      "ko": "- 플러그인이 컨테이너 안에서 실행될 때, 페어링 QR 코드에 연결할 수 없는 컨테이너 내부 주소가 더 이상 표시되지 않고 공개 후보 주소나 직접 입력한 주소를 사용합니다.\n- 저장소 요약에 프로젝트의 모든 저장소 루트가 포함되어, 휴대폰에서 나란한 저장소, 서브모듈, 워크트리로 전환할 수 있습니다.",
+      "de": "- Wenn das Plugin in einem Container läuft, zeigt der Pairing-QR-Code keine nicht erreichbaren Container-internen Adressen mehr an, sondern greift auf öffentliche Kandidaten oder eine manuell eingegebene Adresse zurück.\n- Die Repository-Übersicht enthält jetzt alle Repository-Wurzeln im Projekt, damit Sie auf dem Telefon zu parallelen Repositories, Submodulen und Worktrees wechseln können.",
+      "es": "- Cuando el plugin se ejecuta dentro de un contenedor, el código QR de emparejamiento ya no muestra direcciones internas del contenedor a las que no se puede conectar; usa candidatos públicos o una dirección introducida manualmente.\n- El resumen del repositorio ahora incluye todas las raíces de repositorios del proyecto, para que puedas cambiar a repositorios paralelos, submódulos y worktrees desde el teléfono.",
+      "fr": "- Lorsque le plugin s'exécute dans un conteneur, le code QR d'appariement n'affiche plus d'adresses internes du conteneur inaccessibles ; il repasse sur les candidats publics ou une adresse saisie manuellement.\n- Le résumé du dépôt inclut désormais toutes les racines de dépôts du projet, afin de pouvoir basculer vers les dépôts parallèles, les sous-modules et les worktrees depuis le téléphone.",
+      "pt": "- Quando o plugin corre dentro de um contentor, o código QR de emparelhamento deixa de mostrar endereços internos do contentor inacessíveis e passa a usar candidatos públicos ou um endereço introduzido manualmente.\n- O resumo do repositório agora inclui todas as raízes de repositórios do projeto, para que possa mudar para repositórios paralelos, submódulos e worktrees no telemóvel.",
+      "ru": "- Когда плагин работает внутри контейнера, QR-код сопряжения больше не показывает недоступные внутренние адреса контейнера и использует публичные кандидаты или введённый вручную адрес.\n- Сводка репозитория теперь включает все корни репозиториев проекта, чтобы на телефоне можно было переключаться на параллельные репозитории, подмодули и рабочие копии.",
+      "tr": "- Eklenti bir konteyner içinde çalıştığında, eşleştirme QR kodu artık erişilemeyen konteyner içi adresleri göstermiyor; genel adaylara veya elle girilen bir adrese geçiyor.\n- Depo özeti artık projedeki tüm depo köklerini içeriyor; böylece telefondan yan depolara, alt modüllere ve worktree'lere geçebilirsiniz."
     }
   }
 }
