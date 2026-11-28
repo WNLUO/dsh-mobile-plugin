@@ -1,4 +1,5 @@
 // 反馈 1012：172.16/12 整段都算局域网候选，容器 / 虚拟网卡靠网卡名黑名单挡；用户已确认需求变化，旧断言照此改。
+// 反馈 1562：节点小宝 NodeBabyLink 是第三方穿透 VPN 虚拟网卡，按网卡名挡，不进局域网候选。
 'use strict'
 
 /**
@@ -194,7 +195,7 @@ test('publicInterfaces 与 lanInterfaces 共用同一套网卡黑名单与排序
 })
 
 test('VPN 网卡一律排除', () => {
-  for (const name of ['utun3', 'tun0', 'tap0', 'ppp0', 'ipsec0', 'wg0', 'tailscale0', 'vpn0', 'zt0', 'nebula1']) {
+  for (const name of ['utun3', 'tun0', 'tap0', 'ppp0', 'ipsec0', 'wg0', 'tailscale0', 'vpn0', 'zt0', 'nebula1', 'NodeBabyLink']) {
     assert.equal(isVpnInterface(name), true, name)
   }
   assert.equal(isVpnInterface('en0'), false)
@@ -245,6 +246,22 @@ test('事故复现：测试服务器的 safeline-ce 不再被当成局域网地�
   assert.deepEqual(lanCandidates(18787, server), [])
   // 直接锁住具体地址，防止将来又通过别的网卡名漏进来
   assert.equal(lanUrls(18787, server).includes('http://192.168.0.1:18787'), false)
+})
+
+test('反馈 1562 事故复现：节点小宝 NodeBabyLink 不再抢在真实局域网前面', () => {
+  // Windows 现场快照：真实以太网 172.16.183.129，节点小宝虚拟网卡挂 10.222.222.1/32。
+  // 修复前 NodeBabyLink 没进黑名单、rank 落默认 3，和以太网同档，候选顺序退化成
+  // os.networkInterfaces() 的枚举顺序 —— 手机按序挨个试就先探到死地址。
+  const host = ifaces({
+    NodeBabyLink: '10.222.222.1',
+    Ethernet: '172.16.183.129',
+  })
+  assert.deepEqual(lanUrls(18787, host), ['http://172.16.183.129:18787'])
+  assert.deepEqual(lanCandidates(18787, host), [
+    { url: 'http://172.16.183.129:18787', interface: 'Ethernet', family: 'IPv4', address: '172.16.183.129' },
+  ])
+  // 直接锁住具体地址，防止将来又通过别的网卡名漏进来
+  assert.equal(lanUrls(18787, host).includes('http://10.222.222.1:18787'), false)
 })
 
 test('物理网卡上的私有地址正常上报并带上端口', () => {
