@@ -1,3 +1,4 @@
+// 2026-11-28：回环遮蔽判定落地后，已跑起来的兜底隧道要重指到专属入口（issue #45）。
 // 2026-11-26：零讯旧地址被清掉后重新判定，兜底要顶上（此前那条死地址占了「有线路」名额）。
 // Cloudflare 兜底隧道接线：地址只在真连上边缘后写回，停用 / 卸载 / 重启前先把过期地址撤掉。
 'use strict';
@@ -188,4 +189,25 @@ test('宿主自带的 runner 已经连着就不误清当前地址', async () => 
   const { updates } = mountWith(runner, state);
   await settle();
   assert.deepEqual(updates, [], '这条地址此刻真的能用，不能因为一次重载就撤掉');
+});
+
+test('回环遮蔽判定落地后，已跑起来的兜底隧道重指到专属入口', async () => {
+  const state = { cloudflareUrl: '', manualLanUrl: '', manualTcpUrl: '', manualIpv6Url: '', manualIpv4Url: '' };
+  // 隧道在回环判定出来之前就按 lanPort 起了（判定前 needsBypass 为假，走 initial 分支启动）。
+  const runner = fakeRunner({ running: true, url: LIVE });
+  const synced = [];
+  runner.syncLocalPort = async () => { synced.push(1); return runner.status(); };
+  let bypass = false;
+  let hasRoute = false;
+  const { api } = mountGated(runner, state, { signals: () => ({ needsBypass: bypass }), route: () => hasRoute });
+  // 判定前：隧道已在跑，此时没有信号要绕开，reconcile 不该去动它的落点。
+  await api.reconcile(true);
+  assert.equal(synced.length, 0, '判定还没落地时不该重指');
+  // 回环探针判定被遮蔽、专属入口就绪：needsBypass 变真，重新判定必须纠偏落点。
+  bypass = true;
+  await api.reconcile();
+  assert.equal(synced.length, 1, '判定落地后已跑的隧道要重指，否则公网一直指到被占的旧端口');
+  // 再次判定（端口没变）不该重复重起：syncLocalPort 幂等由 runner 保证，这里确认 reconcile 每次都去纠偏。
+  await api.reconcile();
+  assert.equal(synced.length, 2, '每次判定都做一次落点比对，重不重起交给 runner 幂等判断');
 });
