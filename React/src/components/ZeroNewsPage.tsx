@@ -7,10 +7,11 @@
  * 在线设备 / 域名），下面隧道与设备左右两栏并排。没有数据就是 0，不再摆多步引导与截图 —— 老用户
  * 身份早就在本机客户端里，新用户靠一颗「连接」按钮把「装客户端 → 浏览器确认登录 → 建隧道」一次做完。
  *
- * 数据来自宿主的只读账号快照（`/api/relay/zeronews/account`，跑官方 CLI 的 status + show 三张清单）。
+ * 数据来自宿主的只读账号快照（`/api/relay/zeronews/account`，跑官方 CLI 的 status + show 四张清单）。
  * 这份数据基本不变，所以**读到就落本地**：下次进页面先用留底直接铺满，再在后台悄悄刷新一次；
- * 不做定时轮询（只有正在等浏览器确认登录的那一小段才轮询）。官方 CLI 没有套餐配额上限，
- * 概览只显示套餐名 + 已用数量，不编 X/Y。
+ * 不做定时轮询（只有正在等浏览器确认登录的那一小段才轮询）。官方 CLI 没有隧道 / 设备的配额上限，
+ * 这两项只显示套餐名 + 已用数量，不编 X/Y；流量那行反过来是官方直接给的总量与已用量，
+ * 客户端太旧读不到就不显示这一行。
  *
  * 返回按钮回「中国」页（`#network/cn`），地址由外层 Console 换。
  */
@@ -108,6 +109,8 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
   const client = snapshot?.client || null
   const account = snapshot?.account || { planName: '', userId: '', userTel: '' }
   const counts = snapshot?.counts || { tunnels: 0, devices: 0, domains: 0 }
+  /** 流量用量：老客户端读不到就没有这一行。 */
+  const traffic = snapshot?.traffic || null
   const tunnels = snapshot?.tunnels || []
   const devices = snapshot?.devices || []
   const onlineCount = devices.filter((device) => device.online).length
@@ -400,6 +403,12 @@ export function ZeroNewsPage({ open, onOpenChange, status, busy }: Props) {
             </div>
 
             <div className="flex flex-col">
+              {traffic ? (
+                <Row
+                  label={t('panel.zeronews.overview.traffic')}
+                  value={`${traffic.used || '—'} / ${traffic.total || '—'}${traffic.over ? ` · ${t('panel.zeronews.overview.trafficOver')}` : ''}`}
+                />
+              ) : null}
               <Row label={t('panel.zeronews.overview.node')} value={client?.node || ''} mono />
               <Row
                 label={t('panel.zeronews.overview.host')}

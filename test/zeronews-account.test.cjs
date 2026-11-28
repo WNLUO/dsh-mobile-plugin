@@ -1,11 +1,12 @@
-// ZeroNews 只读账号快照：定位 / status / show 三张清单归一，用注入假体走完整条分支。
+// 2026-11-28：补 `show traffic` 的流量用量（4.1.1 起才有，读不出就不显示）。
+// ZeroNews 只读账号快照：定位 / status / show 四张清单归一，用注入假体走完整条分支。
 'use strict';
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
-  createZeroNewsAccountReader, normalizeClient, normalizeTunnel, normalizeDevice,
+  createZeroNewsAccountReader, normalizeClient, normalizeTunnel, normalizeDevice, normalizeTraffic,
 } = require('../lib/zeronews/account.cjs');
 
 const STATUS_LOGGED_IN = JSON.stringify({
@@ -157,6 +158,52 @@ test('已登录：status + 三张清单归一，数量与明细都对', async ()
   assert.equal(snap.tunnels[0].local, '127.0.0.1:49906');
   assert.equal(snap.devices[0].online, true);
   assert.equal(snap.devices[0].ip, '1.207.158.147');
+});
+
+test('已登录：带上本计费周期的流量用量，超了就标出来', async () => {
+  const reader = createZeroNewsAccountReader({
+    locate: async () => ({ ok: true, path: '/bin/zeronews' }),
+    run: fakeRun({
+      'status --json': STATUS_LOGGED_IN,
+      'show devices --json': DEVICES,
+      'show tunnels --json': TUNNELS,
+      'show domains --json': DOMAINS,
+      'show traffic --json': JSON.stringify({ '总流量': '1.00 GiB', '已使用流量': '1.41 GiB' }),
+    }),
+  });
+  const snap = await reader.read();
+  assert.equal(snap.traffic.total, '1.00 GiB', '数值原样带单位，不自己换算');
+  assert.equal(snap.traffic.used, '1.41 GiB');
+  assert.equal(snap.traffic.over, true, '已用超过总量：面板据此提示可能被限速');
+  assert.equal(snap.resourcesLoaded, true);
+});
+
+test('老客户端没有 show traffic：只打帮助文本，流量那格留空且不算读失败', async () => {
+  const reader = createZeroNewsAccountReader({
+    locate: async () => ({ ok: true, path: '/bin/zeronews' }),
+    run: fakeRun({
+      'status --json': STATUS_LOGGED_IN,
+      'show devices --json': DEVICES,
+      'show tunnels --json': TUNNELS,
+      'show domains --json': DOMAINS,
+      // 4.1.0 实测就是这个形状：不认识的子命令打帮助、退出码 0。
+      'show traffic --json': 'List account tunnels, domains, or clients from the control plane\n\nUsage:\n  zeronews show [command]',
+    }),
+  });
+  const snap = await reader.read();
+  assert.equal(snap.traffic, null, '读不出就不显示这一行');
+  assert.equal(snap.resourcesLoaded, true, '少这一格别把「清单读失败」的提示带出来');
+});
+
+test('流量归一：单位换算、缺少字段、超出判定', () => {
+  const over = normalizeTraffic({ '总流量': '1.00 GiB', '已使用流量': '1.41 GiB' });
+  assert.equal(over.totalBytes, 1073741824);
+  assert.equal(over.usedBytes, 1513975972);
+  assert.equal(over.over, true);
+  const half = normalizeTraffic({ '总流量': '500 MiB', '已使用流量': '0.2 GiB' });
+  assert.equal(half.over, false, '单位不同也要按字节比');
+  assert.equal(normalizeTraffic({}), null, '键名对不上就当没有');
+  assert.equal(normalizeTraffic(null), null);
 });
 
 test('清单有日志行也能取到 JSON；某张读失败时其余照常', async () => {

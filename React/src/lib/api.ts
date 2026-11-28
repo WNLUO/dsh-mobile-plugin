@@ -192,6 +192,19 @@ export type ZeroNewsAccountDevice = {
   workspace: string
 }
 
+/**
+ * 账号本计费周期的流量用量（`show traffic --json`，客户端 4.1.1 起才有）。
+ * 数值原样带单位（如 `1.41 GiB`），不在这里换算；`over` 是已用超过总量 ——
+ * 超了会被限速，是「线路连上了却很慢」最常见的解释。
+ */
+export type ZeroNewsAccountTraffic = {
+  total: string
+  used: string
+  totalBytes: number
+  usedBytes: number
+  over: boolean
+}
+
 /** ZeroNews 账号快照里的一条域名。 */
 export type ZeroNewsAccountDomain = {
   id: string
@@ -238,6 +251,8 @@ export type ZeroNewsAccount = {
   } | null
   account?: { planName: string; userId: string; userTel: string }
   counts?: { tunnels: number; devices: number; domains: number }
+  /** 流量用量；客户端太旧或读不出时没有这一格。 */
+  traffic?: ZeroNewsAccountTraffic | null
   tunnels?: ZeroNewsAccountTunnel[]
   devices?: ZeroNewsAccountDevice[]
   domains?: ZeroNewsAccountDomain[]
