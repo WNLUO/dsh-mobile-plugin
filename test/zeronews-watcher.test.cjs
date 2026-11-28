@@ -63,3 +63,36 @@ test('多条隧道只取第一条；start/stop 不留下定时器', async () => 
   await h.watcher.refresh();
   assert.equal(h.writes.length, before, 'stop 之后不再写');
 });
+
+test('显式关闭时不读取 endpoints，也不恢复遗留 URL', async () => {
+  let reads = 0;
+  const state = { zeroNewsEnabled: false, zeroNewsUrl: 'https://old.example.com' };
+  const watcher = createZeroNewsWatcher({
+    getState: () => state,
+    settings: { update: async (patch) => { Object.assign(state, patch); } },
+    readEndpoints: async () => { reads++; return { ok: true, urls: ['https://restored.example.com'] }; },
+  });
+  await watcher.refresh();
+  assert.equal(reads, 0);
+  assert.equal(state.zeroNewsUrl, 'https://old.example.com');
+});
+
+test('读取 endpoints 期间关闭，不写回迟到的 URL、不通知线路变化', async () => {
+  let complete;
+  const pending = new Promise((resolve) => { complete = resolve; });
+  const state = { zeroNewsEnabled: true, zeroNewsUrl: '' };
+  const writes = [];
+  let changes = 0;
+  const watcher = createZeroNewsWatcher({
+    getState: () => state,
+    settings: { update: async (patch) => { writes.push(patch); } },
+    readEndpoints: () => pending,
+    onChange: () => { changes++; },
+  });
+  const refreshing = watcher.refresh();
+  state.zeroNewsEnabled = false;
+  complete({ ok: true, urls: ['https://late.example.com'] });
+  await refreshing;
+  assert.deepEqual(writes, []);
+  assert.equal(changes, 0);
+});

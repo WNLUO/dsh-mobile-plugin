@@ -41,6 +41,93 @@ function mountWith(runner, overrides = {}) {
 
 const tick = (ms = 60) => new Promise((resolve) => setTimeout(resolve, ms));
 
+test('显式关闭优先于遗留 URL，挂载和异常退出都不自动启动', async (t) => {
+  let starts = 0;
+  let onExit;
+  const runner = {
+    start: async () => { starts++; return { phase: 'error' }; },
+    stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }),
+  };
+  const env = mountWith(runner, {
+    state: { zeroNewsEnabled: false, zeroNewsUrl: 'https://old.example.com' },
+    runnerFactory: (options) => { onExit = options.onUnexpectedExit; return runner; },
+  });
+  t.after(env.cleanup);
+  onExit();
+  await tick();
+  assert.equal(starts, 0);
+  assert.deepEqual(env.updates, []);
+});
+
+test('已排队重连触发前关闭，即使保留旧 URL 也不再启动', async (t) => {
+  let starts = 0;
+  const state = { zeroNewsEnabled: true, zeroNewsUrl: 'https://old.example.com' };
+  const env = mountWith({
+    start: async () => { starts++; return { phase: 'error' }; },
+    stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }),
+  }, { state });
+  t.after(env.cleanup);
+  await new Promise(setImmediate);
+  assert.equal(starts, 1);
+  state.zeroNewsEnabled = false;
+  await tick();
+  assert.equal(starts, 1);
+});
+
+test('自动连接等待期间关闭，不写回迟到的地址或重新启用', async (t) => {
+  let complete;
+  const pending = new Promise((resolve) => { complete = resolve; });
+  const state = { zeroNewsEnabled: true, zeroNewsUrl: '' };
+  const env = mountWith({
+    start: () => pending,
+    stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }),
+  }, { state });
+  t.after(env.cleanup);
+  state.zeroNewsEnabled = false;
+  complete({ phase: 'connected', url: 'https://late.example.com', configured: true });
+  await new Promise(setImmediate);
+  assert.deepEqual(env.updates, []);
+});
+
+test('未设置开关的旧配置仍从 URL 自动恢复', async (t) => {
+  let starts = 0;
+  const env = mountWith({
+    start: async () => { starts++; return { phase: 'connected', url: 'https://old.example.com' }; },
+    stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }),
+  }, { state: { zeroNewsUrl: 'https://old.example.com' } });
+  t.after(env.cleanup);
+  await new Promise(setImmediate);
+  assert.equal(starts, 1);
+});
+
+for (const previousUrl of ['', 'https://manual.example.com']) {
+  test(`显式关闭后手动连接重新启用（旧 URL ${previousUrl || '为空'}）`, async (t) => {
+    let starts = 0;
+    const env = mountWith({
+      start: async () => { starts++; return { phase: 'connected', url: 'https://manual.example.com' }; },
+      stop: () => ({ phase: 'off' }), status: () => ({ phase: 'off' }),
+    }, { state: { zeroNewsEnabled: false, zeroNewsUrl: previousUrl } });
+    t.after(env.cleanup);
+    await env.facade.start();
+    assert.equal(starts, 1);
+    assert.ok(env.updates.some((p) => p.zeroNewsEnabled === true && p.zeroNewsUrl === 'https://manual.example.com'));
+  });
+}
+
+test('显式关闭后手动 prepare 仍安装并登录，不自动连接', async (t) => {
+  let installs = 0;
+  let logins = 0;
+  const env = mountLogin({
+    getState: () => ({ zeroNewsEnabled: false, zeroNewsUrl: 'https://old.example.com' }),
+    ensure: async () => { installs++; return { ok: true, path: '/x' }; },
+    loginFlow: async () => { logins++; return { already: true }; },
+  });
+  t.after(env.cleanup);
+  assert.equal((await env.facade.prepare()).ok, true);
+  assert.equal(installs, 1);
+  assert.equal(logins, 1);
+});
+
 test('彻底清理：停进程、跑 reset、三格状态一次清掉（与断开分开）', async () => {
   const calls = [];
   const runner = {
