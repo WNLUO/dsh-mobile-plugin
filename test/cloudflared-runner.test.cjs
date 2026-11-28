@@ -335,6 +335,97 @@ test('shouldAutoStart：默认开，显式关掉才不自动起', async () => {
   assert.equal(runner.shouldAutoStart(), true, '关掉标记没了（例如用户从面板重开）又恢复默认开');
 });
 
+test('禁用标记阻止自动 start 下载，默认手动 start 和 restart 仍能重新启用', async (t) => {
+  let downloads = 0;
+  const { runner, spawns } = harness({ ensure: async () => {
+    downloads += 1;
+    return { path: '/fake/cloudflared' };
+  } });
+  t.after(() => runner.dispose());
+  await runner.stop();
+  const disabled = await runner.start({ userInitiated: false });
+  assert.equal(downloads, 0);
+  assert.equal(spawns.length, 0);
+  assert.equal(disabled.enabled, false);
+  assert.equal(fs.existsSync(runner._paths.disabled), true);
+
+  await runner.start();
+  assert.equal(downloads, 1);
+  assert.equal(runner.status().enabled, true);
+  await runner.stop();
+  await runner.restart();
+  assert.equal(downloads, 2);
+  assert.equal(spawns.length, 2);
+  assert.equal(runner.status().enabled, true);
+});
+
+for (const method of ['syncLocalPort', 'restartForPolicy']) {
+  test(`等待端口时禁用，${method} 不下载或启动`, async (t) => {
+    let port = 0;
+    let downloads = 0;
+    let spawns = 0;
+    const runner = createCloudflaredRunner({
+      root: tempDir(), portOf: () => port,
+      ensureBin: async () => { downloads += 1; return { path: '/fake/cloudflared' }; },
+      spawnImpl: () => { spawns += 1; return fakeChild(); },
+    });
+    t.after(() => runner.dispose());
+    await runner.start();
+    fs.writeFileSync(runner._paths.disabled, '1');
+    port = 49906;
+    await runner[method]();
+    assert.equal(downloads, 0);
+    assert.equal(spawns, 0);
+    assert.equal(runner.status().enabled, false);
+  });
+}
+
+test('排队重试触发前禁用，不再下载或启动', async (t) => {
+  const clock = retryClock();
+  let downloads = 0;
+  const { runner, children } = harness({ clock, ensure: async () => {
+    downloads += 1;
+    return { path: '/fake/cloudflared' };
+  } });
+  t.after(() => runner.dispose());
+  await runner.start();
+  children[0].emit('exit', 1, null);
+  assert.equal(clock.timers.size, 1);
+  fs.writeFileSync(runner._paths.disabled, '1');
+  await clock.tick();
+  assert.equal(downloads, 1);
+  assert.equal(children.length, 1);
+  assert.equal(clock.timers.size, 0);
+});
+
+for (const retry of [false, true]) {
+  test(`${retry ? '重试' : '首次启动'}获取二进制期间禁用，完成后不启动`, async (t) => {
+    const clock = retryClock();
+    let finish;
+    let pending = !retry;
+    const { runner, children } = harness({ clock, ensure: () => pending
+      ? new Promise(resolve => { finish = resolve; })
+      : Promise.resolve({ path: '/fake/cloudflared' }) });
+    t.after(() => runner.dispose());
+    let started;
+    if (retry) {
+      await runner.start();
+      pending = true;
+      children[0].emit('exit', 1, null);
+      await clock.tick();
+    } else {
+      started = runner.start({ userInitiated: false });
+    }
+    fs.writeFileSync(runner._paths.disabled, '1');
+    finish({ path: '/fake/cloudflared' });
+    await started;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(children.length, retry ? 1 : 0);
+    assert.equal(runner.status().enabled, false);
+    assert.equal(runner.status().retrying, false);
+  });
+}
+
 test('拿不到二进制：起不来但如实报原因，不抛', async () => {
   const { runner, children } = harness({ ensure: async () => ({ ok: false, message: '下载失败' }) });
   const st = await runner.start();
