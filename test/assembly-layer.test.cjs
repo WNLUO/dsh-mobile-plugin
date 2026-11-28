@@ -261,12 +261,6 @@ test('装配逐块兜住：路由撞车只丢那一条，一块挂不上不影�
   assert.doesNotMatch(src, /mount\('apiProxy 兼容桥'/, 'apiProxy 兼容桥不许被 mount 吞掉：它缺失时整张移动读接口都会 500');
 });
 
-test('外壳包装宿主的路由注册时可叠加、撤离不摘别人的那层', () => {
-  const shell = read(path.join(LIB, 'index.js'));
-  assert.match(shell, /const wrapper = function register\(route\)/, '包装要留一个可比较的引用');
-  assert.match(shell, /if \(server\.register === wrapper\) server\.register = outer/, '只在「现在挂的是我们这层」时才还原，否则会摘掉别的插件叠在上面的包装');
-});
-
 test('传输与长连接由外壳持有，实现只通过服务取用', () => {
   // 「更新不断」的根：传输/长连接不许再挂回一代实现。实现必须从外壳服务取它们。
   const impl = read(INDEX);

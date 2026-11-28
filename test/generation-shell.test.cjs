@@ -162,9 +162,16 @@ function installedGeneration(manager) {
 /** 一个够真的假 webServer：重复路径抛错（与宿主 dsh-host-webserver 的行为一致）。 */
 function createFakeWebServer(port = 4321) {
   const routes = new Map();
+  const upgrades = new Map();
   return {
     port,
     routes,
+    upgrades,
+    registerUpgrade(route) {
+      if (upgrades.has(route.path)) throw new Error(`webserver: duplicate upgrade route ${route.path}`);
+      upgrades.set(route.path, route);
+      return () => upgrades.delete(route.path);
+    },
     register(route) {
       if (routes.has(route.path)) throw new Error(`webserver: duplicate ${route.kind} route "${route.path}"`);
       routes.set(route.path, route);
@@ -942,6 +949,119 @@ test('停用外壳：分派器与路由撤干净，不再转给已卸载的实�
   const after = await waitForStatus(runtime2);
   assert.equal(after.version, '0.9.31', '再启用应激活新装的那一代');
   assert.equal(await routeReply(server, '/api/relay/gen'), 'unload-b', '再启用后请求应由新一代处理');
+});
+
+for (const tracked of [false, true]) {
+  test(`第三方路由在 AI-HUB 装载期间注册，换代与卸载后仍保留（tracked=${tracked}）`, async t => {
+    await resetProfile();
+    let release;
+    let started;
+    const gate = new Promise(resolve => { release = resolve; });
+    const ready = new Promise(resolve => { started = resolve; });
+    globalThis.__routeOwnershipGate = { gate, started };
+    t.after(() => { delete globalThis.__routeOwnershipGate; });
+    install(makeGeneration(`ownership-a-${tracked}`, '0.9.50', `
+export const inject = ['webServer']
+export async function apply(ctx) {
+  globalThis.__routeOwnershipGate.started()
+  await globalThis.__routeOwnershipGate.gate
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/api/relay/gen', handler: (_req, res) => res.end('a') }))
+  await ctx.plugin({ inject: ['webServer'], apply(child) {
+    child.effect(() => child.webServer.registerUpgrade({ path: '/api/relay/generation-ws', handler: (_req, socket) => { socket.generation = 'a'; } }))
+  } })
+}
+`));
+    // 零端口明确表示内存服务器；换代自检不访问机器上任何已有监听。
+    const { ctx, server, fiber, runtime } = await bootShell({}, 0);
+    t.after(async () => { release(); await fiber.dispose(); });
+    if (tracked) {
+      server.ctx = ctx;
+      server[Symbol.for('cordis.tracker')] = { property: 'ctx', associate: 'webServer' };
+    }
+    await ready;
+    const outer = server.register;
+    const thirdPartyWrapper = function (route) { return outer.call(this, route); };
+    server.register = thirdPartyWrapper;
+    const third = await ctx.plugin({
+      inject: ['webServer'],
+      apply(other) {
+        other.effect(() => other.webServer.register({ kind: 'exact', path: '/third/http', auth: 'anonymous', handler: (_req, res, peer) => res.end(peer || 'third') }));
+        other.effect(() => other.webServer.registerUpgrade({ path: '/third/ws', auth: 'anonymous', handler: (_req, socket, _head, peer) => { socket.peer = peer; } }));
+      },
+    });
+    t.after(async () => { await third.dispose(); });
+    release();
+    await waitForStatus(runtime);
+    const httpRoute = server.routes.get('/third/http');
+    const wsRoute = server.upgrades.get('/third/ws');
+    assert.equal(await routeReply(server, '/third/http'), 'third');
+    const generationSocket = {};
+    server.upgrades.get('/api/relay/generation-ws').handler({}, generationSocket);
+    assert.equal(generationSocket.generation, 'a', '实现代的子插件继承 staging 注册器');
+    install(makeGeneration(`ownership-b-${tracked}`, '0.9.51', goodGeneration('b')));
+    await runtime.reload();
+    assert.equal(server.routes.get('/third/http'), httpRoute, '第三方 HTTP 直接注册在真实服务器，不能被换代摘掉');
+    assert.equal(server.upgrades.get('/third/ws'), wsRoute, '第三方 WebSocket 不能被换代摘掉');
+    assert.equal(httpRoute.auth, 'anonymous');
+    const peer = { id: 'synthetic-peer' };
+    let reply;
+    await httpRoute.handler({}, { end: value => { reply = value; } }, peer);
+    assert.equal(reply, peer, '保留 HTTP peer 参数');
+    const socket = {};
+    wsRoute.handler({}, socket, Buffer.alloc(0), peer);
+    assert.equal(socket.peer, peer, '保留升级路由参数');
+    assert.equal(await routeReply(server, '/api/relay/gen'), 'b', 'AI-HUB 自己的路由仍须换代');
+    assert.equal(server.upgrades.has('/api/relay/generation-ws'), false, '新代不再提供的 AI-HUB 升级路由须移除');
+    await fiber.dispose();
+    assert.equal(server.register, thirdPartyWrapper, '卸载不能摘掉别的插件后来安装的包装');
+    assert.ok(server.routes.has('/third/http'));
+    assert.ok(server.upgrades.has('/third/ws'));
+    await third.dispose();
+    assert.equal(server.routes.has('/third/http'), false, '第三方自己的注销函数继续有效');
+    assert.equal(server.upgrades.has('/third/ws'), false);
+  });
+}
+
+test('实现代内的子插件调用 Service 时保留自己的 Context 与 effect 归属', async t => {
+  await resetProfile();
+  const { Context, Service } = await import('@deepseek-ai/cordis');
+  const { shell } = await loadShellModules();
+  const ctx = new Context();
+  class Server extends Service {
+    port = 0;
+    routes = new Map();
+    caller() { return this.ctx.fiber.uid; }
+    register(route) {
+      return this.ctx.effect(() => {
+        this.routes.set(route.path, route);
+        return () => this.routes.delete(route.path);
+      });
+    }
+  }
+  const server = new Server(ctx, 'webServer');
+  ctx.provide('sessions', { list: () => [] });
+  install(makeGeneration('service-context', '0.9.52', `
+export const inject = ['webServer']
+export async function apply(ctx) {
+  globalThis.__routeChild = await ctx.plugin({ inject: ['webServer'], apply(child) {
+    globalThis.__routeChildUid = child.fiber.uid
+    globalThis.__routeCallerUid = child.webServer.caller()
+  } })
+}
+`));
+  const fiber = await ctx.plugin({ inject: shell.inject, apply: shell.apply });
+  t.after(async () => {
+    await fiber.dispose();
+    delete globalThis.__routeChild;
+    delete globalThis.__routeChildUid;
+    delete globalThis.__routeCallerUid;
+  });
+  await waitForStatus(ctx.get('dshMobilePluginRuntime'));
+  assert.equal(globalThis.__routeCallerUid, globalThis.__routeChildUid, 'Service 方法必须看到调用子插件的 Context');
+  globalThis.__routeChild.ctx.webServer.register({ kind: 'exact', path: '/child-after-activation', handler() {} });
+  assert.ok(server.routes.has('/child-after-activation'));
+  await globalThis.__routeChild.dispose();
+  assert.equal(server.routes.has('/child-after-activation'), false, 'Service 自己创建的 effect 必须随子插件清理');
 });
 
 test('外壳对外报出能力契约：status 里带接口版本与能力名', async t => {
