@@ -1,6 +1,6 @@
 {
   "name": "dsh-mobile-plugin",
-  "version": "0.5.133",
+  "version": "0.5.134",
   "description": "Mobile API (/api/mobile/v1) and relay client for the DSH mobile app — desktop profile build (dsh 0.2.x, peers resolved by the host)",
   "license": "MIT",
   "icon": "./icon.png",
@@ -91,11 +91,11 @@
     "dsh-mobile-tailcat-win32-arm64": "1.1.7"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.1",
+    "@deepseek-ai/cordis": ">=4.0.1 || >=4.0.1-rc.1 <4.0.2-0 || >=4.0.5-alpha.1 <4.0.6-0 || >=4.0.6-alpha.1 <4.0.7-0 || >=4.2.0-alpha.1 <4.2.1-0",
     "@deepseek-ai/dsh-client-locale": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1 || ^0.2.3-alpha.1",
     "@deepseek-ai/dsh-settings": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1 || ^0.2.3-alpha.1",
     "@deepseek-ai/dsh-tools": "^0.1.1-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1 || ^0.2.3-alpha.1",
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/schemastery": ">=3.18.1 || >=3.18.1-rc.1 <3.18.2-0 || >=3.18.5-alpha.1 <3.18.6-0 || >=3.18.6-alpha.1 <3.18.7-0 || >=3.20.0-alpha.1 <3.20.1-0"
   },
   "dsh": {
     "bundle": {
@@ -117,23 +117,22 @@
     "yaml": "2.9.1"
   },
   "dshMobileReleaseNotes": {
-    "version": "0.5.133",
+    "version": "0.5.134",
     "kinds": [
-      "fix",
-      "feature"
+      "fix"
     ],
     "notes": {
-      "zh-Hans": "- 插件跑在容器里时，配对二维码不再给出拨不通的容器内网地址，改用公网候选或手填地址。\n- 仓库摘要现在带出项目里的全部仓库根，手机上可以切换到并列仓库、子模块和工作树。",
-      "zh-Hant": "- 外掛在容器裡執行時，配對二維碼不再給出連不上的容器內網位址，改採公網候選或手填位址。\n- 倉庫摘要現在帶出專案裡的全部倉庫根，手機上可以切換到並列倉庫、子模組與工作樹。",
-      "en": "- When the plugin runs inside a container, the pairing QR code no longer leads with an unreachable container-internal address; it falls back to public candidates or a manually entered address.\n- The repository summary now includes every repository root in the project, so you can switch to sibling repositories, submodules, and worktrees on your phone.",
-      "ja": "- プラグインがコンテナ内で動いている場合、ペアリング用QRコードに接続できないコンテナ内網アドレスが表示されなくなり、公開アドレス候補または手入力アドレスに切り替わります。\n- リポジトリの概要にプロジェクト内のすべてのリポジトリルートが含まれるようになり、スマートフォンで並列リポジトリ、サブモジュール、ワークツリーに切り替えられます。",
-      "ko": "- 플러그인이 컨테이너 안에서 실행될 때, 페어링 QR 코드에 연결할 수 없는 컨테이너 내부 주소가 더 이상 표시되지 않고 공개 후보 주소나 직접 입력한 주소를 사용합니다.\n- 저장소 요약에 프로젝트의 모든 저장소 루트가 포함되어, 휴대폰에서 나란한 저장소, 서브모듈, 워크트리로 전환할 수 있습니다.",
-      "de": "- Wenn das Plugin in einem Container läuft, zeigt der Pairing-QR-Code keine nicht erreichbaren Container-internen Adressen mehr an, sondern greift auf öffentliche Kandidaten oder eine manuell eingegebene Adresse zurück.\n- Die Repository-Übersicht enthält jetzt alle Repository-Wurzeln im Projekt, damit Sie auf dem Telefon zu parallelen Repositories, Submodulen und Worktrees wechseln können.",
-      "es": "- Cuando el plugin se ejecuta dentro de un contenedor, el código QR de emparejamiento ya no muestra direcciones internas del contenedor a las que no se puede conectar; usa candidatos públicos o una dirección introducida manualmente.\n- El resumen del repositorio ahora incluye todas las raíces de repositorios del proyecto, para que puedas cambiar a repositorios paralelos, submódulos y worktrees desde el teléfono.",
-      "fr": "- Lorsque le plugin s'exécute dans un conteneur, le code QR d'appariement n'affiche plus d'adresses internes du conteneur inaccessibles ; il repasse sur les candidats publics ou une adresse saisie manuellement.\n- Le résumé du dépôt inclut désormais toutes les racines de dépôts du projet, afin de pouvoir basculer vers les dépôts parallèles, les sous-modules et les worktrees depuis le téléphone.",
-      "pt": "- Quando o plugin corre dentro de um contentor, o código QR de emparelhamento deixa de mostrar endereços internos do contentor inacessíveis e passa a usar candidatos públicos ou um endereço introduzido manualmente.\n- O resumo do repositório agora inclui todas as raízes de repositórios do projeto, para que possa mudar para repositórios paralelos, submódulos e worktrees no telemóvel.",
-      "ru": "- Когда плагин работает внутри контейнера, QR-код сопряжения больше не показывает недоступные внутренние адреса контейнера и использует публичные кандидаты или введённый вручную адрес.\n- Сводка репозитория теперь включает все корни репозиториев проекта, чтобы на телефоне можно было переключаться на параллельные репозитории, подмодули и рабочие копии.",
-      "tr": "- Eklenti bir konteyner içinde çalıştığında, eşleştirme QR kodu artık erişilemeyen konteyner içi adresleri göstermiyor; genel adaylara veya elle girilen bir adrese geçiyor.\n- Depo özeti artık projedeki tüm depo köklerini içeriyor; böylece telefondan yan depolara, alt modüllere ve worktree'lere geçebilirsiniz."
+      "zh-Hans": "- 使用 DSH 预发布版时，插件安装和更新不再因依赖范围过窄而报冲突。",
+      "zh-Hant": "- 使用 DSH 預發布版時，外掛安裝與更新不再因相依範圍過窄而回報衝突。",
+      "en": "- Installing or updating the plugin on prerelease builds of DSH no longer fails on a dependency range conflict.",
+      "ja": "- DSH のプレリリース版でも、依存範囲が狭すぎることでプラグインのインストールや更新が失敗しなくなりました。",
+      "ko": "- DSH 사전 릴리스 버전에서 의존성 범위가 좁아 플러그인 설치·업데이트가 실패하던 문제를 해결했습니다.",
+      "de": "- Unter Vorabversionen von DSH lassen sich Installation und Update des Plugins nicht mehr durch einen zu engen Abhängigkeitsbereich blockieren.",
+      "es": "- En las versiones preliminares de DSH, instalar o actualizar el plugin ya no falla por un rango de dependencias demasiado estrecho.",
+      "fr": "- Sur les versions préliminaires de DSH, l'installation et la mise à jour du plugin ne sont plus bloquées par une plage de dépendances trop restrictive.",
+      "pt": "- Em versões de pré-lançamento do DSH, instalar ou atualizar o plugin não falha mais por um intervalo de dependências restrito demais.",
+      "ru": "- В предварительных сборках DSH установка и обновление плагина больше не завершаются ошибкой из-за слишком узкого диапазона зависимостей.",
+      "tr": "- DSH'nin yayın öncesi sürümlerinde, çok dar bir bağımlılık aralığı nedeniyle eklentinin kurulumu ve güncellenmesi artık başarısız olmuyor."
     }
   }
 }
