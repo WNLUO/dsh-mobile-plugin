@@ -11,8 +11,12 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const { mountCloudflare } = require('../lib/cloudflared/wiring.cjs');
+const { createCloudflaredRunner } = require('../lib/cloudflared/runner.cjs');
 
 const LIVE = 'https://brave-lamp-trycloudflare.trycloudflare.com';
 
@@ -65,10 +69,11 @@ function mountWith(runner, state) {
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 /** 注入回环判据的挂载：信号与「有没有别的公网线路」都由测试现给。 */
-function mountGated(runner, state, { signals, route }) {
+function mountGated(runner, state, { signals, route, beforeUpdate = () => {} }) {
   const updates = [];
   const settings = {
     update: async (patch) => {
+      await beforeUpdate(patch);
       updates.push(patch);
       for (const [k, v] of Object.entries(patch)) state[k] = v;
     },
@@ -87,6 +92,89 @@ function mountGated(runner, state, { signals, route }) {
   });
   return { api, updates };
 }
+
+for (const [initial, needsBypass] of [[true, true], [false, true], [true, false]]) {
+  test(`禁用时 reconcile(initial=${initial}, bypass=${needsBypass}) 保留标记和手填地址，手动开启仍可用`, async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudflared-wiring-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    let downloads = 0;
+    let spawns = 0;
+    const runner = createCloudflaredRunner({
+      root, portOf: () => 49906,
+      ensureBin: async () => { downloads += 1; return { path: '/fake/cloudflared' }; },
+      spawnImpl: () => { spawns += 1; return { pid: 4242, kill() {} }; },
+    });
+    t.after(() => runner.dispose());
+    await runner.stop();
+    const state = { cloudflareUrl: '', manualLanUrl: 'https://mine.example.com' };
+    const { api, updates } = mountGated(runner, state, {
+      signals: () => ({ needsBypass }), route: () => false,
+    });
+    await api.reconcile(initial);
+    assert.equal(downloads, 0);
+    assert.equal(spawns, 0);
+    assert.equal(api.status().enabled, false);
+    assert.equal(state.manualLanUrl, 'https://mine.example.com');
+    assert.deepEqual(updates, []);
+
+    await api.start();
+    assert.equal(api.status().enabled, true);
+    assert.equal(downloads, 1);
+    assert.equal(spawns, 1);
+    await api.stop();
+    await api.reconcile();
+    assert.equal(api.status().enabled, false);
+    assert.equal(downloads, 1, '停用后的后续判定不能重新启用');
+  });
+}
+
+test('备份手填地址期间禁用，自动兜底不能清除新禁用标记', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudflared-wiring-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let downloads = 0;
+  const runner = createCloudflaredRunner({
+    root, portOf: () => 49906,
+    ensureBin: async () => { downloads += 1; return { path: '/fake/cloudflared' }; },
+    spawnImpl: () => ({ pid: 4242, kill() {} }),
+  });
+  t.after(() => runner.dispose());
+  const state = { cloudflareUrl: '', manualLanUrl: 'https://mine.example.com' };
+  const { api } = mountGated(runner, state, {
+    signals: () => ({ needsBypass: true }), route: () => false,
+    beforeUpdate: () => fs.writeFileSync(runner._paths.disabled, '1'),
+  });
+  await api.reconcile();
+  assert.equal(downloads, 0);
+  assert.equal(api.status().enabled, false);
+  assert.equal(api.status().pid, null);
+});
+
+test('线路恢复后的自动停止保留启用状态，下次断线仍能兜底', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudflared-wiring-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let spawns = 0;
+  const runner = createCloudflaredRunner({
+    root, portOf: () => 49906,
+    ensureBin: async () => ({ path: '/fake/cloudflared' }),
+    spawnImpl: () => { spawns += 1; return { pid: 4242, kill() {} }; },
+  });
+  t.after(() => runner.dispose());
+  let route = false;
+  const state = { cloudflareUrl: '', manualLanUrl: 'https://mine.example.com' };
+  const { api } = mountGated(runner, state, {
+    signals: () => ({ needsBypass: true }), route: () => route,
+  });
+  await api.reconcile();
+  assert.equal(spawns, 1);
+  route = true;
+  await api.reconcile();
+  assert.equal(api.status().pid, null);
+  assert.equal(api.status().enabled, true);
+  assert.equal(state.manualLanUrl, 'https://mine.example.com');
+  route = false;
+  await api.reconcile();
+  assert.equal(spawns, 2);
+});
 
 test('兜底：回环被遮蔽且无可用线路才起，先备份再收起手填地址', async () => {
   const state = { cloudflareUrl: '', manualLanUrl: 'https://mine.example.com', manualTcpUrl: '', manualIpv6Url: '', manualIpv4Url: '' };
