@@ -33,7 +33,7 @@
 
 ## 上手机前验收
 
-按 `references/selfhost-common.md` 四条过一遍：体检口 `curl https://xxx.trycloudflare.com/api/mobile/v1/health` 回带 service 和版本的 JSON；不带 token 访问 `/status` 回 401 JSON；手机断 Wi-Fi 走流量实测 SSE 流式（聊天能否一段段出来）和 WebSocket（内置浏览器能否打开）；传个稍大文件看有没有被 100MB 上限截断。WSS/SSE 是能穿的，流式卡住先查应用层心跳和总控，而不是先怀疑地址。
+按 `references/selfhost-common.md` 四条过一遍：体检口 `curl https://xxx.trycloudflare.com/api/mobile/v1/health` 回带 service 和版本的 JSON；不带任何凭据访问 `/status` 回 404 `{"ok":false}`、带无效凭据才回 401（见共用篇，别只看 health 就说鉴权没问题）；手机断 Wi-Fi 走流量实测 SSE 流式（聊天能否一段段出来）和 WebSocket（内置浏览器能否打开）；传个稍大文件看有没有被 100MB 上限截断。WSS/SSE 是能穿的，流式卡住先查应用层心跳和总控，而不是先怀疑地址。
 
 ## 已知限制
 

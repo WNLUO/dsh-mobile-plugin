@@ -49,7 +49,7 @@
 
 ## 上手机前验收
 
-按 `references/selfhost-common.md` 四条过一遍：体检口 `curl https://域名/api/mobile/v1/health` 回带 service 和版本的 JSON；不带 token 访问 `/status` 回 401；手机流量下实测 SSE 流式和大文件上传。frp 的 tcp 一般不缓冲，反而比 web 隧道稳；卡住就查服务器到主机这段。
+按 `references/selfhost-common.md` 四条过一遍：体检口 `curl https://域名/api/mobile/v1/health` 回带 service 和版本的 JSON；不带任何凭据访问 `/status` 回 404 `{"ok":false}`、带无效凭据才回 401（见共用篇）；手机流量下实测 SSE 流式和大文件上传。frp 的 tcp 一般不缓冲，反而比 web 隧道稳；卡住就查服务器到主机这段。
 
 ## 几个坑
 
